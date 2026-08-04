@@ -100,6 +100,32 @@ describe('reconcileMessages — inbound user-message duplicate regression (v0.16
     expect(userMsgs[0].media?.every((x) => x.url.startsWith('/api/files/'))).toBe(true)
   })
 
+  it('reconciles an attached user message with a Unicode filename to exactly one row', () => {
+    const filename = 'ЕСИФ фиксирана лихва.pdf'
+    const optimistic: Message = {
+      id: 'client-unicode-id',
+      role: 'user',
+      content: 'check the fixed-rate offer',
+      timestamp: 6000,
+      media: [{ type: 'file', url: 'blob:local-preview', name: filename }],
+    }
+    const persisted: Message = {
+      id: 'server-unicode-id',
+      role: 'user',
+      content: 'check the fixed-rate offer',
+      timestamp: 6001,
+      media: [{ type: 'file', url: '/api/files/file-id', name: filename }],
+    }
+
+    const merged = reconcileMessages([optimistic], [persisted], 6001)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({
+      id: 'client-unicode-id',
+      media: [{ name: filename, url: '/api/files/file-id' }],
+    })
+  })
+
   it('still preserves an outbound agent attachment that the snapshot lacks (no regression)', () => {
     const merged = reconcileMessages([attachment], [userMsg], NOW)
     expect(merged.map((m) => m.id)).toEqual(['u1', 'a1'])
