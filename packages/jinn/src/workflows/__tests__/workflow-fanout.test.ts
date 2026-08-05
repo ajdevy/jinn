@@ -236,6 +236,54 @@ describe("Workflow Call fan-out", () => {
     expect(repository.listChildRuns(run.id, "children").map((child) => child.status)).toEqual(["cancelled", "cancelled"]);
   });
 
+  it("does not leave a child running when fan-out creation races parent cancellation", async () => {
+    childWorkflow();
+    const parent = parentWorkflow("racing-cancel-parent", {
+      items: [{ topic: "one" }, { topic: "two" }, { topic: "three" }],
+      concurrency: 2,
+    });
+    const originalCallWorkflow = service.callWorkflow.bind(service);
+    const originalCancelRun = service.cancelRun.bind(service);
+    let releaseSecondCall!: () => void;
+    let secondCallEntered!: () => void;
+    let releaseChildCancellation!: () => void;
+    let childCancellationEntered!: () => void;
+    const secondCallBlocked = new Promise<void>((resolve) => { secondCallEntered = resolve; });
+    const secondCallReleased = new Promise<void>((resolve) => { releaseSecondCall = resolve; });
+    const childCancellationBlocked = new Promise<void>((resolve) => { childCancellationEntered = resolve; });
+    const childCancellationReleased = new Promise<void>((resolve) => { releaseChildCancellation = resolve; });
+    let calls = 0;
+    vi.spyOn(service, "callWorkflow").mockImplementation(async (input) => {
+      calls += 1;
+      if (calls === 2) {
+        secondCallEntered();
+        await secondCallReleased;
+      }
+      return originalCallWorkflow(input);
+    });
+    vi.spyOn(service, "cancelRun").mockImplementation(async (input) => {
+      if (input.workflowId === "child-flow") {
+        childCancellationEntered();
+        await childCancellationReleased;
+      }
+      return originalCancelRun(input);
+    });
+
+    const starting = service.startManual({ workflowId: parent.id, input: {} });
+    await secondCallBlocked;
+    const started = repository.listRuns(parent.id, { limit: 10 }).items[0]!;
+    const cancelling = service.cancelRun({ workflowId: parent.id, runId: started.id, reason: "Stop the batch." });
+    await childCancellationBlocked;
+    releaseSecondCall();
+    await starting;
+    releaseChildCancellation();
+    await cancelling;
+
+    expect(service.getRun(parent.id, started.id)?.status).toBe("cancelled");
+    expect(repository.listChildRuns(started.id, "children").every((child) => child.status === "cancelled")).toBe(true);
+    expect(nonTerminalChildren(started.id)).toBe(0);
+  });
+
   it("fails the node with the recursion error for a dynamic self target", async () => {
     const created = service.createDefinition({ id: "dynamic-recursion", title: "Dynamic recursion" });
     const saved = service.saveDefinition({

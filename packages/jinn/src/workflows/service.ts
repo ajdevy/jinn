@@ -196,6 +196,7 @@ export class WorkflowService {
     }
     const seen = new Set<string>();
     for (let depth = 0; depth < 128; depth += 1) {
+      if (current.cancelRequestedAt) fail("bad-input", "Workflow caller run is being cancelled.");
       if (current.workflowId === targetWorkflowId) fail("bad-input", "Workflow call recursion is not allowed.");
       if (seen.has(current.id)) fail("bad-input", "Workflow caller ancestry contains a cycle.");
       seen.add(current.id);
