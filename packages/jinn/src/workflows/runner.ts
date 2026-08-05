@@ -60,6 +60,14 @@ export interface WorkflowTodoSessionLink {
 
 export interface WorkflowTodoLifecycle {
   reflect(input: { todoId: string; status: WorkflowRunReflection; workflowId: string; runId: string; nodeId: string }): void;
+  recordApprovalDecision(input: {
+    todoId: string; workflowId: string; runId: string; nodeId: string;
+    decision: "approve" | "reject"; decidedBy: string; choice?: string; note?: string;
+  }): void;
+  complete(input: {
+    todoId: string; workflowId: string; runId: string; nodeId: string;
+    approvedBy: string; approvedAt: string;
+  }): void;
   /** Write onto the bound Todo why a run settled failed: which node died, the
    *  error, and the run id. Factual, no LLM call. */
   recordFailure(input: { todoId: string; workflowId: string; runId: string; nodeId: string; error: WorkflowError }): void;
@@ -496,6 +504,25 @@ export class WorkflowRunner {
     if (active || !successfulEnd || run.status !== "running") return false;
     const endedAt = this.now();
     this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus("completed", { endedAt }));
+    const approvedGate = run.approvals.find((approval) => {
+      const authored = run.definition.nodes.find((node) => node.id === approval.nodeId);
+      const runtime = run.nodeRuns.find((node) => node.nodeId === approval.nodeId);
+      return authored?.type === "approval" && authored.config.operatorOnly === true
+        && runtime?.status === "completed" && approval.status === "approved"
+        && approval.decidedBy !== undefined && approval.decidedAt !== undefined;
+    });
+    const todoId = run.trigger.todoId;
+    if (todoId && approvedGate?.decidedBy && approvedGate.decidedAt && this.options.todoLifecycle) {
+      try {
+        this.options.todoLifecycle.complete({
+          todoId, workflowId: run.workflowId, runId: run.id, nodeId: approvedGate.nodeId,
+          approvedBy: approvedGate.decidedBy, approvedAt: approvedGate.decidedAt,
+        });
+      } catch (error) {
+        logger.warn(`Workflow run ${run.id} could not complete Todo ${todoId}: `
+          + `${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     this.changed(run);
     return true;
   }
@@ -605,7 +632,8 @@ export class WorkflowRunner {
     // practice, an End that abandons the work), so it is deliberately NOT taken:
     // this run stops here and the bound Todo goes round again carrying the note.
     // Silence still means stop, and takes the authored route exactly as before.
-    const feedback = input.decision === "reject" ? (input.reason ?? "").trim() : "";
+    const note = input.reason?.trim();
+    const feedback = input.decision === "reject" ? note ?? "" : "";
     const revising: WorkflowError | undefined = feedback && run.trigger.todoId && this.options.todoLifecycle
       ? { code: "workflow-revision-requested", nodeId: input.nodeId, retryable: false,
           message: `Workflow approval ${input.nodeId} was rejected with feedback; the Todo goes round again.` }
@@ -635,6 +663,20 @@ export class WorkflowRunner {
         tx.setRunStatus("failed", { error: missingRoute, endedAt: at });
       }
     });
+    const todoId = run.trigger.todoId;
+    if (todoId && this.options.todoLifecycle) {
+      try {
+        this.options.todoLifecycle.recordApprovalDecision({
+          todoId, workflowId: run.workflowId, runId: run.id, nodeId: input.nodeId,
+          decision: input.decision, decidedBy: input.decidedBy,
+          ...(input.choice !== undefined ? { choice: input.choice } : {}),
+          ...(note ? { note } : {}),
+        });
+      } catch (error) {
+        logger.warn(`Workflow run ${run.id} could not record gate ${input.nodeId} decision onto Todo ${todoId}: `
+          + `${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     this.changed(run);
     if (revising) {
       this.requestRevision(run, input.nodeId, feedback, input.decidedBy);

@@ -10,6 +10,7 @@ import type {
   WorkflowAttemptCompletion,
   WorkflowAttemptCompletionListener,
 } from "../../shared/types.js";
+import { TransitionError } from "../../work-items/transitions.js";
 import type { JsonValue, WorkflowDefinition, WorkflowNode } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
@@ -69,6 +70,8 @@ class RecordingLifecycle implements WorkflowTodoLifecycle {
   readonly reflections: Array<{ todoId: string; status: string; nodeId: string }> = [];
   readonly failures: Array<{ todoId: string; nodeId: string; runId: string; code: string; message: string }> = [];
   readonly revisions: WorkflowRevisionRequest[] = [];
+  readonly decisions: Array<Parameters<WorkflowTodoLifecycle["recordApprovalDecision"]>[0]> = [];
+  readonly completions: Array<Parameters<WorkflowTodoLifecycle["complete"]>[0]> = [];
   reflect(input: Parameters<WorkflowTodoLifecycle["reflect"]>[0]): void {
     this.reflections.push({ todoId: input.todoId, status: input.status, nodeId: input.nodeId });
   }
@@ -78,6 +81,12 @@ class RecordingLifecycle implements WorkflowTodoLifecycle {
   }
   requestRevision(input: WorkflowRevisionRequest): void {
     this.revisions.push(input);
+  }
+  recordApprovalDecision(input: typeof this.decisions[number]): void {
+    this.decisions.push(input);
+  }
+  complete(input: typeof this.completions[number]): void {
+    this.completions.push(input);
   }
 }
 
@@ -111,9 +120,10 @@ function worker(id: string): WorkflowNode {
 }
 /** Decide a parked gate at the run's current revision. */
 async function decide(definition: WorkflowDefinition, runId: string, nodeId: string, decision: "approve" | "reject",
-  opts: { reason?: string; decidedBy?: string } = {}) {
+  opts: { reason?: string; decidedBy?: string; choice?: string } = {}) {
   return service.decideApproval({ workflowId: definition.id, runId, nodeId, decision,
     decidedBy: opts.decidedBy ?? "operator", ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    ...(opts.choice !== undefined ? { choice: opts.choice } : {}),
     expectedRevision: service.getRun(definition.id, runId)!.revision });
 }
 function save(id: string, nodes: WorkflowNode[], edges: ReturnType<typeof edge>[]): WorkflowDefinition {
@@ -123,11 +133,13 @@ function save(id: string, nodes: WorkflowNode[], edges: ReturnType<typeof edge>[
 }
 
 /** trigger → plan → gate → land → end: two phases around a parked approval. */
-function gatedPipeline(id: string): WorkflowDefinition {
+function gatedPipeline(id: string, gate: { operatorOnly?: boolean; options?: string[] } = {}): WorkflowDefinition {
   return save(id, [
     { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
     worker("plan"),
-    { id: "gate", type: "approval", name: "Gate", config: { description: "Approving merges this branch into main." } },
+    { id: "gate", type: "approval", name: "Gate", config: {
+      description: "Approving merges this branch into main.", ...gate,
+    } },
     worker("land"),
     { id: "done", type: "end", name: "Done", config: { result: "success" } },
     { id: "not-merged", type: "end", name: "Not merged", config: { result: "failure" } },
@@ -191,6 +203,34 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
     expect(mirror.parked).toHaveLength(1);
   });
 
+  it("records an approval decision on the bound Todo exactly once", async () => {
+    const definition = gatedPipeline("reflect-approval-decision");
+    const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-10" });
+    await executor.succeed("plan");
+
+    await decide(definition, run.id, "gate", "approve", { decidedBy: "reviewer" });
+
+    expect(lifecycle.decisions).toEqual([{
+      todoId: "OPS-10", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      decision: "approve", decidedBy: "reviewer",
+    }]);
+  });
+
+  it("passes the picked option and note through the decision hook", async () => {
+    const definition = gatedPipeline("reflect-approval-context", { options: ["Variant A", "Variant B"] });
+    const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-12" });
+    await executor.succeed("plan");
+
+    await decide(definition, run.id, "gate", "approve", {
+      decidedBy: "operator", choice: "Variant B", reason: "Use the quieter layout.",
+    });
+
+    expect(lifecycle.decisions).toEqual([{
+      todoId: "OPS-12", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      decision: "approve", decidedBy: "operator", choice: "Variant B", note: "Use the quieter layout.",
+    }]);
+  });
+
   it("reports blocked AND records which node died, with the error and the run id", async () => {
     const definition = gatedPipeline("reflect-failed");
     const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-3" });
@@ -213,6 +253,10 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
     expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
     expect(lifecycle.reflections.at(-1)).toEqual({ todoId: "OPS-4", status: "blocked", nodeId: "not-merged" });
     expect(lifecycle.failures.at(-1)).toMatchObject({ todoId: "OPS-4", code: "workflow-failure-end" });
+    expect(lifecycle.decisions).toEqual([{
+      todoId: "OPS-4", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      decision: "reject", decidedBy: "operator",
+    }]);
     // Silence means stop: with no note, the authored `rejected` route still runs
     // and nothing goes round again.
     expect(lifecycle.revisions).toEqual([]);
@@ -239,7 +283,7 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
     expect(lifecycle.failures).toEqual([]);
   });
 
-  it("never reports completion — closing a Todo stays a decision, not a side effect", async () => {
+  it("does not complete the Todo after a gate that was not operator-only", async () => {
     const definition = gatedPipeline("reflect-completed");
     const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-6" });
     await executor.succeed("plan");
@@ -248,6 +292,22 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
 
     expect(service.getRun(definition.id, run.id)!.status).toBe("completed");
     expect(lifecycle.reflections.map((entry) => entry.status)).toEqual(["executing", "in_review"]);
+    expect(lifecycle.completions).toEqual([]);
+  });
+
+  it("completes a bound Todo after an operator-only gate is approved and the run succeeds", async () => {
+    const definition = gatedPipeline("reflect-operator-approved", { operatorOnly: true });
+    const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-11" });
+    await executor.succeed("plan");
+    await decide(definition, run.id, "gate", "approve", { decidedBy: "operator" });
+
+    await executor.succeed("land");
+
+    expect(service.getRun(definition.id, run.id)!.status).toBe("completed");
+    expect(lifecycle.completions).toEqual([{
+      todoId: "OPS-11", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      approvedBy: "operator", approvedAt: now.toISOString(),
+    }]);
   });
 
   it("reflects nothing for a run that is not bound to a Todo", async () => {
@@ -258,7 +318,21 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
 
     expect(lifecycle.reflections).toEqual([]);
     expect(lifecycle.failures).toEqual([]);
+    expect(lifecycle.decisions).toEqual([]);
+    expect(lifecycle.completions).toEqual([]);
     expect(mirror.parked).toEqual([]);
+  });
+
+  it("does not complete an operator-only gate when it is rejected", async () => {
+    const definition = gatedPipeline("reflect-operator-rejected", { operatorOnly: true });
+    const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-13" });
+    await executor.succeed("plan");
+
+    await decide(definition, run.id, "gate", "reject", { decidedBy: "operator" });
+
+    expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
+    expect(lifecycle.decisions).toHaveLength(1);
+    expect(lifecycle.completions).toEqual([]);
   });
 
   it("runs to completion when the bound Todo can no longer be written", async () => {
@@ -268,6 +342,8 @@ describe("a bound run reflects its own lifecycle onto its Todo", () => {
       employees: () => new Map([[employee.name, employee]]), models: () => models, now: () => now.toISOString(),
       todoLifecycle: {
         reflect: () => { throw new Error("linkSession: work item OPS-404 not found"); },
+        recordApprovalDecision: () => { throw new Error("addComment: work item OPS-404 not found"); },
+        complete: () => { throw new TransitionError("children-open", "work item OPS-404 still has open children"); },
         recordFailure: () => { throw new Error("addComment: work item OPS-404 not found"); },
         requestRevision: () => { throw new Error("addComment: work item OPS-404 not found"); },
       },

@@ -35,15 +35,17 @@ import type {
  * record-failure branch into the graph. One forgotten instruction left a merged
  * Todo reading `assigned`, and a parked gate told nobody at all.
  *
- * Four obligations:
+ * Six obligations:
  *   - reflect the run's lifecycle onto the Todo's status
+ *   - record each gate decision on the Todo
  *   - record WHY a run settled failed
  *   - wake the routed employee when the run parks on their decision
  *   - send the work round again when that approver rejects WITH feedback
+ *   - close a successful run after an operator-only gate supplied the review
  *
- * Completion is deliberately absent. A run reaching its success End does NOT
- * close the Todo: closing is a decision, and the self-review ban means the thing
- * that did the work never makes it.
+ * Completion remains absent for every other path. Reaching a success End alone
+ * is not a review; only a recorded operator-only approval supplies the human
+ * authority to close without weakening the self-review rule.
  */
 
 /**
@@ -94,6 +96,51 @@ function recordFailure(input: {
   });
 }
 
+function recordApprovalDecision(
+  input: Parameters<WorkflowTodoLifecycle["recordApprovalDecision"]>[0],
+): void {
+  const decision = input.decision === "approve" ? "approved" : "rejected";
+  const context = [
+    input.choice !== undefined ? `Picked option: \`${input.choice}\`.` : undefined,
+    input.note?.trim() ? `Note:\n\n${quoted(input.note.trim())}` : undefined,
+    `${gateTrail(input)}.`,
+  ].filter((part): part is string => part !== undefined).join("\n\n");
+  addComment({
+    workItemId: input.todoId,
+    author: "workflow",
+    authorKind: "system",
+    body: `**Workflow gate ${decision}** by \`${input.decidedBy}\`.\n\n${context}`,
+  });
+}
+
+function complete(input: Parameters<WorkflowTodoLifecycle["complete"]>[0]): void {
+  const item = getWorkItem(input.todoId);
+  if (!item) return;
+  if (item.status !== "in_review") {
+    logger.debug(`Workflow run ${input.runId} left Todo ${input.todoId} at ${item.status}; only in_review can close.`);
+    return;
+  }
+  try {
+    transition(input.todoId, "done", input.approvedBy, {
+      detail: {
+        workflowId: input.workflowId,
+        runId: input.runId,
+        nodeId: input.nodeId,
+        approvedBy: input.approvedBy,
+        approvedAt: input.approvedAt,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof TransitionError)) throw error;
+    addComment({
+      workItemId: input.todoId,
+      author: "workflow",
+      authorKind: "system",
+      body: `**Workflow completed, but this Todo stayed open** — ${error.message}.\n\n${gateTrail(input)}.`,
+    });
+  }
+}
+
 /**
  * Re-arms allowed on one Todo before the loop ends in front of the operator
  * instead. Each cycle needs a FRESH human rejection, so it cannot spin on its
@@ -123,8 +170,8 @@ function revisionCycles(todoId: string): number {
     && parseTodoApprovalRef(approval.ref) !== null).length;
 }
 
-/** `workflow-x` run `run_y` · gate `node_z` — the same trail on every revision note. */
-function revisionTrail(input: WorkflowRevisionRequest): string {
+/** `workflow-x` run `run_y` · gate `node_z` — the same trail on every gate note. */
+function gateTrail(input: { workflowId: string; runId: string; nodeId: string }): string {
   return `\`${input.workflowId}\` run \`${input.runId}\` · gate \`${input.nodeId}\``;
 }
 
@@ -147,7 +194,7 @@ function stopRevision(input: WorkflowRevisionRequest, why: string, status: "bloc
     author: "workflow",
     authorKind: "system",
     body: `**Rejected with feedback, but not sent back** — ${why}.\n\n${quoted(input.feedback)}\n\n`
-      + `${revisionTrail(input)}. Nothing will re-run until someone moves this Todo.`,
+      + `${gateTrail(input)}. Nothing will re-run until someone moves this Todo.`,
   });
   transitionDerived(input.todoId, status, WORKFLOW_RUN_ACTOR, {
     declared: true,
@@ -185,7 +232,7 @@ function requestRevision(input: WorkflowRevisionRequest): void {
     author: "workflow",
     authorKind: "system",
     body: `**Sent back for revision** (round ${cycles} of ${MAX_REVISION_CYCLES}) — `
-      + `${revisionTrail(input)}.\n\nThis is the current requirement. It was written after seeing the last `
+      + `${gateTrail(input)}.\n\nThis is the current requirement. It was written after seeing the last `
       + `result, so where it conflicts with the original description, this wins.\n\n${quoted(input.feedback)}`,
   });
   try {
@@ -337,8 +384,14 @@ export function forwardWorkflowTodoComment(comment: WorkItemComment): void {
   });
 }
 
-/** The lifecycle half of the surface (status, failure record, revision loop). */
-export const workflowTodoLifecycle: WorkflowTodoLifecycle = { reflect, recordFailure, requestRevision };
+/** The lifecycle half of the surface (status, decisions, completion, failure record, revision loop). */
+export const workflowTodoLifecycle: WorkflowTodoLifecycle = {
+  reflect,
+  recordApprovalDecision,
+  complete,
+  recordFailure,
+  requestRevision,
+};
 
 /** The approval half: `request` mirrors the gate, `notifyParked` wakes a routed employee. */
 export function workflowTodoApprovals(

@@ -129,6 +129,95 @@ describe("reflecting a run's lifecycle onto its bound Todo", () => {
   });
 });
 
+describe("recording a workflow gate decision", () => {
+  it("adds exactly one comment naming the decider and approve or reject decision", () => {
+    const approved = armedTodo("approved workflow gate");
+    const rejected = armedTodo("rejected workflow gate");
+
+    surface.workflowTodoLifecycle.recordApprovalDecision({
+      todoId: approved, workflowId: "pipeline", runId: "run_1", nodeId: "gate",
+      decision: "approve", decidedBy: "reviewer",
+    });
+    surface.workflowTodoLifecycle.recordApprovalDecision({
+      todoId: rejected, workflowId: "pipeline", runId: "run_2", nodeId: "gate",
+      decision: "reject", decidedBy: "operator",
+    });
+
+    expect(comments.commentsTail(approved).comments.map((comment) => comment.body)).toEqual([
+      "**Workflow gate approved** by `reviewer`.\n\n`pipeline` run `run_1` · gate `gate`.",
+    ]);
+    expect(comments.commentsTail(rejected).comments.map((comment) => comment.body)).toEqual([
+      "**Workflow gate rejected** by `operator`.\n\n`pipeline` run `run_2` · gate `gate`.",
+    ]);
+  });
+
+  it("names the chosen option and quotes a decision note", () => {
+    const id = armedTodo("workflow gate with context");
+
+    surface.workflowTodoLifecycle.recordApprovalDecision({
+      todoId: id, workflowId: "pipeline", runId: "run_3", nodeId: "variant",
+      decision: "approve", decidedBy: "operator", choice: "Variant B",
+      note: "Use the quieter layout.\nPreserve spacing.",
+    });
+
+    expect(comments.commentsTail(id).comments[0]?.body).toBe(
+      "**Workflow gate approved** by `operator`.\n\nPicked option: `Variant B`.\n\n"
+      + "Note:\n\n> Use the quieter layout.\n> Preserve spacing.\n\n"
+      + "`pipeline` run `run_3` · gate `variant`.",
+    );
+  });
+});
+
+describe("completing a Todo from an operator-approved workflow", () => {
+  it("moves in_review to done with the approval provenance on the committed event", () => {
+    const id = armedTodo("operator approved the successful run");
+    transitions.transition(id, "in_review", "session:worker", { agent: true });
+
+    surface.workflowTodoLifecycle.complete({
+      todoId: id, workflowId: "pipeline", runId: "run_4", nodeId: "gate",
+      approvedBy: "operator", approvedAt: "2026-07-30T10:00:00.000Z",
+    });
+
+    expect(store.getWorkItem(id)!.status).toBe("done");
+    const event = store.listWorkItemEvents(id).filter((item) => item.kind === "status_change").at(-1)!;
+    expect(event).toMatchObject({
+      fromStatus: "in_review", toStatus: "done", actor: "operator",
+      detail: {
+        workflowId: "pipeline", runId: "run_4", nodeId: "gate",
+        approvedBy: "operator", approvedAt: "2026-07-30T10:00:00.000Z",
+      },
+    });
+  });
+
+  it("leaves a Todo alone when it is not in_review", () => {
+    const id = armedTodo("run finished after the Todo moved elsewhere");
+
+    surface.workflowTodoLifecycle.complete({
+      todoId: id, workflowId: "pipeline", runId: "run_5", nodeId: "gate",
+      approvedBy: "operator", approvedAt: "2026-07-30T10:00:00.000Z",
+    });
+
+    expect(store.getWorkItem(id)!.status).toBe("assigned");
+  });
+
+  it("leaves an explanatory comment when a transition rule keeps it open", () => {
+    const id = armedTodo("successful run with an open child");
+    transitions.transition(id, "in_review", "session:worker", { agent: true });
+    const child = store.createWorkItem({ title: "open follow-up", parentId: id });
+
+    expect(() => surface.workflowTodoLifecycle.complete({
+      todoId: id, workflowId: "pipeline", runId: "run_6", nodeId: "gate",
+      approvedBy: "operator", approvedAt: "2026-07-30T10:00:00.000Z",
+    })).not.toThrow();
+
+    expect(store.getWorkItem(id)!.status).toBe("in_review");
+    const body = comments.commentsTail(id).comments[0]?.body;
+    expect(body).toContain("Workflow completed, but this Todo stayed open");
+    expect(body).toContain(child.id);
+    expect(body).toContain("`pipeline` run `run_6` · gate `gate`");
+  });
+});
+
 describe("a parked gate must not be mistaken for a finished review", () => {
   it("does not TRUST-close a trust-tier Todo while its approval is still pending", () => {
     // `cron` provenance defaults to trust, so this item auto-closes from in_review.
