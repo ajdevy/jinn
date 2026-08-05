@@ -23,6 +23,7 @@ interface Tint {
 const TINT: Record<WorkflowNodeTypeV2, Tint> = {
   trigger: { bg: "var(--accent-fill)", fg: "var(--accent)" },
   employee: { bg: "color-mix(in srgb, var(--system-blue) 15%, transparent)", fg: "var(--system-blue)" },
+  "workflow-call": { bg: "color-mix(in srgb, var(--system-indigo) 15%, transparent)", fg: "var(--system-indigo)" },
   condition: { bg: "color-mix(in srgb, var(--system-purple) 15%, transparent)", fg: "var(--system-purple)" },
   merge: { bg: "var(--fill-tertiary)", fg: "var(--text-secondary)" },
   approval: { bg: "color-mix(in srgb, var(--system-orange) 16%, transparent)", fg: "var(--system-orange)" },
@@ -43,6 +44,7 @@ const TRIGGER_ICON: Record<string, LucideIcon> = {
 const TYPE_ICON: Record<WorkflowNodeTypeV2, LucideIcon> = {
   trigger: Zap,
   employee: UserRound,
+  "workflow-call": Workflow,
   condition: Split,
   merge: GitMerge,
   approval: ShieldCheck,

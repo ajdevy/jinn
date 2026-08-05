@@ -63,6 +63,7 @@ export function outputPorts(node: WorkflowNodeWire): OutputPortSpec[] {
   const box = nodeBox(node)
   switch (node.type) {
     case "trigger":
+    case "workflow-call":
     case "wait":
     case "merge":
       return [{ id: "success", label: "", wall: "side", x: box.width, y: box.height / 2 }]
@@ -104,6 +105,7 @@ export function inputConnectionLimit(type: WorkflowNodeTypeV2): number | undefin
 export const NODE_TYPE_LABEL: Record<WorkflowNodeTypeV2, string> = {
   trigger: "Trigger",
   employee: "Employee",
+  "workflow-call": "Workflow call",
   condition: "Condition",
   merge: "Merge",
   approval: "Approval",

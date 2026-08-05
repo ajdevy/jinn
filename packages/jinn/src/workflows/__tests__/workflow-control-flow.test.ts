@@ -108,6 +108,40 @@ afterEach(() => {
 });
 
 describe("Workflow durable control flow", () => {
+  it("resolves an End output binding into the completed node fields", async () => {
+    const definition = saveDefinition("end-output", [
+      { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+      { id: "finish", type: "end", name: "Finish", config: {
+        result: "success", output: { source: "fixed", value: { result: "shipped", count: 2 } },
+      } },
+    ], [edge("start-finish", "start", "success", "finish")]);
+
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+
+    expect(run.status).toBe("completed");
+    expect(run.nodeRuns.find((node) => node.nodeId === "finish")?.output).toEqual({
+      text: "",
+      fields: { result: "shipped", count: 2 },
+    });
+  });
+
+  it("fails an End whose output binding resolves to a non-object value", async () => {
+    const definition = saveDefinition("invalid-end-output", [
+      { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+      { id: "finish", type: "end", name: "Finish", config: {
+        result: "success", output: { source: "fixed", value: "not-an-object" },
+      } },
+    ], [edge("start-finish", "start", "success", "finish")]);
+
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+
+    expect(run.status).toBe("failed");
+    expect(run.nodeRuns.find((node) => node.nodeId === "finish")).toMatchObject({
+      status: "failed",
+      error: { message: expect.stringMatching(/End finish output must resolve to a JSON object/) },
+    });
+  });
+
   it.each([
     [{ score: 9, labels: ["urgent", "release"] }, "first", "chosen"],
     [{ score: 7, labels: ["release"] }, "second", "chosen-second"],

@@ -118,6 +118,40 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
   )
 }
 
+function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
+  const children = (detail.childRuns ?? [])
+    .filter((child) => child.nodeId === nodeId)
+    .sort((a, b) => a.itemIndex - b.itemIndex)
+  if (children.length === 0) return null
+  return (
+    <Section title="Child runs">
+      <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
+        {children.map((child) => (
+          <Link
+            key={child.runId}
+            to={`/workflow/${encodeURIComponent(child.workflowId)}/runs/${encodeURIComponent(child.runId)}`}
+            className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+                Item {child.itemIndex + 1}
+              </span>
+              <span
+                className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
+                style={{ fontFamily: "var(--font-code)" }}
+              >
+                {child.runId}
+              </span>
+            </span>
+            <StatusLine status={child.status} />
+            <ChevronRight size={14} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
+          </Link>
+        ))}
+      </div>
+    </Section>
+  )
+}
+
 /** The composed prompt handed to the session — monospace and scrollable,
  *  collapsed behind a disclosure when it runs long. */
 function PromptSection({ text }: { text: string }) {
@@ -446,6 +480,12 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
                 </Section>
               )}
               {sessionId && <SessionSection sessionId={sessionId} />}
+            </>
+          )}
+          {node.type === "workflow-call" && (
+            <>
+              <OutputSection output={nodeRun?.output} isDark={isDark} />
+              <ChildRunsSection detail={detail} nodeId={node.id} />
             </>
           )}
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}

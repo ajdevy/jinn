@@ -61,7 +61,7 @@ describe('canonical runtime and record types', () => {
       runId: run.id, nodeId: 'approve', status: 'approved', requestedAt: run.startedAt,
       decidedAt: run.startedAt, decidedBy: 'operator', decision: 'approve', reason: 'Looks good.',
     };
-    const detail: WorkflowRunDetail = { ...run, nodeRuns: [nodeRun], attempts: [attempt], approvals: [approval] };
+    const detail: WorkflowRunDetail = { ...run, nodeRuns: [nodeRun], attempts: [attempt], approvals: [approval], childRuns: [] };
 
     expect(detail).toMatchObject({ id: 'run-1', status: 'running' });
     expect(output.fields.result).toEqual(json);

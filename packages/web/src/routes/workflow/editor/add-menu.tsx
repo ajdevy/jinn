@@ -3,7 +3,7 @@ import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2 } from "./ports"
 import { NodeTypeIcon } from "./node-icons"
 
 /** Types offerable mid-graph — a workflow has exactly one Trigger, placed from the palette. */
-export const INSERTABLE_TYPES: WorkflowNodeTypeV2[] = ["employee", "condition", "approval", "wait", "merge", "end"]
+export const INSERTABLE_TYPES: WorkflowNodeTypeV2[] = ["employee", "workflow-call", "condition", "approval", "wait", "merge", "end"]
 
 export function useMenu() {
   const [open, setOpen] = useState(false)

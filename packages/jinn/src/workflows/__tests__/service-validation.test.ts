@@ -85,6 +85,22 @@ afterEach(() => {
 });
 
 describe("Workflow executable service boundaries", () => {
+  it("refuses a fixed self-targeting workflow-call before saving the draft", () => {
+    const created = service.createDefinition({ id: "self-call", title: "Self call" });
+    const call: WorkflowNode = { id: "children", type: "workflow-call", name: "Children", config: {
+      workflowId: { source: "fixed", value: created.id }, concurrency: 2,
+    } };
+    const draft = { ...created, nodes: [trigger, call, finish], edges: [
+      edge("start-call", "start", "children"), edge("call-finish", "children", "finish"),
+    ] };
+
+    expect(() => service.saveDefinition(draft, created.revision)).toThrow(expect.objectContaining({
+      code: "invalid-definition",
+      issues: [expect.objectContaining({ code: "workflow-call-self-reference", nodeId: "children" })],
+    }));
+    expect(repository.getDefinition(created.id)).toEqual(created);
+  });
+
   it("rejects zero-node enable without changing the stored definition", () => {
     const created = service.createDefinition({ id: "empty-flow", title: "Empty flow" });
     definitionChanges.length = 0;
