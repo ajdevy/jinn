@@ -261,7 +261,7 @@ describe("/api/files/read containment — real route", () => {
   });
 
   it("round-trips a Unicode multipart filename without changing the file bytes", async () => {
-    const filename = "ЕСИФ фиксирана лихва.pdf";
+    const filename = "тест документ.pdf";
     const sourceBytes = Buffer.from([0x00, 0xff, 0x80, 0x42, 0x75, 0x6c, 0x67, 0x61, 0x72, 0x69, 0x61]);
 
     const uploaded = await postMultipartFile(filename, sourceBytes);

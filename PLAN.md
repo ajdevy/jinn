@@ -1,201 +1,89 @@
-# ICI-678 — Chat image preview: full screen again, plus zoom / navigation / close
+# ICI-688 — Unicode attachment filenames (duplicate message + mojibake)
 
-Branch `build/ICI-678-fullscreen-image-viewer`. Original base `7fd9f259`.
-**This round reconciles that branch against current `main` (`27b6a213`) and lands it.**
+**Branch:** `build/ICI-688-unicode-attachment-filenames`
+**Base:** `698c1e98127989af6e0ecff9030855a6d116c76c` (main)
+**Mode:** direct · **Complexity:** standard
 
-> Note: `PLAN.md` is tracked on `main` and every build run overwrites it with its own plan.
-> That is the pipeline's existing convention (main currently carries ICI-680's plan) and it
-> is the sole reason the previous landing attempt stopped. Flagged as an adjacent problem
-> at the bottom; not fixed here.
+## Operator feedback driving this round
 
----
+> "check if it was merged to main. merge if it wasn't & provide a comment."
+> — operator note on ICI-688, 2026-08-05T11:39:25Z
 
-# Round 2 — reconcile and land
+**Answer, established before planning:** it was NOT merged. The fix lives only on
+`fix/ici-688-unicode-attachments` @ `0db6bcf8`, which is not reachable from `main`
+(`git branch --contains 0db6bcf8` → that branch only). So this round's job is to land it,
+re-proven against current `main`, not to redesign it.
 
-## Where this stands
+## The bug, confirmed in code (not taken on trust)
 
-The feature is **built and independently verified**. Round 1 (`run_2d3116cc`) ended with
-verdict `ship` — 0 Blockers, 0 Majors, 0 Minors — with browser QA at both breakpoints in
-both themes and eight screenshots attached to the Todo. The operator then approved the
-merge and commented **"merge into main"**.
+Both reported symptoms have one cause.
 
-The landing did not happen. The landing phase had already completed when it hit an
-unreviewed `PLAN.md` conflict against the newer `main`, so it could not resolve it. A
-follow-up run (`run_d527b10b`) stalled in its plan node and never got to the merge.
+1. `packages/jinn/src/gateway/files.ts:870` — `handleMultipartUpload` (the `POST /api/files`
+   lane the browser chat composer uploads through) constructs Busboy without
+   `defParamCharset`. Busboy's default is `latin1`. Browsers send the
+   `Content-Disposition` `filename` parameter as raw UTF-8 bytes, so a Cyrillic filename is
+   decoded byte-per-char and persisted as mojibake. → **symptom 2 (broken symbols)**.
+2. `packages/web/src/lib/conversations.ts:47` — `messageIdentityKey` fingerprints media on
+   `x.name`, i.e. the filename. The optimistic row carries the correct UTF-8 name from the
+   browser `File`; the persisted row carries the mojibake name. Keys differ, so
+   `reconcileMessages` does not collapse them and the optimistic row survives in `pending`
+   (lines 131-139). → **symptom 1 (two messages)**. A reload drops the optimistic row, which
+   is exactly what the operator observed.
 
-So the work of this round is **not** to rebuild the feature. It is to reconcile the branch
-with 26 commits of newer `main`, re-prove the gates on the merged HEAD, and land it.
+File *bytes* were never affected — only the filename parameter is charset-decoded. The
+regression test asserts this rather than assuming it.
 
-## What the reconcile actually involves — measured, not assumed
+## Change
 
-```
-git merge-tree --write-tree --name-only HEAD main
-  → CONFLICT (content): PLAN.md          # the only conflicted path
-```
+Reuse the existing verified commit; do not re-derive it.
 
-- **Conflict set is exactly one file: `PLAN.md`.** No code conflicts.
-- `main` has made **zero** changes since `7fd9f259` to any file this branch touches
-  (`message-media.tsx`, `dialog.tsx`, `attachment-preview.tsx`, `components/ui/`).
-- **No dependency drift**: no commits to `package.json`, `packages/web/package.json`, or
-  `pnpm-lock.yaml` in `7fd9f259..main`.
-- The regression's cause is **still present** on `main`:
-  `chat-messages.tsx:1047` still carries `contentVisibility: "auto"`, and there is a test on
-  `main` (`message-row-content-visibility.test.tsx`) asserting it. So the portal fix is still
-  the right fix and is still needed.
+1. Merge `fix/ici-688-unicode-attachments` (`0db6bcf8`) into this branch. Verified
+   conflict-free: none of its three files changed on `main` since merge-base
+   `27b6a213`. If a conflict appears anyway, stop and report — do not resolve blind.
+   - `packages/jinn/src/gateway/files.ts` — one word: `defParamCharset: "utf8"`.
+   - `packages/jinn/src/gateway/__tests__/file-read.test.ts` — route-level regression:
+     multipart POST with a Cyrillic filename; asserts the persisted `filename` is byte-identical
+     to what was sent AND the stored bytes are unchanged.
+   - `packages/web/src/lib/__tests__/reconcile-messages.test.ts` — regression: an optimistic +
+     persisted pair carrying that filename reconciles to exactly one row.
+2. Replace the test fixture filename `"ЕСИФ фиксирана лихва.pdf"` (both test files) with a
+   neutral Cyrillic string, e.g. `"тест документ.pdf"`. The fixture is arbitrary; the current
+   value reads like a real personal financial document and `packages/**` ships to npm. §3
+   privacy hygiene, zero functional cost.
+3. Re-prove RED→GREEN on current `main`: revert the one word, watch the gateway test fail with
+   mojibake, restore it, watch it pass. A regression test that never failed proves nothing.
 
-Risk is therefore concentrated in one place: the merged HEAD must still pass the full web
-suite and the design gate. That is what gets re-run, not re-argued.
+## Acceptance criteria
 
-## Steps
+1. `POST /api/files` with `Content-Disposition` filename `"тест документ.pdf"` (UTF-8 bytes)
+   returns `filename` exactly equal to the sent string, and `registry.getFile(id).filename`
+   equals it too — no mojibake, no replacement chars.
+2. The bytes of that upload on disk are byte-identical to the bytes sent, including
+   non-UTF-8-decodable bytes (`0x00`, `0xff`, `0x80`).
+3. `reconcileMessages` collapses an optimistic + persisted user message pair whose media share
+   that Cyrillic filename to exactly **one** row, keeping the optimistic id and the canonical
+   `/api/files/` url.
+4. Temporarily reverting `defParamCharset: "utf8"` makes criterion 1 fail; restoring it makes
+   it pass. Both outputs pasted in the report.
+5. No new string under `packages/**` matches the privacy leak pattern from the brief, and no
+   real-document-looking fixture remains.
+6. `pnpm typecheck`, `pnpm build`, and full `pnpm test` pass from a clean worktree, run after
+   the final edit. Verbatim tails in the report.
 
-1. **Commit this plan** on the branch (`docs: plan ICI-678 reconcile`), so the merge has a
-   clean tree to work with.
-2. **`git merge main`** in the existing worktree. Resolve the single `PLAN.md` conflict by
-   keeping **ours** (`git checkout --ours PLAN.md`) — this file. Do not hand-merge ICI-680's
-   plan text into it; the convention is that the current run's plan lives here.
-3. **Prove the merge changed no code.** `git diff 27b6a213..HEAD --stat` must list exactly
-   the six feature files plus `PLAN.md`, with the same shape as before the merge.
-4. **Re-run the gates on the merged HEAD** (see below).
-5. **Re-run browser QA on the merged HEAD** (see below). The design bar is not inherited from
-   round 1 — a merge changes the bundle, so the shots are retaken.
+## Out of scope — written down and handed back, per taste §4
 
-## Acceptance criteria for this round
-
-1. **Merged.** `git merge-base --is-ancestor 27b6a213 HEAD` succeeds — current `main` is fully
-   contained in the branch HEAD.
-2. **Only `PLAN.md` was resolved by hand.** `git diff 27b6a213..HEAD --name-only` returns
-   exactly: `PLAN.md`, `packages/web/src/components/chat/message-media.tsx`,
-   `packages/web/src/components/chat/__tests__/message-media.test.tsx`,
-   `packages/web/src/components/ui/dialog.tsx`,
-   `packages/web/src/components/ui/image-lightbox.tsx`,
-   `packages/web/src/components/ui/__tests__/image-lightbox.test.tsx`,
-   `packages/web/src/routes/todos/task-page/attachment-preview.tsx`. Nothing else.
-3. **The regression test still fails without the fix.** Revert the portal in
-   `image-lightbox.tsx` on the merged HEAD, watch `message-media.test.tsx`'s containment
-   assertion go red, restore it. Evidence per taste §5.1 — a green test alone proves nothing.
-4. **`pnpm typecheck` clean** on the merged HEAD. Paste the verbatim tail.
-5. **`pnpm --filter @jinn/web test` green** on the merged HEAD, full suite, not a focused
-   subset. Round 1 needed `--maxWorkers=1` under host load; that is acceptable, but the run
-   must be complete and the file/test counts reported.
-6. **`pnpm build` clean** on the merged HEAD.
-7. **Design gate re-verified on the merged HEAD.** Screenshots at **1440×900 and 390×844, in
-   both light and dark**, covering: viewer open at 1×, viewer zoomed, and a multi-image
-   gallery showing the arrows. Overlay covers the full viewport in every shot.
-8. **Behaviour unchanged from the verified round-1 build.** Prev/next wrap, zoom resets on
-   navigate, close via ×/Esc/backdrop/swipe-down, ctrl+wheel zoom with `preventDefault`,
-   pinch clamped to `[1, 4]`.
-9. **`packages/web/index.html` still contains `maximum-scale=1,user-scalable=no`** and no code
-   path mutates the viewport meta. Grep-checkable.
-10. **Leak-grep clean** on the staged diff before the landing commit.
-
-## How it gets verified
-
-- Gates run from the worktree root, **after** the final edit, with verbatim tails pasted.
-- Browser QA via `jinn-sandbox.sh up qa-ICI-678 --build --seed` on **7778+**, driven with
-  `agent-browser` under a **throwaway `AGENT_BROWSER_PROFILE`** (the shared `jinn-main` profile
-  collides with parallel runs). Destroy the sandbox and delete the profile afterwards, even if
-  the run fails.
-- **Never** `pnpm dev` — its proxy reaches into 7777. **Never** port 7777 or 7788. **Never**
-  touch the operator's live instance home. Kill only PIDs this run started.
-- Real pinch cannot be produced by a headless driver, so pinch is exercised by dispatching
-  synthetic two-pointer sequences via `agent-browser ... eval` against the live DOM.
-
-## Out of scope for this round
-
-- Any change to the feature's design or behaviour. It was verified `ship`; reopening it is a
-  new Major against code already passed, which taste §5 rule 2 forbids.
-- Removing or weakening `content-visibility: auto` on message rows — intentional perf.
-- Changing the viewport meta in `packages/web/index.html`.
-- Video, audio or PDF preview. Images only.
-- The composer attachment strip (`chat/media-preview.tsx`).
-- Fixing the tracked-`PLAN.md` churn (see below). Reported, not fixed.
-
-## Adjacent problem, handed back not fixed
-
-`PLAN.md` is a **tracked file at the repo root** that the build pipeline overwrites on every
-run and lands on `main`. Consequence: any two build branches created from different bases
-conflict on it, which is exactly what stalled this ticket for a day. Worth a follow-up Todo —
-either gitignore it and write plans to an untracked path, or move plans under
-`.jinn-build/<ticket>.md`. Not this ticket's job.
-
----
-
-# Reference — the feature spec as built and verified in round 1
-
-## What the operator asked for
-
-> In chat, there is a regression for when I click on an image to expand it. It shows inside
-> the chat container instead of full screen like it used to... please fix that.
->
-> Also make the design and functionality of viewing images a bit better. For example I want:
-> 1. to be able to zoom images (I think that is not possible since we set a global no pinch
->    zoom on mobile). Figure out how to enable zooming on them with pinching without disabling
->    the disable of global zoom pinch.
-> 2. I want to go back and forth with arrows
-> 3. easily close the full screen preview.
-
-## Root cause of the regression (confirmed, not guessed)
-
-`packages/web/src/components/chat/chat-messages.tsx` puts
-`style={{ contentVisibility: "auto", containIntrinsicSize: "auto 120px" }}` on **every message
-row**. It arrived in `d9eac83b` ("perf: harden web loading and Todo batching").
-
-`content-visibility: auto` implies `contain: layout style paint`. **Paint containment makes the
-element a containing block for `position: fixed` descendants.** The old chat lightbox was a
-plain in-tree `fixed inset-0` div, so `inset-0` resolved against the message row instead of the
-viewport, and the overlay was clipped to the chat column.
-
-The fix is to render the overlay in a **portal to `document.body`**, not to remove
-`content-visibility` (that is deliberate virtualisation perf and is not ours to undo).
-
-## The approach
-
-The Todos task page already had a full-screen image viewer doing most of what was asked
-(`attachment-preview.tsx` `AttachmentLightbox`: Radix `Dialog` → portal to body, focus trap,
-scroll lock, Esc; prev/next; click-to-zoom + pan; download; safe-area toolbar; Ledger tokens).
-
-Chat is the **second caller**, which is exactly when taste §1 says to extract. So:
-
-1. A shared `ImageLightbox` at `packages/web/src/components/ui/image-lightbox.tsx`, generic over
-   `{ id, url, name }` items, keeping the existing `attachment-lightbox*` test ids so the Todos
-   suite proves the migration is behaviour-preserving.
-2. **Pinch-to-zoom** added to it — the one capability neither viewer had.
-3. Both call sites point at it: chat `message-media.tsx` and todos `attachment-preview.tsx`.
-
-### Pinch-to-zoom under a global `user-scalable=no`
-
-`packages/web/index.html` sets `maximum-scale=1,user-scalable=no`. That stays untouched —
-flipping it would let the whole dashboard pinch-zoom, which is what the meta exists to prevent,
-and iOS Safari does not reliably re-apply a mutated viewport meta anyway.
-
-Instead the viewer runs its **own** gesture layer, orthogonal to the page-level meta:
-
-- `touch-action: none` on the image surface **while the lightbox is open**, so the browser hands
-  us raw pointer events instead of consuming them for scroll.
-- Live pointers tracked in a `Map`. Two pointers down → pinch: scale by
-  `currentDistance / startDistance`, clamped to `[1, 4]`, anchored on the midpoint.
-- One pointer down while `zoom > 1` → pan.
-- Desktop trackpad pinch arrives as `wheel` with `ctrlKey` → same zoom path, `preventDefault()`
-  so the browser does not page-zoom.
-- Double-tap / double-click toggles 1× ↔ 2×.
-
-### Navigation and close
-
-- Prev/next buttons + `ArrowLeft`/`ArrowRight`; horizontal swipe at `zoom === 1` on mobile.
-- Close: toolbar ×, Esc and backdrop tap via Radix, plus swipe-down-to-dismiss at `zoom === 1`.
-- Gallery for chat = the images of that one message, so the arrows walk the attachments the
-  operator actually clicked into.
-
-## Files
-
-| File | Change |
-| --- | --- |
-| `packages/web/src/components/ui/image-lightbox.tsx` | **New.** Shared viewer: Radix Dialog, gallery nav, pinch/wheel/double-tap zoom, pan, swipe, download, close. |
-| `packages/web/src/components/ui/dialog.tsx` | `DialogContent` accepts `overlayClassName` so the viewer can style its backdrop. |
-| `packages/web/src/components/chat/message-media.tsx` | Local `ImageLightbox` deleted; opens the shared one with the message's images as the gallery. |
-| `packages/web/src/routes/todos/task-page/attachment-preview.tsx` | `AttachmentLightbox` is a thin adapter mapping `WorkItemAttachmentWire` → the shared item shape. |
-| `packages/web/src/components/ui/__tests__/image-lightbox.test.tsx` | **New.** Gesture + navigation logic tests. |
-| `packages/web/src/components/chat/__tests__/message-media.test.tsx` | Extended: portal target, containment regression, gallery nav from chat. |
-
-Zoom/pan/pinch maths lives in small pure helpers in the new file so it is testable without a
-real touchscreen.
+- **Two sibling multipart parsers have the identical defect and are NOT fixed here:**
+  `readMultipartFile` (`files.ts:787`, shared helper — Todo/work-item attachments) and
+  `handleAttachmentMultipart` (`files.ts:1264`, `POST /api/sessions/:id/attachments`, the
+  agent-push lane behind `publish_attachment`). Both still default to `latin1`, so a Cyrillic
+  filename mojibakes there too. The operator asked for a KISS fix to the two reported chat
+  symptoms; these are adjacent, so they get reported, not silently swept in. Recommend a
+  follow-up Todo.
+- **Filenames already persisted as mojibake are not repaired.** Forward-only; no data
+  migration, no backfill.
+- No change to `messageIdentityKey` or the reconcile algorithm. It is correct given a correct
+  filename; the fix is upstream of it.
+- Note the test seam honestly: criterion 3 exercises `reconcileMessages` in isolation with a
+  correct name on both sides. It guards the collapse rule, it does not prove the end-to-end
+  browser flow. Criterion 1 is what proves the name arrives correct. No browser QA is planned —
+  this change has no visual surface, so the design gate does not apply.

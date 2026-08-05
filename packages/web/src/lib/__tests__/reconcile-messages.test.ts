@@ -101,18 +101,18 @@ describe('reconcileMessages — inbound user-message duplicate regression (v0.16
   })
 
   it('reconciles an attached user message with a Unicode filename to exactly one row', () => {
-    const filename = 'ЕСИФ фиксирана лихва.pdf'
+    const filename = 'тест документ.pdf'
     const optimistic: Message = {
       id: 'client-unicode-id',
       role: 'user',
-      content: 'check the fixed-rate offer',
+      content: 'check the document',
       timestamp: 6000,
       media: [{ type: 'file', url: 'blob:local-preview', name: filename }],
     }
     const persisted: Message = {
       id: 'server-unicode-id',
       role: 'user',
-      content: 'check the fixed-rate offer',
+      content: 'check the document',
       timestamp: 6001,
       media: [{ type: 'file', url: '/api/files/file-id', name: filename }],
     }
