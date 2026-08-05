@@ -7,6 +7,7 @@ import yaml from "js-yaml";
 import type { ChatBlock, ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { compactEmployeeRole } from "../shared/employee-role.js";
+import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
 import {
   getModelRegistry,
@@ -119,6 +120,7 @@ import {
   LOGS_DIR,
   TMP_DIR,
   FILES_DIR,
+  STT_SETTINGS_FILE,
   TEMPLATE_MIGRATIONS_DIR,
   resolveHomeIdentity,
 } from "../shared/paths.js";
@@ -126,7 +128,11 @@ import { saveConfigAtomic } from "../shared/config.js";
 import { messageBodyError } from "../shared/message-body.js";
 import { logger } from "../shared/logger.js";
 import { redactText } from "../shared/redact.js";
-import { getSttStatus, downloadModel, transcribe as sttTranscribe, resolveLanguages, WHISPER_LANGUAGES } from "../stt/stt.js";
+import { getSttStatus, downloadModel, transcribe as sttTranscribe, WHISPER_LANGUAGES } from "../stt/stt.js";
+import {
+  getEffectiveSttSettings,
+  writeSharedSttSettings,
+} from "../stt/settings-store.js";
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveEffort } from "../shared/effort.js";
 import { selectClaudeModelFallback } from "../shared/model-fallback.js";
@@ -147,6 +153,8 @@ import { runCronJob } from "../cron/runner.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, ensureFilesDir, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
+import { streamFile } from "./byte-range.js";
+import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
@@ -253,7 +261,7 @@ import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRo
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
-import { resolveOrgHierarchy } from "./org-hierarchy.js";
+import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
 import {
@@ -893,7 +901,8 @@ export function isSensitiveConfigKey(key: string): boolean {
  * deepMerge round-trips the sentinel back to the original value on PUT.
  */
 export function sanitizeConfigForApi<T>(value: T, key = ""): T {
-  if (isSensitiveConfigKey(key) && value !== undefined && value !== null && value !== "") {
+  const isNumericTokenThreshold = key === "tokenThreshold" && typeof value === "number";
+  if (isSensitiveConfigKey(key) && !isNumericTokenThreshold && value !== undefined && value !== null && value !== "") {
     return REDACTED_SECRET as T;
   }
   if (Array.isArray(value)) {
@@ -1937,11 +1946,7 @@ function authorizeWorkItemOwnerManagerOrRoot(
   if (owner === employeeName) return { ok: true };
   if (owner && (employee.rank === 'manager' || employee.rank === 'executive')) {
     const hierarchy = resolveOrgHierarchy(roster);
-    let ancestor = hierarchy.nodes[owner]?.parentName ?? null;
-    while (ancestor) {
-      if (ancestor === employeeName) return { ok: true };
-      ancestor = hierarchy.nodes[ancestor]?.parentName ?? null;
-    }
+    if (isOrgAncestor(hierarchy, employeeName, owner)) return { ok: true };
   }
   return {
     ok: false,
@@ -1999,13 +2004,10 @@ function canReviewWorkItemDone(session: Session, item: WorkItem, linked: Session
   if (item.status !== 'in_review') {
     return { ok: false, error: `Todo ${item.id} is ${item.status}, and done is not an agent shortcut: ${instead}` };
   }
-  if (linked.some((s) => s.id === session.id)) {
-    return { ok: false, error: `session ${session.id} executed Todo ${item.id} and cannot close it (self-review ban): ${instead}, or close it from the reviewer session / the human review surface` };
+  if (linked.some((s) => s.id === session.id && s.workflowProvenance?.kind !== 'phase')) {
+    return { ok: false, error: `session ${session.id} executed Todo ${item.id} and cannot close it (self-review ban): ${instead}, or close it from the human review surface` };
   }
-  if (linked.some((s) => s.parentSessionId === session.id)) return { ok: true };
-  if (item.sourceRef?.startsWith(`delegate:${session.id}:`)) return { ok: true };
-  if (item.source === 'session' && item.sourceRef?.startsWith(`session:${session.id}:`)) return { ok: true };
-  return { ok: false, error: `session ${session.id} is not Todo ${item.id}'s reviewer: ${instead}, or close it from the reviewer session / the human review surface` };
+  return { ok: true };
 }
 
 /**
@@ -2017,10 +2019,12 @@ function canReviewWorkItemDone(session: Session, item: WorkItem, linked: Session
  * and every participant needs it, so it is open — and each new caller arrives
  * without needing its own relation and its own 403.
  *
- * Two targets stay closed. `done` is withheld here because "never close your own
- * work" is the basis of the review model. `cancelled` has no agent lane at all
- * and the route refuses it before this point, where cancellation's separate
- * archive path is chosen.
+ * `done` stays bounded to `in_review` and is withheld from a linked execution
+ * attempt because "never close your own work" is the basis of the review model.
+ * Workflow phase sessions are linked for spend attribution, not because every
+ * phase produced the Todo, so they are reviewers rather than execution attempts.
+ * `cancelled` has no agent lane at all and the route refuses it before this
+ * point, where cancellation's separate archive path is chosen.
  */
 function authorizeAgentWorkItemStatus(caller: WorkItemCaller, item: WorkItem, target: WorkItemStatus): { ok: true } | { ok: false; status: 403; error: string } {
   if (caller.kind === 'operator' || target !== 'done') return { ok: true };
@@ -2345,7 +2349,11 @@ export async function handleApiRequest(
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
 
     if (method === "GET" && pathname === "/api/features") {
-      return json(res, { notesEnabled: context.getConfig().gateway.notesEnabled === true });
+      const config = context.getConfig();
+      return json(res, {
+        notesEnabled: config.gateway.notesEnabled === true,
+        staleChat: resolveStaleChatPolicy(config),
+      });
     }
 
     if (pathname === "/api/notes" || pathname === "/api/notes/read") {
@@ -4495,35 +4503,67 @@ export async function handleApiRequest(
       return json(res, { attachments: listAttachments(params.id) });
     }
 
-    // GET /api/work-items/:id/attachments/:aid — download. The stored bytes are
-    // re-hashed before the response: a sha256 mismatch is data corruption and
-    // fails loudly instead of serving tampered content (the integrity belt).
+    // GET /api/work-items/:id/attachments/:aid — stream or download. Uploads are
+    // hash-verified into content-addressed storage; reads keep the cheap size
+    // guard so byte ranges never require loading and hashing the whole blob.
     params = matchRoute("/api/work-items/:id/attachments/:aid", pathname);
     if (method === "GET" && params) {
       if (!requireTodoRouteId(res, params.id)) return;
       const attachment = getAttachment(params.aid);
       if (!attachment || attachment.workItemId !== params.id) return notFound(res);
-      let content: Buffer;
+      let stat: fs.Stats;
       try {
-        content = fs.readFileSync(attachment.storagePath);
+        stat = fs.statSync(attachment.storagePath);
       } catch {
         logger.error(`Attachment ${attachment.id} content missing on disk: ${attachment.storagePath}`);
         return serverError(res, "attachment content is missing from storage");
       }
-      const digest = crypto.createHash("sha256").update(content).digest("hex");
-      if (digest !== attachment.sha256) {
+      if (!stat.isFile() || stat.size !== attachment.bytes) {
         logger.error(
-          `Attachment ${attachment.id} failed integrity verification: stored ${attachment.storagePath} hashes to ${digest}, row says ${attachment.sha256}`,
+          `Attachment ${attachment.id} failed size verification: stored ${attachment.storagePath} is ${stat.size} bytes, row says ${attachment.bytes}`,
         );
-        return serverError(res, "attachment content failed integrity verification — the stored file does not match its recorded hash");
+        return serverError(res, "attachment content failed size verification — the stored file does not match its recorded size");
       }
-      res.writeHead(200, {
-        "Content-Type": attachment.mime,
-        "Content-Length": String(content.length),
-        // The filename was sanitized at upload; strip quotes/control bytes anyway.
-        "Content-Disposition": `attachment; filename="${attachment.filename.replace(/["\\\r\n]/g, "")}"`,
+      const reqUrl = new URL(req.url || pathname, `http://${req.headers.host || "localhost"}`);
+      const download = reqUrl.searchParams.get("download") === "1";
+      let selectedPath = attachment.storagePath;
+      let selectedMime = attachment.mime;
+      let selectedFilename = attachment.filename;
+      let variant = "original";
+      if (!download && attachment.mime.startsWith("video/")) {
+        const key = `todo:${attachment.sha256}`;
+        if (reqUrl.searchParams.get("poster") === "1") {
+          const poster = await ensurePoster(attachment.storagePath, key);
+          if (!poster) return notFound(res);
+          selectedPath = poster;
+          selectedMime = "image/jpeg";
+          selectedFilename = `${path.parse(attachment.filename).name}-poster.jpg`;
+          variant = "poster";
+        } else if (reqUrl.searchParams.get("quality") === "low") {
+          const low = ensureLowVariant(attachment.storagePath, key);
+          if (low) {
+            selectedPath = low;
+            selectedMime = "video/mp4";
+            variant = "low";
+          }
+        }
+      }
+      const selectedStat = fs.statSync(selectedPath);
+      const lowFallback = !download
+        && attachment.mime.startsWith("video/")
+        && reqUrl.searchParams.get("quality") === "low"
+        && variant === "original";
+      await streamFile(req, res, selectedPath, {
+        mime: selectedMime,
+        filename: selectedFilename,
+        disposition: download || !attachment.mime.startsWith("video/") ? "attachment" : "inline",
+        cacheHeaders: lowFallback
+          ? { "Cache-Control": "no-store" }
+          : {
+              "Cache-Control": "public, max-age=31536000, immutable",
+              ETag: `"${attachment.sha256}-${variant}-${selectedStat.size}"`,
+            },
       });
-      res.end(content);
       return;
     }
 
@@ -4777,14 +4817,16 @@ export async function handleApiRequest(
       return json(res, withActivityReceipt({ workItem: updated }, activityReceiptId));
     }
 
-    // POST /api/work-items/:id/approval — approval DECISION surface.
+    // POST /api/work-items/:id/approvals/decide — approval DECISION surface.
+    // The singular /approval route remains as a compatibility alias.
     // COO-default: routed manager or root/COO can decide through the same
     // identity/capability seam MCP uses; operator/aCEO HTTP can decide only after
     // explicit escalation persisted on the Todo.
     // {decision:"approve"|"reject", note?}. Native decisions apply the FIXED
     // consequence rules (approve+in_review → done; reject+in_review → bounce/escalate;
     // otherwise the decision is recorded, status untouched).
-    params = matchRoute("/api/work-items/:id/approval", pathname);
+    params = matchRoute("/api/work-items/:id/approvals/decide", pathname)
+      ?? matchRoute("/api/work-items/:id/approval", pathname);
     if (method === "POST" && params) {
       const parsed = await readJsonBody(req, res);
       if (!parsed.ok) return;
@@ -6565,30 +6607,23 @@ export async function handleApiRequest(
     // ── STT (Speech-to-Text) ──────────────────────────────────
     if (method === "GET" && pathname === "/api/stt/status") {
       const config = context.getConfig();
-      const languages = resolveLanguages(config.stt);
-      const status = getSttStatus(config.stt?.model, languages);
+      const settings = getEffectiveSttSettings(config.stt, STT_SETTINGS_FILE, logger.warn);
+      const status = getSttStatus(settings.model, settings.languages);
       return json(res, status);
     }
 
     if (method === "POST" && pathname === "/api/stt/download") {
       const config = context.getConfig();
-      const model = config.stt?.model || "small";
+      const settings = getEffectiveSttSettings(config.stt, STT_SETTINGS_FILE, logger.warn);
+      const model = settings.model;
 
       downloadModel(model, (progress) => {
         context.emit("stt:download:progress", { progress });
       }).then(() => {
-        // Update config to mark STT as enabled
         try {
-          const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-          const cfg = yaml.load(raw) as Record<string, unknown>;
-          if (!cfg.stt || typeof cfg.stt !== "object") cfg.stt = {};
-          const sttCfg = cfg.stt as Record<string, unknown>;
-          sttCfg.enabled = true;
-          sttCfg.model = model;
-          if (!sttCfg.languages) sttCfg.languages = ["en"];
-          saveConfigAtomic(cfg, { lineWidth: -1 });
+          writeSharedSttSettings(STT_SETTINGS_FILE, { ...settings, enabled: true, model });
         } catch (err) {
-          logger.error(`Failed to update config after STT download: ${err}`);
+          logger.error(`Failed to update shared STT settings after download: ${err}`);
         }
         context.emit("stt:download:complete", { model });
       }).catch((err) => {
@@ -6602,8 +6637,9 @@ export async function handleApiRequest(
 
     if (method === "POST" && pathname === "/api/stt/transcribe") {
       const config = context.getConfig();
-      const model = config.stt?.model || "small";
-      const languages = resolveLanguages(config.stt);
+      const settings = getEffectiveSttSettings(config.stt, STT_SETTINGS_FILE, logger.warn);
+      const model = settings.model;
+      const languages = settings.languages;
       // Accept language from query param, fall back to first configured language
       const requestedLang = url.searchParams.get("language");
       const language = requestedLang && languages.includes(requestedLang) ? requestedLang : languages[0];
@@ -6651,14 +6687,9 @@ export async function handleApiRequest(
       }
 
       try {
-        const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-        const cfg = yaml.load(raw) as Record<string, unknown>;
-        if (!cfg.stt || typeof cfg.stt !== "object") cfg.stt = {};
-        const sttCfg = cfg.stt as Record<string, unknown>;
-        sttCfg.languages = langs;
-        // Remove deprecated language field if present
-        delete sttCfg.language;
-        saveConfigAtomic(cfg, { lineWidth: -1 });
+        const config = context.getConfig();
+        const settings = getEffectiveSttSettings(config.stt, STT_SETTINGS_FILE, logger.warn);
+        writeSharedSttSettings(STT_SETTINGS_FILE, { ...settings, languages: langs });
         return json(res, { status: "ok", languages: langs });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
