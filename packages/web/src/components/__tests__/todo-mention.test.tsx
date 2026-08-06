@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { fireEvent, render, screen } from "@testing-library/react"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemOpenDetailWire } from "@/lib/api"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { formatMessage } from "@/components/chat/chat-messages"
+import { PeekProvider, usePeekStack, type PeekEntry } from "@/components/peek/peek-stack"
 import { forgetTodoPreview } from "@/lib/todo-preview"
 
 const getWorkItems = vi.fn()
@@ -128,5 +129,73 @@ describe("TodoMention preview batching", () => {
 
     expect(getWorkItems).toHaveBeenCalledTimes(2)
     expect(getWorkItems.mock.calls[1][0]).toEqual(["ICI-5001"])
+  })
+})
+
+/** Reports where the router went, so a click that navigates is distinguishable
+ *  from one the panel intercepted. */
+function Location() {
+  return <span data-testid="path">{useLocation().pathname}</span>
+}
+
+/** Reports the stack the mention pushed into, without mounting the panel. */
+function Stack() {
+  const opened = usePeekStack()?.entries ?? []
+  return <span data-testid="stack">{opened.map((entry: PeekEntry) => entry.id).join(",")}</span>
+}
+
+async function renderMention(withProvider: boolean) {
+  const message = (
+    <TodoPrefixContext.Provider value={LIVE_PREFIXES}>
+      <div data-testid="message">{formatMessage("Open ICI-7001")}</div>
+      <Location />
+      <Stack />
+    </TodoPrefixContext.Provider>
+  )
+  const view = render(
+    <MemoryRouter initialEntries={["/chat"]}>
+      <Routes>
+        <Route path="*" element={withProvider ? <PeekProvider>{message}</PeekProvider> : message} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  return view
+}
+
+describe("TodoMention click", () => {
+  it("opens the panel instead of navigating on a plain left click", async () => {
+    await renderMention(true)
+
+    fireEvent.click(screen.getByRole("link", { name: "ICI-7001" }), { button: 0 })
+
+    expect(screen.getByTestId("stack").textContent).toBe("ICI-7001")
+    expect(screen.getByTestId("path").textContent).toBe("/chat")
+  })
+
+  it.each([
+    ["metaKey", { metaKey: true }],
+    ["ctrlKey", { ctrlKey: true }],
+    ["shiftKey", { shiftKey: true }],
+    ["the middle button", { button: 1 }],
+  ])("leaves %s to the browser rather than opening the panel", async (_name, modifier) => {
+    await renderMention(true)
+    const link = screen.getByRole("link", { name: "ICI-7001" })
+
+    // Nothing calls preventDefault, so the browser performs its own navigation
+    // (new tab / new window) exactly as it did before the panel existed.
+    const notPrevented = fireEvent.click(link, modifier)
+
+    expect(notPrevented).toBe(true)
+    expect(screen.getByTestId("stack").textContent).toBe("")
+    expect(link.getAttribute("href")).toBe("/todos/ICI-7001")
+  })
+
+  it("navigates on a surface that mounted no provider", async () => {
+    await renderMention(false)
+
+    fireEvent.click(screen.getByRole("link", { name: "ICI-7001" }), { button: 0 })
+
+    expect(screen.getByTestId("path").textContent).toBe("/todos/ICI-7001")
   })
 })
