@@ -639,6 +639,12 @@ describe('schema-level cross-field invariants', () => {
     expectDefinitionRejected(definition({ ui: { positions: { start: { x: 0 } as { x: number; y: number } } } }));
   });
 
+  it('carries a manual layout marker and rejects any other provenance value', () => {
+    const marked = definition({ ui: { positions: { start: { x: 0, y: 0 } }, layout: 'manual' } });
+    expect(workflowDefinitionSchema.parse(marked).ui).toEqual({ positions: { start: { x: 0, y: 0 } }, layout: 'manual' });
+    expectDefinitionRejected(definition({ ui: { positions: {}, layout: 'auto' as 'manual' } }));
+  });
+
   it('requires UI position keys to use node ID grammar', () => {
     for (const key of ['node_1', 'node-2']) {
       expect(workflowDefinitionSchema.safeParse(definition({ ui: { positions: { [key]: { x: 0, y: 0 } } } })).success, key).toBe(true);

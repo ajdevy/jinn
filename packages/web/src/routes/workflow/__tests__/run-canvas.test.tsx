@@ -31,7 +31,10 @@ vi.mock("@/components/page-layout", () => ({
 }))
 vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
+import { toFlowEdges, toFlowNodes } from "../editor/graph"
+import { tidyLayout } from "../editor/layout"
 import WorkflowRunPage from "../run"
+import { AGENT_WRITTEN } from "./fixtures/specimen"
 
 const nodes = [
   { id: "trigger", type: "trigger", name: "Kickoff", config: { kind: "manual" } },
@@ -110,6 +113,14 @@ const runChanged = (c: QueryClient) => c.invalidateQueries({ queryKey: queryKeys
 function statusOf(name: string): string | null {
   const card = screen.getByText(name).closest("[data-node-status]")
   return card?.getAttribute("data-node-status") ?? null
+}
+
+/** Where the canvas actually placed a card, read off React Flow's transform. */
+function positionOf(name: string): { x: number; y: number } {
+  const wrapper = screen.getByText(name).closest(".react-flow__node") as HTMLElement | null
+  const matched = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(wrapper?.style.transform ?? "")
+  if (!matched) throw new Error(`node "${name}" is not placed on the canvas`)
+  return { x: Number(matched[1]), y: Number(matched[2]) }
 }
 
 beforeEach(() => {
@@ -395,6 +406,58 @@ describe("workflow run canvas", () => {
     expect(await inspector.findByText(/Retried prompt\./, {}, { timeout: 6000 })).toBeTruthy()
     expect(getWorkflowRunFull).toHaveBeenCalledTimes(2)
   }, 10000)
+
+  it("lays out a definition whose positions were written by an agent, not arranged by hand", async () => {
+    serveRun(baseDetail({ nodeRuns: [nodeRun("trigger", "completed")] }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    // The stored y is 0 for every node, so a tidied graph must move the branches off it.
+    expect(positionOf("Quality gate")).not.toEqual(positions.route)
+    expect(positionOf("Writer").x).toBeGreaterThan(positionOf("Kickoff").x)
+    expect(positionOf("Done").x).toBeGreaterThan(positionOf("Publish gate").x)
+  })
+
+  it("paints the 23-node specimen on tidyLayout's placement, not its agent-written one", async () => {
+    serveRun(baseDetail({
+      definition: { nodes: AGENT_WRITTEN.nodes, edges: AGENT_WRITTEN.edges, ui: AGENT_WRITTEN.ui },
+      nodeRuns: [],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Item arrives")).toBeTruthy()
+    const tidied = tidyLayout(toFlowNodes(AGENT_WRITTEN), toFlowEdges(AGENT_WRITTEN))
+    expect(tidied).toHaveLength(23)
+    const painted = Object.fromEntries(tidied.map((node) => [node.id, positionOf(node.data.node.name)]))
+    expect(painted).toEqual(Object.fromEntries(tidied.map((node) => [node.id, node.position])))
+    expect(painted).not.toEqual(AGENT_WRITTEN.ui.positions)
+  }, 10000)
+
+  it("keeps a hand-arranged definition on its exact stored coordinates", async () => {
+    serveRun(baseDetail({
+      definition: { nodes, edges, ui: { positions, layout: "manual" } },
+      nodeRuns: [nodeRun("trigger", "completed")],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    expect(positionOf("Kickoff")).toEqual(positions.trigger)
+    expect(positionOf("Quality gate")).toEqual(positions.route)
+    expect(positionOf("Done")).toEqual(positions.finish)
+  })
+
+  it("re-tidies a hand-arranged definition once a node arrives without a position", async () => {
+    const { finish: _finish, ...partial } = positions
+    serveRun(baseDetail({
+      definition: { nodes, edges, ui: { positions: partial, layout: "manual" } },
+      nodeRuns: [nodeRun("trigger", "completed")],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    expect(positionOf("Done")).not.toEqual({ x: 0, y: 0 })
+    expect(positionOf("Done").x).toBeGreaterThan(positionOf("Publish gate").x)
+  })
 
   it("renders the run header without any editing affordances", async () => {
     serveRun(baseDetail({

@@ -6,10 +6,10 @@ import {
   allocateEdgeId,
   allocateNodeId,
   createWorkflowNode,
-  hasStoredPositions,
   toEditorMeta,
   toFlowEdges,
   toFlowNodes,
+  usesManualLayout,
   type EditorEdge,
   type EditorMeta,
   type EditorNode,
@@ -65,9 +65,10 @@ function updateNode(nodes: EditorNode[], nodeId: string, patch: (node: WorkflowN
 function initialGraph(definition: WorkflowDefinitionV2Wire): { nodes: EditorNode[]; edges: EditorEdge[] } {
   const nodes = toFlowNodes(definition)
   const edges = toFlowEdges(definition)
-  // Imported drafts carry no positions — lay them out once, in memory; the
-  // layout persists with the first real edit.
-  return { nodes: hasStoredPositions(definition) ? nodes : tidyLayout(nodes, edges), edges }
+  // Anything not arranged by hand — an import, or a definition an agent
+  // authored through the API — is laid out once, in memory; the layout persists
+  // with the first real edit.
+  return { nodes: usesManualLayout(definition) ? nodes : tidyLayout(nodes, edges), edges }
 }
 
 export function createEditorStore(definition: WorkflowDefinitionV2Wire) {

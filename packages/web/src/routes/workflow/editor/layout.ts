@@ -36,7 +36,7 @@ export function freeCenter(
 export function tidyLayout(nodes: EditorNode[], edges: EditorEdge[]): EditorNode[] {
   if (nodes.length === 0) return nodes
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
-  graph.setGraph({ rankdir: "LR", nodesep: 46, ranksep: 96, marginx: 40, marginy: 40 })
+  graph.setGraph({ rankdir: "LR", nodesep: 64, ranksep: 120, marginx: 40, marginy: 40 })
   for (const node of nodes) {
     const box = nodeBox(node.data.node)
     graph.setNode(node.id, { width: box.width, height: box.height })

@@ -5,9 +5,9 @@ import { Maximize, Minus, Plus } from "lucide-react"
 import type { WorkflowAttemptV2Wire, WorkflowNodeRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
 import { editorEdgeTypes } from "./editor/edge"
 import {
-  hasStoredPositions,
   toFlowEdges,
   toFlowNodes,
+  usesManualLayout,
   type EditorEdge,
   type EditorNode,
 } from "./editor/graph"
@@ -48,7 +48,7 @@ function buildGraph(
 
   const base = toFlowNodes(detail.definition)
   const edges = toFlowEdges(detail.definition)
-  const placed = hasStoredPositions(detail.definition) ? base : tidyLayout(base, edges)
+  const placed = usesManualLayout(detail.definition) ? base : tidyLayout(base, edges)
   const live = isLiveRunStatus(detail.status)
 
   return {

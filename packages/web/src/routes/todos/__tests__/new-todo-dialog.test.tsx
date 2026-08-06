@@ -102,7 +102,10 @@ describe("NewTodoDialog", () => {
     }))
     expect(assignWorkItem).toHaveBeenCalledWith("PLA-9", "mason")
     expect(createWorkItem.mock.invocationCallOrder[0]).toBeLessThan(assignWorkItem.mock.invocationCallOrder[0])
-  })
+    // Fifteen keyboard-and-pointer round trips through userEvent's real timers.
+    // The default 5s budget is enough on an idle machine and not on a loaded
+    // one, and a timeout here leaves in-flight typing to land in the next test.
+  }, 20000)
 
   it("creates more, clears the form and returns focus to the title", async () => {
     const user = userEvent.setup()

@@ -303,6 +303,9 @@ const workflowInputFieldSchema = z.strictObject({
 });
 const workflowUiSchema = z.strictObject({
   positions: z.record(nodeIdSchema, z.strictObject({ x: finiteNumberSchema, y: finiteNumberSchema })),
+  /** Set only by the editor, when a person arranged the canvas. Positions
+   *  authored any other way are a guess, so absence means "lay this out". */
+  layout: z.literal('manual').optional(),
 });
 const graphShape = {
   inputs: z.array(workflowInputFieldSchema).optional(),
