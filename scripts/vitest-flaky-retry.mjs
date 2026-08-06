@@ -86,8 +86,7 @@ function passedTestNames(suite) {
 /**
  * A file counts as flaky only if the whole retried suite reports PASSED. A suite
  * that failed again is a repeatable failure even when some of its assertions
- * passed this time, and calling that flaky invites someone to read a genuine red
- * as noise.
+ * passed this time, and badging it FLAKY is how a genuine red gets read as noise.
  *
  * Within a still-failing file, only an assertion the retry reports PASSED drops
  * off the list. Anything else — still failed, skipped by a hook throw, absent

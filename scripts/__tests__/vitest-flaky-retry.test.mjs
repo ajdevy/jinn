@@ -31,6 +31,12 @@ function fixtureReport(name) {
   return JSON.parse(fixture(name))
 }
 
+/** One failed suite in `file`, its assertions given as `[name, status]` pairs. */
+function failedSuiteReport(packageDir, file, message, assertions) {
+  const assertionResults = assertions.map(([fullName, status]) => ({ fullName, status }))
+  return { testResults: [{ name: `${packageDir}/${file}`, status: "failed", message, assertionResults }] }
+}
+
 test("outside CI the args are a bare vitest run with the passthrough", () => {
   const args = buildVitestArgs({ passthrough: ["--maxWorkers=2", "--testTimeout=30000"] })
 
@@ -119,30 +125,13 @@ test("a failure that repeats on the rerun is still failing and is never called f
 })
 
 test("a file whose retry suite still failed is never flaky, even when one test recovered", () => {
-  const suite = (assertions) => ({
-    name: `${FIXTURE_PACKAGE_DIR}/src/mixed.test.ts`,
-    status: "failed",
-    message: "",
-    assertionResults: assertions,
-  })
-  const first = {
-    testResults: [
-      suite([
-        { fullName: "recovers", status: "failed" },
-        { fullName: "always broken", status: "failed" },
-      ]),
-    ],
-  }
-  const retry = {
-    testResults: [
-      suite([
-        { fullName: "recovers", status: "passed" },
-        { fullName: "always broken", status: "failed" },
-      ]),
-    ],
-  }
+  const run = (recovers) =>
+    failedSuiteReport(FIXTURE_PACKAGE_DIR, "src/mixed.test.ts", "", [
+      ["recovers", recovers],
+      ["always broken", "failed"],
+    ])
 
-  const { flaky, stillFailing } = diffRuns(first, retry, FIXTURE_PACKAGE_DIR)
+  const { flaky, stillFailing } = diffRuns(run("failed"), run("passed"), FIXTURE_PACKAGE_DIR)
 
   assert.deepEqual(flaky, [])
   assert.deepEqual(stillFailing, [
@@ -152,28 +141,14 @@ test("a file whose retry suite still failed is never flaky, even when one test r
 })
 
 test("a test the rerun merely skipped is not treated as recovered", () => {
-  const first = {
-    testResults: [
-      {
-        name: `${FIXTURE_PACKAGE_DIR}/src/hookfail.test.ts`,
-        status: "failed",
-        message: "",
-        assertionResults: [{ fullName: "sometimes runs", status: "failed" }],
-      },
-    ],
-  }
-  const retry = {
-    testResults: [
-      {
-        name: `${FIXTURE_PACKAGE_DIR}/src/hookfail.test.ts`,
-        status: "failed",
-        message: "boom in hook",
-        assertionResults: [{ fullName: "sometimes runs", status: "skipped" }],
-      },
-    ],
-  }
+  const hookFail = (message, status) =>
+    failedSuiteReport(FIXTURE_PACKAGE_DIR, "src/hookfail.test.ts", message, [["sometimes runs", status]])
 
-  const { flaky, stillFailing } = diffRuns(first, retry, FIXTURE_PACKAGE_DIR)
+  const { flaky, stillFailing } = diffRuns(
+    hookFail("", "failed"),
+    hookFail("boom in hook", "skipped"),
+    FIXTURE_PACKAGE_DIR,
+  )
 
   assert.deepEqual(flaky, [])
   assert.deepEqual(stillFailing[0].tests, ["sometimes runs"])
@@ -274,19 +249,12 @@ function retryOnceThenPass(pkgDir) {
 
 /** Both runs fail the suite; only the second one gets one of its two assertions to pass. */
 function retryRecoversOneAssertion(pkgDir) {
-  const suite = (recoversStatus) => ({
-    name: `${pkgDir.replaceAll("\\", "/")}/src/mixed.test.ts`,
-    status: "failed",
-    message: "one assertion still fails",
-    assertionResults: [
-      { fullName: "recovers", status: recoversStatus },
-      { fullName: "always broken", status: "failed" },
-    ],
-  })
-  return [
-    { exit: 1, report: JSON.stringify({ testResults: [suite("failed")] }) },
-    { exit: 1, report: JSON.stringify({ testResults: [suite("passed")] }) },
-  ]
+  const run = (recovers) =>
+    failedSuiteReport(pkgDir.replaceAll("\\", "/"), "src/mixed.test.ts", "one assertion still fails", [
+      ["recovers", recovers],
+      ["always broken", "failed"],
+    ])
+  return ["failed", "passed"].map((recovers) => ({ exit: 1, report: JSON.stringify(run(recovers)) }))
 }
 
 function runWrapper({ pkgDir, planPath, logPath, summaryPath }, extraEnv) {
