@@ -388,6 +388,20 @@ describe("attachments + activity", () => {
     await waitFor(() => expect(uploadWorkItemAttachment).toHaveBeenCalledWith("PLA-12", file))
   })
 
+  it("fetches the thumbnail variant for an image tile and the full original for the lightbox", async () => {
+    getWorkItem.mockResolvedValue(detailOf(full("PLA-12")))
+    listWorkItemAttachments.mockResolvedValue({ attachments: [imageAttachment("wia_shot", "shot.png")] })
+    renderTask()
+
+    const tile = await screen.findByTestId("attachment-tile-wia_shot")
+    expect((screen.getByAltText("shot.png") as HTMLImageElement).getAttribute("src"))
+      .toBe("/api/work-items/PLA-12/attachments/wia_shot?thumb=1")
+
+    fireEvent.click(tile)
+    expect(screen.getByTestId("attachment-lightbox-image").getAttribute("src"))
+      .toBe("/api/work-items/PLA-12/attachments/wia_shot")
+  })
+
   it("navigates the item image gallery with wrapping arrow keys and buttons", async () => {
     const first = imageAttachment("wia_first", "first.png")
     const second = imageAttachment("wia_second", "second.png")

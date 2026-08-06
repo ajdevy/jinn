@@ -156,6 +156,7 @@ import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
 import { streamFile } from "./byte-range.js";
 import { ensureLowVariant, ensurePoster } from "./video-variants.js";
+import { ensureThumbnail, isThumbnailable } from "./image-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
@@ -4538,6 +4539,7 @@ export async function handleApiRequest(
       let selectedMime = attachment.mime;
       let selectedFilename = attachment.filename;
       let variant = "original";
+      const wantsThumbnail = !download && reqUrl.searchParams.get("thumb") === "1" && isThumbnailable(attachment.mime);
       if (!download && attachment.mime.startsWith("video/")) {
         const key = `todo:${attachment.sha256}`;
         if (reqUrl.searchParams.get("poster") === "1") {
@@ -4555,17 +4557,26 @@ export async function handleApiRequest(
             variant = "low";
           }
         }
+      } else if (wantsThumbnail) {
+        const thumbnail = await ensureThumbnail(attachment.storagePath, `todo:${attachment.sha256}`);
+        if (thumbnail) {
+          selectedPath = thumbnail;
+          selectedMime = "image/webp";
+          selectedFilename = `${path.parse(attachment.filename).name}-thumb.webp`;
+          variant = "thumb";
+        }
       }
       const selectedStat = fs.statSync(selectedPath);
-      const lowFallback = !download
-        && attachment.mime.startsWith("video/")
-        && reqUrl.searchParams.get("quality") === "low"
-        && variant === "original";
+      // A variant that could not be produced this time falls back to the original,
+      // and that fallback must not be cached for a year under an immutable ETag.
+      const variantFallback = variant === "original"
+        && (wantsThumbnail
+          || (!download && attachment.mime.startsWith("video/") && reqUrl.searchParams.get("quality") === "low"));
       await streamFile(req, res, selectedPath, {
         mime: selectedMime,
         filename: selectedFilename,
         disposition: download || !attachment.mime.startsWith("video/") ? "attachment" : "inline",
-        cacheHeaders: lowFallback
+        cacheHeaders: variantFallback
           ? { "Cache-Control": "no-store" }
           : {
               "Cache-Control": "public, max-age=31536000, immutable",

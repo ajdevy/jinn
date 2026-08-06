@@ -117,6 +117,7 @@ export const TEMPLATE_DIR = path.join(__dirname, "..", "..", "..", "template");
 export const FILES_DIR = path.join(JINN_HOME, "files");
 export const ATTACHMENTS_DIR = path.join(JINN_HOME, "attachments");
 export const VIDEO_CACHE_DIR = path.join(JINN_HOME, "cache", "video");
+export const IMAGE_CACHE_DIR = path.join(JINN_HOME, "cache", "image");
 /** Date-bucketed storage for files attached to / emitted by sessions. */
 export const UPLOADS_DIR = path.join(JINN_HOME, "uploads");
 export const TEMPLATE_MIGRATIONS_DIR = path.join(TEMPLATE_DIR, "migrations");

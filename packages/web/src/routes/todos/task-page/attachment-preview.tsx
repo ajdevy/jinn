@@ -112,7 +112,7 @@ export function AttachmentTile({
           </span>
         ) : (
           <img
-            src={video ? `${url}?poster=1` : url}
+            src={video ? `${url}?poster=1` : `${url}?thumb=1`}
             alt={video ? `${attachment.filename} preview` : attachment.filename}
             loading="lazy"
             decoding="async"

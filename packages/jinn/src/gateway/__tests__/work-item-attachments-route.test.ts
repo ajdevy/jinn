@@ -7,6 +7,7 @@ import { Readable, Writable } from "node:stream";
 import type { ServerResponse } from "node:http";
 import { ensureSessionCapability } from "../../mcp/identity.js";
 import { CALLER_SESSION_CAPABILITY_HEADER, CALLER_SESSION_HEADER, TOOL_CALL_HEADER, TOOL_CALL_HEADER_VALUE } from "../../mcp/identity.js";
+import { photoBuffer } from "./image-fixture.js";
 
 /**
  * Route-level tests for Todos v2 slice 5: attachment upload (multipart + JSON
@@ -444,6 +445,59 @@ describe("GET /api/work-items/:id/attachments/:aid (download)", () => {
     const download = await call("GET", `${url}?quality=low&download=1`, undefined, operatorHeaders);
     expect(download.headers["Content-Disposition"]).toBe('attachment; filename="quality.mp4"');
     expect(download.raw).toEqual(original);
+  });
+
+  it("serves a much smaller image thumbnail while the plain and download URLs keep the original", async () => {
+    const original = await photoBuffer();
+    const source = path.join(tmp, "thumbnail-photo.jpg");
+    fs.writeFileSync(source, original);
+
+    const item = store.createWorkItem({ title: "thumbnail" });
+    const posted = await call("POST", `/api/work-items/${item.id}/attachments`, { path: source }, operatorHeaders);
+    const attachment = posted.body.attachment;
+    const url = `/api/work-items/${item.id}/attachments/${attachment.id}`;
+
+    const thumb = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
+    expect(thumb.status).toBe(200);
+    expect(thumb.headers["Content-Type"]).toBe("image/webp");
+    expect(thumb.raw.length).toBeLessThan(original.length * 0.1);
+    expect(thumb.headers["Cache-Control"]).toBe("public, max-age=31536000, immutable");
+    expect(String(thumb.headers["ETag"])).toContain("-thumb-");
+
+    // Hashes, not toEqual: a deep-equal over two megabyte Buffers costs seconds.
+    const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    const plain = await call("GET", url, undefined, operatorHeaders);
+    expect(digest(plain.raw)).toBe(attachment.sha256);
+    const download = await call("GET", `${url}?thumb=1&download=1`, undefined, operatorHeaders);
+    expect(digest(download.raw)).toBe(attachment.sha256);
+    expect(download.headers["Content-Disposition"]).toBe('attachment; filename="thumbnail-photo.jpg"');
+  });
+
+  it("returns the original uncached when an image thumbnail cannot be generated", async () => {
+    const item = store.createWorkItem({ title: "thumbnail fallback" });
+    const original = Buffer.from("not really a PNG");
+    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "broken.png", content: original } }, operatorHeaders);
+    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
+
+    for (const attempt of [1, 2]) {
+      const got = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
+      expect(got.status, `attempt ${attempt}`).toBe(200);
+      expect(got.raw).toEqual(original);
+      expect(got.headers["Cache-Control"]).toBe("no-store");
+    }
+  });
+
+  it("never rasterises an SVG asked for as a thumbnail", async () => {
+    const item = store.createWorkItem({ title: "vector thumbnail" });
+    const original = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"></svg>');
+    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "logo.svg", content: original } }, operatorHeaders);
+    expect(posted.body.attachment.mime).toBe("image/svg+xml");
+    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
+
+    const got = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
+    expect(got.status).toBe(200);
+    expect(got.raw).toEqual(original);
+    expect(got.headers["Content-Type"]).toBe("image/svg+xml");
   });
 
   it("rejects a stored size mismatch loudly", async () => {
