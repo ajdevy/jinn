@@ -23,6 +23,7 @@
     "build": "node scripts/build.mjs",
     "dev": "tsc && (tsc --watch &) && node --watch-path=dist dist/bin/jinn.js start",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "pnpm build && node --test scripts/gateway-events-artifact.test.mjs && vitest run --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000",
     "coverage": "vitest run --coverage",
     "test:watch": "vitest",

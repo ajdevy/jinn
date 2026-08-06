@@ -36,6 +36,48 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+      # ESLint's core rules carry fixed messages that a config cannot override,
+      # so the remediation lives here — the one place a contributor reading a red
+      # run is already looking.
+      - name: How to clear these
+        if: failure()
+        run: |
+          cat <<'EOF'
+          The lint floor is six rules, all errors. Change the code, not the config.
+
+            complexity, max-lines-per-function
+              Split the function at its seams into named helpers, and give the
+              branchy part its own function with an early return per case.
+            max-depth
+              Hoist the nested loop or condition into a helper so the body reads flat.
+            max-params
+              Group the related parameters into one options object.
+            @typescript-eslint/no-floating-promises
+              Await the promise, or hand it to `void` when the result is genuinely
+              not wanted.
+            @typescript-eslint/no-unused-vars
+              Remove the binding. If a signature forces it to exist, rename it with
+              a leading underscore.
+
+          Inline eslint-disable comments for these six are rejected, so
+          eslint-baseline.json is the only suppression channel. It grandfathers code
+          that predates the floor and is meant to shrink: run
+          `node scripts/eslint-baseline.mjs` after a fix removes an entry, never to
+          add one for new code.
+          EOF
+
   unit-tests:
     name: unit-tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

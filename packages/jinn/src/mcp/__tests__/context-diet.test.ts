@@ -100,7 +100,6 @@ function syntheticOrg(): Map<string, Employee> {
   return registry;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const config: any = {
   gateway: { port: 7777 },
   engines: { default: "codex" },
@@ -233,7 +232,6 @@ describe("the measured context diet", () => {
         commsSurface_cooSavingMinusOrgAndSessionGroups: cooBefore - cooAfter - schemaTokens([...ORG_GROUP, ...SESSION_GROUP]),
       },
     };
-    // eslint-disable-next-line no-console
     console.log(`GRS-017b-DIET-MEASUREMENT ${JSON.stringify(measurement, null, 2)}`);
     expect(measurement.ledgers.sliceGate_cooSavingMinusNewTools).toBeGreaterThan(0);
     expect(measurement.ledgers.costCronCheckpoint_cooSavingMinusCostCronSchemas).toBeGreaterThan(0);

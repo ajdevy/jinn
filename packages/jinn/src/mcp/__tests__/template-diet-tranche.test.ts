@@ -60,7 +60,6 @@ describe("the GRS-017e template diet tranche (MCP-first realized)", () => {
       honestReading:
         "the child-session protocol lives in its owning skill as a compact MCP tool protocol, not a raw HTTP fallback block.",
     };
-    // eslint-disable-next-line no-console
     console.log(`GRS-017e-DIET-TRANCHE ${JSON.stringify(ledger, null, 2)}`);
 
     expect(remainingSideDoors).toEqual([]);
