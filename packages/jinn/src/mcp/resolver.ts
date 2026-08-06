@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { McpGlobalConfig, McpServerConfig, McpServerStdioConfig, McpServerUrlConfig, Employee, ResolvedMcpConfig } from "../shared/types.js";
 import { JINN_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
+import { resolveEnvVar } from "../shared/env-ref.js";
 import { wrapServersWithScrub } from "./env-scrub.js";
 import { decideJinnAttachment } from "./attachment.js";
 
@@ -270,19 +271,3 @@ export function sweepOrphanMcpConfigFiles(liveSessionIds: string[]): number {
   return removed;
 }
 
-/**
- * Resolve a value that may reference an environment variable.
- * Supports ${VAR_NAME} syntax.
- */
-function resolveEnvVar(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const match = value.match(/^\$\{(.+)\}$/);
-  if (match) {
-    return process.env[match[1]] || undefined;
-  }
-  // Also check if the raw value is a plain env var name
-  if (value.startsWith("$")) {
-    return process.env[value.slice(1)] || undefined;
-  }
-  return value;
-}
