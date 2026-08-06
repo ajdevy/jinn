@@ -213,6 +213,23 @@ describe("Wait todo-comment mode", () => {
     expect(settled.nodeRuns.find((item) => item.nodeId === "finish")).toMatchObject({ status: "completed" });
   });
 
+  it("times out rather than answering from a comment posted past the deadline", async () => {
+    // The deadline is real even while nobody is listening: a restart that finds
+    // both an expired park and a late comment must still time the node out.
+    const definition = saveWaitDefinition("late-comment-flow");
+    const todoId = todo("Shape the intake");
+    const run = await service.startManual({ workflowId: definition.id, input: {}, todoId });
+
+    service.dispose();
+    advanceTo("2026-07-21T13:01:00.000Z");
+    comments.addComment({ workItemId: todoId, body: "Too late.", author: "operator", authorKind: "operator" });
+
+    service = buildService();
+    await service.recover(now);
+
+    expect(nodeOf(definition.id, run.id).output?.fields).toEqual({ outcome: "timeout" });
+  });
+
   it("recovers a run parked across a restart and stays idempotent", async () => {
     const definition = saveWaitDefinition("restart-flow");
     const todoId = todo("Shape the intake");
@@ -276,7 +293,8 @@ describe("firstOperatorCommentAfter", () => {
     advanceTo("2026-07-22T09:03:00.000Z");
     comments.addComment({ workItemId: todoId, body: "A later one.", author: "operator", authorKind: "operator" });
 
-    expect(comments.firstOperatorCommentAfter(todoId, watermark)).toMatchObject({ id: wanted.id, body: "The real answer." });
+    expect(comments.firstOperatorCommentAfter(todoId, watermark, "2026-07-22T09:30:00.000Z"))
+      .toMatchObject({ id: wanted.id, body: "The real answer." });
   });
 
   it("returns undefined when the Todo has no qualifying comment", () => {
@@ -286,6 +304,21 @@ describe("firstOperatorCommentAfter", () => {
     advanceTo("2026-07-22T10:01:00.000Z");
     comments.addComment({ workItemId: todoId, body: "Employee only.", author: "jinn-dev", authorKind: "employee" });
 
-    expect(comments.firstOperatorCommentAfter(todoId, watermark)).toBeUndefined();
+    expect(comments.firstOperatorCommentAfter(todoId, watermark, "2026-07-22T10:30:00.000Z")).toBeUndefined();
+  });
+
+  it("excludes a comment written on or after the deadline", () => {
+    advanceTo("2026-07-22T11:00:00.000Z");
+    const todoId = todo("Deadline fixture");
+    const watermark = now;
+    const deadline = "2026-07-22T11:05:00.000Z";
+
+    advanceTo(deadline);
+    // The deadline instant belongs to the timeout: the node stops waiting there.
+    comments.addComment({ workItemId: todoId, body: "On the deadline.", author: "operator", authorKind: "operator" });
+    advanceTo("2026-07-22T11:06:00.000Z");
+    comments.addComment({ workItemId: todoId, body: "After the deadline.", author: "operator", authorKind: "operator" });
+
+    expect(comments.firstOperatorCommentAfter(todoId, watermark, deadline)).toBeUndefined();
   });
 });

@@ -84,9 +84,9 @@ export class WorkflowServiceError extends Error {
 }
 export type WorkflowTranscript = Array<{ id: string; role: string; content: string; timestamp: number }>;
 /** The Todos side of a comment-wait: the earliest live operator comment on a
- *  Todo posted strictly after the given watermark. */
+ *  Todo written strictly inside the window between the park and its deadline. */
 export interface WorkflowTodoCommentFeed {
-  firstOperatorCommentAfter(todoId: string, after: string): { id: string; body: string; createdAt: string } | undefined;
+  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
 }
 export interface WorkflowServiceOptions {
   repository: WorkflowRepository;
@@ -448,9 +448,11 @@ export class WorkflowService {
     }
   }
 
-  /** Resume every run parked on a `todo-comment` Wait whose bound Todo has an
-   *  operator comment newer than the park. Runs before the due-wait sweep so a
-   *  reply that landed inside the window beats its own timeout. */
+  /** Resume every run parked on a `todo-comment` Wait whose bound Todo was
+   *  commented on by the operator between the park and the node's timeout
+   *  deadline. Runs before the due-wait sweep so a reply that landed inside that
+   *  window beats its own timeout, and is bounded by the deadline so a sweep
+   *  arriving after one cannot answer a park that had already expired. */
   private async resumeCommentWaits(now: string): Promise<number> {
     const feed = this.options.todoComments;
     if (!feed) return 0;
@@ -460,10 +462,10 @@ export class WorkflowService {
       const todoId = run.trigger.todoId;
       if (run.status !== "waiting" || !todoId) continue;
       for (const runtime of run.nodeRuns) {
-        if (runtime.status !== "waiting" || !runtime.startedAt) continue;
+        if (runtime.status !== "waiting" || !runtime.startedAt || !runtime.resumeAt) continue;
         const authored = run.definition.nodes.find((node) => node.id === runtime.nodeId);
         if (authored?.type !== "wait" || authored.config.mode !== "todo-comment") continue;
-        const comment = feed.firstOperatorCommentAfter(todoId, runtime.startedAt);
+        const comment = feed.firstOperatorCommentAfter(todoId, runtime.startedAt, runtime.resumeAt);
         if (comment && await this.runner.resumeCommentWait(run.workflowId, run.id, runtime.nodeId, comment, now)) resumed += 1;
       }
     }
