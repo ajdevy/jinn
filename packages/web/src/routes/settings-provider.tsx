@@ -29,6 +29,7 @@ interface SettingsContextValue {
   setEmojiOnly: (emojiOnly: boolean) => void
   setOperatorName: (name: string | null) => void
   setLanguage: (language: string) => void
+  setTalkOrb: (enabled: boolean) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
   getEmployeeDisplay: (employee: { name: string; emoji: string; id: string }) => EmployeeDisplay
@@ -36,7 +37,7 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue>({
-  settings: { accentColor: null, companyName: null, portalName: null, portalSubtitle: null, portalEmoji: null, portalIcon: null, iconBgHidden: false, emojiOnly: false, operatorName: null, language: "English", employeeOverrides: {} },
+  settings: { ...DEFAULTS },
   setAccentColor: () => {},
   setCompanyName: () => {},
   setPortalName: () => {},
@@ -47,6 +48,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setEmojiOnly: () => {},
   setOperatorName: () => {},
   setLanguage: () => {},
+  setTalkOrb: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
@@ -176,6 +178,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setTalkOrb = useCallback(
+    (enabled: boolean) => {
+      update((prev) => ({ ...prev, talkOrb: enabled }))
+    },
+    [update],
+  )
+
   const setEmployeeOverride = useCallback(
     (employeeId: string, override: EmployeeOverride) => {
       update((prev) => {
@@ -215,19 +224,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   )
 
   const resetAll = useCallback(() => {
-    update(() => ({
-      accentColor: null,
-      companyName: null,
-      portalName: null,
-      portalSubtitle: null,
-      portalEmoji: null,
-      portalIcon: null,
-      iconBgHidden: false,
-      emojiOnly: false,
-      operatorName: null,
-      language: "English",
-      employeeOverrides: {},
-    }))
+    update(() => ({ ...DEFAULTS }))
   }, [update])
 
   return (
@@ -244,6 +241,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setEmojiOnly,
         setOperatorName,
         setLanguage,
+        setTalkOrb,
         setEmployeeOverride,
         clearEmployeeOverride,
         getEmployeeDisplay,

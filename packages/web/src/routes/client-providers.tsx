@@ -10,6 +10,7 @@ import { EmojiFavicon } from '@/components/emoji-favicon'
 import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
 import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
+import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -27,6 +28,8 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                 <GatewayProvider>
                   <InstanceMigrationGate />
                   {children}
+                  {/* Above the router, so route changes never remount the orb. */}
+                  <TalkOrbOverlay />
                   <DocumentTitle />
                   <EmojiFavicon />
                   <QueryInvalidationBridge />

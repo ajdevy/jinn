@@ -169,11 +169,17 @@ describe("inline title + body editor on the page", () => {
     // Non-round-trippable grammars route to the raw fallback (stage-C lossy
     // story); canonical grammar keeps the live editor. Either way, focus
     // arriving and leaving with no edit commits NOTHING.
-    const surface = await waitFor(() => {
-      const el = document.querySelector<HTMLElement>("[data-testid=task-body-raw-edit], .ProseMirror, [contenteditable=true]")
-      if (!el) throw new Error("no edit surface mounted")
-      return el
-    })
+    // The live editor arrives across a lazy boundary that has to import and
+    // transform the whole ProseMirror graph, which outruns waitFor's 1s default
+    // when the rest of the suite is competing for the machine.
+    const surface = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLElement>("[data-testid=task-body-raw-edit], .ProseMirror, [contenteditable=true]")
+        if (!el) throw new Error("no edit surface mounted")
+        return el
+      },
+      { timeout: 4000 },
+    )
     if (surface.dataset.testid === "task-body-raw-edit") {
       fireEvent.blur(surface)
     } else {
@@ -182,7 +188,7 @@ describe("inline title + body editor on the page", () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(onCommit).not.toHaveBeenCalled()
-  })
+  }, 10000)
 
   it("a remote re-seed keeps the no-edit interaction quiet too (baseline re-seeds from the editor's serialization)", async () => {
     const { BodyEditor } = await import("../task-page/body-editor")

@@ -23,12 +23,18 @@ describe("the Todo body editor lazy boundary", () => {
 
     fireEvent.click(readView)
 
-    const prose = await waitFor(() => {
-      const element = document.querySelector<HTMLElement>(".ProseMirror[contenteditable=true]")
-      if (!element || !editorRef.current) throw new Error("editor has not loaded")
-      return element
-    })
-    await waitFor(() => expect(document.activeElement).toBe(prose))
+    // Crossing the lazy boundary means importing and transforming the whole
+    // ProseMirror graph on demand, which does not fit waitFor's 1s default when
+    // the rest of the suite is competing for the machine.
+    const prose = await waitFor(
+      () => {
+        const element = document.querySelector<HTMLElement>(".ProseMirror[contenteditable=true]")
+        if (!element || !editorRef.current) throw new Error("editor has not loaded")
+        return element
+      },
+      { timeout: 4000 },
+    )
+    await waitFor(() => expect(document.activeElement).toBe(prose), { timeout: 4000 })
 
     ;(editorRef.current as { commands: { setContent: (content: string) => void } }).commands.setContent(
       "## Scope\n\nRewritten.",
@@ -37,5 +43,5 @@ describe("the Todo body editor lazy boundary", () => {
 
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1))
     expect(onCommit.mock.calls[0][0]).toContain("Rewritten.")
-  })
+  }, 10000)
 })

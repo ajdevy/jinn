@@ -197,6 +197,14 @@
   --ribbon-bg: #232019;
   --sidebar-bg: #1C1A14;
   --sidebar-backdrop: blur(40px) saturate(160%);
+  /* Talk orb — a light body, not an object. Amber core drifting through violet;
+     the base gradient is opaque so the page never shows between the lobes. */
+  --orb-core: rgba(255,206,132,0.78);
+  --orb-base: rgba(56,32,80,0.90);
+  --orb-bloom: rgba(172,84,138,0.64);
+  --orb-lobe-a: rgba(255,182,88,0.84);
+  --orb-lobe-b: rgba(198,110,204,0.62);
+  --orb-lobe-c: rgba(120,110,222,0.54);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -257,6 +265,15 @@
   --ribbon-bg: #E4DFD0;
   --sidebar-bg: #ECE8DC;
   --sidebar-backdrop: blur(20px) saturate(150%);
+  /* Talk orb, light: honey pearl. Every lobe is pushed toward white rather than
+     shaded toward black — light --accent is already a dark brown, and shading it
+     down lands on khaki. */
+  --orb-core: rgba(255,242,208,0.92);
+  --orb-base: rgba(212,172,106,0.82);
+  --orb-bloom: rgba(238,202,134,0.88);
+  --orb-lobe-a: rgba(255,248,226,0.44);
+  --orb-lobe-b: rgba(255,234,244,0.36);
+  --orb-lobe-c: rgba(236,234,255,0.32);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;

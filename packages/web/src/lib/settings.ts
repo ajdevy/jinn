@@ -14,6 +14,8 @@ export interface JinnSettings {
   emojiOnly: boolean
   operatorName: string | null
   language: string
+  /** The floating Talk orb. Off until something is there for it to talk to. */
+  talkOrb: boolean
   employeeOverrides: Record<string, EmployeeOverride>
 }
 
@@ -28,6 +30,7 @@ export const DEFAULTS: JinnSettings = {
   emojiOnly: false,
   operatorName: null,
   language: "English",
+  talkOrb: false,
   employeeOverrides: {},
 }
 
