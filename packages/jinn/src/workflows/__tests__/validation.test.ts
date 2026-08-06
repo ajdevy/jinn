@@ -240,11 +240,35 @@ describe('canonical schema boundary', () => {
 });
 
 describe('triggers, End paths, and cycles', () => {
-  it.each([
-    ['zero', definition([employee('work'), end()], [edge('e1', 'work', 'end')])],
-    ['two', definition([trigger('first-trigger'), trigger('second-trigger'), end()], [edge('e1', 'first-trigger', 'end')])],
-  ])('requires exactly one Trigger for %s Trigger definitions', (_label, graph) => {
-    expect(codes(validateExecutableWorkflow(graph))).toContain('trigger-count');
+  it('requires at least one Trigger', () => {
+    const result = validateExecutableWorkflow(definition([employee('work'), end()], [edge('e1', 'work', 'end')]));
+    expect(result.issues).toContainEqual({ code: 'trigger-count', message: 'Workflow must contain at least one Trigger.' });
+  });
+
+  it('accepts one Todo trigger and one Workflow Call trigger when both reach an End', () => {
+    const graph = definition([
+      { id: 'todo-trigger', type: 'trigger', name: 'Todo', config: { kind: 'todo-status', status: 'in_review' } },
+      { id: 'call-trigger', type: 'trigger', name: 'Called', config: { kind: 'workflow-call' } },
+      end('todo-end'),
+      end('call-end'),
+    ], [edge('todo-finish', 'todo-trigger', 'todo-end'), edge('call-finish', 'call-trigger', 'call-end')]);
+
+    expect(validateExecutableWorkflow(graph)).toEqual({ ok: true, issues: [] });
+  });
+
+  it('reports a duplicate Trigger kind on the duplicate node', () => {
+    const graph = definition([
+      trigger('first-trigger'),
+      trigger('second-trigger'),
+      end('first-end'),
+      end('second-end'),
+    ], [edge('first-finish', 'first-trigger', 'first-end'), edge('second-finish', 'second-trigger', 'second-end')]);
+
+    expect(validateExecutableWorkflow(graph).issues).toContainEqual({
+      code: 'duplicate-trigger-kind',
+      message: 'Workflow must contain at most one manual Trigger.',
+      nodeId: 'second-trigger',
+    });
   });
 
   it('requires a directed Trigger-to-End path even when an End exists', () => {

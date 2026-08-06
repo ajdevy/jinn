@@ -91,8 +91,9 @@ class RecordingLifecycle implements WorkflowTodoLifecycle {
 }
 
 class RecordingMirror implements WorkflowTodoApprovalMirror {
+  readonly requests: Array<Parameters<WorkflowTodoApprovalMirror["request"]>[0]> = [];
   readonly parked: Array<{ todoId: string; nodeId: string; request: string; ref: string }> = [];
-  request(): void {}
+  request(input: Parameters<WorkflowTodoApprovalMirror["request"]>[0]): void { this.requests.push(input); }
   notifyParked(input: Parameters<WorkflowTodoApprovalMirror["notifyParked"]>[0]): void {
     this.parked.push({ todoId: input.todoId, nodeId: input.nodeId, request: input.request, ref: input.ref });
   }
@@ -173,6 +174,57 @@ afterEach(() => {
 });
 
 describe("a bound run reflects its own lifecycle onto its Todo", () => {
+  it("carries a lifted Todo id through prompts, approvals, decisions, and failures", async () => {
+    const child = save("called-todo-reflection", [
+      { id: "called", type: "trigger", name: "Called", config: { kind: "workflow-call" } },
+      { id: "work", type: "employee", name: "Work", config: {
+        employee: { source: "fixed", value: "worker" }, prompt: "Handle Todo {{ run.todoId }}.",
+      } },
+      { id: "gate", type: "approval", name: "Gate", config: { description: "Ship the result?" } },
+      { id: "done", type: "end", name: "Done", config: { result: "success" } },
+      { id: "stopped", type: "end", name: "Stopped", config: { result: "failure" } },
+    ], [
+      edge("called-work", "called", "success", "work"),
+      edge("work-gate", "work", "success", "gate"),
+      edge("gate-done", "gate", "approved", "done"),
+      edge("gate-stopped", "gate", "rejected", "stopped"),
+    ]);
+    const parent = save("todo-reflection-parent", [
+      { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+      { id: "children", type: "workflow-call", name: "Children", config: {
+        workflowId: { source: "fixed", value: child.id },
+        input: { todoId: { source: "fixed", value: "OPS-14" } },
+        concurrency: 1,
+      } },
+      { id: "done", type: "end", name: "Done", config: { result: "success" } },
+    ], [edge("start-children", "start", "success", "children"), edge("children-done", "children", "success", "done")]);
+
+    const parentRun = await service.startManual({ workflowId: parent.id, input: {} });
+    const childSummary = repository.listChildRuns(parentRun.id, "children")[0]!;
+    const childRun = service.getRun(child.id, childSummary.runId)!;
+    expect(childRun.trigger.todoId).toBe("OPS-14");
+    expect(executor.commands.find((command) => command.owner.runId === childRun.id)?.prompt)
+      .toContain("Handle Todo OPS-14.");
+
+    await executor.succeed("work");
+    expect(mirror.requests).toEqual([expect.objectContaining({
+      todoId: "OPS-14", request: "Ship the result?", ref: `workflow:${child.id}:${childRun.id}:gate`,
+    })]);
+    expect(lifecycle.reflections).toEqual([
+      { todoId: "OPS-14", status: "executing", nodeId: "work" },
+      { todoId: "OPS-14", status: "in_review", nodeId: "gate" },
+    ]);
+
+    await decide(child, childRun.id, "gate", "reject", { decidedBy: "reviewer" });
+    expect(lifecycle.decisions).toEqual([expect.objectContaining({
+      todoId: "OPS-14", runId: childRun.id, nodeId: "gate", decision: "reject", decidedBy: "reviewer",
+    })]);
+    expect(lifecycle.reflections.at(-1)).toEqual({ todoId: "OPS-14", status: "blocked", nodeId: "stopped" });
+    expect(lifecycle.failures).toEqual([expect.objectContaining({
+      todoId: "OPS-14", runId: childRun.id, nodeId: "stopped", code: "workflow-failure-end",
+    })]);
+  });
+
   it("reports executing when the first phase dispatches, and does not re-report per phase", async () => {
     const definition = gatedPipeline("reflect-executing");
     const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-1" });

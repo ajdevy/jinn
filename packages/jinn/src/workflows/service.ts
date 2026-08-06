@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { Employee, ModelRegistry } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
+import { TODO_ID_PATTERN } from "../work-items/id.js";
 import type { WorkflowTodoEventFeed } from "../work-items/workflow-event-feed.js";
 import { jsonValueSchema, nodeIdSchema, workflowIdSchema, type JsonValue, type WorkflowDefinition, type WorkflowId } from "./model.js";
 import {
@@ -64,6 +65,7 @@ export interface WorkflowCallInput {
   input: Record<string, JsonValue>;
   idempotencyKey: string;
   itemIndex?: number;
+  todoId?: string;
 }
 export class WorkflowServiceError extends Error {
   readonly code: "forbidden" | "conflict" | "invalid-definition";
@@ -296,9 +298,13 @@ export class WorkflowService {
     if (input.itemIndex !== undefined && (!Number.isInteger(input.itemIndex) || input.itemIndex < 0 || input.itemIndex >= 100)) {
       fail("bad-input", "Workflow call item index is invalid.");
     }
+    if (input.todoId !== undefined && (typeof input.todoId !== "string" || !TODO_ID_PATTERN.test(input.todoId))) {
+      fail("bad-input", "Workflow Todo id must match AAA-123.");
+    }
     const value = boundedRecord(input.input, "Workflow input");
     const replay = this.options.repository.findWorkflowCallByIdempotency({ workflowId: workflowId.data,
       input: value, caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }),
+      ...(input.todoId === undefined ? {} : { todoId: input.todoId }),
       idempotencyKey: input.idempotencyKey });
     if (replay) return this.requiredRun(replay.workflowId, replay.id);
     const definition = this.options.repository.getDefinition(workflowId.data);
@@ -309,7 +315,8 @@ export class WorkflowService {
     this.validateCaller(definition.id, input.caller);
     const created = this.options.repository.createRun({ workflowId: definition.id,
       input: value, trigger: { nodeId: targets[0]!.id, kind: "workflow-call",
-        payload: { caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }) } },
+        payload: { caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }) },
+        ...(input.todoId === undefined ? {} : { todoId: input.todoId }) },
       idempotencyKey: input.idempotencyKey });
     const detail = this.requiredRun(definition.id, created.id);
     return detail.status === "pending" ? this.runner.start(created.id) : detail;

@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { logger } from "../shared/logger.js";
 import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shared/types.js";
+import { TODO_ID_PATTERN } from "../work-items/id.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import type {
@@ -43,6 +44,7 @@ export interface WorkflowRunnerOptions {
     input: Record<string, JsonValue>;
     idempotencyKey: string;
     itemIndex: number;
+    todoId?: string;
   }) => Promise<WorkflowRunDetail>;
   /** Mirrors an Approval node's gate onto the run's bound Todo so the operator
    *  decides it from Todos, not from Workflows. Absent = no Todo surface (the
@@ -515,12 +517,22 @@ export class WorkflowRunner {
     const capacity = Math.max(0, plan.concurrency - active);
     try {
       for (const index of indexes.slice(0, capacity)) {
+        const input = fanoutInput(run, node, plan, index);
+        let todoId: string | undefined;
+        if (node.config.input && Object.hasOwn(node.config.input, "todoId")) {
+          const mappedTodoId = input.todoId;
+          if (typeof mappedTodoId !== "string" || !TODO_ID_PATTERN.test(mappedTodoId)) {
+            throw new Error(`Workflow Call ${node.id} todoId must resolve to a Todo id matching AAA-123.`);
+          }
+          todoId = mappedTodoId;
+        }
         await this.options.callWorkflow({
           workflowId: plan.workflowId,
           caller: { workflowId: run.workflowId, runId: run.id, nodeId: node.id },
-          input: fanoutInput(run, node, plan, index),
+          input,
           idempotencyKey: `${run.id}:${node.id}:${index}`,
           itemIndex: index,
+          ...(todoId === undefined ? {} : { todoId }),
         });
       }
     } catch (error) {

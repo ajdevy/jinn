@@ -302,10 +302,17 @@ function addCardinalityIssues(nodes: WorkflowNode[], graph: Graph, add: AddIssue
 }
 
 function addReachabilityIssues(nodes: WorkflowNode[], graph: Graph, add: AddIssue): void {
-  const triggers = nodes.filter((node) => record(node)?.type === 'trigger');
+  const triggers = nodes.filter((node): node is Extract<WorkflowNode, { type: 'trigger' }> => node.type === 'trigger');
   const triggerIds = triggers.map(nodeId).filter((id): id is string => id !== undefined);
   const endIds = nodes.filter((node) => record(node)?.type === 'end').map(nodeId).filter((id): id is string => id !== undefined);
-  if (triggers.length !== 1) add({ code: 'trigger-count', message: 'Workflow must contain exactly one Trigger.' });
+  if (triggers.length === 0) add({ code: 'trigger-count', message: 'Workflow must contain at least one Trigger.' });
+  const triggerKinds = new Set<string>();
+  for (const trigger of triggers) {
+    if (triggerKinds.has(trigger.config.kind)) {
+      add({ code: 'duplicate-trigger-kind', message: `Workflow must contain at most one ${trigger.config.kind} Trigger.`, nodeId: trigger.id });
+    }
+    triggerKinds.add(trigger.config.kind);
+  }
   const reachable = walk(triggerIds, graph.forward);
   const reachesEnd = walk(endIds, graph.reverse);
   if (!endIds.some((id) => reachable.has(id))) add({ code: 'missing-end-path', message: 'A Trigger must have a directed path to an End.' });

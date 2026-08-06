@@ -93,6 +93,43 @@ beforeEach(() => {
 afterEach(() => { service.dispose(); database.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 describe("Workflow trigger adapters", () => {
+  it("arms and calls a definition with Todo and Workflow Call triggers", async () => {
+    const draft = service.createDefinition({ id: "dual-trigger-flow", title: "Dual trigger flow" });
+    const todo: WorkflowNode = { id: "todo-start", type: "trigger", name: "Todo",
+      config: { kind: "todo-status", status: "in_review" } };
+    const called: WorkflowNode = { id: "call-start", type: "trigger", name: "Called",
+      config: { kind: "workflow-call" } };
+    const todoEnd: WorkflowNode = { id: "todo-end", type: "end", name: "Todo end", config: { result: "success" } };
+    const callEnd: WorkflowNode = { id: "call-end", type: "end", name: "Call end", config: { result: "success" } };
+    const saved = service.saveDefinition({ ...draft, nodes: [todo, called, todoEnd, callEnd],
+      edges: [edge("todo-finish", todo.id, todoEnd.id), edge("call-finish", called.id, callEnd.id)] }, draft.revision);
+    const definition = service.setEnabled({ id: saved.id, enabled: true, expectedRevision: saved.revision });
+
+    feed.pending.push(todoEvent("dual-trigger-event"));
+    await service.recover(now);
+    const todoRun = service.listRuns(definition.id, {}).items[0]!;
+    expect(service.getRun(definition.id, todoRun.id)).toMatchObject({
+      status: "completed",
+      trigger: { nodeId: "todo-start", kind: "todo-status", todoId: "ICI-1" },
+    });
+
+    const callerDefinition = save("dual-trigger-caller", {
+      id: "start", type: "trigger", name: "Manual", config: { kind: "manual" },
+    });
+    const callerRun = await service.startManual({ workflowId: callerDefinition.id, input: {} });
+    const calledRun = await service.callWorkflow({
+      workflowId: definition.id,
+      caller: { workflowId: callerDefinition.id, runId: callerRun.id, nodeId: "work" },
+      input: {},
+      idempotencyKey: "dual-trigger-call",
+    });
+
+    expect(calledRun).toMatchObject({
+      status: "completed",
+      trigger: { nodeId: "call-start", kind: "workflow-call" },
+    });
+  });
+
   it("rebuilds only enabled Schedule definitions and fires each instant idempotently across restart and disable", async () => {
     const trigger: WorkflowNode = { id: "start", type: "trigger", name: "Schedule", config: { kind: "schedule", cron: "0 * * * *", timezone: "UTC" } };
     const definition = save("scheduled-flow", trigger, false);

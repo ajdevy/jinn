@@ -330,7 +330,7 @@ export class WorkflowRepository {
   }
   findWorkflowCallByIdempotency(input: { workflowId: string; input: Record<string, JsonValue>;
     caller: { workflowId: string; runId: string; nodeId: string }; itemIndex?: number;
-    idempotencyKey: string }): WorkflowRunRecord | null {
+    todoId?: string; idempotencyKey: string }): WorkflowRunRecord | null {
     const workflowId = parseWorkflowId(input.workflowId);
     const value = parseJsonRecord(input.input, 'Workflow run input is invalid.');
     const caller = parseJsonRecord(input.caller, 'Workflow caller identity is invalid.');
@@ -339,7 +339,7 @@ export class WorkflowRepository {
     if (replay && (replay.workflowId !== workflowId || !equivalentRun(replay, value,
       { nodeId: replay.trigger.nodeId, kind: 'workflow-call', payload: {
         caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }),
-      } }))) {
+      }, ...(input.todoId === undefined ? {} : { todoId: input.todoId }) }))) {
       repositoryError('idempotency-conflict', 'Workflow idempotency key was reused with different input.');
     }
     return replay;

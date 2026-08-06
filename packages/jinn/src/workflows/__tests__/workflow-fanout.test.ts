@@ -10,7 +10,7 @@ import type {
   WorkflowAttemptCompletion,
   WorkflowAttemptCompletionListener,
 } from "../../shared/types.js";
-import type { JsonValue, WorkflowDefinition, WorkflowNode } from "../model.js";
+import type { JsonValue, WorkflowCallNode, WorkflowDefinition, WorkflowNode } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
@@ -137,6 +137,20 @@ function parentWorkflow(id = "parent-flow", options: { items?: JsonValue[]; conc
   ]);
 }
 
+function todoCallParent(id: string, workflowId: string, input: NonNullable<WorkflowCallNode["config"]["input"]>,
+  item: JsonValue): WorkflowDefinition {
+  return save(id, [
+    { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+    { id: "children", type: "workflow-call", name: "Children", config: {
+      workflowId: { source: "fixed", value: workflowId },
+      items: { source: "fixed", value: [item] },
+      input,
+      concurrency: 1,
+    } },
+    { id: "finish", type: "end", name: "Finish", config: { result: "success" } },
+  ], [edge("call", "start", "success", "children"), edge("finish", "children", "success", "finish")]);
+}
+
 function nonTerminalChildren(parentRunId: string): number {
   return repository.listChildRuns(parentRunId, "children")
     .filter((child) => !["completed", "failed", "cancelled"].includes(child.status)).length;
@@ -157,6 +171,90 @@ afterEach(() => {
 });
 
 describe("Workflow Call fan-out", () => {
+  it("binds a direct call to a validated Todo and includes it in idempotency", async () => {
+    const target = childWorkflow("todo-call-target");
+    const callerDefinition = save("todo-call-caller", [
+      { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+      { id: "work", type: "employee", name: "Work", config: {
+        employee: { source: "fixed", value: "worker" }, prompt: "Call the child.",
+      } },
+      { id: "finish", type: "end", name: "Finish", config: { result: "success" } },
+    ], [edge("work", "start", "success", "work"), edge("finish", "work", "success", "finish")]);
+    const callerRun = await service.startManual({ workflowId: callerDefinition.id, input: {} });
+    const call = {
+      workflowId: target.id,
+      caller: { workflowId: callerDefinition.id, runId: callerRun.id, nodeId: "work" },
+      input: { topic: "bound" },
+      idempotencyKey: "todo-bound-call",
+      itemIndex: 4,
+    };
+
+    const first = await service.callWorkflow({ ...call, todoId: "PLA-9" });
+    const replay = await service.callWorkflow({ ...call, todoId: "PLA-9" });
+
+    expect(first.trigger.todoId).toBe("PLA-9");
+    expect(replay.id).toBe(first.id);
+    await expect(service.callWorkflow({ ...call, todoId: "PLA-10" })).rejects.toMatchObject({
+      code: "idempotency-conflict",
+    });
+
+    const runCount = service.listRuns(target.id, {}).items.length;
+    for (const [index, todoId] of ["pla-9", "PLA-0", "NOTATODO", 9].entries()) {
+      await expect(service.callWorkflow({
+        ...call,
+        idempotencyKey: `invalid-todo-${index}`,
+        todoId: todoId as string,
+      })).rejects.toMatchObject({ code: "bad-input" });
+      expect(service.listRuns(target.id, {}).items).toHaveLength(runCount);
+    }
+  });
+
+  it("lifts a mapped Todo id onto the child trigger without removing it from input", async () => {
+    const child = childWorkflow("mapped-todo-child");
+    const parent = todoCallParent("mapped-todo-parent", child.id, {
+      todoId: { source: "trigger", path: "item.todoId" },
+      topic: { source: "trigger", path: "item.topic" },
+    }, { todoId: "OPS-7", topic: "mapped" });
+
+    const run = await service.startManual({ workflowId: parent.id, input: {} });
+    const childSummary = repository.listChildRuns(run.id, "children")[0]!;
+    const childRun = service.getRun(childSummary.workflowId, childSummary.runId)!;
+
+    expect(childRun.trigger.todoId).toBe("OPS-7");
+    expect(childRun.input).toEqual({ todoId: "OPS-7", topic: "mapped" });
+  });
+
+  it("keeps a child unbound when its input mapping has no Todo id", async () => {
+    const child = childWorkflow("unbound-todo-child");
+    const parent = todoCallParent("unbound-todo-parent", child.id, {
+      topic: { source: "trigger", path: "item.topic" },
+    }, { topic: "unbound" });
+
+    const run = await service.startManual({ workflowId: parent.id, input: {} });
+    const childSummary = repository.listChildRuns(run.id, "children")[0]!;
+    const childRun = service.getRun(childSummary.workflowId, childSummary.runId)!;
+
+    expect(childRun.trigger).not.toHaveProperty("todoId");
+    expect(childRun.input).toEqual({ topic: "unbound" });
+  });
+
+  it("fails the Workflow Call node when its mapped Todo id is malformed", async () => {
+    const child = childWorkflow("invalid-todo-child");
+    const parent = todoCallParent("invalid-todo-parent", child.id, {
+      todoId: { source: "trigger", path: "item.todoId" },
+      topic: { source: "trigger", path: "item.topic" },
+    }, { todoId: "not-a-todo", topic: "invalid" });
+
+    const run = await service.startManual({ workflowId: parent.id, input: {} });
+
+    expect(run.status).toBe("failed");
+    expect(run.nodeRuns.find((node) => node.nodeId === "children")).toMatchObject({
+      status: "failed",
+      error: { message: expect.stringMatching(/Workflow Call children.*AAA-123/) },
+    });
+    expect(repository.listChildRuns(run.id, "children")).toEqual([]);
+  });
+
   it("bounds concurrency, maps each item, joins failures, and routes on summary", async () => {
     childWorkflow();
     const parent = parentWorkflow();

@@ -113,7 +113,7 @@ describe("Workflow executable service boundaries", () => {
 
     expect(caught).toEqual(new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [
       { code: "missing-end-path", message: "A Trigger must have a directed path to an End." },
-      { code: "trigger-count", message: "Workflow must contain exactly one Trigger." },
+      { code: "trigger-count", message: "Workflow must contain at least one Trigger." },
     ]));
     expect(repository.getDefinition(created.id)).toEqual(created);
     expect(definitionChanges).toEqual([]);
@@ -151,7 +151,7 @@ describe("Workflow executable service boundaries", () => {
       new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [
         { code: "unreachable-node", message: "Node is not reachable from a Trigger.", nodeId: "finish" },
         { code: "missing-end-path", message: "A Trigger must have a directed path to an End." },
-        { code: "trigger-count", message: "Workflow must contain exactly one Trigger." },
+        { code: "trigger-count", message: "Workflow must contain at least one Trigger." },
       ]),
     );
     expect(revised).toMatchObject({ enabled: true, revision: enabled.revision + 1 });
