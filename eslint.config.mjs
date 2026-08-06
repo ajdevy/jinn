@@ -1,4 +1,3 @@
-import comments from "@eslint-community/eslint-plugin-eslint-comments"
 import tseslint from "typescript-eslint"
 
 import baseline from "./eslint-baseline.json" with { type: "json" }
@@ -24,9 +23,9 @@ const TESTS = ["packages/*/**/__tests__/**/*.{ts,tsx}", "packages/*/**/*.test.{t
  * a helper so the body reads flat; group related parameters into one options
  * object; await the promise, or hand it to `void` if the result is genuinely
  * not wanted. `eslint-baseline.json` grandfathers code that predates this
- * config and is the only place a violation may be recorded — inline
- * `eslint-disable` comments for these rules are rejected by the two
- * `eslint-comments` rules below.
+ * config and is the only place a violation may be recorded — `noInlineConfig`
+ * below makes ESLint ignore directive comments entirely, so no file can excuse
+ * itself.
  */
 const CAPS = {
   complexity: ["error", { max: 10 }],
@@ -60,7 +59,6 @@ export const enforcement = tseslint.config(
   {
     files: LINTED,
     extends: [tseslint.configs.base],
-    plugins: { "@eslint-community/eslint-comments": comments },
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -68,17 +66,15 @@ export const enforcement = tseslint.config(
       },
     },
     linterOptions: {
-      reportUnusedDisableDirectives: "error",
+      // Every `eslint-disable` in these trees is ignored, so the grandfather
+      // file is the only suppression channel — by construction rather than by
+      // intention. A rule that polices disable comments cannot do this job: it
+      // is itself named in a disable comment, and ESLint suppresses a report
+      // that lands on the directive that silenced it, so the police disable
+      // themselves. This is a linter option, and no source file can reach it.
+      noInlineConfig: true,
     },
-    rules: {
-      ...CAPS,
-      // The grandfather file is the only suppression channel: name one of the
-      // capped rules in a disable comment and lint fails, bare `eslint-disable`
-      // included. Restricted to those six rather than banning every disable, so
-      // a rule this config does not enforce stays suppressible inline.
-      "@eslint-community/eslint-comments/no-restricted-disable": ["error", ...CAPPED_RULES],
-      "@eslint-community/eslint-comments/no-unlimited-disable": "error",
-    },
+    rules: CAPS,
   },
   {
     files: TESTS,

@@ -9,7 +9,7 @@
     "postinstall": "node scripts/fix-prebuild-permissions.mjs",
     "build": "turbo build && node scripts/sync-web-dist.mjs",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "turbo run build --filter=@jinn/gateway-events && turbo run lint",
     "typecheck": "turbo typecheck",
     "test": "turbo run test --concurrency=1",
     "coverage": "turbo run coverage",
@@ -33,7 +33,6 @@
     ]
   },
   "devDependencies": {
-    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@playwright/test": "^1.58.2",
     "eslint": "^10.8.0",
     "turbo": "^2.4.0",

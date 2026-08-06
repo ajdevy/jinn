@@ -12,9 +12,19 @@
     "typecheck": {
       "dependsOn": ["^build"]
     },
+    // Type-aware lint reads `@jinn/gateway-events`'s emitted declarations: without
+    // them `act(() => emit(...))` in the web tests widens to a thenable and eleven
+    // phantom no-floating-promises errors appear. The root `lint` script builds
+    // that one package in its own turbo run rather than putting `^build` here, so
+    // this graph stays the three lint tasks it claims to be. The declaration file
+    // is an input so a change to the wire vocabulary still busts the lint cache.
     "lint": {
-      "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs", "$TURBO_ROOT$/eslint-baseline.json"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/eslint.config.mjs",
+        "$TURBO_ROOT$/eslint-baseline.json",
+        "$TURBO_ROOT$/packages/gateway-events/dist/index.d.ts"
+      ]
     },
     "test": {
       "dependsOn": ["^build"],

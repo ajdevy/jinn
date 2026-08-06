@@ -71,7 +71,7 @@ jobs:
               Remove the binding. If a signature forces it to exist, rename it with
               a leading underscore.
 
-          Inline eslint-disable comments for these six are rejected, so
+          Inline eslint-disable comments are ignored outright, so
           eslint-baseline.json is the only suppression channel. It grandfathers code
           that predates the floor and is meant to shrink: run
           `node scripts/eslint-baseline.mjs` after a fix removes an entry, never to

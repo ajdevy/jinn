@@ -12,9 +12,6 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
     devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.7.2
-        version: 4.7.2(eslint@10.8.0(jiti@2.6.1))
       '@playwright/test':
         specifier: ^1.58.2
         version: 1.58.2
@@ -592,12 +589,6 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
-
-  '@eslint-community/eslint-plugin-eslint-comments@4.7.2':
-    resolution: {integrity: sha512-LF03qURSwEWm2dz5wtdDCzNk+7Opl0X7q6I3undsaIuNsEiNvRV3BCtqu14Q/6Pzg1tBj44LcxpW2EpSLZStZw==}
-    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
-    peerDependencies:
-      eslint: ^6.0.0 || ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0
 
   '@eslint-community/eslint-utils@4.10.1':
     resolution: {integrity: sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==}
@@ -5151,12 +5142,6 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.7':
     optional: true
-
-  '@eslint-community/eslint-plugin-eslint-comments@4.7.2(eslint@10.8.0(jiti@2.6.1))':
-    dependencies:
-      escape-string-regexp: 4.0.0
-      eslint: 10.8.0(jiti@2.6.1)
-      ignore: 7.0.6
 
   '@eslint-community/eslint-utils@4.10.1(eslint@10.8.0(jiti@2.6.1))':
     dependencies:

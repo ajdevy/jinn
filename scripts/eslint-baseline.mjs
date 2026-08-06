@@ -20,7 +20,7 @@ const INSTRUCTIONS =
   "function with an early return per case, hoist a nested loop or condition into a helper so the body reads " +
   "flat, group related parameters into one options object, await the promise or hand it to `void`. Then run " +
   "`node scripts/eslint-baseline.mjs` and commit the shrunken file. Add nothing here by hand — inline " +
-  "eslint-disable comments for these rules are rejected, so this file is the only suppression channel, and " +
+  "eslint-disable comments are ignored outright, so this file is the only suppression channel, and " +
   "it is meant to shrink."
 
 const root = fileURLToPath(new URL("..", import.meta.url))
