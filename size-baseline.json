@@ -300,9 +300,6 @@
     "packages/jinn/src/gateway/__tests__/browser-operator-authorization.test.ts": {
       "lines": 517
     },
-    "packages/jinn/src/gateway/__tests__/callback-reliability.test.ts": {
-      "lines": 1255
-    },
     "packages/jinn/src/gateway/__tests__/control-plane-authority.test.ts": {
       "lines": 557
     },
@@ -347,9 +344,6 @@
     },
     "packages/jinn/src/gateway/__tests__/work-item-relations-labels-route.test.ts": {
       "lines": 374
-    },
-    "packages/jinn/src/gateway/__tests__/work-items-route.test.ts": {
-      "lines": 2231
     },
     "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": {
       "lines": 695,
