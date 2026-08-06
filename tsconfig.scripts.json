@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.mjs", "tools/**/*.mjs", "e2e/**/*.mjs"]
+}

@@ -51,10 +51,10 @@ function listRoot(binary, rootPath) {
 }
 
 function readFile(binary, rootPath, relative) {
-  const result = spawnSync(binary, ["read", rootPath, relative, String(16 * 1024 * 1024)], {
+  const result = spawnSync(binary, ["read", rootPath, relative, String(16 * 1024 * 1024)], /** @type {import("node:child_process").SpawnSyncOptionsWithBufferEncoding} */ ({
     encoding: null,
     maxBuffer: 17 * 1024 * 1024,
-  });
+  }));
   if (result.status !== 0) throw new Error("unsafe or unreadable artifact");
   return result.stdout;
 }

@@ -1046,7 +1046,6 @@
       "max-lines-per-function"
     ],
     "packages/web/src/routes/todos/task-page/subtasks.tsx": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],

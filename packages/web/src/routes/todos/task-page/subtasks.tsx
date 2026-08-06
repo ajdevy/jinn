@@ -36,7 +36,6 @@ export function SubTasksSection({
   node,
   parentDepth,
   employees,
-  byName,
   mobile,
   onOpenChild,
   onChildStatus,

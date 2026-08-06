@@ -25,6 +25,7 @@ function token() {
   return tokenCache
 }
 const api = (method: string, route: string, body?: unknown) => sandboxClient({ baseUrl: origin, token: token() })(method, route, body)
+type ApiResponse = Awaited<ReturnType<typeof api>>
 const canonicalIds = canonicalFixtures().map((definition) => definition.id)
 const authoredIds = process.env.JINN_VERIFY_RUN_AUTHORS === '1' ? authorRequests().map((request) => request.expectedWorkflowId) : []
 const staticIds = [...canonicalIds, ...authoredIds, 'verify-new', 'verify-manual']
@@ -305,7 +306,7 @@ async function startFromUi(browser: Browser, id: string, terminal: string) {
     await opened.page.getByRole('button', { name: 'Start run' }).click()
     const final = await pollUntil(
       async () => api('GET', `/api/workflow-definitions/${encodeURIComponent(id)}/runs`),
-      (response) => response.ok && response.body?.runs?.[0]?.status === terminal,
+      (response: ApiResponse) => response.ok && response.body?.runs?.[0]?.status === terminal,
       { timeoutMs: 30_000, intervalMs: 250, label: `${id} ${terminal}` },
     )
     write(`interactions/${id}-${terminal}.json`, final.body)
@@ -420,7 +421,7 @@ test.describe.serial('isolated workflow layout verification', () => {
         await opened.page.getByRole('button', { name: 'Tidy', exact: true }).click()
         const apply = opened.page.getByRole('button', { name: 'Apply layout', exact: true })
         await expect(apply).toBeVisible()
-        const ids = manualFixture.nodes.map((node) => node.id)
+        const ids = manualFixture.nodes.map((node: Definition['nodes'][number]) => node.id)
         const preview = await rawNodePositions(opened.page, ids)
         await captureScreenshot(opened.page, artifactKey(cell), 'verify-manual-preview.png')
         await apply.click()
@@ -608,7 +609,7 @@ test.describe.serial('isolated workflow layout verification', () => {
       await visibleTestId(opened.page, 'wf-gate-approve').click()
       const completed = await pollUntil(
         async () => api('GET', '/api/workflow-definitions/verify-run-approval/runs'),
-        (response) => response.ok && response.body?.runs?.[0]?.status === 'completed',
+        (response: ApiResponse) => response.ok && response.body?.runs?.[0]?.status === 'completed',
         { timeoutMs: 30_000, intervalMs: 250, label: 'authorized approval completion' },
       )
       await expect(visibleText(opened.page, /^completed$/i)).toBeVisible()
