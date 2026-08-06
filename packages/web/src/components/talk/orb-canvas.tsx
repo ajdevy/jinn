@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
-import { useTheme } from "@/routes/providers"
 import { lobeCentres, orbParams, type Lobe, type OrbParams, type OrbState } from "./orb-motion"
 
 /**
@@ -117,6 +116,26 @@ function usePrefersReducedMotion(): boolean {
   return reduce
 }
 
+/**
+ * The palette hangs off `data-theme` on the root, and that attribute is the one
+ * thing every theme path touches. Picking a theme writes it; so does an OS
+ * scheme flip while the setting sits on "system" — and that second path changes
+ * no React state at all, so a repaint keyed on the theme *setting* never fires
+ * and the sphere keeps the palette it was born with.
+ */
+function useThemeAttribute(): string {
+  const [attribute, setAttribute] = useState(() => document.documentElement.dataset.theme ?? "")
+  useEffect(() => {
+    const root = document.documentElement
+    const read = () => setAttribute(root.dataset.theme ?? "")
+    const observer = new MutationObserver(read)
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] })
+    read()
+    return () => observer.disconnect()
+  }, [])
+  return attribute
+}
+
 interface OrbCanvasProps {
   state: OrbState
   /** Live 0..1 amplitude, read once per frame. React state here would re-render
@@ -129,7 +148,7 @@ interface OrbCanvasProps {
 export function OrbCanvas({ state, levelRef, size }: OrbCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reduce = usePrefersReducedMotion()
-  const { theme } = useTheme()
+  const themeAttribute = useThemeAttribute()
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -154,8 +173,8 @@ export function OrbCanvas({ state, levelRef, size }: OrbCanvasProps) {
     }
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
-    // `theme` is not read here — it repaints the palette when the theme flips.
-  }, [state, size, reduce, theme, levelRef])
+    // `themeAttribute` is not read here — it re-reads the palette when the theme flips.
+  }, [state, size, reduce, themeAttribute, levelRef])
 
   return <canvas ref={canvasRef} aria-hidden style={{ width: size, height: size, display: "block" }} />
 }

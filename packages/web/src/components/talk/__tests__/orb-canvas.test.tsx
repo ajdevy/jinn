@@ -1,4 +1,4 @@
-import { render, cleanup } from "@testing-library/react"
+import { render, cleanup, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OrbCanvas } from "../orb-canvas"
 
@@ -47,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   HTMLCanvasElement.prototype.getContext = originalGetContext
+  document.documentElement.removeAttribute("data-theme")
   vi.unstubAllGlobals()
 })
 
@@ -87,6 +88,41 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
 
     expect(ctx.createRadialGradient).toHaveBeenCalled()
     expect(ctx.fill).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe("OrbCanvas when the palette changes under it", () => {
+  beforeEach(() => stubReducedMotion(true))
+
+  /**
+   * The hard case is the OS scheme flipping while the theme setting sits on
+   * "system": the provider rewrites `data-theme` and changes no React state, so
+   * a repaint keyed on the setting never fires. Reduced motion removes the
+   * animation loop that would otherwise hide the staleness on the next frame.
+   */
+  it("repaints when the root theme attribute flips without a rerender", async () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
+    stubReducedMotion(true)
+    document.documentElement.setAttribute("data-theme", "dark")
+
+    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    expect(paints()).toBe(1)
+
+    document.documentElement.setAttribute("data-theme", "light")
+
+    await waitFor(() => expect(paints()).toBe(2))
+  })
+
+  it("does not repaint when an unrelated root attribute changes", async () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
+    stubReducedMotion(true)
+    document.documentElement.setAttribute("data-theme", "dark")
+
+    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    document.documentElement.setAttribute("lang", "en")
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(paints()).toBe(1)
   })
 })
 
