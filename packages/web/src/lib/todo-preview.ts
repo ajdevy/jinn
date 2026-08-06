@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { api, type WorkItemOpenDetailWire } from '@/lib/api'
 
 /* Mention previews come from the compact list route the board already uses. A
@@ -46,6 +47,17 @@ export function requestTodoPreview(id: string): Promise<TodoPreview | null> {
 /** Drops one Todo's cached preview so the next mention of it asks again. */
 export function forgetTodoPreview(id: string): void {
   previews.delete(id)
+}
+
+/** The reading view of the cache above, for a surface that shows a preview
+ *  rather than only warming it. The key is the one use-query-invalidation
+ *  already drops on a live work-item event, so an open preview re-reads itself
+ *  when the gateway says that Todo changed and ignores every other Todo. */
+export function useTodoPreview(id: string) {
+  return useQuery({
+    queryKey: ['work-item-preview', id],
+    queryFn: () => requestTodoPreview(id),
+  })
 }
 
 function remember(id: string, preview: Promise<TodoPreview | null>): void {

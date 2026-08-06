@@ -1,9 +1,20 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { HoverCard } from 'radix-ui'
 import { isTodoId, todoPath } from '@/lib/todo-id'
-import { requestTodoPreview } from '@/lib/todo-preview'
+import { requestTodoPreview, useTodoPreview } from '@/lib/todo-preview'
 import { useKnownTodoPrefixes } from '@/components/chat/todo-prefix-context'
 import { usePeekStack } from '@/components/peek/peek-stack'
+import { useHoverGlanceEnabled } from '@/hooks/use-hover-glance'
+import { TodoGlance } from '@/components/todo-glance'
+
+/** Long enough that sweeping a sentence full of mentions opens none of them,
+ *  short enough that resting on one reads as instant. */
+const OPEN_DELAY_MS = 120
+/** The grace window: long enough for the cursor to cross the 6px gap onto the
+ *  strip, short enough that a neighbouring mention's strip never opens before
+ *  this one has gone — which is what would read as flicker. */
+const CLOSE_DELAY_MS = 80
 
 /** A click the browser is meant to keep: a new tab, a new window, a download,
  *  or the middle button. The peek panel lives inside one tab, so these always
@@ -13,15 +24,15 @@ function isBrowserNavigation(event: React.MouseEvent): boolean {
 }
 
 /** The one anchor every surface uses to render a Todo id as a reference to that
- *  Todo. Rendering the id also warms its preview, so a hover affordance built on
- *  top of this has the row already in hand instead of opening a request. A plain
- *  left click opens the peek panel where one is mounted; everywhere else — and
- *  for every modified click — the anchor navigates as it always has. An id whose
- *  prefix belongs to no live company board is not a mention: it stays the
- *  caller's fallback (or plain text) and asks the gateway nothing. */
+ *  Todo. Rendering the id also warms its preview, so the hover glance built on
+ *  top of this has the row already in hand instead of opening a request. Hovering
+ *  reads the Todo on a strip; a plain left click opens the peek panel where one
+ *  is mounted; everywhere else — and for every modified click — the anchor
+ *  navigates as it always has. An id whose prefix belongs to no live company
+ *  board is not a mention: it stays the caller's fallback (or plain text) and
+ *  asks the gateway nothing. */
 export function TodoMention({ id, fallback }: { id: string; fallback?: React.ReactNode }) {
   const knownPrefixes = useKnownTodoPrefixes()
-  const peek = usePeekStack()
   const isLive = isTodoId(id) && knownPrefixes.has(id.slice(0, 3))
 
   useEffect(() => {
@@ -33,7 +44,24 @@ export function TodoMention({ id, fallback }: { id: string; fallback?: React.Rea
   }, [id, isLive])
 
   if (!isLive) return fallback ?? id
-  return (
+  return <LiveTodoMention id={id} />
+}
+
+/** The anchor itself, and the two affordances layered on it: the strip that
+ *  reads the Todo on hover, and the click that opens it in the panel. Mounted
+ *  only for an id that names a live Todo, so a plain word never pays for either. */
+function LiveTodoMention({ id }: { id: string }) {
+  const peek = usePeekStack()
+  const glanceEnabled = useHoverGlanceEnabled()
+  const [glanceOpen, setGlanceOpen] = useState(false)
+  // The panel is already showing this Todo, so the strip has nothing left to
+  // say about it. Merely closing the strip on click is not enough: the click
+  // leaves the cursor on the mention, so the trigger stays engaged and asks to
+  // open again the moment its delay elapses. Reading the panel rather than
+  // latching on the click means the answer holds however often it asks.
+  const peekingThis = peek?.entries.at(-1)?.id === id
+
+  const link = (
     <Link
       to={todoPath(id)}
       title={`Open ${id}`}
@@ -47,4 +75,37 @@ export function TodoMention({ id, fallback }: { id: string; fallback?: React.Rea
       {id}
     </Link>
   )
+
+  if (!glanceEnabled) return link
+  return (
+    <HoverCard.Root
+      open={glanceOpen && !peekingThis}
+      onOpenChange={setGlanceOpen}
+      openDelay={OPEN_DELAY_MS}
+      closeDelay={CLOSE_DELAY_MS}
+    >
+      <HoverCard.Trigger asChild>{link}</HoverCard.Trigger>
+      <HoverCard.Portal>
+        <HoverCard.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          alignOffset={-8}
+          collisionPadding={8}
+          className="todo-glance z-50"
+        >
+          <MentionGlance id={id} />
+        </HoverCard.Content>
+      </HoverCard.Portal>
+    </HoverCard.Root>
+  )
+}
+
+/** Mounted only while the glance is open, so a mention nobody hovers subscribes
+ *  to nothing. Until the preview resolves there is nothing honest to say about
+ *  the Todo, so the strip stays undrawn rather than flashing an empty pill. */
+function MentionGlance({ id }: { id: string }) {
+  const { data } = useTodoPreview(id)
+  if (!data) return null
+  return <TodoGlance id={id} title={data.workItem.title} status={data.workItem.status} />
 }

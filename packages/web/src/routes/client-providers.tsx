@@ -11,10 +11,20 @@ import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
 import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
 import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
+import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
+import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
   return null
+}
+
+/** Which 3-letter prefixes name a live board, app-wide: a Todo id reads as a
+ *  mention in a chat message, a Todo body, and a comment alike, so the answer
+ *  cannot belong to one route. */
+function TodoMentionPrefixes({ children }: { children: ReactNode }) {
+  const prefixes = useTodoPrefixes()
+  return <TodoPrefixContext.Provider value={prefixes}>{children}</TodoPrefixContext.Provider>
 }
 
 export function ClientProviders({ children }: { children: ReactNode }) {
@@ -27,7 +37,7 @@ export function ClientProviders({ children }: { children: ReactNode }) {
               <SettingsProvider>
                 <GatewayProvider>
                   <InstanceMigrationGate />
-                  {children}
+                  <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
                   {/* Above the router, so route changes never remount the orb. */}
                   <TalkOrbOverlay />
                   <DocumentTitle />

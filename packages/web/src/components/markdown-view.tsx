@@ -1,4 +1,4 @@
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 // PrismAsyncLight ships NO grammars by default (the full `Prism` build bundles
 // ~200, ~250KB gzip). We register only the languages the app's file/markdown
@@ -39,6 +39,8 @@ import graphql from "react-syntax-highlighter/dist/esm/languages/prism/graphql";
 import docker from "react-syntax-highlighter/dist/esm/languages/prism/docker";
 import markdown from "react-syntax-highlighter/dist/esm/languages/prism/markdown";
 import { CodeBlockChrome } from "./code-block-chrome";
+import { TodoMention } from "./todo-mention";
+import { rehypeTodoMentions, TODO_MENTION_TAG } from "@/lib/markdown-todo-mentions";
 
 // The languages reachable from file-view's EXT_TO_LANG (plus common fenced-block langs).
 const PRISM_LANGUAGES: Record<string, unknown> = {
@@ -51,6 +53,13 @@ for (const [name, grammar] of Object.entries(PRISM_LANGUAGES)) {
 }
 
 export { SyntaxHighlighter, oneDark, oneLight };
+
+// react-markdown types `components` over HTML tag names, and the element the
+// mention plugin emits is deliberately not one — hence the cast. Everything
+// else in the map below stays checked against the real tag it renders.
+const TODO_MENTION_COMPONENT = {
+  [TODO_MENTION_TAG]: ({ id }: { id?: string }) => <TodoMention id={id ?? ""} />,
+} as Components;
 
 /** GitHub-flavored markdown rendering with highlighted fenced code blocks.
  *  Shared by the file viewer and the skills pages so documents read the same
@@ -76,7 +85,9 @@ export function MarkdownView({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeTodoMentions]}
         components={{
+          ...TODO_MENTION_COMPONENT,
           h1: ({ children }) => (
             <h1
               className={
