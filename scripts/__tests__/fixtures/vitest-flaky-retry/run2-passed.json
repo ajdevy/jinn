@@ -1,0 +1,98 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 3,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 4,
+  "numPassedTests": 4,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1700000000000,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "passes",
+          "status": "passed",
+          "title": "passes",
+          "duration": 1,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "fails an assertion",
+          "status": "passed",
+          "title": "fails an assertion",
+          "duration": 1,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "passed",
+      "message": "",
+      "name": "/repo/packages/example/src/assertfail.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "collects now",
+          "status": "passed",
+          "title": "collects now",
+          "duration": 1,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "passed",
+      "message": "",
+      "name": "/repo/packages/example/src/collectfail.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "never runs",
+          "status": "passed",
+          "title": "never runs",
+          "duration": 1,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "passed",
+      "message": "",
+      "name": "/repo/packages/example/src/hookfail.test.ts"
+    }
+  ]
+}

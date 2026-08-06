@@ -401,6 +401,31 @@ export function workflowCallTargetIssues(definition: WorkflowDefinition): Workfl
     : []);
 }
 
+/** A `todo-comment` Wait resumes on a comment on the run's bound Todo, and only
+ *  some Trigger kinds can bind one. `schedule` and `event` never do, so a node
+ *  they alone can reach could only ever time out — refused here rather than at
+ *  the run, where the operator sees it days later. A node no Trigger reaches
+ *  yet is a mid-edit draft and stays saveable; the `unreachable-node` rule owns
+ *  that case. */
+export function todoCommentWaitTriggerIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
+  const safe = safeDefinition(definition);
+  if (!safe) return [];
+  const nodes = nodesOf(safe);
+  const graph = buildGraph(nodes, inspectEdges(nodes, edgesOf(safe), () => {}));
+  const bindsTodo = new Map(nodes.filter((node) => node.type === 'trigger')
+    .map((node) => [node.id, node.config.kind !== 'schedule' && node.config.kind !== 'event']));
+  const issues: WorkflowValidationIssue[] = [];
+  for (const [index, node] of nodes.entries()) {
+    if (node.type !== 'wait' || node.config.mode !== 'todo-comment') continue;
+    const reaching = [...walk([node.id], graph.reverse)].filter((id) => bindsTodo.has(id));
+    if (reaching.length === 0 || reaching.some((id) => bindsTodo.get(id))) continue;
+    issues.push({ code: 'todo-comment-wait-trigger',
+      message: 'A Wait node that waits for a Todo comment must be reachable from a Trigger that binds a Todo.',
+      nodeId: node.id, path: `nodes.${index}.config.mode` });
+  }
+  return issues;
+}
+
 export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok: boolean; issues: WorkflowValidationIssue[] } {
   const safe = safeDefinition(definition);
   if (!safe) return {
@@ -421,6 +446,7 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   for (const item of scheduleTriggerIssues(safe)) add(item);
   for (const item of todoTriggerFilterIssues(safe)) add(item);
   for (const item of workflowCallTargetIssues(safe)) add(item);
+  for (const item of todoCommentWaitTriggerIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
   return { ok: issues.length === 0, issues };
 }

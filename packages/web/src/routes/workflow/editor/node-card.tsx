@@ -217,12 +217,21 @@ function nodeCaption(node: WorkflowNodeWire): string {
         : "Choose workflow"
     }
     case "wait":
+      if (config.mode === "todo-comment") return "On your comment"
       return config.mode === "until" ? "Until timestamp" : `${typeof config.minutes === "number" ? config.minutes : "?"} min`
     case "end":
       return config.result === "failure" ? "Failure" : "Success"
     default:
       return ""
   }
+}
+
+/** A comment-wait timeout is coarse — hours to days — so the caption carries a
+ *  single rounded unit rather than a full duration. */
+function compactMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`
+  return `${Math.round(minutes / 1440)}d`
 }
 
 function employeeName(node: WorkflowNodeWire): string | null {
@@ -237,7 +246,13 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
   const employee = employeeName(node)
   const caption = node.type === "workflow-call" && data.run?.workflowCall
     ? `${data.run.workflowCall.succeeded}/${data.run.workflowCall.total} · ${statusMeta(data.run.status).label}`
-    : nodeCaption(node)
+    : data.run?.waitComment
+      ? `waiting for your comment on ${data.run.waitComment.todoId} · ${compactMinutes(data.run.waitComment.timeoutMinutes)}`
+      : nodeCaption(node)
+  // Every other caption is a label that reads fine clipped; this one is an ask,
+  // and a card cut off at "waiting for your comment on …" hides both the Todo to
+  // answer and how long there is to answer it. It gets the card's second line.
+  const wrapCaption = data.run?.waitComment !== undefined
   return (
     <CardShell node={node} selected={selected ?? false} run={data.run}>
       <div className="flex h-full items-center gap-2.5 px-3.5">
@@ -250,7 +265,11 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
           <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
             {node.name}
           </span>
-          <span className="block truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+          <span
+            className={`block text-[length:var(--text-caption2)] text-[var(--text-tertiary)] ${
+              wrapCaption ? "line-clamp-2 leading-[1.3]" : "truncate"
+            }`}
+          >
             <span className="[font-variant-numeric:tabular-nums]">{caption}</span>
           </span>
         </span>

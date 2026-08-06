@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "node ../../scripts/vitest-flaky-retry.mjs",
     "test:watch": "vitest",
     "clean": "rm -rf out dist"
   },

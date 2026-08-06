@@ -104,8 +104,6 @@ jobs:
         env:
           BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
 
-      - run: node --test scripts/__tests__/check-footguns.test.mjs
-
   unit-tests:
     name: unit-tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

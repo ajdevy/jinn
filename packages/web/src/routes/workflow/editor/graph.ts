@@ -9,6 +9,7 @@ export interface NodeRunView {
   status: string
   dimmed: boolean
   workflowCall?: { succeeded: number; total: number }
+  waitComment?: { todoId: string; timeoutMinutes: number }
 }
 
 /** Run state for one wire: `taken` marks the traversed path. Its presence

@@ -183,6 +183,35 @@ describe("/api/files/read containment — real route", () => {
     return cap;
   }
 
+  function multipartRequest(pathname: string, filename: string, bytes: Buffer) {
+    const boundary = "jinn-unicode-upload-boundary";
+    const payload = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+        "utf8",
+      ),
+      bytes,
+      Buffer.from(`\r\n--${boundary}--\r\n`, "ascii"),
+    ]);
+    const req = Object.assign(Readable.from([payload]), {
+      method: "POST",
+      url: pathname,
+      headers: {
+        host: "gateway.test",
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-length": String(payload.length),
+      },
+    });
+    return req;
+  }
+
+  async function postMultipartFile(filename: string, bytes: Buffer) {
+    const req = multipartRequest("/api/files", filename, bytes);
+    const cap = makeRes();
+    await files.handleFilesRequest(req as any, cap.res, "/api/files", "POST", ctx);
+    return cap;
+  }
+
   async function deleteFileRoute(fileId: string, headers: Record<string, string> = toolHeaders()) {
     const pathname = `/api/files/${fileId}`;
     const req = Object.assign(Readable.from([]), {
@@ -234,6 +263,47 @@ describe("/api/files/read containment — real route", () => {
     const res = await call(rel);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ path: rel, content: "allowed content", binary: false });
+  });
+
+  it("round-trips a Unicode multipart filename without changing the file bytes", async () => {
+    const filename = "тест документ.pdf";
+    const sourceBytes = Buffer.from([0x00, 0xff, 0x80, 0x42, 0x75, 0x6c, 0x67, 0x61, 0x72, 0x69, 0x61]);
+
+    const uploaded = await postMultipartFile(filename, sourceBytes);
+
+    expect(uploaded.status).toBe(201);
+    expect(uploaded.body.filename).toBe(filename);
+    expect(uploaded.body.size).toBe(sourceBytes.length);
+    expect(registry.getFile(String(uploaded.body.id))?.filename).toBe(filename);
+    const storedPath = path.join(tmpHome, "files", String(uploaded.body.id), filename);
+    expect(fs.readFileSync(storedPath)).toEqual(sourceBytes);
+  });
+
+  it("returns a Unicode filename unchanged from the shared multipart parser", async () => {
+    const filename = "тест документ.pdf";
+    const sourceBytes = Buffer.from([0x00, 0xff, 0x80]);
+    const req = multipartRequest("/api/work-items/ICI-688/attachments", filename, sourceBytes);
+
+    const uploaded = await files.readMultipartFile(req as any, 1024);
+
+    expect(uploaded.filename).toBe(filename);
+    expect(uploaded.buffer).toEqual(sourceBytes);
+  });
+
+  it("persists a Unicode filename unchanged for multipart session attachments", async () => {
+    const filename = "тест документ.pdf";
+    const sourceBytes = Buffer.from([0x00, 0xff, 0x80]);
+    const pathname = `/api/sessions/${fileSession.id}/attachments`;
+    const req = multipartRequest(pathname, filename, sourceBytes);
+    const cap = makeRes();
+
+    await files.handleSessionAttachment(req as any, cap.res, fileSession.id, ctx);
+
+    expect(cap.status).toBe(201);
+    expect(cap.body.filename).toBe(filename);
+    const persisted = registry.getFile(String(cap.body.id));
+    expect(persisted?.filename).toBe(filename);
+    expect(fs.readFileSync(String(persisted?.path))).toEqual(sourceBytes);
   });
 
   it("refuses traversal, absolute, NUL, symlink-out, backslash, and encoded separator attempts without leaking the canary", async () => {

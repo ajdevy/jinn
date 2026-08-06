@@ -52,6 +52,27 @@ export interface CommentEditor {
   operator: boolean;
 }
 
+export type TodoCommentListener = (comment: WorkItemComment) => void | Promise<void>;
+
+let todoCommentListener: TodoCommentListener | null = null;
+
+export function setTodoCommentListener(listener: TodoCommentListener | null): void {
+  todoCommentListener = listener;
+}
+
+function notifyTodoComment(comment: WorkItemComment): void {
+  if (!todoCommentListener) return;
+  try {
+    const maybe = todoCommentListener(comment);
+    if (maybe && typeof (maybe as Promise<void>).catch === 'function') {
+      void (maybe as Promise<void>).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort bridge, same contract as the status-change listener: a
+    // workflow that fails to wake must never throw out of a committed write.
+  }
+}
+
 export type WorkItemCommentErrorCode = 'comment-not-found' | 'comment-forbidden' | 'comment-deleted';
 
 export class WorkItemCommentError extends Error {
@@ -140,7 +161,38 @@ export function addComment(input: AddCommentInput): WorkItemComment {
     });
     return comment;
   });
-  return txn();
+  const committed = txn();
+  notifyTodoComment(committed);
+  return committed;
+}
+
+/** The earliest live operator comment on `todoId` written inside the window
+ *  `(after, until)` — how a parked `todo-comment` Wait node learns the operator
+ *  replied while it was still listening.
+ *
+ *  Identity is the (kind, author) PAIR, never the string alone: an employee
+ *  whose slug is literally "operator" writes `author = 'operator'` too, and the
+ *  `comment_added` audit row keeps only that string. Reading the comments table
+ *  is what keeps such a slug from resuming a run the operator never answered.
+ *
+ *  Both bounds are strict. A comment written in the same millisecond as the park
+ *  is not an answer to a question it could not have seen, and the deadline
+ *  instant belongs to the timeout — that is where the node stops waiting, so a
+ *  reply from there on cannot be one the run was still open to. Without the
+ *  upper bound a restart hours late would answer an expired park. */
+export function firstOperatorCommentAfter(
+  workItemId: string,
+  after: string,
+  until: string,
+): Pick<WorkItemComment, 'id' | 'body' | 'createdAt'> | undefined {
+  const db = initDb();
+  const row = db.prepare(
+    `SELECT id, body, created_at FROM work_item_comments
+     WHERE work_item_id = ? AND author_kind = 'operator' AND author = 'operator'
+       AND deleted_at IS NULL AND created_at > ? AND created_at < ?
+     ORDER BY created_at, rowid LIMIT 1`,
+  ).get(parseTodoId(workItemId), after, until) as Record<string, unknown> | undefined;
+  return row ? { id: row.id as string, body: row.body as string, createdAt: row.created_at as string } : undefined;
 }
 
 function requireEditable(db: ReturnType<typeof initDb>, id: string, editor: CommentEditor, action: string): WorkItemComment {

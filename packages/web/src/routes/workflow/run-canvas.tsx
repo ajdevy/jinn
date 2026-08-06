@@ -67,6 +67,15 @@ function buildGraph(
           ? outputTotal
           : typeof configuredTotal === "number" ? configuredTotal : children.length,
       } : undefined
+      const waitTodoId = nodeRun?.resolvedConfig?.["todoId"]
+      const waitTimeout = nodeRun?.resolvedConfig?.["timeoutMinutes"]
+      // Only while parked: once the comment lands the node resumes, and a card
+      // still asking for a comment would be lying about a settled step.
+      const waitComment = node.data.node.type === "wait" && status === "waiting"
+        && nodeRun?.resolvedConfig?.["mode"] === "todo-comment"
+        && typeof waitTodoId === "string" && typeof waitTimeout === "number"
+        ? { todoId: waitTodoId, timeoutMinutes: waitTimeout }
+        : undefined
       return {
         ...node,
         selected: node.id === selectedNodeId,
@@ -79,6 +88,7 @@ function buildGraph(
             status,
             dimmed: status === "skipped" || (status === "pending" && !nodeRun?.activated),
             ...(workflowCall ? { workflowCall } : {}),
+            ...(waitComment ? { waitComment } : {}),
           },
         },
       }

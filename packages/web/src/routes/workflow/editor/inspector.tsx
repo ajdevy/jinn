@@ -932,7 +932,19 @@ function ApprovalForm({ node, update }: FormProps) {
 }
 
 function WaitForm({ node, update }: FormProps) {
-  const config = node.config as { mode?: string; minutes?: number; timestamp?: unknown }
+  const config = node.config as { mode?: string; minutes?: number; timeoutMinutes?: number; timestamp?: unknown }
+  // No control for this mode on purpose: every input below writes a whole new
+  // config, so touching one would drop the mode and its timeout. It is authored
+  // through MCP/JSON, and the editor must not quietly rewrite it into a duration.
+  if (config.mode === "todo-comment") {
+    return (
+      <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+        Resumes when you comment on the run’s Todo
+        {typeof config.timeoutMinutes === "number" ? `, or times out after ${config.timeoutMinutes} minutes` : ""}
+        . Configured outside the editor.
+      </p>
+    )
+  }
   const mode = config.mode === "until" ? "until" : "duration"
   return (
     <>

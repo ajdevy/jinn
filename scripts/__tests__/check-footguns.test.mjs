@@ -11,6 +11,7 @@ const CHECKER = fileURLToPath(new URL("../check-footguns.mjs", import.meta.url))
 
 // Nothing here may depend on the developer's git config or on a private
 // terms file that happens to exist on this machine.
+/** @type {NodeJS.ProcessEnv} */
 const HERMETIC = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }
 delete HERMETIC.FOOTGUN_TERMS_FILE
 
@@ -250,7 +251,7 @@ test("pnpm footguns runs the checker", () => {
   assert.match(pkg.scripts.footguns, /scripts\/check-footguns\.mjs/)
 })
 
-test("CI runs the checker over the diff, and runs these tests", () => {
+test("CI runs the checker over the diff, and these tests ride the repository's node:test list", () => {
   const workflow = fs.readFileSync(path.resolve(".github/workflows/ci.yml"), "utf8")
 
   const job = /^ {2}footguns:\n(?: {4}.*\n| *\n)*/m.exec(workflow)
@@ -260,5 +261,10 @@ test("CI runs the checker over the diff, and runs these tests", () => {
   // judge the whole tree instead of the change.
   assert.match(job[0], /fetch-depth: 0/)
   assert.match(job[0], /check-footguns\.mjs/)
-  assert.match(job[0], /node --test scripts\/__tests__\/check-footguns\.test\.mjs/)
+
+  // The job runs the checker and nothing else. These tests are run the way
+  // every other node:test file here is, rather than by a second mechanism.
+  const pkg = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"))
+  assert.match(pkg.scripts["test:node"], /scripts\/__tests__\/check-footguns\.test\.mjs/)
+  assert.match(pkg.scripts.test, /pnpm test:node/)
 })

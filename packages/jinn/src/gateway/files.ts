@@ -796,6 +796,7 @@ export function readMultipartFile(req: HttpRequest, maxFileSize: number): Promis
     }
     const busboy = Busboy({
       headers: req.headers,
+      defParamCharset: "utf8",
       limits: {
         fileSize: maxFileSize,
         files: 1,
@@ -877,7 +878,7 @@ export function readMultipartFile(req: HttpRequest, maxFileSize: number): Promis
 async function handleMultipartUpload(req: HttpRequest, res: ServerResponse, context: ApiContext): Promise<void> {
   return new Promise((resolve) => {
     const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-    const busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } });
+    const busboy = Busboy({ headers: req.headers, defParamCharset: "utf8", limits: { fileSize: MAX_FILE_SIZE } });
     let filename = "";
     let fileBuffer: Buffer | null = null;
     let customPath: string | null = null;
@@ -1271,7 +1272,7 @@ async function handleAttachmentMultipart(
 ): Promise<void> {
   return new Promise((resolve) => {
     const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-    const busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } });
+    const busboy = Busboy({ headers: req.headers, defParamCharset: "utf8", limits: { fileSize: MAX_FILE_SIZE } });
     let filename = "";
     let fileBuffer: Buffer | null = null;
     let caption = "";

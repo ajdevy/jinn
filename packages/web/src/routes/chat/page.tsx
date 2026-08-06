@@ -48,12 +48,12 @@ import { buildNewSessionParams } from '@/components/chat/new-chat-helpers'
 import { buildContinuationPrompt } from '@/lib/stale-chat'
 
 class ChatErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
-  state: { error: Error | null } = { error: null }
+  override state: { error: Error | null } = { error: null }
   static getDerivedStateFromError(error: Error) { return { error } }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ChatErrorBoundary]', error.message, '\nComponent stack:', info.componentStack)
   }
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <PageLayout>

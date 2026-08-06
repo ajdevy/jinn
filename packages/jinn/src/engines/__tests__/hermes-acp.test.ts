@@ -178,7 +178,7 @@ function fakeServerFinalFrame(opts: {
 // ---------------------------------------------------------------------------
 
 class TestEngine extends HermesAcpEngine {
-  protected spawnProc() {
+  protected override spawnProc() {
     const rpc = fakeServer();
     return { rpc, killProc: () => {}, isAliveProc: () => true, onExit: (_cb: () => void) => {}, onError: (_cb: (e: Error) => void) => {} };
   }
@@ -205,7 +205,7 @@ describe("HermesAcpEngine.run", () => {
   // legacy binary DROPS the re-sent full frame via exact-equality fallback.
   const engineWith = (rpc: HermesRpc) =>
     new (class extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         return { rpc, killProc: () => {}, isAliveProc: () => true, onExit: (_cb: () => void) => {}, onError: (_cb: (e: Error) => void) => {} };
       }
     })();
@@ -244,7 +244,7 @@ describe("HermesAcpEngine.run", () => {
     let capturedPromptText = "";
 
     class SysPromptEngine extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         const rpc = fakeServer((msg) => {
           if (msg.method === "session/prompt") {
             const params = msg.params as Record<string, unknown>;
@@ -266,7 +266,7 @@ describe("HermesAcpEngine.run", () => {
     let capturedPromptText = "";
 
     class ResumeEngine extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         const rpc = fakeServer((msg) => {
           if (msg.method === "session/prompt") {
             const params = msg.params as Record<string, unknown>;
@@ -308,7 +308,7 @@ describe("HermesAcpEngine.run", () => {
     let capturedPromptText = "";
 
     class ExplicitRefreshEngine extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         const rpc = fakeServer((msg) => {
           if (msg.method === "session/prompt") {
             const params = msg.params as Record<string, unknown>;
@@ -336,9 +336,9 @@ describe("HermesAcpEngine.run", () => {
   // Fix 2(b) — handshake timeout: run() resolves with error instead of hanging
   it("resolves with error (not hangs) when handshake times out", async () => {
     class HangEngine extends HermesAcpEngine {
-      protected handshakeTimeoutMs = 50; // milliseconds — fast for tests
+      protected override handshakeTimeoutMs = 50; // milliseconds — fast for tests
 
-      protected spawnProc() {
+      protected override spawnProc() {
         const toServer = new PassThrough();
         const fromServer = new PassThrough();
         // fromServer never emits anything — initialize request never resolves
@@ -359,7 +359,7 @@ describe("HermesAcpEngine.run", () => {
   // Fix 3 — session/load failure falls back to session/new
   it("falls back to session/new when session/load fails, returning the new session id", async () => {
     class LoadFailEngine extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         const rpc = fakeServerLoadFail();
         return { rpc, killProc: () => {}, isAliveProc: () => true, onExit: (_cb: () => void) => {}, onError: (_cb: (e: Error) => void) => {} };
       }
@@ -380,7 +380,7 @@ describe("HermesAcpEngine.run", () => {
   it("evicts the ACP process when a prompt fails before producing text", async () => {
     let killed = false;
     class PromptErrorEngine extends HermesAcpEngine {
-      protected spawnProc() {
+      protected override spawnProc() {
         const rpc = fakeServerPromptError();
         return { rpc, killProc: () => { killed = true; }, isAliveProc: () => !killed, onExit: (_cb: () => void) => {}, onError: (_cb: (e: Error) => void) => {} };
       }
@@ -468,7 +468,7 @@ describe("HermesAcpEngine.run", () => {
     it("session/new carries the mapped resolvedMcp servers", async () => {
       let captured: unknown = "never-called";
       class CaptureEngine extends HermesAcpEngine {
-        protected spawnProc() {
+        protected override spawnProc() {
           const rpc = fakeServer((msg) => {
             if (msg.method === "session/new") captured = (msg.params as Record<string, unknown>)?.mcpServers;
           });
@@ -484,7 +484,7 @@ describe("HermesAcpEngine.run", () => {
     it("session/load carries the mapped servers too (resume path)", async () => {
       let captured: unknown = "never-called";
       class CaptureEngine extends HermesAcpEngine {
-        protected spawnProc() {
+        protected override spawnProc() {
           const rpc = fakeServer((msg) => {
             if (msg.method === "session/load") captured = (msg.params as Record<string, unknown>)?.mcpServers;
           });
@@ -499,7 +499,7 @@ describe("HermesAcpEngine.run", () => {
     it("emits [] when no resolvedMcp is provided (unchanged behavior)", async () => {
       let captured: unknown = "never-called";
       class CaptureEngine extends HermesAcpEngine {
-        protected spawnProc() {
+        protected override spawnProc() {
           const rpc = fakeServer((msg) => {
             if (msg.method === "session/new") captured = (msg.params as Record<string, unknown>)?.mcpServers;
           });

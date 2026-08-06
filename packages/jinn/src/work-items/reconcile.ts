@@ -72,6 +72,7 @@ export function deriveWorkItemStatus(
   source?: WorkItemSource,
   opts?: DeriveWorkItemOptions,
 ): WorkItemStatus {
+  void source; // the workflow-provenance guard it existed for now runs in reconcileWorkItem; kept for call-site readability
   if (STICKY_STATUSES.has(current)) return current;
   if (attempts.length === 0) return current;
   // Review is a governance phase, not a reflection of session transport state.

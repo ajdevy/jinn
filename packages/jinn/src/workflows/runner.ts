@@ -343,13 +343,43 @@ function mergeOutput(run: WorkflowRunDetail, nodeId: string): WorkflowNodeOutput
 function approvalRef(run: WorkflowRunDetail, node: ApprovalNode): string | undefined {
   return node.config.approver ? resolveString(node.config.approver, bindingContext(run), "Workflow approver") : undefined;
 }
-function waitResumeAt(run: WorkflowRunDetail, node: WaitNode, now: string): string {
-  if (node.config.mode === "duration") return new Date(Date.parse(now) + node.config.minutes * 60_000).toISOString();
+/** A parked Wait hands the operator's reply straight into downstream prompts, so
+ *  a pasted essay must not become the run's whole context. */
+const MAX_WAIT_COMMENT_CHARS = 4_000;
+function boundedComment(body: string): string {
+  return body.length <= MAX_WAIT_COMMENT_CHARS ? body : `${body.slice(0, MAX_WAIT_COMMENT_CHARS)}\n… (truncated)`;
+}
+/** What a Wait node writes when it parks. `resumeAt` is the instant it stops
+ *  waiting unprompted: the scheduled resume for `duration` and `until`, and the
+ *  timeout ceiling for `todo-comment`, which an operator reply pre-empts. */
+function waitPark(run: WorkflowRunDetail, node: WaitNode, now: string):
+{ resumeAt: string; resolvedConfig?: Record<string, JsonValue> } {
+  if (node.config.mode === "duration") {
+    return { resumeAt: new Date(Date.parse(now) + node.config.minutes * 60_000).toISOString() };
+  }
+  if (node.config.mode === "todo-comment") {
+    const { todoId } = run.trigger;
+    if (!todoId) {
+      throw new Error(`Workflow Wait ${node.id} waits for the operator's comment on this run's Todo, `
+        + "but the run is not bound to one. Start it from a Todo — a todo-status Trigger, or a manual "
+        + "or Workflow Call start that carries a todoId.");
+    }
+    const { timeoutMinutes } = node.config;
+    return { resumeAt: new Date(Date.parse(now) + timeoutMinutes * 60_000).toISOString(),
+      resolvedConfig: { mode: "todo-comment", todoId, timeoutMinutes } };
+  }
   const value = resolveBinding(node.config.timestamp, bindingContext(run));
   if (typeof value !== "string" || Number.isNaN(Date.parse(value)) || new Date(value).toISOString() !== value) {
     throw new Error("Workflow Wait timestamp must resolve to a canonical instant.");
   }
-  return value;
+  return { resumeAt: value };
+}
+/** A Wait that reaches its own `resumeAt`. Only `todo-comment` distinguishes
+ *  the two ways it can end, and it says so on the way out. */
+function waitDueOutput(node: WorkflowNode | undefined): WorkflowNodeOutput {
+  return node?.type === "wait" && node.config.mode === "todo-comment"
+    ? { text: "", fields: { outcome: "timeout" } }
+    : { text: "", fields: {} };
 }
 function endOutput(run: WorkflowRunDetail, node: EndNode): WorkflowNodeOutput {
   let fields: Record<string, JsonValue> = {};
@@ -446,10 +476,13 @@ export class WorkflowRunner {
   private applyInline(run: WorkflowRunDetail, action: Exclude<NodeAction, { kind: "dispatch" | "fanout" }>): void {
     const at = this.now();
     let approver: string | undefined;
-    let resumeAt: string | undefined;
+    let park: { resumeAt: string; resolvedConfig?: Record<string, JsonValue> } | undefined;
     let output: WorkflowNodeOutput | undefined;
     if (action.kind === "approval") approver = approvalRef(run, action.node as ApprovalNode);
-    if (action.kind === "wait") resumeAt = waitResumeAt(run, action.node as WaitNode, at);
+    if (action.kind === "wait") {
+      try { park = waitPark(run, action.node as WaitNode, at); }
+      catch (error) { this.failRun(run, error, action.node.id); return; }
+    }
     if (action.kind === "end" && action.node.type === "end") {
       try { output = endOutput(run, action.node); }
       catch (error) { this.failRun(run, error, action.node.id); return; }
@@ -473,7 +506,8 @@ export class WorkflowRunner {
         tx.setRunStatus("waiting");
         this.mirrorApproval(run, action.node as ApprovalNode, approver);
       } else if (action.kind === "wait") {
-        tx.setNodeStatus(action.node.id, "waiting", { resumeAt, startedAt: at });
+        tx.setNodeStatus(action.node.id, "waiting", { resumeAt: park!.resumeAt, startedAt: at,
+          ...(park!.resolvedConfig ? { resolvedConfig: park!.resolvedConfig } : {}) });
         tx.setRunStatus("waiting");
       } else {
         tx.setNodeStatus(action.node.id, "completed", { output, startedAt: at, endedAt: at });
@@ -755,7 +789,28 @@ export class WorkflowRunner {
       || runtime.status !== "waiting" || !runtime.resumeAt || runtime.resumeAt > now) return false;
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       if (resumableEmployee) tx.setNodeStatus(nodeId, "pending", { activated: true });
-      else tx.setNodeStatus(nodeId, "completed", { output: { text: "", fields: {} }, endedAt: now });
+      else tx.setNodeStatus(nodeId, "completed", { output: waitDueOutput(authored), endedAt: now });
+      tx.setRunStatus("running");
+    });
+    this.changed(run);
+    await this.advance(workflowId, runId);
+    return true;
+  }
+
+  /** Resume a `todo-comment` Wait early, because the operator answered. The
+   *  comment is not claimed: every run parked on that Todo resumes from it, and
+   *  a re-sweep is a no-op because the node is no longer `waiting`. */
+  async resumeCommentWait(workflowId: string, runId: string, nodeId: string,
+    comment: { id: string; body: string }, now: string): Promise<boolean> {
+    const run = this.detail(workflowId, runId);
+    const runtime = nodeRun(run, nodeId);
+    const authored = run.definition.nodes.find((node) => node.id === nodeId);
+    if (run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
+      || runtime.status !== "waiting") return false;
+    const body = boundedComment(comment.body);
+    this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+      tx.setNodeStatus(nodeId, "completed", { endedAt: now,
+        output: { text: body, fields: { outcome: "reply", commentId: comment.id, comment: body } } });
       tx.setRunStatus("running");
     });
     this.changed(run);
