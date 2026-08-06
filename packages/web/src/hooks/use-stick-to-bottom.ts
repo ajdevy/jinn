@@ -4,9 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
  * Stick-to-bottom for the chat thread.
  *
  * One source of truth — `followRef` — decides whether the view auto-follows new
- * content. It is flipped ONLY by the user's own scroll (a `scroll` event whose
- * distance-from-bottom exceeds the threshold means "I scrolled up to read"; back
- * within the threshold means "I caught up"). Programmatic scrolls never flip it.
+ * content. It is flipped ONLY by the user's own scroll: any `scroll` event that
+ * moves further from the bottom means "I scrolled up to read", however slightly,
+ * and coming back within the threshold means "I caught up". Detaching on movement
+ * rather than on the threshold matters because a freshly opened transcript resizes
+ * for a second or two, and each re-pin below would otherwise undo a small scroll-up
+ * before the user ever cleared the band. Programmatic scrolls never flip it.
  *
  * Following is performed synchronously in a layout effect (before paint) keyed on
  * the growing content, so streaming can never visually detach. Resize / mobile
@@ -87,6 +90,9 @@ export function useStickToBottom({
   // True only while a programmatic SMOOTH scroll is animating, so its intermediate
   // (far-from-bottom) scroll events aren't mistaken for the user scrolling up.
   const animatingRef = useRef(false)
+  // Distance from the bottom at the previous scroll event — the baseline for
+  // "did this event move away from the bottom?".
+  const prevDistRef = useRef(0)
   // Count at the moment we were last caught up — the baseline for unreadDelta.
   const seenCountRef = useRef(messageCount)
   // Fresh message count for stable callbacks (avoids stale closures).
@@ -127,12 +133,18 @@ export function useStickToBottom({
 
     const onScroll = () => {
       const dist = distanceFromBottom(el)
+      // Recorded before the early return below so our own scrolls keep the baseline
+      // fresh. Distance, not scrollTop direction: when content above shrinks the
+      // browser clamps scrollTop down while we are still at the bottom, and a
+      // direction check would detach a live stream there.
+      const movedAway = dist > prevDistRef.current
+      prevDistRef.current = dist
       if (animatingRef.current) {
         // Our own smooth scroll is still running; only clear once it reaches bottom.
         if (dist <= threshold) animatingRef.current = false
         return
       }
-      const follow = shouldFollow(dist, threshold)
+      const follow = movedAway ? false : shouldFollow(dist, threshold)
       followRef.current = follow
       if (follow) seenCountRef.current = messageCountRef.current
       if (uiRaf.current != null) cancelAnimationFrame(uiRaf.current)
