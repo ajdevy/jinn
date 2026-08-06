@@ -419,7 +419,7 @@ describe("ICI-570 — live todo events from the reconciler", () => {
       linkedSession("live-rec-1", item.id, "running", "2026-07-24T10:00:00.000Z");
       const first = reconcile.reconcileWorkItem(item.id);
       expect(first?.changed).toBe(true);
-      expect(events).toContainEqual(expect.objectContaining({ entity: "todo", action: "reconciled", id: item.id }));
+      expect(events).toContainEqual(expect.objectContaining({ entity: "todo", action: "status-transitioned", id: item.id }));
       expect(events).toHaveLength(1);
 
       events.length = 0;
