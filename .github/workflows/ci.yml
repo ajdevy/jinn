@@ -344,3 +344,26 @@ jobs:
 
           docker logs jinn-smoke
           docker rm -f jinn-smoke >/dev/null
+
+  all-checks-pass:
+    runs-on: ubuntu-latest
+    # The single status check branch protection requires on main. Every other job
+    # in this file is listed below, so a job added later cannot land outside
+    # protection - scripts/__tests__/ci-workflow.test.mjs fails the build when one
+    # is missing from `needs`.
+    #
+    # `always()` is what makes that protection real: without it the job is skipped
+    # the moment a dependency fails, and a required check that never ran does not
+    # report as a red one.
+    if: always()
+    needs: [typecheck, lint, footguns, ratchet, unit-tests, build, coverage, e2e, docker]
+    steps:
+      # No `pnpm install`: the checker imports nothing outside node: builtins.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+      - name: Every required job succeeded
+        env:
+          NEEDS_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/check-required-jobs.mjs
