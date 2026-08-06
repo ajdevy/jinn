@@ -408,4 +408,78 @@ describe("syncExternalTurn", () => {
       "first prompt", "first answer", "second prompt", "second answer",
     ]);
   });
+
+  it("inserts only the new message when the tail carries an already-persisted one ahead of it (partial overlap)", () => {
+    const id = makeSession();
+    // run() persisted this turn, but the anchor landed older than its own
+    // assistant entry — so the tail re-reads that entry AND the next turn's.
+    reg.insertMessage(id, "user", "ship the autopilot");
+    reg.insertMessage(id, "assistant", "Autopilot engaged.");
+    const future = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const newestIso = future(2_000);
+    const file = writeTranscript([
+      { type: "assistant", text: "Autopilot engaged.", ts: future(1_000) },
+      { type: "assistant", text: "Autopilot's first move done.", ts: newestIso },
+    ]);
+    const payload = {
+      hook_event_name: "Stop",
+      transcript_path: file,
+      last_assistant_message: "Autopilot's first move done.",
+    };
+    expect(ext.syncExternalTurn(id, emit, payload)).toBe(1);
+    expect(reg.getMessages(id).map((m) => [m.role, m.content])).toEqual([
+      ["user", "ship the autopilot"],
+      ["assistant", "Autopilot engaged."],
+      ["assistant", "Autopilot's first move done."],
+    ]);
+    // Anchor advanced past the new entry, so an immediate repeat is a no-op.
+    expect((reg.getSession(id)!.transportMeta as any)?.[ext.TRANSCRIPT_SYNC_META_KEY]).toBe(newestIso);
+    expect(ext.syncExternalTurn(id, emit, payload)).toBe(0);
+    expect(reg.getMessages(id)).toHaveLength(3);
+  });
+
+  it("upgrades a truncated row on the partial-overlap path and appends only the new message", () => {
+    const id = makeSession();
+    reg.insertMessage(id, "user", "hire a reviewer");
+    reg.insertMessage(id, "assistant", "On it.");
+    const future = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const file = writeTranscript([
+      { type: "assistant", text: "On it. Reviewer hired.", ts: future(1_000) },
+      { type: "assistant", text: "Reviewer is on the first queue item.", ts: future(2_000) },
+    ]);
+    const n = ext.syncExternalTurn(id, emit, {
+      hook_event_name: "Stop",
+      transcript_path: file,
+      last_assistant_message: "Reviewer is on the first queue item.",
+    });
+    expect(n).toBe(1);
+    expect(reg.getMessages(id).map((m) => [m.role, m.content])).toEqual([
+      ["user", "hire a reviewer"],
+      ["assistant", "On it. Reviewer hired."],
+      ["assistant", "Reviewer is on the first queue item."],
+    ]);
+  });
+
+  it("does not swallow a repeated prompt that matches mid-history — the new turn inserts both messages", () => {
+    const id = makeSession();
+    reg.insertMessage(id, "user", "continue");
+    reg.insertMessage(id, "assistant", "old answer");
+    const future = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const file = writeTranscript([
+      { type: "user", text: "continue", ts: future(1_000) },
+      { type: "assistant", text: "new answer", ts: future(2_000) },
+    ]);
+    const n = ext.syncExternalTurn(id, emit, {
+      hook_event_name: "Stop",
+      transcript_path: file,
+      last_assistant_message: "new answer",
+    });
+    expect(n).toBe(2);
+    expect(reg.getMessages(id).map((m) => [m.role, m.content])).toEqual([
+      ["user", "continue"],
+      ["assistant", "old answer"],
+      ["user", "continue"],
+      ["assistant", "new answer"],
+    ]);
+  });
 });
