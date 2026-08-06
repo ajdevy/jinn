@@ -1,0 +1,2083 @@
+{
+  "_instructions": "Every entry is a file that predates the 300-line limit, carries an ESLint grandfather exemption, or both. `lines` is a budget that may only shrink: growing past it fails CI, and so does a new file over the limit or a new entry in eslint-baseline.json. To leave the list, split the file by responsibility — move one concern into its own module and import it back — then run `pnpm ratchet` and commit the shrunken file. Add nothing here by hand; the ratchet never widens a budget.",
+  "limit": 300,
+  "files": {
+    "e2e/workflow-layout/workflow-layout.spec.ts": {
+      "lines": 625
+    },
+    "packages/gateway-events/src/index.ts": {
+      "lines": 345
+    },
+    "packages/jinn/src/cli/__tests__/migrate-prompt.test.ts": {
+      "lines": 503,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/cli/__tests__/migrate.test.ts": {
+      "lines": 597,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/cli/container-contract.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/cli/limits.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/cli/migrate-prompt.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cli/migrate.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/cli/nuke.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cli/pair.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/cli/setup.ts": {
+      "lines": 706,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cli/skills.ts": {
+      "lines": 351,
+      "exempt": [
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/cli/start.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cli/status.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/connectors/discord/index.ts": {
+      "lines": 359,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/connectors/slack/index.ts": {
+      "lines": 519,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/connectors/telegram/__tests__/connector.test.ts": {
+      "lines": 341,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/connectors/telegram/index.ts": {
+      "lines": 459,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/connectors/whatsapp/index.ts": {
+      "lines": 332,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cron/__tests__/runner.test.ts": {
+      "lines": 582
+    },
+    "packages/jinn/src/cron/run-summary.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/cron/runner.ts": {
+      "lines": 302,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/cron/validation.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/engines/__tests__/claude-interactive.test.ts": {
+      "lines": 802,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises"
+      ]
+    },
+    "packages/jinn/src/engines/__tests__/codex-interactive.test.ts": {
+      "lines": 583
+    },
+    "packages/jinn/src/engines/__tests__/codex-mcp-args.test.ts": {
+      "lines": 422
+    },
+    "packages/jinn/src/engines/__tests__/codex.test.ts": {
+      "lines": 865
+    },
+    "packages/jinn/src/engines/__tests__/grok-interactive.test.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/engines/__tests__/grok.test.ts": {
+      "lines": 779
+    },
+    "packages/jinn/src/engines/__tests__/hermes-acp.test.ts": {
+      "lines": 514
+    },
+    "packages/jinn/src/engines/__tests__/pty-stream.test.ts": {
+      "lines": 310
+    },
+    "packages/jinn/src/engines/antigravity-protocol.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/engines/antigravity.ts": {
+      "lines": 594,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/claude-interactive.ts": {
+      "lines": 1844,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/claude-permission-prompt.ts": {
+      "exempt": [
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/engines/codex-interactive.ts": {
+      "lines": 591,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/codex.ts": {
+      "lines": 1094,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/grok-interactive.ts": {
+      "lines": 471,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/grok-mcp.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/grok.ts": {
+      "lines": 792,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/hermes-acp.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/hermes-jsonrpc.ts": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/engines/hermes-mcp.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/engines/hermes-protocol.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/pi.ts": {
+      "lines": 448,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/pty-snapshot.ts": {
+      "lines": 308,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/engines/pty-stream.ts": {
+      "lines": 379,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/engines/sse-pty-proxy.ts": {
+      "lines": 397,
+      "exempt": [
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/engines/transcript-tailer.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/experiments/store.ts": {
+      "lines": 331,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/__tests__/approval-root-fallback.test.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/gateway/__tests__/auth-ux-api.test.ts": {
+      "lines": 475
+    },
+    "packages/jinn/src/gateway/__tests__/browser-operator-authorization.test.ts": {
+      "lines": 517
+    },
+    "packages/jinn/src/gateway/__tests__/callback-reliability.test.ts": {
+      "lines": 1255
+    },
+    "packages/jinn/src/gateway/__tests__/control-plane-authority.test.ts": {
+      "lines": 557
+    },
+    "packages/jinn/src/gateway/__tests__/delegations-route.test.ts": {
+      "lines": 1074
+    },
+    "packages/jinn/src/gateway/__tests__/dispatch-route.test.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/gateway/__tests__/external-turns.test.ts": {
+      "lines": 485
+    },
+    "packages/jinn/src/gateway/__tests__/file-read.test.ts": {
+      "lines": 549
+    },
+    "packages/jinn/src/gateway/__tests__/instance-migration-api.test.ts": {
+      "lines": 394
+    },
+    "packages/jinn/src/gateway/__tests__/lifecycle-stop.test.ts": {
+      "lines": 525
+    },
+    "packages/jinn/src/gateway/__tests__/org-update.test.ts": {
+      "lines": 341,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/gateway/__tests__/route-hardening.test.ts": {
+      "lines": 324
+    },
+    "packages/jinn/src/gateway/__tests__/session-comm-guards.test.ts": {
+      "lines": 361
+    },
+    "packages/jinn/src/gateway/__tests__/session-comm-storm.test.ts": {
+      "lines": 324
+    },
+    "packages/jinn/src/gateway/__tests__/streamed-turn-settlement.test.ts": {
+      "lines": 328
+    },
+    "packages/jinn/src/gateway/__tests__/work-item-approval-parity.test.ts": {
+      "lines": 317
+    },
+    "packages/jinn/src/gateway/__tests__/work-item-approval-route.test.ts": {
+      "lines": 626,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/gateway/__tests__/work-item-attachments-route.test.ts": {
+      "lines": 565
+    },
+    "packages/jinn/src/gateway/__tests__/work-item-relations-labels-route.test.ts": {
+      "lines": 374
+    },
+    "packages/jinn/src/gateway/__tests__/work-items-route.test.ts": {
+      "lines": 2231
+    },
+    "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": {
+      "lines": 695,
+      "exempt": [
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/gateway/api.ts": {
+      "lines": 7748,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/gateway/approval-authority.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/auth.ts": {
+      "lines": 595,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/byte-range.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/chat-activity.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/external-turns.ts": {
+      "lines": 441,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/files.ts": {
+      "lines": 1596,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/gateway/hook-endpoint.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/http-helpers.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/gateway/lifecycle.ts": {
+      "lines": 750,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/manager-visibility.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/media-type.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/org-hierarchy.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/org.ts": {
+      "lines": 421,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/pty-ws.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/server.ts": {
+      "lines": 1479,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/session-comm-guards.ts": {
+      "lines": 356,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/skills.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/status-reconciler.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/streamed-blocks.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/watcher.ts": {
+      "exempt": [
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/gateway/workflow-api.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/gateway/workflow-todo-surface.ts": {
+      "lines": 401,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/instances/access.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/instances/create.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/instances/directory.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/instances/start.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/mcp/__tests__/attachment.test.ts": {
+      "lines": 445
+    },
+    "packages/jinn/src/mcp/__tests__/delegation-tools.test.ts": {
+      "lines": 336
+    },
+    "packages/jinn/src/mcp/__tests__/engine-wiring.test.ts": {
+      "lines": 351
+    },
+    "packages/jinn/src/mcp/__tests__/knowledge-tools.test.ts": {
+      "lines": 311
+    },
+    "packages/jinn/src/mcp/__tests__/search-tools.test.ts": {
+      "lines": 624,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/mcp/__tests__/server.test.ts": {
+      "lines": 479
+    },
+    "packages/jinn/src/mcp/__tests__/session-tools.test.ts": {
+      "lines": 838
+    },
+    "packages/jinn/src/mcp/__tests__/tool-manifest-budget.test.ts": {
+      "lines": 309
+    },
+    "packages/jinn/src/mcp/__tests__/work-item-tools.test.ts": {
+      "lines": 1253
+    },
+    "packages/jinn/src/mcp/approval-tools.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/attachment.ts": {
+      "lines": 346,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/delegation-tools.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/experiment-tools.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/file-tools.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/knowledge-tools.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/note-tools.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/org-tools.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/resolver.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/search-tools.ts": {
+      "lines": 304,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/server.ts": {
+      "lines": 326,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/session-tools.ts": {
+      "lines": 347,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/temp-sandbox.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/mcp/toolkit.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/mcp/work-item-tools.ts": {
+      "lines": 804,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/migrations/__tests__/completion.test.ts": {
+      "lines": 321
+    },
+    "packages/jinn/src/migrations/__tests__/service.test.ts": {
+      "lines": 373
+    },
+    "packages/jinn/src/migrations/completion.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/migrations/service.ts": {
+      "lines": 617,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/migrations/snapshot.ts": {
+      "lines": 331,
+      "exempt": [
+        "complexity",
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/notes/__tests__/store.test.ts": {
+      "lines": 543
+    },
+    "packages/jinn/src/notes/store.ts": {
+      "lines": 783,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/__tests__/callback-deliveries.test.ts": {
+      "lines": 1106
+    },
+    "packages/jinn/src/sessions/__tests__/callbacks.test.ts": {
+      "lines": 824
+    },
+    "packages/jinn/src/sessions/__tests__/context.test.ts": {
+      "lines": 730,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/sessions/__tests__/delegation-completion-contract.test.ts": {
+      "lines": 318
+    },
+    "packages/jinn/src/sessions/__tests__/messages-partial.test.ts": {
+      "lines": 544
+    },
+    "packages/jinn/src/sessions/__tests__/platform-context-dispatch.test.ts": {
+      "lines": 603
+    },
+    "packages/jinn/src/sessions/__tests__/registry-search-messages.test.ts": {
+      "lines": 388
+    },
+    "packages/jinn/src/sessions/__tests__/registry-search-reference.test.ts": {
+      "lines": 331
+    },
+    "packages/jinn/src/sessions/callbacks.ts": {
+      "lines": 580,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/context.ts": {
+      "lines": 1087,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/sessions/delegation-completion-contract.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/sessions/fork.ts": {
+      "lines": 386,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/manager.ts": {
+      "lines": 1179,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/sessions/migrate.ts": {
+      "lines": 966,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/partial-stream.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/rate-limit-handler.ts": {
+      "lines": 417,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/sessions/registry.ts": {
+      "lines": 2827,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/sessions/session-patch.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/__tests__/engine-limits.test.ts": {
+      "lines": 355
+    },
+    "packages/jinn/src/shared/__tests__/models.test.ts": {
+      "lines": 338
+    },
+    "packages/jinn/src/shared/__tests__/template-company-doctrine.test.ts": {
+      "lines": 463
+    },
+    "packages/jinn/src/shared/activity-receipts.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/blocks.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/claude-models.ts": {
+      "lines": 338,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/claude-settings.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/codex-models.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/config.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/db.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/effort.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/engine-limits.ts": {
+      "lines": 658,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/grok-models.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/hermes-models.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/models.ts": {
+      "lines": 712,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/shared/pi-models.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/shared/types.ts": {
+      "lines": 1029
+    },
+    "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
+      "lines": 314
+    },
+    "packages/jinn/src/stt/model-store.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/stt/settings-store.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/stt/stt.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/talk/kokoro.ts": {
+      "lines": 488,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/talk/speakable.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/__tests__/approvals.test.ts": {
+      "lines": 335
+    },
+    "packages/jinn/src/work-items/__tests__/attachments.test.ts": {
+      "lines": 362
+    },
+    "packages/jinn/src/work-items/__tests__/migrate.test.ts": {
+      "lines": 336
+    },
+    "packages/jinn/src/work-items/__tests__/optimistic-concurrency.test.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/work-items/__tests__/reconcile.test.ts": {
+      "lines": 433
+    },
+    "packages/jinn/src/work-items/__tests__/relations.test.ts": {
+      "lines": 334
+    },
+    "packages/jinn/src/work-items/__tests__/store.test.ts": {
+      "lines": 324
+    },
+    "packages/jinn/src/work-items/approvals.ts": {
+      "lines": 476,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/attachments.ts": {
+      "lines": 394,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/migrate.ts": {
+      "lines": 1168,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/reconcile.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/store.ts": {
+      "lines": 1154,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/transitions.ts": {
+      "lines": 330,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/work-items/workflow-event-feed.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/workflows/__tests__/approval-revision.test.ts": {
+      "lines": 351
+    },
+    "packages/jinn/src/workflows/__tests__/bindings.test.ts": {
+      "lines": 480
+    },
+    "packages/jinn/src/workflows/__tests__/model.test.ts": {
+      "lines": 799
+    },
+    "packages/jinn/src/workflows/__tests__/output.test.ts": {
+      "lines": 348
+    },
+    "packages/jinn/src/workflows/__tests__/reminder-ladder.test.ts": {
+      "lines": 469
+    },
+    "packages/jinn/src/workflows/__tests__/repository-definitions.test.ts": {
+      "lines": 675,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/workflows/__tests__/repository-migrations.test.ts": {
+      "lines": 691
+    },
+    "packages/jinn/src/workflows/__tests__/repository-runs.test.ts": {
+      "lines": 899
+    },
+    "packages/jinn/src/workflows/__tests__/service-validation.test.ts": {
+      "lines": 335
+    },
+    "packages/jinn/src/workflows/__tests__/todo-reflection.test.ts": {
+      "lines": 413
+    },
+    "packages/jinn/src/workflows/__tests__/validation.test.ts": {
+      "lines": 1000
+    },
+    "packages/jinn/src/workflows/__tests__/wait-todo-comment.test.ts": {
+      "lines": 324
+    },
+    "packages/jinn/src/workflows/__tests__/workflow-control-flow.test.ts": {
+      "lines": 385
+    },
+    "packages/jinn/src/workflows/__tests__/workflow-fanout.test.ts": {
+      "lines": 464
+    },
+    "packages/jinn/src/workflows/__tests__/workflow-recovery.test.ts": {
+      "lines": 417,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/workflows/__tests__/workflow-triggers.test.ts": {
+      "lines": 371
+    },
+    "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": {
+      "lines": 771,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/jinn/src/workflows/bindings.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/import-v1.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/workflows/model.ts": {
+      "lines": 400,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/output.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/repository-migrations.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/repository-run-transaction.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/jinn/src/workflows/repository-runs.ts": {
+      "lines": 470,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/repository-support.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/repository.ts": {
+      "lines": 397,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/runner.ts": {
+      "lines": 1191,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/workflows/service.ts": {
+      "lines": 518,
+      "exempt": [
+        "complexity",
+        "max-depth"
+      ]
+    },
+    "packages/jinn/src/workflows/session-executor.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/jinn/src/workflows/trigger-service.ts": {
+      "exempt": [
+        "complexity",
+        "max-params"
+      ]
+    },
+    "packages/jinn/src/workflows/validation.ts": {
+      "lines": 486,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/components/activity/log-browser.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/auth/pairing-screen.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/auth/remote-access-panel.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/__tests__/chat-messages-tool-group.test.tsx": {
+      "lines": 527
+    },
+    "packages/web/src/components/chat/__tests__/chat-sidebar-helpers.test.ts": {
+      "lines": 439
+    },
+    "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": {
+      "lines": 862,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-depth"
+      ]
+    },
+    "packages/web/src/components/chat/__tests__/company-activity-card.test.tsx": {
+      "lines": 514
+    },
+    "packages/web/src/components/chat/__tests__/employee-picker.test.tsx": {
+      "lines": 410
+    },
+    "packages/web/src/components/chat/__tests__/model-selector-row.test.tsx": {
+      "lines": 328
+    },
+    "packages/web/src/components/chat/__tests__/teammate-reply.test.tsx": {
+      "lines": 373
+    },
+    "packages/web/src/components/chat/agent-relay.tsx": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/components/chat/audio-player.ts": {
+      "lines": 335
+    },
+    "packages/web/src/components/chat/background-activity-status.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/callback-burst.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-blocks.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-employee-picker.tsx": {
+      "lines": 315,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-input.tsx": {
+      "lines": 1104,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-messages.tsx": {
+      "lines": 1674,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-pane.tsx": {
+      "lines": 722,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-sidebar.tsx": {
+      "lines": 2180,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/chat-tabs.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/cli-keybar.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/comms-callout.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/company-activity-card.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/dispatch-row.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/file-attachment.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/file-view.tsx": {
+      "lines": 369,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/fold-region.tsx": {
+      "lines": 339,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function",
+        "max-params"
+      ]
+    },
+    "packages/web/src/components/chat/handoff-card.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/media-preview.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/message-markdown.tsx": {
+      "lines": 365,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/message-media.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/mic-waveform.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/mobile-tab-bar.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/model-selector-row.tsx": {
+      "lines": 525,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/queue-panel.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/session-row-menu.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/shortcut-overlay.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/stale-chat-notice.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/teammate-reply.tsx": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/components/chat/thread-peek.tsx": {
+      "lines": 403,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/todo-activity-burst.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/tts-engine.ts": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/chat/voice-message.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/cli-terminal.tsx": {
+      "lines": 585,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/code-block-chrome.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises"
+      ]
+    },
+    "packages/web/src/components/crons/weekly-schedule.tsx": {
+      "lines": 388,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/global-search.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/live-stream-widget.tsx": {
+      "lines": 309,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/markdown-view.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/migration/__tests__/instance-migration-gate.test.tsx": {
+      "lines": 341,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/web/src/components/migration/instance-migration-gate.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/onboarding-wizard.tsx": {
+      "lines": 780,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/org/employee-detail.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/org/employee-editor.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/org/employee-node.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/org/layout/d3-tree-layout.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/org/layout/dagre-fallback.ts": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/pill-nav.tsx": {
+      "lines": 464,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/stt/whisper-download-modal.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/ui/emoji-picker.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/ui/image-lightbox.tsx": {
+      "lines": 358,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/ui/state-line.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/ui/video-player.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/workspaces/create-workspace-dialog.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/components/workspaces/workspace-menu.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/__tests__/use-live-session.test.ts": {
+      "lines": 2117
+    },
+    "packages/web/src/hooks/use-chat-tabs.ts": {
+      "lines": 337,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/use-gateway.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/use-keyboard-shortcuts.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity"
+      ]
+    },
+    "packages/web/src/hooks/use-live-session.ts": {
+      "lines": 1430,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/use-query-invalidation.ts": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/use-sessions.ts": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity"
+      ]
+    },
+    "packages/web/src/hooks/use-stick-to-bottom.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/hooks/use-stt.ts": {
+      "lines": 452,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/lib/api.ts": {
+      "lines": 1295,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/lib/blocks.ts": {
+      "lines": 370,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/lib/conversations.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/lib/cron-utils.ts": {
+      "lines": 389,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/lib/file-read-request.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/lib/skills.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/lib/todos.ts": {
+      "lines": 370,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity"
+      ]
+    },
+    "packages/web/src/lib/ws.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/auth-provider.tsx": {
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/chat/page.tsx": {
+      "lines": 1234,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/cron/detail.tsx": {
+      "lines": 357,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/cron/page.tsx": {
+      "lines": 379,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/experiments/detail.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/experiments/reading-chart.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/limits/__tests__/use-engine-limits.test.tsx": {
+      "lines": 303
+    },
+    "packages/web/src/routes/limits/page.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/limits/use-engine-limits.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/logs/page.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/more/page.tsx": {
+      "lines": 312,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/notes/__tests__/page.test.tsx": {
+      "lines": 362
+    },
+    "packages/web/src/routes/notes/note-editor.tsx": {
+      "lines": 399,
+      "exempt": [
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/notes/note-list.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/notes/note-mic.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/notes/note-sidebar.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/notes/page.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/org/page.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/redesign/page.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/settings-provider.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/settings/page.tsx": {
+      "lines": 1967,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/skills/detail.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/skills/page.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
+      "lines": 914
+    },
+    "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
+      "lines": 340,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises"
+      ]
+    },
+    "packages/web/src/routes/todos/__tests__/task-page.test.tsx": {
+      "lines": 582,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/web/src/routes/todos/__tests__/task-sections.test.tsx": {
+      "lines": 699
+    },
+    "packages/web/src/routes/todos/board/board-page.tsx": {
+      "lines": 1114,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/board-route.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars"
+      ]
+    },
+    "packages/web/src/routes/todos/board/board-switcher.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/card-tree.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/card.tsx": {
+      "lines": 339,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/column.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/use-board-drag.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-depth",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/board/use-board.ts": {
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "max-params"
+      ]
+    },
+    "packages/web/src/routes/todos/filter-bar.tsx": {
+      "lines": 533,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/list/group-items.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/list/list-group.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/list/list-row.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/needs-you-view.tsx": {
+      "lines": 518,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/new-todo-dialog.tsx": {
+      "lines": 464,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/pickers/picker-contents.tsx": {
+      "lines": 431,
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/pickers/picker-shell.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/acceptance.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/activity.tsx": {
+      "lines": 706,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/attachment-preview.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/attachments.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/banner.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/body-editor.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/chip-cluster.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/crumb-bar.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/live-body-editor.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/props-rail.tsx": {
+      "lines": 303,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/relations.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/subtasks.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/task-page.tsx": {
+      "lines": 722,
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/task-page/use-task-pickers.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/todo-dialog.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/todo-edit-request.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/todo-filter-sheet.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/todos/todo-status-mutation.ts": {
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/routes/workflow/__tests__/inspector.test.tsx": {
+      "lines": 404
+    },
+    "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
+      "lines": 413
+    },
+    "packages/web/src/routes/workflow/editor/edge.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/editor/editor.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/editor/inspector.tsx": {
+      "lines": 1135,
+      "exempt": [
+        "@typescript-eslint/no-unused-vars",
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/editor/node-card.tsx": {
+      "lines": 362,
+      "exempt": [
+        "complexity"
+      ]
+    },
+    "packages/web/src/routes/workflow/editor/palette.tsx": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/editor/store.ts": {
+      "exempt": [
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/list.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/page.tsx": {
+      "exempt": [
+        "@typescript-eslint/no-floating-promises",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/run-canvas.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/run-inspector.tsx": {
+      "lines": 538,
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/src/routes/workflow/run.tsx": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "packages/web/vite.config.ts": {
+      "exempt": [
+        "complexity",
+        "max-lines-per-function"
+      ]
+    },
+    "scripts/__tests__/vitest-flaky-retry.test.mjs": {
+      "lines": 388
+    },
+    "scripts/check-footguns.mjs": {
+      "lines": 484
+    },
+    "scripts/docker-configure.mjs": {
+      "lines": 308
+    },
+    "scripts/upgrade-lab/__tests__/guards.test.mjs": {
+      "lines": 823
+    },
+    "scripts/upgrade-lab/run.mjs": {
+      "lines": 1198
+    },
+    "scripts/vitest-flaky-retry.mjs": {
+      "lines": 301
+    }
+  }
+}
