@@ -650,3 +650,31 @@ describe("attachments + activity", () => {
     await waitFor(() => expect(deleteWorkItemComment).toHaveBeenCalledWith("PLA-12", "wic_theirs"))
   })
 })
+
+describe("the embedded comment tail is not paid for twice (ICI-748)", () => {
+  const thread = Array.from({ length: 13 }, (_, i) =>
+    comment(`wic_${String(i + 1).padStart(2, "0")}`, `Note ${i + 1}`, `2026-07-22T${String(i + 8).padStart(2, "0")}:00:00.000Z`),
+  )
+
+  it("asks only for the head the tail is missing, then shows all 13 comments once, newest first", async () => {
+    listWorkItemComments.mockResolvedValue({ comments: thread.slice(0, 3), total: 13 })
+    renderActivity(detailOf(full("PLA-12"), { comments: { comments: thread.slice(3), total: 13 } }))
+
+    await waitFor(() => expect(listWorkItemComments).toHaveBeenCalledWith("PLA-12", { limit: 3, offset: 0 }))
+    expect(listWorkItemComments).toHaveBeenCalledTimes(1)
+
+    await screen.findByTestId("activity-comment-wic_01")
+    const rendered = [...screen.getByTestId("task-activity").querySelectorAll('[data-testid^="activity-comment-"]')]
+      .map((node) => node.getAttribute("data-testid"))
+    expect(rendered).toEqual([...thread].reverse().map((c) => `activity-comment-${c.id}`))
+  })
+
+  it("asks for nothing when the tail is the whole thread, and paints it populated", () => {
+    renderActivity(detailOf(full("PLA-12"), { comments: { comments: thread.slice(0, 3), total: 3 } }))
+
+    // No await: initialData means there is no empty frame to flash through.
+    expect(screen.getByTestId("activity-comment-wic_01")).toBeTruthy()
+    expect(screen.getByTestId("activity-comment-wic_03")).toBeTruthy()
+    expect(listWorkItemComments).not.toHaveBeenCalled()
+  })
+})

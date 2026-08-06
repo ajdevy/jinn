@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowUp,
   Bell,
@@ -27,6 +27,7 @@ import { stripMarkdown } from "@/lib/strip-markdown"
 import { MarkdownView } from "@/components/markdown-view"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { buildCommentThread, type CommentThreadNode } from "../comment-thread"
+import { commentHeadRequest, mergeCommentPages } from "./comment-window"
 import { displayNameOf, formatRelativeTime } from "../util"
 import { AttachmentTile, useAttachmentPreview } from "./attachment-preview"
 import { formatBytes } from "./attachments"
@@ -399,11 +400,11 @@ export function ActivitySection({
 }) {
   const qc = useQueryClient()
   const id = detail.workItem.id
-  const tail = detail.comments
+  const head = commentHeadRequest(detail.comments)
   const commentsQuery = useQuery({
     queryKey: ["work-item-comments", id],
-    queryFn: () => api.listWorkItemComments(id, { limit: 500 }),
-    initialData: tail && tail.comments.length >= tail.total ? tail : undefined,
+    queryFn: head ? () => api.listWorkItemComments(id, head) : skipToken,
+    initialData: head ? undefined : detail.comments,
     staleTime: 10_000,
   })
   const attachmentsQuery = useQuery({
@@ -422,10 +423,8 @@ export function ActivitySection({
     return map
   }, [attachmentsQuery.data])
 
-  const blocks = useMemo(
-    () => buildFeed(detail.events, commentsQuery.data?.comments ?? []).reverse(),
-    [detail.events, commentsQuery.data],
-  )
+  const comments = useMemo(() => mergeCommentPages(commentsQuery.data, detail.comments), [commentsQuery.data, detail.comments])
+  const blocks = useMemo(() => buildFeed(detail.events, comments).reverse(), [detail.events, comments])
 
   const [openFolds, setOpenFolds] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState("")
