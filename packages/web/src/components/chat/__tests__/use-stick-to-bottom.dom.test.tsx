@@ -106,6 +106,10 @@ describe('useStickToBottom — behaviour', () => {
     // Nudge back to within the threshold of the bottom (dist = 1000-790-200 = 10).
     act(() => { el.scrollTop = 1000 - 200 - (STICK_THRESHOLD_PX - 1); fireEvent.scroll(el) })
     expect(getByTestId('jump').textContent).toBe('hide')
+    // Re-engaged for real: the next growth pins again.
+    setMetrics(el, 1400, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} />) })
+    expect(dist(el)).toBe(0)
   })
 
   it('resize/keyboard: a viewport resize re-pins while following', () => {
@@ -191,5 +195,56 @@ describe('useStickToBottom — behaviour', () => {
     setMetrics(el, 15200, 1000, el.scrollTop)
     act(() => { rerender(<Harness messageCount={221} latestMessageKey="m221" />) })
     expect(getByTestId('unread').textContent).toBe('1')
+  })
+
+  it('sub-threshold scroll-up detaches, so settling content cannot yank the reader back', () => {
+    const { getByTestId, rerender } = render(<Harness messageCount={0} />)
+    const el = getByTestId('scroller')
+    const content = getByTestId('content')
+    setMetrics(el, 1000, 200, 0)
+    act(() => { rerender(<Harness messageCount={5} />) }) // pinned, following
+    expect(dist(el)).toBe(0)
+
+    // A trackpad nudge that lands INSIDE the threshold band (dist 0 → 10). Deciding
+    // follow by distance alone kept it engaged here, and every re-pin below undid it.
+    act(() => { el.scrollTop = 1000 - 200 - 10; fireEvent.scroll(el) })
+    expect(dist(el)).toBe(10)
+    expect(getByTestId('jump').textContent).toBe('show')
+    const readingPos = el.scrollTop
+
+    // A freshly opened transcript keeps resizing for a second or two (arrival and
+    // fold animations, code highlighting, image decode). Every fire must be a no-op.
+    const contentObservers = roInstances.filter((r) => r.observed.includes(content))
+    for (let i = 0; i < 3; i++) {
+      act(() => { contentObservers.forEach((r) => r.cb([], {} as ResizeObserver)) })
+      expect(el.scrollTop).toBe(readingPos)
+    }
+
+    // …and so must a new message arriving underneath.
+    setMetrics(el, 1200, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} />) })
+    expect(el.scrollTop).toBe(readingPos)
+    expect(getByTestId('unread').textContent).toBe('1')
+  })
+
+  it('bottom clamp: scrollTop drops while still at the bottom — follow survives', () => {
+    const { getByTestId, rerender } = render(<Harness messageCount={0} />)
+    const el = getByTestId('scroller')
+    setMetrics(el, 1000, 200, 0)
+    act(() => { rerender(<Harness messageCount={5} />) }) // pinned, following
+    expect(dist(el)).toBe(0)
+
+    // Content ABOVE shrinks (a fold region collapsing mid-stream): the browser clamps
+    // scrollTop down and fires a scroll event. scrollTop decreased, yet we never left
+    // the bottom — a scroll-direction check would falsely detach the live stream.
+    setMetrics(el, 700, 200, 500)
+    act(() => { fireEvent.scroll(el) })
+    expect(dist(el)).toBe(0)
+    expect(getByTestId('jump').textContent).toBe('hide')
+
+    // Still following: the next growth pins.
+    setMetrics(el, 1100, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} />) })
+    expect(dist(el)).toBe(0)
   })
 })
