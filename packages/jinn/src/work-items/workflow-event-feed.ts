@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
-import type { WorkItemSource, WorkItemStatus } from './store.js';
+import { getWorkItem, type WorkItemSource, type WorkItemStatus } from './store.js';
 import { getWorkItemLabels } from './labels.js';
 import { isTodoId } from './id.js';
 
@@ -13,14 +13,18 @@ export interface WorkflowTodoStatusEvent {
    *  column rather than the provenance snapshot — so every event written
    *  before the trigger filter existed replays with its actor intact. */
   actor: string | null;
+  /** `source`, `department`, and `assignee` are the provenance snapshot frozen
+   *  into the audit row when the Todo moved. `labels` and `live` are read at
+   *  replay time instead: labels, assignment, and parentage all change
+   *  independently of status, so a filter asking what the Todo *is* must read the
+   *  row rather than whatever it carried when it moved. `live` is null once the
+   *  row is gone, which is not the same as a Todo that is simply unassigned. */
   item: {
     source: WorkItemSource;
     department: string | null;
     assignee: string | null;
-    /** Read live at replay time, not from the frozen provenance snapshot: labels
-     *  are re-tagged independently of status, so a trigger filter must see the
-     *  Todo's current set rather than whatever it carried when it moved. */
     labels: Array<{ id: string; name: string }>;
+    live: { assignee: string | null; parentId: string | null } | null;
   };
 }
 
@@ -152,6 +156,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
     if (value.department !== null && typeof value.department !== 'string') return null;
     if (value.assignee !== null && typeof value.assignee !== 'string') return null;
     if (!Object.prototype.hasOwnProperty.call(value, 'department') || !Object.prototype.hasOwnProperty.call(value, 'assignee')) return null;
+    const current = getWorkItem(row.work_item_id);
     return {
       id: row.id,
       workItemId: row.work_item_id,
@@ -163,6 +168,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
         department: value.department as string | null,
         assignee: value.assignee as string | null,
         labels: getWorkItemLabels(row.work_item_id).map(({ id, name }) => ({ id, name })),
+        live: current ? { assignee: current.assignee, parentId: current.parentId } : null,
       },
     };
   } catch {

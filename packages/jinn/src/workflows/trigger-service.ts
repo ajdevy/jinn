@@ -39,11 +39,20 @@ function labelMatches(filter: string, labels: WorkflowTodoStatusEvent["item"]["l
  *  suppressed run always says which filter refused it. */
 function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): string | undefined {
   if (node.config.kind !== "todo-status") return "trigger is not a todo-status trigger";
-  const { actor, label, department, assignee } = node.config;
+  const { actor, label, department, assignee, unlabeled, unassigned, rootOnly } = node.config;
   if (actor !== undefined && actor !== event.actor) return `actor ${event.actor ?? "unknown"} is not ${actor}`;
   if (department !== undefined && department !== event.item.department) return `department filter ${department} does not match`;
   if (assignee !== undefined && assignee !== event.item.assignee) return `assignee filter ${assignee} does not match`;
   if (label !== undefined && !labelMatches(label, event.item.labels)) return `label filter ${label} does not match`;
+  if (unlabeled === undefined && unassigned === undefined && rootOnly === undefined) return undefined;
+  // These three assert what the Todo IS right now, so a row that has since been
+  // deleted answers none of them — an unknown Todo must refuse rather than fall
+  // through as a match and arm a workflow on nothing.
+  const live = event.item.live;
+  if (live === null) return "the Todo no longer exists, so its live filters cannot match";
+  if (unlabeled && event.item.labels.length > 0) return "unlabeled filter does not match: the Todo carries labels";
+  if (unassigned && live.assignee !== null) return `unassigned filter does not match: the Todo is assigned to ${live.assignee}`;
+  if (rootOnly && live.parentId !== null) return `rootOnly filter does not match: the Todo is a child of ${live.parentId}`;
   return undefined;
 }
 export class WorkflowTriggerService {
