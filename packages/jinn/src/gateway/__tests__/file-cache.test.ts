@@ -52,7 +52,7 @@ function fakeReq(headers: Record<string, string>) {
 function fakeRes() {
   const out: { status?: number; headers?: Record<string, unknown>; body?: unknown } = {};
   const res = new class extends Writable {
-    _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    override _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
       out.body = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       callback();
     }
@@ -73,7 +73,7 @@ class StreamResponse extends Writable {
   headers: Record<string, string | number> = {};
   readonly chunks: Buffer[] = [];
 
-  _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+  override _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
     this.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     callback();
   }

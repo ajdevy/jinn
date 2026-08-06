@@ -26,7 +26,14 @@ const INSTRUCTIONS =
 const root = fileURLToPath(new URL("..", import.meta.url))
 const capped = new Set(CAPPED_RULES)
 
-const eslint = new ESLint({ cwd: root, overrideConfig: enforcement })
+// `enforcement` is a typescript-eslint `ConfigArray`, which ESLint accepts as a
+// flat config at runtime. The two packages declare `languageOptions` separately
+// and only ESLint's carries an index signature, so the structural check fails on
+// a difference that does not exist in the value.
+const eslint = new ESLint({
+  cwd: root,
+  overrideConfig: /** @type {import("eslint").Linter.Config[]} */ (enforcement),
+})
 const results = await eslint.lintFiles(LINTED)
 
 const files = {}

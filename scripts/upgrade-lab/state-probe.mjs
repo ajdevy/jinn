@@ -19,14 +19,18 @@ const workflowTitle = "Upgrade lab representative workflow"
 const legacyDefinitionFile = path.join(evidenceRoot, "workflows", `${workflowId}.definition.json`)
 const legacyDefinitionStore = path.join(packageRoot, "dist", "src", "workflows", "definition-store.js")
 const usesLegacyWorkflowStore = fs.existsSync(legacyDefinitionStore)
+const sharedDbModule = path.join(packageRoot, "dist", "src", "shared", "db.js")
 const sha256File = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")
 
 const sessions = await load("sessions/registry.js")
 const cron = await load("cron/jobs.js")
 const org = await load("gateway/org.js")
+// initDb moved out of the Sessions registry into its own storage owner; baselines predating
+// that move only have it on the registry, and this probe runs against both.
+const db = fs.existsSync(sharedDbModule) ? await load("shared/db.js") : sessions
 
 if (mode === "seed-old") {
-  sessions.initDb()
+  db.initDb()
   if (!sessions.getSessionBySessionKey(sessionKey)) {
     sessions.createSession({
       engine: "codex",
@@ -87,7 +91,7 @@ if (mode === "seed-old") {
 }
 
 async function snapshot() {
-  sessions.initDb()
+  db.initDb()
   const session = sessions.getSessionBySessionKey(sessionKey)
   const jobs = cron.loadJobs().filter((job) => job.id === cronId)
   const employees = [...org.scanOrg().values()].filter((employee) => employee.name === employeeName)

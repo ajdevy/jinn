@@ -680,6 +680,7 @@ test("Docker invocation is network-isolated and mounts no host home", () => {
 })
 
 test("representative state comparison requires real semantic identities and content", () => {
+  /** @type {Record<string, Record<string, unknown>>} */
   const before = {
     session: { count: 1, id: "session-id", sessionKey: "upgrade-lab:state", title: "Lab state" },
     todo: { count: 1, id: "todo-id", sourceRef: "upgrade-lab:todo", title: "Lab Todo", status: "backlog" },
@@ -774,7 +775,7 @@ test("primary scenario failure wins when cleanup also fails", async () => {
   const cleanup = new Error("cleanup failed")
   await assert.rejects(
     runWithLabCleanup(async () => { throw primary }, async () => { throw cleanup }),
-    (error) => error === primary && error.cleanupError === cleanup,
+    (error) => error === primary && /** @type {{ cleanupError?: Error }} */ (error).cleanupError === cleanup,
   )
 })
 

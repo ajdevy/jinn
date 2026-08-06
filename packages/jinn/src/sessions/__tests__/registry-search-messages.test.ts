@@ -16,6 +16,7 @@ let reg: Reg;
 
 let seq = 0;
 function mkSession(reg: Reg, id: string): void {
+  void reg; // kept for call-site consistency with mkMessage; seeding goes straight through dbModule
   const db = dbModule.initDb();
   db.prepare(
     "INSERT INTO sessions (id, engine, source, source_ref, status, created_at, last_activity) VALUES (?, 'claude', 'web', ?, 'idle', 't', 't')",
@@ -24,6 +25,7 @@ function mkSession(reg: Reg, id: string): void {
 // Insert a message with an explicit timestamp so newest-first ordering is
 // deterministic (insertMessage uses Date.now(), which collides within a ms).
 function mkMessage(reg: Reg, sessionId: string, role: string, content: string, ts: number): void {
+  void reg; // kept for call-site consistency with mkSession; seeding goes straight through dbModule
   const db = dbModule.initDb();
   db.prepare(
     "INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",

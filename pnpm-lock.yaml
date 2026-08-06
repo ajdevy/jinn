@@ -15,6 +15,12 @@ importers:
       '@playwright/test':
         specifier: ^1.58.2
         version: 1.58.2
+      '@types/better-sqlite3':
+        specifier: ^7.6.0
+        version: 7.6.13
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
       eslint:
         specifier: ^10.8.0
         version: 10.8.0(jiti@2.6.1)
@@ -6310,14 +6316,14 @@ snapshots:
 
   '@slack/logger@4.0.1':
     dependencies:
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
 
   '@slack/oauth@3.0.5':
     dependencies:
       '@slack/logger': 4.0.1
       '@slack/web-api': 7.19.0
       '@types/jsonwebtoken': 9.0.10
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
       jsonwebtoken: 9.0.3
     transitivePeerDependencies:
       - debug
@@ -6327,7 +6333,7 @@ snapshots:
     dependencies:
       '@slack/logger': 4.0.1
       '@slack/web-api': 7.19.0
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
       '@types/ws': 8.18.1
       eventemitter3: 5.0.4
       ws: 8.21.1
@@ -6343,7 +6349,7 @@ snapshots:
     dependencies:
       '@slack/logger': 4.0.1
       '@slack/types': 2.22.0
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
       '@types/retry': 0.12.0
       axios: 1.18.1
       eventemitter3: 5.0.4
@@ -6790,7 +6796,7 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
 
   '@types/linkify-it@3.0.5': {}
 
@@ -6856,7 +6862,7 @@ snapshots:
   '@types/request@2.48.13':
     dependencies:
       '@types/caseless': 0.12.5
-      '@types/node': 22.19.15
+      '@types/node': 22.20.1
       '@types/tough-cookie': 4.0.5
       form-data: 2.5.5
 

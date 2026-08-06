@@ -26,6 +26,8 @@ const TESTS = ["packages/*/**/__tests__/**/*.{ts,tsx}", "packages/*/**/*.test.{t
  * config and is the only place a violation may be recorded — `noInlineConfig`
  * below makes ESLint ignore directive comments entirely, so no file can excuse
  * itself.
+ *
+ * @type {import("eslint").Linter.RulesRecord}
  */
 const CAPS = {
   complexity: ["error", { max: 10 }],
@@ -100,8 +102,9 @@ export default [
       "**/test-results/**",
       "**/.turbo/**",
       "packages/jinn/template/**",
-      // ICI-709 owns bringing `e2e/`, `scripts/`, `tools/` and the build scripts
-      // into a tsconfig. Type-aware lint cannot precede that.
+      // ICI-709 brought `e2e/`, `scripts/`, `tools/` and the build scripts into
+      // `tsconfig.e2e.json` and `tsconfig.scripts.json`, so type-aware lint is
+      // no longer blocked on them. Switching it on is ICI-735.
       "e2e/**",
       "scripts/**",
       "tools/**",
