@@ -42,6 +42,7 @@ import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthTo
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
 import { setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
+import { firstOperatorCommentAfter, setTodoCommentListener } from "../work-items/comments.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { linkSession } from "../work-items/store.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
@@ -870,6 +871,8 @@ export async function startGateway(
     // A Todo-bound run's phases are execution attempts on that Todo, so its
     // derived spend covers the whole pipeline.
     todoSessions: { link: ({ todoId, sessionId }) => linkSession(todoId, sessionId) },
+    // A parked Wait node listens for the operator's reply on the bound Todo.
+    todoComments: { firstOperatorCommentAfter },
     sessionSpend: getSessionSpend,
     // A Todo-bound run reflects its own lifecycle onto that Todo — no phase
     // prompt has to say so, and a dead run leaves its reason behind.
@@ -1035,6 +1038,18 @@ export async function startGateway(
   setTodoStatusChangeListener(() => {
     void workflowService.recover(new Date().toISOString()).catch((error) => {
       logger.warn(`Workflow Todo trigger recovery failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
+
+  // The live half of a parked todo-comment Wait; `recover` on boot is the
+  // backstop. Filtered to the operator rather than kicked bare like the status
+  // listener, because every employee and system comment would otherwise sweep
+  // the run table — and a workflow's own comment could kick the sweep that
+  // wrote it.
+  setTodoCommentListener((comment) => {
+    if (comment.authorKind !== "operator" || comment.author !== "operator") return;
+    void workflowService.recover(new Date().toISOString()).catch((error) => {
+      logger.warn(`Workflow Todo comment recovery failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
 
@@ -1422,6 +1437,7 @@ export async function startGateway(
     // Stop cron scheduler
     stopScheduler();
     setTodoStatusChangeListener(null);
+    setTodoCommentListener(null);
     setTodoApprovalDecisionListener(null);
 
     // Stop connectors

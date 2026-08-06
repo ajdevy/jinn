@@ -311,19 +311,19 @@ describe("Workflow durable control flow", () => {
       repository, executor: executor as unknown as WorkflowSessionExecutor,
       employees: () => new Map([[employee.name, employee]]), models: () => models, now: () => now.toISOString(),
     });
-    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 1 });
+    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 1, resumedComments: 0 });
     const completed = service.getRun(definition.id, waiting.id)!;
     expect(completed.status).toBe("completed");
     expect(completed.nodeRuns.find((node) => node.nodeId === "pause")).toMatchObject({ status: "completed" });
     const revision = completed.revision;
-    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 0 });
+    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 0, resumedComments: 0 });
     expect(service.getRun(definition.id, waiting.id)?.revision).toBe(revision);
 
     now = new Date("2026-07-21T11:00:00.000Z");
     const another = await service.startManual({ workflowId: definition.id, input: {} });
     const cancelled = await service.cancelRun({ workflowId: definition.id, runId: another.id, reason: "no longer needed" });
     now = new Date("2026-07-21T12:00:00.000Z");
-    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 0 });
+    await expect(service.recover(now.toISOString())).resolves.toEqual({ resumedRuns: 0, resumedWaits: 0, resumedComments: 0 });
     expect(service.getRun(definition.id, another.id)).toEqual(cancelled);
   });
 

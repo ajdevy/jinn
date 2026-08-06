@@ -20,6 +20,7 @@ import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { WorkflowTriggerService, type FireWorkflowEventInput } from "./trigger-service.js";
 import {
   scheduleTriggerIssues,
+  todoCommentWaitTriggerIssues,
   validateExecutableWorkflow,
   workflowCallTargetIssues,
   type WorkflowValidationIssue,
@@ -82,6 +83,11 @@ export class WorkflowServiceError extends Error {
   }
 }
 export type WorkflowTranscript = Array<{ id: string; role: string; content: string; timestamp: number }>;
+/** The Todos side of a comment-wait: the earliest live operator comment on a
+ *  Todo posted strictly after the given watermark. */
+export interface WorkflowTodoCommentFeed {
+  firstOperatorCommentAfter(todoId: string, after: string): { id: string; body: string; createdAt: string } | undefined;
+}
 export interface WorkflowServiceOptions {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
@@ -92,6 +98,9 @@ export interface WorkflowServiceOptions {
   onChange?: (change: { workflowId: string; runId: string }) => void;
   onDefinitionChange?: (change: { workflowId: string; revision: number }) => void;
   todoEventFeed?: WorkflowTodoEventFeed;
+  /** Reads the operator side of a bound Todo's discussion, so a parked
+   *  `todo-comment` Wait node can resume on a reply (see the runner). */
+  todoComments?: WorkflowTodoCommentFeed;
   /** Mirrors parked Approval gates onto the run's bound Todo (see the runner). */
   todoApprovals?: WorkflowTodoApprovalMirror;
   /** Links phase sessions to the run's bound Todo for spend (see the runner). */
@@ -248,7 +257,8 @@ export class WorkflowService {
   saveDefinition(definition: WorkflowDefinition, expectedRevision: number): WorkflowDefinition {
     // Saving a revision of an already-enabled Workflow bypasses the enable gate,
     // so an unarmable schedule is refused here before it can become durable.
-    const issues = [...scheduleTriggerIssues(definition), ...workflowCallTargetIssues(definition)];
+    const issues = [...scheduleTriggerIssues(definition), ...workflowCallTargetIssues(definition),
+      ...todoCommentWaitTriggerIssues(definition)];
     if (issues.length > 0) throw new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", issues);
     const value = this.options.repository.saveDefinition(definition, expectedRevision); this.definitionChanged(value); return value;
   }
@@ -438,7 +448,29 @@ export class WorkflowService {
     }
   }
 
-  async recover(now: string): Promise<{ resumedRuns: number; resumedWaits: number }> {
+  /** Resume every run parked on a `todo-comment` Wait whose bound Todo has an
+   *  operator comment newer than the park. Runs before the due-wait sweep so a
+   *  reply that landed inside the window beats its own timeout. */
+  private async resumeCommentWaits(now: string): Promise<number> {
+    const feed = this.options.todoComments;
+    if (!feed) return 0;
+    let resumed = 0;
+    for (const record of this.options.repository.listRecoverableRuns()) {
+      const run = this.requiredRun(record.workflowId, record.id);
+      const todoId = run.trigger.todoId;
+      if (run.status !== "waiting" || !todoId) continue;
+      for (const runtime of run.nodeRuns) {
+        if (runtime.status !== "waiting" || !runtime.startedAt) continue;
+        const authored = run.definition.nodes.find((node) => node.id === runtime.nodeId);
+        if (authored?.type !== "wait" || authored.config.mode !== "todo-comment") continue;
+        const comment = feed.firstOperatorCommentAfter(todoId, runtime.startedAt);
+        if (comment && await this.runner.resumeCommentWait(run.workflowId, run.id, runtime.nodeId, comment, now)) resumed += 1;
+      }
+    }
+    return resumed;
+  }
+
+  async recover(now: string): Promise<{ resumedRuns: number; resumedWaits: number; resumedComments: number }> {
     let resumedRuns = 0;
     for (const record of this.options.repository.listRecoverableRuns()) {
       const run = this.requiredRun(record.workflowId, record.id);
@@ -465,6 +497,7 @@ export class WorkflowService {
         if (this.requiredRun(current.workflowId, current.id).revision !== revision) resumedRuns += 1;
       }
     }
+    const resumedComments = await this.resumeCommentWaits(now);
     let resumedWaits = 0;
     for (const wait of this.options.repository.listDueWaits(now, 100)) {
       const run = this.options.repository.listRecoverableRuns().find((candidate) => candidate.id === wait.runId);
@@ -473,6 +506,6 @@ export class WorkflowService {
     await this.runner.remindDueAttempts(now);
     await this.triggers.recoverTodoEvents();
     this.armWakeTimer();
-    return { resumedRuns, resumedWaits };
+    return { resumedRuns, resumedWaits, resumedComments };
   }
 }

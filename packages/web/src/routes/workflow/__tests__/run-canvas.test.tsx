@@ -39,6 +39,7 @@ const nodes = [
   { id: "fanout", type: "workflow-call", name: "Publish items", config: { workflowId: { source: "fixed", value: "publish-item" }, concurrency: 2 } },
   { id: "route", type: "condition", name: "Quality gate", config: { cases: [{ port: "case-1", label: "Good", all: [] }], defaultPort: "else" } },
   { id: "gate", type: "approval", name: "Publish gate", config: { description: "" } },
+  { id: "hold", type: "wait", name: "Ask operator", config: { mode: "todo-comment", timeoutMinutes: 10080 } },
   { id: "finish", type: "end", name: "Done", config: { result: "success" } },
 ]
 
@@ -51,7 +52,7 @@ const edges = [
 
 const positions = {
   trigger: { x: 0, y: 0 }, writer: { x: 300, y: 0 }, fanout: { x: 600, y: 0 }, route: { x: 900, y: 0 },
-  gate: { x: 1200, y: 0 }, finish: { x: 1500, y: 0 },
+  gate: { x: 1200, y: 0 }, hold: { x: 1500, y: 0 }, finish: { x: 1800, y: 0 },
 }
 
 function nodeRun(nodeId: string, status: string, extra: Record<string, unknown> = {}) {
@@ -173,6 +174,66 @@ describe("workflow run canvas", () => {
     expect(links.map((link) => link.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Item 1"), expect.stringContaining("Item 2")]))
     expect(links[0]!.getAttribute("href")).toBe("/workflow/publish-item/runs/child-1")
     expect(links[1]!.getAttribute("href")).toBe("/workflow/publish-item/runs/child-2")
+  })
+
+  it("captions a todo-comment wait by its mode, never as a duration it has none of", async () => {
+    serveRun(baseDetail({ nodeRuns: [nodeRun("trigger", "completed")] }))
+    renderRun()
+
+    expect(await screen.findByText("On your comment")).toBeTruthy()
+    expect(screen.queryByText("? min")).toBeNull()
+  })
+
+  it("shows the Todo a parked comment-wait needs, on the card and in the inspector", async () => {
+    serveRun(baseDetail({
+      status: "waiting",
+      nodeRuns: [
+        nodeRun("trigger", "completed"),
+        nodeRun("hold", "waiting", {
+          resolvedConfig: { mode: "todo-comment", todoId: "PLA-68", timeoutMinutes: 10080 },
+          resumeAt: "2026-07-30T08:00:00.000Z",
+        }),
+      ],
+    }))
+    const client = renderRun()
+
+    expect(await screen.findByText("waiting for your comment on PLA-68 · 7d")).toBeTruthy()
+    // The lean poll drops the definition, not resolvedConfig — the caption has to
+    // survive a refresh that is served entirely from the polled shape.
+    await runChanged(client)
+    await waitFor(() => expect(getWorkflowRun).toHaveBeenCalled(), { timeout: 4000 })
+    expect(screen.getByText("waiting for your comment on PLA-68 · 7d")).toBeTruthy()
+
+    fireEvent.click(screen.getByText("Ask operator"))
+
+    const inspector = within(await screen.findByTestId("run-inspector"))
+    expect(inspector.getByText(/Waiting for your comment on PLA-68 · times out/)).toBeTruthy()
+    expect(inspector.queryByText(/Resumes/)).toBeNull()
+  }, 10000)
+
+  it("stops asking for a comment once the wait has resumed", async () => {
+    // The node keeps its resolvedConfig and resumeAt after it resumes, so a
+    // settled comment-wait must not still read as parked on either surface.
+    serveRun(baseDetail({
+      nodeRuns: [
+        nodeRun("trigger", "completed"),
+        nodeRun("hold", "completed", {
+          resolvedConfig: { mode: "todo-comment", todoId: "PLA-68", timeoutMinutes: 10080 },
+          resumeAt: "2026-07-30T08:00:00.000Z",
+          endedAt: "2026-07-23T09:00:00.000Z",
+        }),
+      ],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("On your comment")).toBeTruthy()
+    expect(screen.queryByText(/waiting for your comment/)).toBeNull()
+
+    fireEvent.click(screen.getByText("Ask operator"))
+
+    const inspector = within(await screen.findByTestId("run-inspector"))
+    expect(inspector.queryByText(/Waiting for your comment/)).toBeNull()
+    expect(inspector.queryByText(/Resumes/)).toBeNull()
   })
 
   it("marks failed nodes and dims skipped ones", async () => {

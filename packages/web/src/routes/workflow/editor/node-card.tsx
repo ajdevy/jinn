@@ -217,12 +217,21 @@ function nodeCaption(node: WorkflowNodeWire): string {
         : "Choose workflow"
     }
     case "wait":
+      if (config.mode === "todo-comment") return "On your comment"
       return config.mode === "until" ? "Until timestamp" : `${typeof config.minutes === "number" ? config.minutes : "?"} min`
     case "end":
       return config.result === "failure" ? "Failure" : "Success"
     default:
       return ""
   }
+}
+
+/** A comment-wait timeout is coarse — hours to days — so the caption carries a
+ *  single rounded unit rather than a full duration. */
+function compactMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`
+  return `${Math.round(minutes / 1440)}d`
 }
 
 function employeeName(node: WorkflowNodeWire): string | null {
@@ -237,7 +246,9 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
   const employee = employeeName(node)
   const caption = node.type === "workflow-call" && data.run?.workflowCall
     ? `${data.run.workflowCall.succeeded}/${data.run.workflowCall.total} · ${statusMeta(data.run.status).label}`
-    : nodeCaption(node)
+    : data.run?.waitComment
+      ? `waiting for your comment on ${data.run.waitComment.todoId} · ${compactMinutes(data.run.waitComment.timeoutMinutes)}`
+      : nodeCaption(node)
   return (
     <CardShell node={node} selected={selected ?? false} run={data.run}>
       <div className="flex h-full items-center gap-2.5 px-3.5">

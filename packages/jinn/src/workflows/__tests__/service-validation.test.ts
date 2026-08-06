@@ -32,6 +32,10 @@ const eventTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start"
   config: { kind: "event", eventName: "build.finished" } };
 const poisonSchedule: WorkflowNode = { id: "start", type: "trigger", name: "Start",
   config: { kind: "schedule", cron: "every weekday please", timezone: "UTC" } };
+const todoTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start",
+  config: { kind: "todo-status", status: "assigned" } };
+const commentWait: WorkflowNode = { id: "hold", type: "wait", name: "Ask operator",
+  config: { mode: "todo-comment", timeoutMinutes: 60 } };
 const finish: WorkflowNode = { id: "finish", type: "end", name: "Finish", config: { result: "success" } };
 const employee: Employee = { name: "worker", displayName: "Worker", department: "operations", rank: "employee",
   engine: "test-engine", model: "test-model", effortLevel: "high", persona: "Complete work." };
@@ -267,5 +271,40 @@ describe("Workflow executable service boundaries", () => {
     expect(replay.id).toBe(run.id);
     expect(service.listRuns(enabled.id, {}).items).toHaveLength(1);
     expect(executor.commands).toHaveLength(1);
+  });
+
+  it.each([["schedule", scheduleTrigger], ["event", eventTrigger]] as const)(
+    "refuses to save a Todo-comment Wait that only a %s Trigger reaches", (_kind, poisonTrigger) => {
+      const created = service.createDefinition({ id: `${_kind}-comment-wait`, title: "Comment wait" });
+      const poison = { ...created, nodes: [poisonTrigger, commentWait, finish],
+        edges: [edge("start-hold", "start", "hold"), edge("hold-finish", "hold", "finish")] };
+
+      let saveError: unknown;
+      try { service.saveDefinition(poison, created.revision); } catch (error) { saveError = error; }
+      expect(saveError).toEqual(new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [{
+        code: "todo-comment-wait-trigger",
+        message: "A Wait node that waits for a Todo comment must be reachable from a Trigger that binds a Todo.",
+        nodeId: "hold", path: "nodes.1.config.mode",
+      }]));
+      expect(repository.getDefinition(created.id)).toEqual(created);
+    });
+
+  it("saves and enables a Todo-comment Wait behind a todo-status Trigger", () => {
+    const authored = save("todo-comment-wait", [todoTrigger, commentWait, finish], [
+      edge("start-hold", "start", "hold"),
+      edge("hold-finish", "hold", "finish"),
+    ]);
+
+    expect(service.setEnabled({ id: authored.id, enabled: true, expectedRevision: authored.revision }))
+      .toMatchObject({ enabled: true });
+  });
+
+  it("leaves a disconnected Todo-comment Wait draft saveable", () => {
+    const authored = save("draft-comment-wait", [scheduleTrigger, worker(), commentWait, finish], [
+      edge("start-work", "start", "work"),
+      edge("work-finish", "work", "finish"),
+    ]);
+
+    expect(authored.nodes.map((node) => node.id)).toContain("hold");
   });
 });

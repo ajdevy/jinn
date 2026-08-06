@@ -251,6 +251,11 @@ const approvalNodeSchema = z.strictObject({
 const waitConfigSchema = z.discriminatedUnion('mode', [
   z.strictObject({ mode: z.literal('duration'), minutes: finiteNumberSchema.int().min(1).max(43_200) }),
   z.strictObject({ mode: z.literal('until'), timestamp: stringBindingSchema }),
+  // Parks a Todo-bound run until the operator comments on that Todo. The
+  // timeout is a ceiling, not a schedule: a reply resumes the node early, and
+  // the default gives a conversation a working week to happen in.
+  z.strictObject({ mode: z.literal('todo-comment'),
+    timeoutMinutes: finiteNumberSchema.int().min(1).max(43_200).default(10_080) }),
 ]);
 const waitNodeSchema = z.strictObject({
   id: nodeIdSchema,
