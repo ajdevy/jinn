@@ -84,10 +84,15 @@ function passedTestNames(suite) {
 }
 
 /**
- * A test counts as recovered only if the retry reports it PASSED. Anything else
- * — still failed, skipped by a hook throw, absent because collection threw —
- * stays in the still-failing set. "Not failed" is not the same as "passed", and
- * treating it as such is how a wrapper like this turns a red run green.
+ * A file counts as flaky only if the whole retried suite reports PASSED. A suite
+ * that failed again is a repeatable failure even when some of its assertions
+ * passed this time, and calling that flaky invites someone to read a genuine red
+ * as noise.
+ *
+ * Within a still-failing file, only an assertion the retry reports PASSED drops
+ * off the list. Anything else — still failed, skipped by a hook throw, absent
+ * because collection threw — stays. "Not failed" is not the same as "passed",
+ * and treating it as such is how a wrapper like this turns a red run green.
  */
 export function diffRuns(firstReport, retryReport, packageDir) {
   const retryByFile = new Map(
@@ -111,10 +116,6 @@ export function diffRuns(firstReport, retryReport, packageDir) {
       continue;
     }
     const passedOnRetry = passedTestNames(retried);
-    const recovered = failure.failedTests.filter((test) => passedOnRetry.has(test));
-    if (recovered.length > 0) {
-      flaky.push({ file: failure.file, tests: recovered, message: failure.message });
-    }
     stillFailing.push({
       file: failure.file,
       tests: failure.failedTests.filter((test) => !passedOnRetry.has(test)),

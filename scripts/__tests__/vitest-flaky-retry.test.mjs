@@ -118,7 +118,7 @@ test("a failure that repeats on the rerun is still failing and is never called f
   )
 })
 
-test("within one file a recovered test is flaky while a repeating one stays failing", () => {
+test("a file whose retry suite still failed is never flaky, even when one test recovered", () => {
   const suite = (assertions) => ({
     name: `${FIXTURE_PACKAGE_DIR}/src/mixed.test.ts`,
     status: "failed",
@@ -144,10 +144,11 @@ test("within one file a recovered test is flaky while a repeating one stays fail
 
   const { flaky, stillFailing } = diffRuns(first, retry, FIXTURE_PACKAGE_DIR)
 
-  assert.deepEqual(flaky, [{ file: "src/mixed.test.ts", tests: ["recovers"], message: "" }])
+  assert.deepEqual(flaky, [])
   assert.deepEqual(stillFailing, [
     { file: "src/mixed.test.ts", tests: ["always broken"], message: "" },
   ])
+  assert.doesNotMatch(formatFlakySummary(flaky), /mixed\.test\.ts/)
 })
 
 test("a test the rerun merely skipped is not treated as recovered", () => {
@@ -271,6 +272,23 @@ function retryOnceThenPass(pkgDir) {
   ]
 }
 
+/** Both runs fail the suite; only the second one gets one of its two assertions to pass. */
+function retryRecoversOneAssertion(pkgDir) {
+  const suite = (recoversStatus) => ({
+    name: `${pkgDir.replaceAll("\\", "/")}/src/mixed.test.ts`,
+    status: "failed",
+    message: "one assertion still fails",
+    assertionResults: [
+      { fullName: "recovers", status: recoversStatus },
+      { fullName: "always broken", status: "failed" },
+    ],
+  })
+  return [
+    { exit: 1, report: JSON.stringify({ testResults: [suite("failed")] }) },
+    { exit: 1, report: JSON.stringify({ testResults: [suite("passed")] }) },
+  ]
+}
+
 function runWrapper({ pkgDir, planPath, logPath, summaryPath }, extraEnv) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...process.env, STUB_PLAN: planPath, STUB_LOG: logPath }
@@ -344,6 +362,20 @@ test("a failure that repeats stays red and is reported as still failing, not fla
   assert.match(run.stdout, /STILL FAILING/)
   assert.match(run.stdout, /fails an assertion/)
   assert.doesNotMatch(run.stdout, /⚠ FLAKY/)
+  assert.equal(run.summary, "")
+})
+
+test("a rerun that recovers one assertion but stays failed is red, with no FLAKY anywhere", (t) => {
+  const stub = stubPackage(t, retryRecoversOneAssertion)
+
+  const run = runWrapper(stub, { CI: "true", GITHUB_STEP_SUMMARY: stub.summaryPath })
+
+  assert.notEqual(run.status, 0)
+  assert.equal(run.calls.length, 2)
+  assert.match(run.stdout, /STILL FAILING/)
+  assert.match(run.stdout, /always broken/)
+  assert.doesNotMatch(run.stdout, /⚠ FLAKY/)
+  assert.doesNotMatch(run.stdout, /::warning/)
   assert.equal(run.summary, "")
 })
 
