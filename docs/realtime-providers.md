@@ -12,8 +12,12 @@ push-to-talk, so it gates the design rather than following it.
 
 ## 1. Subscription or metered?
 
-**Metered API usage. There is no subscription-attached path, and building one
-would breach the provider's terms.**
+**Metered API usage. Neither provider documents a subscription-attached path,
+both document the separation explicitly, and building one on a consumer
+credential would breach OpenAI's terms.** The stronger claim, that no such path
+exists anywhere whether documented or not, was not established; it stays
+UNVERIFIED in section 5, and the terms position below is what makes the
+distinction moot in practice.
 
 ### OpenAI
 
@@ -48,16 +52,24 @@ development and production API usage".
 
 ### The terms position on a subscription-attached path
 
-Not merely absent: prohibited. Driving programmatic voice traffic through a
-consumer ChatGPT credential would violate two clauses of the OpenAI Terms of
-Use at once.
+Not merely absent: prohibited. Driving voice traffic through a consumer ChatGPT
+credential runs into two clauses of the OpenAI Terms of Use, but they do not
+bite equally, and conflating them overstates the case.
 
-| Clause | Wording | Where |
-|---|---|---|
-| Automated extraction | "Automatically or programmatically extracting data or Output (defined below)." | Using our Services, "What you cannot do" |
-| Credential sharing | "You may not share your account credentials or make your account available to anyone else and are responsible for all activities that occur under your account." | Registration and access, "Registration." |
+| Clause | Wording | Where | When it bites |
+|---|---|---|---|
+| Automated extraction | "Automatically or programmatically extracting data or Output (defined below)." | Using our Services, "What you cannot do" | Always. Any programmatic drive of a consumer credential is this, including one person automating their own account locally. |
+| Credential sharing | "You may not share your account credentials or make your account available to anyone else and are responsible for all activities that occur under your account." | Registration and access, "Registration." | Only once the credential leaves its account holder. |
 
 Source: <https://openai.com/policies/terms-of-use/> (accessed 2026-08-06).
+
+The second clause is the one that is easy to over-read. A single user running
+local automation against their own subscription shares nothing and makes their
+account available to nobody, so credential sharing is not entailed. It becomes
+the operative clause in the shape this gateway would actually take: a server
+holding one subscription credential and minting voice sessions for other
+people. The extraction clause alone is enough to rule the path out either way,
+which is why the conclusion does not depend on the sharing clause applying.
 
 Two caveats worth carrying, because both bit during verification:
 
@@ -138,6 +150,11 @@ with a duration convenience figure rather than duration pricing:
 |---|---|---|
 | `gemini-3.1-flash-live-preview` | $3.00 per 1M, or $0.005/min | $12.00 per 1M, or $0.018/min |
 
+Text tokens on the same model, from the same table (tool arguments and results
+are text): $0.75 per 1M in, $4.50 per 1M out. These are priced per token only.
+Google prints no per-minute equivalent for text, because text does not have a
+duration.
+
 ---
 
 ## 3. Cost table: dollars per hour
@@ -154,9 +171,9 @@ Three states, defined so the numbers mean the same thing across providers:
 
 | State | `gpt-realtime-2.1` | `gpt-realtime-2.1-mini` | `gemini-3.1-flash-live-preview` |
 |---|---|---|---|
-| Idle with hot mic | **$0.00/hr** (conditional, see below) | **$0.00/hr** (conditional) | **UNVERIFIED** |
+| Idle with hot mic | **$0.00/hr** (conditional, see below) | **$0.00/hr** (conditional) | **$0.30/hr** (assumed worst case, see below) |
 | Listening | **$1.15/hr** | **$0.36/hr** | **$0.30/hr** |
-| Active with tools | **$2.95/hr** | **$0.91/hr** | **$0.69/hr** |
+| Active with tools | **$2.95/hr** | **$0.91/hr** | **$0.70/hr** |
 
 ### The arithmetic
 
@@ -190,12 +207,17 @@ gpt-realtime-2.1-mini
 gemini-3.1-flash-live
   audio in    30 min x $0.005/min = $0.150
   audio out   30 min x $0.018/min = $0.540
-                                    -------
-                                    $0.690/hr  (tool text not separately priced
-                                                in the per-minute figures)
+  tool in      6,000 tok x $0.75/1M = $0.0045
+  tool out     2,000 tok x $4.50/1M = $0.0090
+                                      -------
+                                      $0.7035/hr -> $0.70
 ```
 
-Tool text is under 3% of the total on both OpenAI models and is dwarfed by the
+The Gemini per-minute figures cover audio only. Tool text is priced separately
+per token on the same page, so it is added the same way it is for OpenAI rather
+than assumed to be inside the per-minute rate.
+
+Tool text is under 3% of the total on all three models and is dwarfed by the
 exclusion in the next section, so the tool assumption is not worth tuning.
 
 ### Idle with hot mic is conditionally free, not free
@@ -212,11 +234,23 @@ push-to-talk client that disables VAD and commits whatever it captured pays for
 that silence. This is the one place the hot-mic default could be revisited, and
 it is conditional enough that push-to-talk remains the right default.
 
-**UNVERIFIED: whether Gemini bills silence or an idle open session.** What was
-checked: the pricing page and the Live API guides, searched for "silen", "idle",
-"billed", and "billing". The only match is the `silence_duration_ms` VAD tuning
-knob. Google publishes no statement either way. Do not assume the per-minute
-figure implies billing by wall-clock duration, and do not assume it does not.
+Gemini publishes no equivalent statement, so its idle figure is an assumption
+rather than a reading. The table carries the worst case: silence streamed into
+an open session is billed as ordinary audio input, which is the same rate as
+listening.
+
+```
+gemini-3.1-flash-live  60 min x $0.005/min = $0.300/hr  (assumed worst case)
+                                             $0.000/hr  (floor, if silence is
+                                                         filtered as on OpenAI)
+```
+
+Budget against $0.30/hr and treat anything less as recovered. **UNVERIFIED:
+whether Gemini bills silence or an idle open session.** What was checked: the
+pricing page and the Live API guides, searched for "silen", "idle", "billed",
+and "billing". The only match is the `silence_duration_ms` VAD tuning knob.
+Google publishes no statement either way. Do not assume the per-minute figure
+implies billing by wall-clock duration, and do not assume it does not.
 
 ### What these floors exclude
 
