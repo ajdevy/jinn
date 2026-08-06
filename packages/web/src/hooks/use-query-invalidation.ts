@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGateway } from '@/hooks/use-gateway'
 import { queryKeys, TODO_WRITE_KEY } from '@/lib/query-keys'
+import { forgetTodoPreview } from '@/lib/todo-preview'
 import { patchSessionBackgroundActivity, removeFromSessionsCache } from '@/hooks/use-sessions'
 import { mergeTodoIntoCaches } from '@/routes/todos/todo-edit-request'
 import type { BackgroundActivity, SessionsResponse } from '@/lib/api'
@@ -88,6 +89,12 @@ export function useQueryInvalidation() {
             qc.invalidateQueries({ queryKey: ['work-item', id] })
             qc.invalidateQueries({ queryKey: ['work-item-comments', id] })
             qc.invalidateQueries({ queryKey: ['work-item-attachments', id] })
+            // Mention previews are served from a batch cache outside React
+            // Query, so the query key alone would refetch straight back out of
+            // it. Dropping the id there is what makes the refetch reach the
+            // gateway; every other Todo's preview is left as it was.
+            forgetTodoPreview(id)
+            qc.invalidateQueries({ queryKey: ['work-item-preview', id] })
           }
           continue
         }

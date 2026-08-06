@@ -1,9 +1,8 @@
 import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { buildFileReadRequest } from '@/lib/file-read-request'
-import { isTodoId, TODO_ID_MENTION_SOURCE, todoPath } from '@/lib/todo-id'
+import { isTodoId, TODO_ID_MENTION_SOURCE } from '@/lib/todo-id'
 import { useOpenFile } from '@/components/chat/file-open-context'
-import { useKnownTodoPrefixes } from '@/components/chat/todo-prefix-context'
+import { TodoMention } from '@/components/todo-mention'
 import { CodeBlockChrome } from '@/components/code-block-chrome'
 import { ChevronDown } from 'lucide-react'
 
@@ -76,20 +75,6 @@ function InlineCode({ children }: { children: string }) {
   )
 }
 
-function TodoLink({ id, fallback }: { id: string; fallback?: React.ReactNode }) {
-  const knownPrefixes = useKnownTodoPrefixes()
-  if (!isTodoId(id) || !knownPrefixes.has(id.slice(0, 3))) return fallback ?? id
-  return (
-    <Link
-      to={todoPath(id)}
-      title={`Open ${id}`}
-      className="text-[var(--system-blue)] underline decoration-[var(--system-blue)]/40 hover:decoration-[var(--system-blue)] underline-offset-2 font-[family-name:var(--font-code)] text-[0.88em]"
-    >
-      {id}
-    </Link>
-  )
-}
-
 function renderPathLink(p: string, key: React.Key): React.ReactNode {
   return <FileLink key={key} path={p} />
 }
@@ -145,7 +130,7 @@ function inlineFormat(text: string): React.ReactNode {
       if (isFilePath(match[7])) {
         parts.push(renderPathLink(match[7], match.index))
       } else if (isTodoId(match[7])) {
-        parts.push(<TodoLink key={match.index} id={match[7]} fallback={<InlineCode>{match[7]}</InlineCode>} />)
+        parts.push(<TodoMention key={match.index} id={match[7]} fallback={<InlineCode>{match[7]}</InlineCode>} />)
       } else {
         parts.push(<InlineCode key={match.index}>{match[7]}</InlineCode>)
       }
@@ -155,7 +140,7 @@ function inlineFormat(text: string): React.ReactNode {
       // Bare (un-backticked) file path → viewer link
       parts.push(renderPathLink(match[9], match.index))
     } else if (match[10]) {
-      parts.push(<TodoLink key={match.index} id={match[10]} />)
+      parts.push(<TodoMention key={match.index} id={match[10]} />)
     }
     last = match.index + match[0].length
   }
