@@ -580,7 +580,7 @@ describe('listDefinitions pagination and filters', () => {
   });
 
   it('filters enabled state and retired state with locked omitted behavior', () => {
-    const disabled = create('disabled');
+    create('disabled');
     const active = create('active');
     const retiredSource = create('retired-source');
     const retiredEnabledSource = create('retired-enabled-source');

@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { allocateConditionPort } from "./graph"
 import { NodeTypeIcon } from "./node-icons"
-import { NODE_TYPE_LABEL, conditionCases, type WorkflowNodeWire } from "./ports"
+import { NODE_TYPE_LABEL, type WorkflowNodeWire } from "./ports"
 import { useEditor } from "./store"
 
 /* ── tiny form primitives (Ledger-styled, matching ui/textarea) ───────────── */

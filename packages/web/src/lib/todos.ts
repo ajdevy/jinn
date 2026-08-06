@@ -5,7 +5,6 @@
 // module only *arranges* what it returns — it never invents a status.
 
 import type {
-  Employee,
   WorkItemCompactWire,
   WorkItemStatusWire,
   WorkItemSourceWire,

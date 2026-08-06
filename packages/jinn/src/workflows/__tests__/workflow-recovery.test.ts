@@ -102,7 +102,7 @@ beforeEach(() => {
 });
 afterEach(() => { service.dispose(); vi.useRealTimers(); database.close(); fs.rmSync(root, { recursive: true, force: true }); });
 afterAll(async () => {
-  const registry = await import("../../sessions/registry.js");
+  await import("../../sessions/registry.js");
   (await import("../../shared/db.js")).__closeDbForTest();
   fs.rmSync(sessionHome, { recursive: true, force: true });
 });

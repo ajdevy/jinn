@@ -341,12 +341,6 @@ function itemFirstMsg(item: MessageItem): Message {
   return item.msg
 }
 
-function itemLastMsg(item: MessageItem): Message {
-  if (item.kind === 'tool-group' || item.kind === 'todo-burst') return item.msgs[item.msgs.length - 1]
-  if (item.kind === 'callback-burst') return item.entries[item.entries.length - 1].msg
-  return item.msg
-}
-
 function itemFirstRawIndex(item: MessageItem): number {
   if (item.kind === 'tool-group' || item.kind === 'callback-burst' || item.kind === 'todo-burst') return item.startIndex
   return item.index

@@ -2,7 +2,6 @@ import type Database from 'better-sqlite3';
 import { isDeepStrictEqual } from 'node:util';
 import { isProxy } from 'node:util/types';
 import {
-  jsonValueSchema,
   workflowDefinitionSchema,
   type JsonValue,
   type WorkflowDefinition,

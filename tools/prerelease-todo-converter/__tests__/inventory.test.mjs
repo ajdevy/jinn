@@ -7,8 +7,8 @@ import { createRequire } from "node:module";
 
 import { buildTodoMapping, inventoryDatabase } from "../inventory.mjs";
 
-const require = createRequire(new URL("../../../packages/jinn/package.json", import.meta.url));
-const Database = require("better-sqlite3");
+const requireFromJinn = createRequire(new URL("../../../packages/jinn/package.json", import.meta.url));
+const Database = requireFromJinn("better-sqlite3");
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-prerelease-converter-"));

@@ -18,7 +18,7 @@ import { dismissStaleChat, isStaleChatDismissed, shouldSuggestFreshChat } from '
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
 import type { CliTerminalHandle } from '@/components/cli-terminal'
 import { buildNewSessionParams, resolveNewSessionSelector, shouldPersistNewSessionSelector } from '@/components/chat/new-chat-helpers'
-import type { Employee, EnginesResponse } from '@/lib/api'
+import type { EnginesResponse } from '@/lib/api'
 import type { Message, MediaAttachment } from '@/lib/conversations'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
 

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { LEGACY_STT_MODELS_DIR, STT_MODELS_DIR, STT_SETTINGS_FILE, TMP_DIR } from "../shared/paths.js";
+import { LEGACY_STT_MODELS_DIR, STT_MODELS_DIR, STT_SETTINGS_FILE } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
 import { adoptLegacyModels, findModelFile } from "./model-store.js";
 import {

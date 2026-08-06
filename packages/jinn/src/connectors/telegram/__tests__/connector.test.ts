@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { IncomingMessage, Session, Target } from "../../../shared/types.js";
 
 // Mock node-telegram-bot-api before importing connector

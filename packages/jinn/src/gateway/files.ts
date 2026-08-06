@@ -4,8 +4,6 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import os from "node:os";
-import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
 import Busboy from "busboy";
 import { FILES_DIR, UPLOADS_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
@@ -1009,11 +1007,6 @@ async function handleJsonUpload(req: HttpRequest, res: ServerResponse, context: 
 interface TransferSpec {
   file: string;       // managed file ID from /api/files
   remotePath?: string; // destination path on remote (defaults to same relative path)
-}
-
-interface TransferRequest {
-  destination: string; // remote gateway URL or remote name from config
-  files: TransferSpec[];
 }
 
 interface TransferResult {

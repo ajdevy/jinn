@@ -147,7 +147,6 @@ describe("GrokInteractiveEngine", () => {
   let lifecycle: PtyLifecycleManager;
   let engine: GrokInteractiveEngine;
   let sessionsDir: string;
-  let fileSeq = 0;
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -157,10 +156,6 @@ describe("GrokInteractiveEngine", () => {
     sessionsDir = path.join(osMockState.home, ".grok", "sessions");
     fs.mkdirSync(sessionsDir, { recursive: true });
   });
-
-  function freshTranscriptPath(): string {
-    return path.join(sessionsDir, `rollout-${++fileSeq}.jsonl`);
-  }
 
   it("forwards model/session into idle-spawned PTY args", () => {
     engine.ensureIdleSpawn("jinn-session", {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";

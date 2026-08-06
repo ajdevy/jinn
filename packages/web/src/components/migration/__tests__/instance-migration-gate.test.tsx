@@ -187,7 +187,7 @@ describe("InstanceMigrationGate", () => {
 
   it("focuses the informational title on open, not the Later dismiss action, and keeps Later keyboard-reachable", async () => {
     setup()
-    const dialog = await screen.findByRole("dialog")
+    await screen.findByRole("dialog")
     const title = screen.getByRole("heading", { name: /v0\.26\.0 is installed/ })
     const later = screen.getByRole("button", { name: "Later" })
 

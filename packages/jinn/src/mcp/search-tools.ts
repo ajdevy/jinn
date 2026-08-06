@@ -1,4 +1,4 @@
-import { assertBoundCaller, gatewayGet, JinnMcpToolError, type JinnMcpContext, type JinnMcpTool } from "./toolkit.js";
+import { assertBoundCaller, gatewayGet, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
 
 /**
  * GRS-020a — the company-REFERENCE tool group of the `jinn` MCP server: agents

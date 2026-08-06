@@ -107,7 +107,7 @@ export function OnboardingWizard({ forceOpen, initialVisible, onClose }: Onboard
    */
   const [launchingSessionId, setLaunchingSessionId] = useState<string | undefined>(undefined)
   const [step, setStep] = useState(0)
-  const [direction, setDirection] = useState<"forward" | "back">("forward")
+  const [, setDirection] = useState<"forward" | "back">("forward")
 
   // Local input values
   const [localCompany, setLocalCompany] = useState("")

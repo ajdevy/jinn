@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo, useSyncExtern
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
-import { ChevronDown, Clock3, EllipsisVertical, Focus, Layers, Pencil, Pin, Plus, Search, SquarePen, Trash2, Workflow as WorkflowIcon, X } from "lucide-react"
+import { ChevronDown, Clock3, EllipsisVertical, Focus, Layers, Pin, Plus, Search, SquarePen, Trash2, Workflow as WorkflowIcon, X } from "lucide-react"
 import { api, type BackgroundActivity, type DelegatedActivity, type Employee, type SessionsResponse } from "@/lib/api"
 import { useOrg } from "@/hooks/use-employees"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"

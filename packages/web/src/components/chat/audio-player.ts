@@ -37,7 +37,6 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 export class TalkAudioPlayer {
   private ctx: AudioContext | null = null
   private analyserNode: AnalyserNode | null = null
-  private gain: GainNode | null = null
   /** False when the ctx was supplied externally (shared) — don't close it on dispose. */
   private ownsCtx = true
   /** Fired once when the first buffer of a run actually starts playing. */
@@ -102,7 +101,6 @@ export class TalkAudioPlayer {
     gain.connect(ctx.destination)
     this.ctx = ctx
     this.analyserNode = analyser
-    this.gain = gain
     this.rmsBuf = new Uint8Array(new ArrayBuffer(analyser.fftSize))
     return ctx
   }
@@ -327,7 +325,6 @@ export class TalkAudioPlayer {
     const owns = this.ownsCtx
     this.ctx = null
     this.analyserNode = null
-    this.gain = null
     this.rmsBuf = null
     // Only close a context we created — a shared/external one belongs to the caller.
     if (owns && ctx && ctx.state !== "closed") void ctx.close().catch(() => {})

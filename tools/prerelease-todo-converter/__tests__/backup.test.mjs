@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 
 import { rehearseRestore, verifyExternalBackup } from "../backup.mjs";
 
-const require = createRequire(new URL("../../../packages/jinn/package.json", import.meta.url));
-const Database = require("better-sqlite3");
+const requireFromJinn = createRequire(new URL("../../../packages/jinn/package.json", import.meta.url));
+const Database = requireFromJinn("better-sqlite3");
 
 function databaseFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-prerelease-backup-"));

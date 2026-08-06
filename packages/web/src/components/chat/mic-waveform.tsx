@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react"
+import { useRef, useEffect } from "react"
 
 /**
  * Pure helper: map a normalized audio level (0..1) to a bar pixel height,

@@ -3,7 +3,6 @@ import {
   jsonValueSchema,
   workflowDefinitionSchema,
   type JsonValue,
-  type WorkflowDefinition,
   type WorkflowNodeOutput,
 } from './model.js';
 import {

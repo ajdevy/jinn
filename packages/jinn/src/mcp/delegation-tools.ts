@@ -1,4 +1,4 @@
-import { gatewayRequest, JinnMcpToolError, type JinnMcpContext, type JinnMcpTool } from "./toolkit.js";
+import { gatewayRequest, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
 import { UNIDENTIFIED_TOOL_CALL_ERROR } from "./identity.js";
 
 /**
