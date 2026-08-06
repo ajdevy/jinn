@@ -1,0 +1,50 @@
+name: Migration bundle
+
+# publish-npm.yml verifies the same bundle, but at release time — when a stale
+# bundle is a scramble against an already-pushed tag instead of one more commit
+# on a PR. The bundle is derived from a diff of packages/jinn/template/, so any
+# edit under it can stale the bundle, not only edits to template/migrations/.
+#
+# Path-filtered workflows report nothing on PRs that miss their paths, so this
+# must not be configured as a required check — it would block every other PR.
+on:
+  pull_request:
+    paths:
+      - "packages/jinn/template/**"
+      - "packages/jinn/scripts/instance-migration-bundle.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The check diffs against the previous release tag, which `git describe`
+          # can only find with the full history and tags present.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify migration bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./packages/jinn/package.json').version")"
+          # Same derivation and same command as the release job, so a PR can never
+          # pass a gate the release then fails. The branch matters: --base-ref is
+          # validated as a version tag, and once v$VERSION is tagged, passing it
+          # would diff the version against itself and always report current.
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            BASE="$(git describe --tags --abbrev=0 "v$VERSION^")"
+          else
+            BASE="$(git describe --tags --abbrev=0)"
+          fi
+          pnpm --filter jinn-cli migration:check -- --base-ref "$BASE" --version "$VERSION"

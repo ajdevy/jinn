@@ -51,6 +51,18 @@ export default defineConfig({
       reportsDirectory: 'coverage',
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/__tests__/**'],
+      // A floor against regression, not an aspiration. Each value is the
+      // coverage measured when this gate was wired up (74.7 statements /
+      // 70.0 branches / 77.7 functions / 77.5 lines), rounded down and cut by
+      // three points. That margin absorbs v8's run-to-run variance and the
+      // CI-only maxWorkers: 2 path above — a gate that flakes red is a gate
+      // everyone learns to ignore. Raise these when coverage genuinely rises.
+      thresholds: {
+        statements: 71,
+        branches: 67,
+        functions: 74,
+        lines: 74,
+      },
     },
   },
 })
