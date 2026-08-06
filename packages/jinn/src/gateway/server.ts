@@ -365,7 +365,6 @@ export interface NormalizedConnector {
 }
 
 /** When a legacy top-level connector counts as configured. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
   slack: (config) => Boolean(config.appToken && config.botToken),
   discord: (config) => Boolean(config.botToken || config.proxyVia),
@@ -379,7 +378,6 @@ const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
  * followed by the explicitly named `connectors.instances[]`.
  */
 export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConnector[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const declared = (config.connectors ?? {}) as Record<string, any>;
   const instances: NormalizedConnector[] = [];
   const seen = new Set<string>();

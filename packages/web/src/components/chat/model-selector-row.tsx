@@ -187,7 +187,6 @@ export function ModelSelectorRow({ mode, value, onChange, pendingNote, errorNote
       model: ne.defaultModel,
       effortLevel: defaultEffort(effortLevelsFor(registry, engine, ne.defaultModel)),
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, mode, engine, value.engine])
 
   // Track the surface height across panel swaps / content changes so the height

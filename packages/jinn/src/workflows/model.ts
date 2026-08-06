@@ -160,6 +160,14 @@ const triggerConfigSchema = z.discriminatedUnion('kind', [
      *  move to `assigned` leaves the assignee null. Filtering on `assignee` for
      *  such a Todo never fires — pick the status the assignment itself produces. */
     assignee: z.string().min(1).max(80).optional(),
+    /** These three read the Todo's CURRENT row when the trigger fires rather than
+     *  the provenance snapshot frozen into the status event, so a Todo re-tagged,
+     *  reassigned, or re-parented after it moved is judged as it stands now.
+     *  `true` is the only storable value: a persisted `false` reads as a filter
+     *  that is set and matches everything, which is never what an author meant. */
+    unlabeled: z.literal(true).optional(),
+    unassigned: z.literal(true).optional(),
+    rootOnly: z.literal(true).optional(),
   }),
   z.strictObject({ kind: z.literal('workflow-call') }),
 ]);

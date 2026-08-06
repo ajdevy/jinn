@@ -430,7 +430,7 @@ export function NeedsYouView({
 
   // The voice needs the reason note + rounds (details) and the roll-up gate
   // pre-check for the route menus (trees) — the inbox is small and bounded.
-  const detailIds = useMemo(() => visible.map((item) => item.id).slice(0, 60), [items, resolvingIds]) // eslint-disable-line react-hooks/exhaustive-deps
+  const detailIds = useMemo(() => visible.map((item) => item.id).slice(0, 60), [items, resolvingIds])
   const details = useOpenDetails(detailIds)
   const detailById = useMemo(() => {
     const map = new Map<string, WorkItemOpenDetailWire>()
@@ -439,7 +439,7 @@ export function NeedsYouView({
   }, [details.data])
   const routeIds = useMemo(
     () => visible.filter((item) => attentionKind(item) !== "approval").map((item) => item.id).slice(0, 60),
-    [items, resolvingIds], // eslint-disable-line react-hooks/exhaustive-deps
+    [items, resolvingIds],
   )
   const trees = useBoardTrees(routeIds)
   const openChildrenOf = (id: string, status: WorkItemStatusWire): number => {

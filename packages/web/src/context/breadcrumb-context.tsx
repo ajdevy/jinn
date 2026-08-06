@@ -43,7 +43,7 @@ export function useBreadcrumbs(items?: BreadcrumbItem[]) {
     // title (e.g. "Organization") never persists into a route that sets no
     // breadcrumbs of its own. setItems is a stable useState setter.
     return () => setItems([])
-  }, [itemsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [itemsKey])
 
   return ctx
 }

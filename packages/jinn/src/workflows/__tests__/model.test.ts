@@ -303,6 +303,19 @@ describe('canonical workflow node model', () => {
       return parsed.config.mode;
     })).toEqual(['duration', 'until']);
   });
+
+  it('parses each live todo-status filter on its own and refuses a stored false', () => {
+    const triggerConfigs: TriggerNode['config'][] = [
+      { kind: 'todo-status', status: 'assigned', unlabeled: true },
+      { kind: 'todo-status', status: 'assigned', unassigned: true },
+      { kind: 'todo-status', status: 'assigned', rootOnly: true },
+    ];
+
+    expect(triggerConfigs.map((config) => workflowNodeSchema.parse(triggerNode(config)).config)).toEqual(triggerConfigs);
+    expect(workflowNodeSchema.safeParse(triggerNode(
+      { kind: 'todo-status', status: 'assigned', unlabeled: false } as unknown as TriggerNode['config'],
+    )).success).toBe(false);
+  });
 });
 
 describe('employee runtime boundaries', () => {

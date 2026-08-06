@@ -8,7 +8,6 @@ import makeWASocketImport, {
   type WAMessage,
 } from "@whiskeysockets/baileys";
 // Handle ESM/CJS interop — Baileys may export as .default in some environments
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const makeWASocket = ((makeWASocketImport as any).default ?? makeWASocketImport) as typeof makeWASocketImport;
 import type {
   Connector,
@@ -246,7 +245,6 @@ export class WhatsAppConnector implements Connector {
     const ownJid = this.sock?.user?.id ?? "";
     const ownJidBare = ownJid.split(":")[0] + "@s.whatsapp.net";
     // WhatsApp now uses LID (Linked ID) format — extract from sock.user.lid
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ownLid = (this.sock?.user as any)?.lid ?? "";
     const ownLidBare = ownLid ? ownLid.split(":")[0] + "@lid" : "";
 

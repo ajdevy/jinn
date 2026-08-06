@@ -151,7 +151,7 @@ export function useBoardData(board: BoardId, filters: TodoFilters, now: number, 
       openTotal,
       closedTotal,
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the 8 query results are the dependencies
+    // the 8 query results are the dependencies
   }, [backlog.data, assigned.data, executing.data, inReview.data, blocked.data, escalated.data, done.data, cancelled.data,
       backlog.isFetchingNextPage, assigned.isFetchingNextPage, executing.isFetchingNextPage, inReview.isFetchingNextPage,
       blocked.isFetchingNextPage, escalated.isFetchingNextPage, done.isFetchingNextPage, cancelled.isFetchingNextPage,

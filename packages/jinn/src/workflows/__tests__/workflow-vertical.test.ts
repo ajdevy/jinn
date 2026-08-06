@@ -365,6 +365,7 @@ describe("first Workflow vertical", () => {
       prompt: "Handle {{ input.topic }} with {{ input.employee }}." }, { employee: "writer", engine: "claude", model: "sonnet", effort: "medium", topic: "dynamic" },
       { engine: "claude", model: "sonnet", effort: "medium" }, "Handle dynamic with writer."],
   ] as const)("resolves %s before dispatch", async (_label, overrides, input, expected, prompt) => {
+    void prompt; // this expected rendered prompt is not asserted yet — ICI-734 owns closing that gap
     const authored = definition({ id: `dispatch-${_label.replaceAll(" ", "-")}`, ...overrides }); const started = await service.startManual({ workflowId: authored.id, input: { ...input } });
     await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
     expect({ model: engine.calls[0]!.model, ...(engine.calls[0]!.effortLevel ? { effortLevel: engine.calls[0]!.effortLevel } : {}) }).toStrictEqual({ model: expected.model, ...("effort" in expected ? { effortLevel: expected.effort } : {}) });

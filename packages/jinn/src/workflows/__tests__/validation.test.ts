@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   Binding,
   ConditionNode,
+  TriggerNode,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowInputField,
@@ -967,5 +968,33 @@ describe('Schedule trigger cron and timezone', () => {
     const result = validateExecutableWorkflow(scheduled(cron, timezone));
     expect(result.ok).toBe(false);
     expect(issue(result, 'invalid-schedule')).toEqual({ code: 'invalid-schedule', message, nodeId: 'trigger', path });
+  });
+});
+
+describe('Todo trigger filters', () => {
+  function filtered(config: Record<string, unknown>): WorkflowDefinition {
+    return definition(
+      [{ id: 'todo-trigger', type: 'trigger', name: 'trigger',
+        config: { kind: 'todo-status', status: 'assigned', ...config } as TriggerNode['config'] }, end()],
+      [edge('e1', 'todo-trigger', 'end')],
+    );
+  }
+
+  it('accepts each live filter on its own', () => {
+    expect(validateExecutableWorkflow(filtered({ unlabeled: true, unassigned: true, rootOnly: true })))
+      .toEqual({ ok: true, issues: [] });
+    expect(validateExecutableWorkflow(filtered({ label: 'build', unassigned: true }))).toEqual({ ok: true, issues: [] });
+  });
+
+  it('rejects a trigger that demands no labels and a specific label at once', () => {
+    const result = validateExecutableWorkflow(filtered({ unlabeled: true, label: 'build' }));
+
+    expect(result.ok).toBe(false);
+    expect(issue(result, 'conflicting-todo-filters')).toEqual({
+      code: 'conflicting-todo-filters',
+      message: 'A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels can never carry the one named. Set only one.',
+      nodeId: 'todo-trigger',
+      path: 'nodes.0.config.unlabeled',
+    });
   });
 });

@@ -9,9 +9,11 @@
     "postinstall": "node scripts/fix-prebuild-permissions.mjs",
     "build": "turbo build && node scripts/sync-web-dist.mjs",
     "dev": "turbo dev",
-    "lint": "turbo lint",
-    "typecheck": "turbo typecheck",
-    "test": "turbo run test --concurrency=1",
+    "lint": "turbo run build --filter=@jinn/gateway-events && turbo run lint",
+    "typecheck": "turbo typecheck && pnpm typecheck:root",
+    "typecheck:root": "tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p tsconfig.scripts.json",
+    "test": "turbo run test --concurrency=1 && pnpm test:node",
+    "test:node": "node --test scripts/__tests__/publish-workflow.test.mjs scripts/upgrade-lab/__tests__/guards.test.mjs tools/prerelease-todo-converter/__tests__/artifacts.test.mjs tools/prerelease-todo-converter/__tests__/backup.test.mjs tools/prerelease-todo-converter/__tests__/boundary.test.mjs tools/prerelease-todo-converter/__tests__/inventory.test.mjs",
     "coverage": "turbo run coverage",
     "test:e2e": "playwright test",
     "clean": "node -e \"const fs=require('fs');for(const d of ['.turbo','node_modules/.cache'])fs.rmSync(d,{recursive:true,force:true})\" && turbo clean",
@@ -34,8 +36,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.8.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.66.0"
   },
   "dependencies": {
     "classic-level": "^2.0.0"

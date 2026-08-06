@@ -370,6 +370,23 @@ export function scheduleTriggerIssues(definition: WorkflowDefinition): WorkflowV
   return issues;
 }
 
+/** `unlabeled` and `label` contradict each other, so a trigger setting both can
+ *  never fire. A silently unarmable definition is worse than a rejected save:
+ *  nothing distinguishes it from a Todo that simply has not moved yet. */
+export function todoTriggerFilterIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
+  const safe = safeDefinition(definition);
+  if (!safe) return [];
+  return safe.nodes.flatMap((node, index) => node.type === 'trigger' && node.config.kind === 'todo-status'
+    && node.config.unlabeled !== undefined && node.config.label !== undefined
+    ? [{
+        code: 'conflicting-todo-filters',
+        message: 'A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels can never carry the one named. Set only one.',
+        nodeId: node.id,
+        path: `nodes.${index}.config.unlabeled`,
+      }]
+    : []);
+}
+
 export function workflowCallTargetIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
   const safe = safeDefinition(definition);
   if (!safe) return [];
@@ -427,6 +444,7 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   addCardinalityIssues(nodes, graph, add);
   addReachabilityIssues(nodes, graph, add);
   for (const item of scheduleTriggerIssues(safe)) add(item);
+  for (const item of todoTriggerFilterIssues(safe)) add(item);
   for (const item of workflowCallTargetIssues(safe)) add(item);
   for (const item of todoCommentWaitTriggerIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
