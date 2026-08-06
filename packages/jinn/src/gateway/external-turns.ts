@@ -247,6 +247,43 @@ function findPersistedSequence(existing: SessionMessage[], entries: TranscriptTa
 }
 
 /**
+ * Longest run of TRAILING persisted rows mirroring the LEADING tail entries.
+ * Covers the partial overlap `findPersistedSequence` rejects: when the anchor
+ * lands older than the assistant entry run() already persisted, the next tail
+ * arrives as [already-persisted message, genuinely new message] and the
+ * all-or-nothing match returns null, so the insert writes the persisted message
+ * a second time.
+ *
+ * The match must END at the last persisted row. A free-floating longest-prefix
+ * match would fire mid-history too: with rows [user "continue", assistant
+ * "old"] and a real new turn [user "continue", assistant "new"], it would treat
+ * the repeated prompt as already persisted and insert only the reply, dropping
+ * the operator's message. End-anchored, that case finds no overlap and takes
+ * the normal insert.
+ */
+function trailingPersistedPrefix(existing: SessionMessage[], entries: TranscriptTailEntry[]): SessionMessage[] {
+  const recent = existing.filter((m) => !m.partial);
+  for (let length = Math.min(recent.length, entries.length); length > 0; length -= 1) {
+    const candidate = recent.slice(-length);
+    const mirrors = candidate.every(
+      (m, i) => rolesCompatible(m, entries[i]) && contentCompatible(m.content, entries[i].content),
+    );
+    if (mirrors) return candidate;
+  }
+  return [];
+}
+
+/** Overwrite each persisted row truncated at an early Stop with its complete transcript text. */
+function upgradeTruncatedRows(persisted: SessionMessage[], entries: TranscriptTailEntry[]): void {
+  persisted.forEach((row, i) => {
+    const entry = entries[i];
+    if (row.role === entry.role && entry.content.length > row.content.length) {
+      updateMessageContent(row.id, entry.content);
+    }
+  });
+}
+
+/**
  * Persist any un-synced transcript tail for a session into the messages DB.
  * Primary trigger: an unclaimed Stop hook (PTY-native turn — no run() in
  * flight). Also callable without a payload as the on-load safety net.
@@ -321,7 +358,8 @@ export function syncExternalTurn(
   // superset (prefix-compatible). When the trailing rows mirror the tail in role
   // order and are prefix-compatible, UPGRADE them in place (fixes the cutoff)
   // instead of inserting duplicates (fixes the duplication). Otherwise this is a
-  // genuine CLI-native turn run() never saw — insert as before.
+  // genuine CLI-native turn run() never saw — insert it, minus any leading
+  // messages the trailing DB rows already hold.
   const db = initDb();
   const existing = getMessages(sessionId);
   const matchedPersistedTurn = findPersistedSequence(existing, tail);
@@ -329,12 +367,7 @@ export function syncExternalTurn(
     // run() already stored this turn — overwrite any truncated row with the
     // complete transcript text, write no new rows.
     const txn = db.transaction(() => {
-      tail.forEach((e, i) => {
-        const persisted = matchedPersistedTurn[i];
-        if (persisted.role === e.role && e.content.length > persisted.content.length) {
-          updateMessageContent(persisted.id, e.content);
-        }
-      });
+      upgradeTruncatedRows(matchedPersistedTurn, tail);
     });
     txn();
     setAnchor(sessionId, tailAnchorIso);
@@ -344,11 +377,17 @@ export function syncExternalTurn(
     );
     return 0;
   }
-  // One transaction for the whole tail (mirrors the transcript backfill).
+  // The tail may still OPEN with rows run() already persisted and continue with
+  // genuinely new ones. Reconcile that overlap in place and insert only the
+  // remainder, or those rows get written a second time.
+  const alreadyPersisted = trailingPersistedPrefix(existing, tail);
+  const fresh = tail.slice(alreadyPersisted.length);
+  // One transaction for the upgrades plus the inserts (mirrors the transcript backfill).
   const txn = db.transaction((items: TranscriptTailEntry[]) => {
+    upgradeTruncatedRows(alreadyPersisted, tail);
     for (const e of items) insertMessage(sessionId, e.role, e.content);
   });
-  txn(tail);
+  txn(fresh);
   // A PTY-native first turn means the DB may not know the engine session yet —
   // adopt it so future resumes/backfills/syncs target the right transcript.
   if (!session.engineSessionId && engineSessionId) {
@@ -357,9 +396,10 @@ export function syncExternalTurn(
   setAnchor(sessionId, tailAnchorIso);
   emit("session:external-turn", { sessionId });
   logger.info(
-    `Synced ${tail.length} external (CLI-native) message(s) for session ${sessionId} (anchor → ${tailAnchorIso})`,
+    `Synced ${fresh.length} external (CLI-native) message(s) for session ${sessionId} (anchor → ${tailAnchorIso}` +
+      `${alreadyPersisted.length > 0 ? `, ${alreadyPersisted.length} already-persisted message(s) reconciled in place` : ""})`,
   );
-  return tail.length;
+  return fresh.length;
 }
 
 /** Sessions with an in-flight on-load tail sync (mirrors backfillInProgress). */
