@@ -8,11 +8,13 @@
     "perf:budget": "node scripts/perf-budget.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf out dist"
   },
   "dependencies": {
+    "@jinn/gateway-events": "workspace:*",
     "@dagrejs/dagre": "^2.0.4",
     "@tanstack/react-query": "^5",
     "@tanstack/react-virtual": "^3.13.24",

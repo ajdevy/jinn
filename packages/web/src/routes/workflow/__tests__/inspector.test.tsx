@@ -99,6 +99,23 @@ function triggerConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
+function renderWorkflowCall(config: Record<string, unknown>) {
+  const initial = structuredClone(definition)
+  initial.nodes = [{ id: "fanout", type: "workflow-call", name: "Publish items", config }]
+  initial.ui.positions = { fanout: { x: 0, y: 0 } }
+  const store = createEditorStore(initial)
+  store.getState().selectNode("fanout")
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <EditorStoreContext.Provider value={store}>
+        <Inspector />
+      </EditorStoreContext.Provider>
+    </QueryClientProvider>,
+  )
+  return store
+}
+
 async function choose(label: string, option: string) {
   await userEvent.click(screen.getByRole("combobox", { name: label }))
   await userEvent.click(await screen.findByRole("option", { name: option }))
@@ -246,6 +263,40 @@ describe("employee inspector output schema", () => {
 
     expect(employeeConfig(store)).not.toHaveProperty("output")
     expect(screen.getByRole("button", { name: "Enable structured output" })).toBeTruthy()
+  })
+})
+
+describe("workflow-call inspector", () => {
+  it("renders an authored fan-out config without mutating it", () => {
+    const config = {
+      workflowId: { source: "fixed", value: "publish-item" },
+      items: { source: "fixed", value: [{ topic: "one" }, { topic: "two" }] },
+      input: { topic: { source: "trigger", path: "item.topic" } },
+      concurrency: 3,
+    }
+    const store = renderWorkflowCall(config)
+
+    expect((screen.getByLabelText("Concurrency") as HTMLInputElement).value).toBe("3")
+    expect(screen.getAllByLabelText("Fixed value").map((input) => (input as HTMLInputElement).value))
+      .toEqual(["publish-item", '[{"topic":"one"},{"topic":"two"}]'])
+    expect(store.getState().nodes[0]!.data.node.config).toEqual(config)
+    expect(store.getState().serial).toBe(0)
+  })
+
+  it("updates concurrency and removes the optional items binding", () => {
+    const store = renderWorkflowCall({
+      workflowId: { source: "fixed", value: "publish-item" },
+      items: { source: "trigger", path: "items" },
+      concurrency: 2,
+    })
+
+    fireEvent.change(screen.getByLabelText("Concurrency"), { target: { value: "4" } })
+    fireEvent.click(screen.getByRole("button", { name: "Remove items binding" }))
+
+    expect(store.getState().nodes[0]!.data.node.config).toEqual({
+      workflowId: { source: "fixed", value: "publish-item" },
+      concurrency: 4,
+    })
   })
 })
 

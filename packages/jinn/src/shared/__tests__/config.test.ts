@@ -4,6 +4,25 @@ import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
 import { normalizeClaudeEngineConfig, validateConfigShape } from "../config.js";
+import type { JinnConfig } from "../types.js";
+import { expectPosixMode } from "../test-support/posix-mode.js";
+
+describe("deprecated Talk configuration compatibility", () => {
+  it("keeps the retired orchestrator keys source-compatible for patch upgrades", () => {
+    const legacyTalkConfig = {
+      enabled: false,
+      engine: "claude",
+      orchestratorModel: "sonnet",
+      kokoro: { voice: "af_heart" },
+    } satisfies NonNullable<JinnConfig["talk"]>;
+
+    expect(legacyTalkConfig).toMatchObject({
+      enabled: false,
+      engine: "claude",
+      orchestratorModel: "sonnet",
+    });
+  });
+});
 
 describe("normalizeClaudeEngineConfig", () => {
   it("applies the maxLivePtys default", () => {
@@ -105,5 +124,17 @@ describe("saveConfigAtomic", () => {
     saveConfigAtomic({ fresh: 1 });
 
     expect(yaml.load(fs.readFileSync(configPath, "utf-8"))).toEqual({ fresh: 1 });
+  });
+
+  it("creates and replaces config.yaml with owner-only permissions", async () => {
+    const { saveConfigAtomic } = await import("../config.js");
+    const configPath = path.join(tmpHome, "config.yaml");
+
+    saveConfigAtomic({ fresh: 1 });
+    expectPosixMode(configPath, 0o600);
+
+    fs.chmodSync(configPath, 0o600);
+    saveConfigAtomic({ fresh: 2 });
+    expectPosixMode(configPath, 0o600);
   });
 });

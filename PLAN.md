@@ -1,100 +1,116 @@
-# ICI-688 — Unicode attachment filenames break, and the message renders twice
+# PLA-65 — Propagate `todoId` to called runs; allow dual triggers
 
-## The bug, in one paragraph
+Branch `build/PLA-65-call-todoid-dual-triggers` off `main` @ `8be3128c`.
 
-`packages/jinn/src/gateway/files.ts` builds its multipart parsers without
-`defParamCharset`. Busboy then falls back to latin-1 for header parameters, so the UTF-8
-filename the browser sends in `Content-Disposition` is decoded as latin-1 and persisted as
-mojibake (`тест документ.pdf` → `ÑÐµÑÑ Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ.pdf`).
+## What is broken today
 
-That one defect produces both symptoms the operator reported:
+`WorkflowService.callWorkflow()` (`packages/jinn/src/workflows/service.ts:289`) stamps
+`trigger: { kind: "workflow-call", payload: { caller, itemIndex } }` and never sets
+`trigger.todoId`. Every Todo-binding surface reads `run.trigger.todoId`:
+`bindingContext` → `{{ run.todoId }}` (`runner.ts:141`), approval mirroring
+(`runner.ts:543`), reflection / failure / gate-decision echo (`runner.ts:566/581/595/857`),
+session attribution (`runner.ts:632`), and Todo completion (`runner.ts:681`). A fan-out over
+child Todos therefore produces children blind to their own Todo.
 
-- **Broken symbols** — the stored filename is mojibake.
-- **Double message** — `messageIdentityKey` in `packages/web/src/lib/conversations.ts:54`
-  fingerprints a message by `x.name || x.type || x.url`. The optimistic bubble carries the
-  correct Unicode name, the persisted row carries the mojibake name, the two keys differ, so
-  reconciliation never matches them and both render. A reload drops the optimistic one.
+Separately, `addReachabilityIssues` (`validation.ts:308`) hard-requires
+`triggers.length === 1`, so a definition cannot carry both a `todo-status` and a
+`workflow-call` trigger.
 
-File **contents** are never touched — only the header parameter is misdecoded. The tests
-below assert that explicitly rather than assuming it.
+Two things already work and need no change — verified by reading, not assumed:
 
-## Scope decision: all three parsers, not one
+- `WorkflowTriggerService` selects triggers by kind (`trigger-service.ts:29`), so a second
+  trigger node of another kind does not disturb arming.
+- `WorkflowRunner.start()` activates `run.trigger.nodeId` specifically (`runner.ts:396`),
+  `nextAction` skips all trigger nodes, and `activationPossible` returns `false` for a
+  non-activated trigger (no incoming edges), so the trigger that did not fire is already
+  treated as unreachable by `canNeverActivate`/`mergeReady`, and `finish()` only waits on
+  *activated* nodes. A dual-trigger run settles.
 
-`files.ts` constructs Busboy three times, all with the same defect:
+## Changes
 
-| Line | Function | Lane |
-| --- | --- | --- |
-| 789 | `readMultipartFile` | Todo attachments (`api.ts:4425`) |
-| 872 | `handleMultipartUpload` | `POST /api/files` — the chat lane the operator hit |
-| 1267 | `handleAttachmentMultipart` | `POST /api/sessions/:id/attachments` — agent `publish_attachment` |
+**1. `service.ts` — `WorkflowCallInput.todoId?: string`.**
+Validate with `TODO_ID_PATTERN` (`packages/jinn/src/work-items/id.ts`) and `fail("bad-input", …)`
+in the same style as the existing caller/idempotency guards. Stamp it onto the created run's
+trigger exactly as `startManual` does:
+`trigger: { …, ...(todoId ? { todoId } : {}) }`. Pass it into the replay lookup too.
 
-The previous round fixed line 872 only and handed the other two back. The operator's ask is
-"can we not break the file names & content if possible" — three instances of one defect, in
-one file, each fixed by the same single option. Fixing one and leaving two identical
-landmines is more moving parts, not fewer. This is stated here so the expansion is explicit,
-not silent (jinn-taste §4).
+**2. `repository.ts` — `findWorkflowCallByIdempotency` must compare the same trigger it will
+later store.** It reconstructs an expected trigger and canonical-JSON-compares it
+(`repository.ts:339`). Without threading `todoId` through, a legitimate replay of a call that
+carried a `todoId` would raise `idempotency-conflict`. Add an optional `todoId` to its input
+and include it in the reconstructed trigger. `createRun`'s own replay check already compares
+`value.trigger` verbatim, so it stays consistent.
 
-## Change
+**3. `runner.ts` — lift `todoId` out of the per-item input mapping.** In `reconcileFanout`
+(`runner.ts:518`), after `fanoutInput(...)`, if the authored `node.config.input` declares a
+`todoId` key, its resolved value must be a Todo-shaped string; pass it as `callWorkflow({ todoId })`.
+The field **stays in the child run's `input`** as well — removing it would silently change
+`{{ input.todoId }}` for existing definitions and destabilise nothing in return.
+An authored `todoId` that resolves to a non-string or a non-`AAA-123` string fails the
+workflow-call node with an honest error rather than being dropped (a mapped-but-ignored
+`todoId` is exactly the silent blindness this ticket exists to remove).
 
-1. `packages/jinn/src/gateway/files.ts` — add `defParamCharset: "utf8"` to the Busboy
-   constructions at lines 789 and 1267. Line 872 already carries it from `0db6bcf8`.
-2. `packages/jinn/src/gateway/__tests__/file-read.test.ts` — extend with a lane test per
-   parser, mirroring the existing `postMultipartFile` helper.
-3. `packages/web/src/lib/__tests__/reconcile-messages.test.ts` — the single-row
-   reconciliation regression (already present from `0db6bcf8`).
+**4. `validation.ts` — trigger rules.** Replace the `triggers.length !== 1` rule with:
 
-Prove each lane through the narrowest **real** entry point that actually constructs the
-parser. Do not build new test harness scaffolding: if a lane cannot be reached without new
-infrastructure, still apply the fix and say so plainly, with RED/GREEN proof on the lanes
-that are reachable.
+- `trigger-count` — "Workflow must contain at least one Trigger." when there are none;
+- `duplicate-trigger-kind` — at most one trigger per kind, reported on the duplicate node.
+  This is not speculative: `trigger-service.ts` and `startManual` both select a trigger with
+  `.find(kind)`, so a second trigger of the same kind would be silently unarmable. Today that
+  is impossible; relaxing the count is what makes it reachable, so the guard ships with it.
+
+Existing `unreachable-node` / `dead-node` rules already force every trigger to sit on a path
+to an End, so no extra reachability rule is needed.
+
+**5. Prose the diff falsifies.** `packages/web/src/routes/workflow/editor/add-menu.tsx:5`
+says "a workflow has exactly one Trigger". Reword to describe the placement rule only
+(triggers are placed from the palette, not mid-graph). No behaviour change to the editor.
+
+**6. Tests that assert the old message** — `workflows/__tests__/validation.test.ts:246` and
+`workflows/__tests__/service-validation.test.ts:116,154` — updated to the new wording/rule.
 
 ## Acceptance criteria
 
-1. `POST /api/files` with filename `тест документ.pdf` returns 201 and the filename is
-   byte-identical in the response body, in the file registry row, and as the on-disk entry.
-2. The uploaded bytes are identical on disk, including non-UTF-8 bytes
-   (`00 ff 80 …`) — contents are provably untouched.
-3. `readMultipartFile` (Todo-attachment lane) returns that filename unmangled.
-4. `POST /api/sessions/:id/attachments` (agent publish lane) persists that filename
-   unmangled.
-5. `reconcileMessages` collapses an optimistic + persisted user message carrying that
-   filename to exactly **one** row.
-6. **RED proof.** With `defParamCharset: "utf8"` removed from all three sites, the tests for
-   (1), (3) and (4) fail showing mojibake; restored, they pass. Both outputs pasted verbatim
-   into the Todo.
-7. **Leak-grep is diff-scoped.** `git diff <baseHead>..HEAD -- packages` matched against
-   `hristo|jimmyenglish|pravko|movekit|sqlnoir|homy|spycam|asomaniac|kiwilabs|tucker@|/Users/`
-   returns **zero** matches.
-8. `pnpm typecheck`, `pnpm build` and `pnpm test` pass on a clean worktree; tails pasted.
+1. `callWorkflow({ todoId: "PLA-9", … })` creates a run whose `trigger.todoId === "PLA-9"`;
+   `callWorkflow` with a malformed `todoId` (`"pla-9"`, `"PLA-0"`, `"NOTATODO"`, non-string)
+   throws `bad-input` and creates no run.
+2. In a called run carrying a lifted `todoId`, an employee prompt containing `{{ run.todoId }}`
+   interpolates to that Todo id.
+3. In the same run, a parked approval calls `todoApprovals.request` with that `todoId`, and the
+   PLA-64 paths (`todoLifecycle.reflect`, gate-decision echo, `recordFailure`) receive it too.
+4. Idempotency: a second `callWorkflow` with the same `workflowId` + `input` + `caller` +
+   `itemIndex` + `idempotencyKey` + `todoId` returns the *same* run id. The same key replayed
+   with a different `todoId` raises `idempotency-conflict`.
+5. A workflow-call node whose `input` mapping produces `todoId` lifts it onto the child run's
+   trigger and keeps it in the child's `input`. With no `todoId` in the mapping, the child run
+   has no `trigger.todoId` and the call still succeeds. With a mapped `todoId` resolving to a
+   non-Todo-shaped value, the workflow-call node fails with an error naming the node and the
+   expected `AAA-123` shape.
+6. `validateExecutableWorkflow` returns `ok` for a definition carrying both a `todo-status`
+   trigger and a `workflow-call` trigger (each wired to an End); still reports `trigger-count`
+   for zero triggers; reports `duplicate-trigger-kind` for two triggers of the same kind.
+7. That dual-trigger definition arms via `WorkflowTriggerService` (a matching Todo status event
+   starts a run that reaches `completed`) and is accepted by `callWorkflow`.
+8. `pnpm --filter jinn typecheck`, `pnpm --filter jinn lint`, and `pnpm --filter jinn test` pass
+   from a clean run after the final edit; the staged diff passes the privacy leak-grep.
 
-## Explicitly out of scope
+## Tests
 
-- **Pre-existing whole-tree leak-grep matches.** The 23 whole-tree hits are all present
-  unchanged on `main`: the `hristo2612` GitHub/brew handle, which `skills/jinn-platform`
-  names as an explicitly OK hit, and generic placeholder paths (`/Users/x`, `/Users/test`,
-  `/Users/you`) in test fixtures and `TESTING.md`. None originate here. Round 1 blocked on a
-  whole-tree reading of this criterion; criterion 7 is diff-scoped for that reason, matching
-  the rule as actually written in `CLAUDE.md` ("leak-grep your **staged diff**"). Treating
-  pre-existing `main` content as this task's Blocker is out of scope.
-- **Forward-only.** Filenames already persisted as mojibake stay mojibake. No migration, no
-  backfill.
-- No change to file **content** handling, storage layout, or the 50 MB ceiling.
-- No UI or design change. Nothing visual moves, so `skills/jinn-design` does not apply and no
-  screenshot gate is owed.
-- RFC 5987 `filename*` handling beyond what Busboy already does.
+Extend, do not create new suites:
 
-## Verification
+- `packages/jinn/src/workflows/__tests__/workflow-fanout.test.ts` — criteria 1, 4, 5.
+- `packages/jinn/src/workflows/__tests__/todo-reflection.test.ts` (fake `todoLifecycle`/
+  `todoApprovals` already live there) — criteria 2, 3.
+- `packages/jinn/src/workflows/__tests__/validation.test.ts` — criterion 6.
+- `packages/jinn/src/workflows/__tests__/workflow-triggers.test.ts` — criterion 7.
 
-- Focused: the gateway lane tests and the web reconciliation test.
-- Full gates: `pnpm typecheck`, `pnpm build`, `pnpm test` after the final commit, worktree
-  clean.
-- Manual: optional CLI check on a `jinn-sandbox` instance (port 7778+) — upload a
-  Cyrillic-named file, read the registry row back. **Never port 7777, never 7788, never
-  `~/.jinn`.** Destroy the sandbox afterwards even if the run failed.
+No manual/browser check is required: nothing user-visible changes except one code comment.
 
-## Base
+## Out of scope
 
-- Branch: `build/ICI-688-unicode-attachment-filenames`
-- Worktree: `~/Projects/.worktrees/jinn-build-ICI-688`
-- Base: `main` @ `7051685598e9044eebd962bc0be78b4d178dc52a`, merged in at plan time.
-  `files.ts` auto-merged cleanly; only this file conflicted.
+- Fan-out concurrency/join semantics, the actor guard, the trigger-service replay log
+  (explicitly excluded by the Todo).
+- Any new trigger field beyond `todoId`.
+- Web editor support for *authoring* a second trigger (the palette still offers one); only the
+  comment that the model change falsifies is corrected.
+- Editing the `jinn-build` definition itself — it lives in the instance database, not the repo.
+- Adding `todoId` shape validation to `startManual`, which does not have it today.

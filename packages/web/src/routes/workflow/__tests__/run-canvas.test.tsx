@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { RouterProvider, createMemoryRouter } from "react-router-dom"
+import { queryKeys } from "@/lib/query-keys"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getWorkflowRun = vi.fn()
@@ -35,6 +36,7 @@ import WorkflowRunPage from "../run"
 const nodes = [
   { id: "trigger", type: "trigger", name: "Kickoff", config: { kind: "manual" } },
   { id: "writer", type: "employee", name: "Writer", config: { employee: { source: "fixed", value: "blog-writer" }, prompt: "Write it." } },
+  { id: "fanout", type: "workflow-call", name: "Publish items", config: { workflowId: { source: "fixed", value: "publish-item" }, concurrency: 2 } },
   { id: "route", type: "condition", name: "Quality gate", config: { cases: [{ port: "case-1", label: "Good", all: [] }], defaultPort: "else" } },
   { id: "gate", type: "approval", name: "Publish gate", config: { description: "" } },
   { id: "finish", type: "end", name: "Done", config: { result: "success" } },
@@ -48,8 +50,8 @@ const edges = [
 ]
 
 const positions = {
-  trigger: { x: 0, y: 0 }, writer: { x: 300, y: 0 }, route: { x: 600, y: 0 },
-  gate: { x: 900, y: 0 }, finish: { x: 1200, y: 0 },
+  trigger: { x: 0, y: 0 }, writer: { x: 300, y: 0 }, fanout: { x: 600, y: 0 }, route: { x: 900, y: 0 },
+  gate: { x: 1200, y: 0 }, finish: { x: 1500, y: 0 },
 }
 
 function nodeRun(nodeId: string, status: string, extra: Record<string, unknown> = {}) {
@@ -65,7 +67,7 @@ function baseDetail(overrides: Record<string, unknown> = {}) {
     status: "running",
     trigger: { nodeId: "trigger", kind: "manual" },
     startedAt: "2026-07-23T08:00:00.000Z",
-    nodeRuns: [], attempts: [], approvals: [],
+    nodeRuns: [], attempts: [], approvals: [], childRuns: [],
     ...overrides,
   }
 }
@@ -98,8 +100,11 @@ function renderRun() {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
-  return router
+  return client
 }
+
+/** What use-query-invalidation does on a company:changed workflow-run frame. */
+const runChanged = (c: QueryClient) => c.invalidateQueries({ queryKey: queryKeys.workflows.run("morning-digest", "run-1") })
 
 function statusOf(name: string): string | null {
   const card = screen.getByText(name).closest("[data-node-status]")
@@ -145,6 +150,29 @@ describe("workflow run canvas", () => {
 
     expect(await screen.findByText("Writer")).toBeTruthy()
     expect(statusOf("Writer")).toBe("running")
+  })
+
+  it("shows workflow-call progress on the card and links every child run in item order", async () => {
+    serveRun(baseDetail({
+      nodeRuns: [
+        nodeRun("trigger", "completed"),
+        nodeRun("fanout", "running", { resolvedConfig: { workflowId: "publish-item", concurrency: 2, total: 3 } }),
+      ],
+      childRuns: [
+        { nodeId: "fanout", itemIndex: 0, runId: "child-1", workflowId: "publish-item", status: "completed", startedAt: "2026-07-23T08:00:01.000Z", endOutput: { slug: "first" } },
+        { nodeId: "fanout", itemIndex: 1, runId: "child-2", workflowId: "publish-item", status: "running", startedAt: "2026-07-23T08:00:02.000Z" },
+      ],
+    }))
+    renderRun()
+
+    expect(await screen.findByText(/1\/3 · Running/)).toBeTruthy()
+    fireEvent.click(screen.getByText("Publish items"))
+
+    const inspector = within(await screen.findByTestId("run-inspector"))
+    const links = inspector.getAllByRole("link", { name: /Item/ })
+    expect(links.map((link) => link.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Item 1"), expect.stringContaining("Item 2")]))
+    expect(links[0]!.getAttribute("href")).toBe("/workflow/publish-item/runs/child-1")
+    expect(links[1]!.getAttribute("href")).toBe("/workflow/publish-item/runs/child-2")
   })
 
   it("marks failed nodes and dims skipped ones", async () => {
@@ -268,12 +296,13 @@ describe("workflow run canvas", () => {
     expect(await screen.findByText(/Approved by operator/)).toBeTruthy()
   })
 
-  it("fetches the snapshot once and keeps the canvas painted off lean polls", async () => {
+  it("fetches the snapshot once and keeps the canvas painted off lean refreshes", async () => {
     serveRun(baseDetail({ nodeRuns: [nodeRun("trigger", "completed"), nodeRun("writer", "running")] }))
-    renderRun()
+    const client = renderRun()
 
     expect(await screen.findByText("Writer")).toBeTruthy()
-    // The 2s poll loop must not pay for the definition snapshot again.
+    // A run event refreshes the run; it must not pay for the definition snapshot again.
+    await runChanged(client)
     await waitFor(() => expect(getWorkflowRun).toHaveBeenCalled(), { timeout: 4000 })
     expect(getWorkflowRunFull).toHaveBeenCalledTimes(1)
     expect(screen.getByText("Quality gate")).toBeTruthy()
@@ -294,12 +323,13 @@ describe("workflow run canvas", () => {
     const lean = baseDetail({ nodeRuns, attempts: [attempt(1), attempt(2)] }) as Record<string, unknown>
     delete lean.definition
     getWorkflowRun.mockResolvedValue(lean)
-    renderRun()
+    const client = renderRun()
 
     fireEvent.click(await screen.findByText("Writer"))
+    await runChanged(client)
 
-    // The retry surfaces on the next lean poll; opening the node then pulls the
-    // prompt the snapshot predates, instead of dropping the section silently.
+    // The retry surfaces on the event-driven lean refresh; opening the node then
+    // pulls the prompt the snapshot predates, instead of dropping it silently.
     const inspector = within(await screen.findByTestId("run-inspector"))
     expect(await inspector.findByText(/Retried prompt\./, {}, { timeout: 6000 })).toBeTruthy()
     expect(getWorkflowRunFull).toHaveBeenCalledTimes(2)

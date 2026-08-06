@@ -118,6 +118,14 @@ function parseFixedValue(text: string): unknown {
   return text
 }
 
+function parseJsonFixedValue(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
 function fixedValueText(value: unknown): string {
   const binding = value as BindingWire | undefined
   if (binding?.source !== "fixed") return ""
@@ -560,11 +568,12 @@ type PredicateWire = { left?: BindingWire; operator?: string; right?: BindingWir
 type CaseWire = { port: string; label?: string; all?: PredicateWire[] }
 
 function BindingEditor({
-  value, onChange, nodeIds,
+  value, onChange, nodeIds, fixedParser = parseFixedValue,
 }: {
   value: BindingWire
   onChange: (next: BindingWire) => void
   nodeIds: string[]
+  fixedParser?: (text: string) => unknown
 }) {
   const source = typeof value.source === "string" ? value.source : "node"
   return (
@@ -600,7 +609,7 @@ function BindingEditor({
         <TextInput
           aria-label="Fixed value"
           value={fixedValueText(value)}
-          onChange={(event) => onChange({ source: "fixed", value: parseFixedValue(event.target.value) })}
+          onChange={(event) => onChange({ source: "fixed", value: fixedParser(event.target.value) })}
           placeholder="value"
           className="min-w-[80px] flex-1"
         />
@@ -615,6 +624,145 @@ function BindingEditor({
         />
       )}
     </div>
+  )
+}
+
+function WorkflowCallForm({ node, update }: FormProps) {
+  const nodeIds = useEditor(useShallow((state) => state.nodes.map((item) => item.id))).filter((id) => id !== node.id)
+  const config = node.config as {
+    workflowId?: BindingWire
+    items?: BindingWire
+    input?: Record<string, BindingWire>
+    concurrency?: number
+  }
+  const input = config.input ?? {}
+  const inputEntries = Object.entries(input)
+  const setInput = (next: Record<string, BindingWire>) => {
+    const updated = { ...config }
+    if (Object.keys(next).length > 0) updated.input = next
+    else delete updated.input
+    update(updated)
+  }
+  const addInput = () => {
+    let name = "item"
+    let suffix = 2
+    while (Object.hasOwn(input, name)) {
+      name = `item_${suffix}`
+      suffix += 1
+    }
+    setInput({ ...input, [name]: { source: "trigger", path: "item" } })
+  }
+
+  return (
+    <>
+      <Field label="Workflow">
+        <BindingEditor
+          value={config.workflowId ?? { source: "fixed", value: "" }}
+          onChange={(workflowId) => update({ ...config, workflowId })}
+          nodeIds={nodeIds}
+          fixedParser={(text) => text}
+        />
+      </Field>
+      <Field label="Concurrency">
+        <TextInput
+          type="number"
+          min={1}
+          max={16}
+          step={1}
+          value={String(config.concurrency ?? 2)}
+          onChange={(event) => update({
+            ...config,
+            concurrency: Math.max(1, Math.min(16, Math.round(Number(event.target.value)) || 1)),
+          })}
+        />
+      </Field>
+      <section className="space-y-2 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">Items</h3>
+            <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+              Bind an array to start one child run per item. Leave empty for one run.
+            </p>
+          </div>
+          {config.items ? (
+            <button
+              type="button"
+              onClick={() => {
+                const next = { ...config }
+                delete next.items
+                update(next)
+              }}
+              className="grid size-8 shrink-0 place-items-center rounded-[9px] text-[var(--text-tertiary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--system-red)]"
+              aria-label="Remove items binding"
+            >
+              <Trash2 size={14} aria-hidden />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => update({ ...config, items: { source: "trigger", path: "items" } })}
+              className="flex h-8 shrink-0 items-center gap-1 rounded-[9px] px-2 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
+            >
+              <Plus size={12} aria-hidden /> Bind
+            </button>
+          )}
+        </div>
+        {config.items && (
+          <BindingEditor
+            value={config.items}
+            onChange={(items) => update({ ...config, items })}
+            nodeIds={nodeIds}
+            fixedParser={parseJsonFixedValue}
+          />
+        )}
+      </section>
+      <section className="space-y-2 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">Child input</h3>
+            <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">Map values into each child run.</p>
+          </div>
+          <button
+            type="button"
+            onClick={addInput}
+            className="flex h-8 items-center gap-1 rounded-[9px] px-2 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
+          >
+            <Plus size={12} aria-hidden /> Add
+          </button>
+        </div>
+        {inputEntries.map(([name, binding], index) => (
+          <div key={name} className="space-y-1.5 rounded-[10px] bg-[var(--fill-quaternary)] p-2">
+            <div className="flex items-center gap-1.5">
+              <TextInput
+                aria-label={`Child input ${index + 1} name`}
+                value={name}
+                onChange={(event) => {
+                  const nextName = event.target.value
+                  if (!nextName || (nextName !== name && Object.hasOwn(input, nextName))) return
+                  setInput(Object.fromEntries(inputEntries.map(([key, value]) => [key === name ? nextName : key, value])))
+                }}
+                className="flex-1"
+                style={{ fontFamily: "var(--font-code)" }}
+              />
+              <button
+                type="button"
+                aria-label={`Remove child input ${name}`}
+                onClick={() => setInput(Object.fromEntries(inputEntries.filter(([key]) => key !== name)))}
+                className="grid size-8 shrink-0 place-items-center rounded-[9px] text-[var(--text-tertiary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--system-red)]"
+              >
+                <Trash2 size={14} aria-hidden />
+              </button>
+            </div>
+            <BindingEditor
+              value={binding}
+              onChange={(next) => setInput({ ...input, [name]: next })}
+              nodeIds={nodeIds}
+              fixedParser={parseJsonFixedValue}
+            />
+          </div>
+        ))}
+      </section>
+    </>
   )
 }
 
@@ -855,6 +1003,7 @@ function NodeForm({ node, update }: FormProps) {
   switch (node.type) {
     case "trigger": return <TriggerForm node={node} update={update} />
     case "employee": return <EmployeeForm node={node} update={update} />
+    case "workflow-call": return <WorkflowCallForm node={node} update={update} />
     case "condition": return <ConditionForm node={node} update={update} />
     case "approval": return <ApprovalForm node={node} update={update} />
     case "wait": return <WaitForm node={node} update={update} />

@@ -59,7 +59,6 @@ beforeAll(async () => {
   ({ buildTools } = await import("../server.js"));
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const config: any = {
   gateway: { port: 7777 },
   engines: { default: "codex" },
@@ -148,7 +147,6 @@ describe("the measured knowledge-index diet", () => {
       schemaCosts: { knowledgeTools: schemaTokens(NEW_IN_THIS_SLICE), fullBelt: schemaTokens() },
       ledger: { sliceGate_savingMinusKnowledgeTools: before - after - schemaTokens(NEW_IN_THIS_SLICE) },
     };
-    // eslint-disable-next-line no-console
     console.log(`GRS-020b-DIET-MEASUREMENT ${JSON.stringify(measurement, null, 2)}`);
     expect(measurement.ledger.sliceGate_savingMinusKnowledgeTools).toBeGreaterThan(0);
   });

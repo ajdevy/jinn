@@ -1,11 +1,11 @@
 import http from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { GatewayEmit } from "../shared/gateway-events.js";
 import type { JinnConfig, Connector, Employee, Engine, JsonObject, Session, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
 import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
@@ -20,13 +20,14 @@ import {
   refreshPiModels,
 } from "../shared/models.js";
 import { configureLogger, logger } from "../shared/logger.js";
-import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, RESTART_ACK_META_KEY } from "../sessions/registry.js";
+import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
+import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, listAllSessionIds, RESTART_ACK_META_KEY } from "../sessions/registry.js";
 import { initDb } from "../shared/db.js";
 import { SessionManager, type RouteOptions } from "../sessions/manager.js";
 import { recoverSessionDeliveryStateOnStartup } from "../sessions/callbacks.js";
 import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { enforcePtyIdleCap, PtyLifecycleManager, type PtyLifecycleOpts } from "../engines/pty-lifecycle.js";
-import { CodexEngine, sweepOrphanCodexSessionHomes } from "../engines/codex.js";
+import { CodexEngine, startCodexSessionHomeSweeps } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
 import { AntigravityEngine } from "../engines/antigravity.js";
 import { PiEngine } from "../engines/pi.js";
@@ -36,7 +37,7 @@ import { HermesAcpEngine } from "../engines/hermes-acp.js";
 import { HermesInteractiveEngine } from "../engines/hermes-interactive.js";
 import type { PtyViewEngine } from "../engines/pty-view-engine.js";
 import { HookRegistry } from "./hook-registry.js";
-import { writeGatewayInfo, readGatewayInfo, updateGatewayPtyPids, staleGatewayPids, gatewayBaseUrl } from "./gateway-info.js";
+import { writeGatewayInfo, readGatewayInfo, updateGatewayPtyPids, startupGatewayPids, gatewayBaseUrl } from "./gateway-info.js";
 import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure, verifyGatewayAuth } from "./auth.js";
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
 import { setTodoLiveEmitter } from "../work-items/live-events.js";
@@ -46,6 +47,7 @@ import { linkSession } from "../work-items/store.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
+import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
 import { handleApiRequest, isSameOriginBrowserRequest, resumePendingWebQueueItems, type ApiContext } from "./api.js";
@@ -362,7 +364,6 @@ export interface NormalizedConnector {
 }
 
 /** When a legacy top-level connector counts as configured. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
   slack: (config) => Boolean(config.appToken && config.botToken),
   discord: (config) => Boolean(config.botToken || config.proxyVia),
@@ -376,12 +377,14 @@ const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
  * followed by the explicitly named `connectors.instances[]`.
  */
 export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConnector[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const declared = (config.connectors ?? {}) as Record<string, any>;
   const instances: NormalizedConnector[] = [];
   const seen = new Set<string>();
 
-  const add = (id: string, type: string, raw: Record<string, unknown>): void => {
+  const add = (id: unknown, type: string, raw: Record<string, unknown>): void => {
+    if (!isValidConnectorId(id)) {
+      throw new Error(`Invalid connector instance id ${JSON.stringify(id)}: ${CONNECTOR_ID_REQUIREMENTS}`);
+    }
     if (seen.has(id)) {
       logger.warn(`Duplicate connector instance id "${id}", skipping`);
       return;
@@ -400,7 +403,7 @@ export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConn
 
   for (const instance of declared.instances ?? []) {
     const { id, type, ...rest } = instance;
-    if (!id || !type) {
+    if (id === undefined || id === null || !type) {
       logger.warn(`Skipping connector instance without id or type`);
       continue;
     }
@@ -418,9 +421,13 @@ export function createConnector(instance: NormalizedConnector): Connector {
       return new SlackConnector(config as unknown as SlackConnectorConfig);
     case "discord":
       // Remote mode proxies all Discord I/O through the primary instance.
-      return config.proxyVia
-        ? new RemoteDiscordConnector({ proxyVia: String(config.proxyVia), channelId: config.channelId as string | undefined })
-        : new DiscordConnector(config as unknown as DiscordConnectorConfig);
+      if (config.proxyVia) {
+        if (instance.id !== "discord") {
+          throw new Error("Named Remote Discord instances are not supported until the proxy protocol authenticates and validates instance identity");
+        }
+        return new RemoteDiscordConnector({ proxyVia: String(config.proxyVia), channelId: config.channelId as string | undefined });
+      }
+      return new DiscordConnector(config as unknown as DiscordConnectorConfig);
     case "telegram":
       return new TelegramConnector(config as unknown as TelegramConnectorConfig);
     case "whatsapp":
@@ -428,6 +435,52 @@ export function createConnector(instance: NormalizedConnector): Connector {
     default:
       throw new Error(`Unknown connector type "${instance.type}" for instance "${instance.id}"`);
   }
+}
+
+interface ReloadConnectorRegistryOptions {
+  connectorMap: Map<string, Connector>;
+  loadInstances: () => NormalizedConnector[];
+  initConnector: (instance: NormalizedConnector) => Promise<void>;
+  describeConnector: (instance: NormalizedConnector) => string;
+}
+
+/** Reload a live connector registry from freshly normalized declarations. */
+export async function reloadConnectorRegistry({
+  connectorMap,
+  loadInstances,
+  initConnector,
+  describeConnector,
+}: ReloadConnectorRegistryOptions): Promise<{ started: string[]; stopped: string[]; errors: string[] }> {
+  const instances = loadInstances();
+  const started: string[] = [];
+  const stopped: string[] = [];
+  const errors: string[] = [];
+
+  for (const [id, connector] of [...connectorMap.entries()]) {
+    try {
+      await connector.stop();
+      connectorMap.delete(id);
+      stopped.push(id);
+      logger.info(`Stopped connector "${id}" for reload`);
+    } catch (err) {
+      errors.push(`Failed to stop ${id}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  for (const instance of instances) {
+    // A connector that refused to stop is still live — leave it alone.
+    if (connectorMap.has(instance.id)) continue;
+    try {
+      await initConnector(instance);
+      started.push(instance.id);
+      logger.info(`Started ${describeConnector(instance)}`);
+    } catch (err) {
+      errors.push(`Failed to start "${instance.id}": ${err instanceof Error ? err.message : err}`);
+      logger.error(`Failed to start ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  return { started, stopped, errors };
 }
 
 export type GatewayCleanup = () => Promise<void>;
@@ -456,13 +509,12 @@ export async function startGateway(
     try { cleanupOldUploads(30); } catch { /* best-effort */ }
   }, 24 * 60 * 60 * 1000);
   uploadCleanupTimer.unref?.();
-  // Retention: sweep orphaned per-session Codex CODEX_HOME overlays whose session
-  // records are gone (crash/hard-delete/pre-fix accumulation). This leak reached
-  // 276 dirs / 2.4GB. Keep overlays for every session the registry still lists.
-  try {
-    const swept = sweepOrphanCodexSessionHomes(listSessions().map((s) => s.id));
-    if (swept > 0) logger.info(`Swept ${swept} orphaned Codex session home(s)`);
-  } catch { /* best-effort */ }
+  // Retention: sweep per-session Codex CODEX_HOME overlays on boot, then daily. An
+  // overlay goes once its config.toml (rewritten every turn) is 14 days stale, or —
+  // when that stamp is missing — once no session row claims it. The keep-list is
+  // EVERY session row: archived and workflow-phase sessions resume too, and
+  // listSessions() hides both.
+  startCodexSessionHomeSweeps({ listSessionIds: listAllSessionIds });
   // Same for per-session --mcp-config temp files: they live as long as the PTY, so
   // a hard kill can orphan them. Keep one for every session the registry still lists.
   try {
@@ -560,7 +612,7 @@ export async function startGateway(
   // Reap any orphaned PTYs from a prior crashed run before writing the fresh gateway.json.
   const oldInfo = readGatewayInfo(GATEWAY_INFO_FILE);
   if (oldInfo) {
-    for (const pid of staleGatewayPids(oldInfo)) {
+    for (const pid of startupGatewayPids(oldInfo)) {
       try {
         process.kill(pid, "SIGTERM");
         logger.info(`Reaping stale pid ${pid} from prior gateway`);
@@ -602,7 +654,7 @@ export async function startGateway(
 
   // Seed trust for the Jinn project dir so interactive Claude doesn't prompt.
   try {
-    seedTrust(path.join(os.homedir(), ".claude.json"), JINN_HOME);
+    seedTrust(claudeJsonPath(), JINN_HOME);
   } catch (err) {
     logger.warn(`Failed to seed Claude trust: ${err instanceof Error ? err.message : err}`);
   }
@@ -723,7 +775,6 @@ export async function startGateway(
   const sessionManager = new SessionManager(config, engines, bootId, (id) => employeeRegistry.get(id));
 
   // Start connectors — one normalized list covers both config forms.
-  const connectors: Connector[] = [];
   const connectorMap = new Map<string, Connector>();
 
   /**
@@ -745,7 +796,6 @@ export async function startGateway(
         logger.error(`${instance.id} route error: ${err instanceof Error ? err.message : err}`);
       });
     });
-    connectors.push(connector);
     connectorMap.set(instance.id, connector);
     return connector.start();
   };
@@ -753,7 +803,7 @@ export async function startGateway(
   const describeConnector = (instance: NormalizedConnector): string =>
     `connector "${instance.id}" (type: ${instance.type}, employee: ${instance.employee || "default"})`;
 
-  // Session context reads connector names off this map, so publish it before the
+  // Session context reads connector ids off this map, so publish it before the
   // first connector can deliver a message.
   sessionManager.setConnectorProvider(() => connectorMap);
 
@@ -771,37 +821,12 @@ export async function startGateway(
 
   /** Stop every running connector and restart from fresh config (POST /api/connectors/reload). */
   async function reloadConnectorInstances(): Promise<{ started: string[]; stopped: string[]; errors: string[] }> {
-    const started: string[] = [];
-    const stopped: string[] = [];
-    const errors: string[] = [];
-
-    for (const [id, connector] of [...connectorMap.entries()]) {
-      try {
-        await connector.stop();
-        connectorMap.delete(id);
-        const idx = connectors.indexOf(connector);
-        if (idx >= 0) connectors.splice(idx, 1);
-        stopped.push(id);
-        logger.info(`Stopped connector "${id}" for reload`);
-      } catch (err) {
-        errors.push(`Failed to stop ${id}: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    for (const instance of connectorInstancesFromConfig(loadConfig())) {
-      // A connector that refused to stop is still live — leave it alone.
-      if (connectorMap.has(instance.id)) continue;
-      try {
-        await initConnector(instance);
-        started.push(instance.id);
-        logger.info(`Started ${describeConnector(instance)}`);
-      } catch (err) {
-        errors.push(`Failed to start "${instance.id}": ${err instanceof Error ? err.message : err}`);
-        logger.error(`Failed to start ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    return { started, stopped, errors };
+    return reloadConnectorRegistry({
+      connectorMap,
+      loadInstances: () => connectorInstancesFromConfig(loadConfig()),
+      initConnector,
+      describeConnector,
+    });
   }
 
   // Mutable config reference for hot-reload
@@ -811,7 +836,7 @@ export async function startGateway(
 
   // Broadcast function (defined early so apiContext can reference it)
   const wsClients = new Set<import("ws").WebSocket>();
-  const emit = (event: string, payload: unknown): void => {
+  const emit: GatewayEmit = (event, payload): void => {
     const message = JSON.stringify({ event, payload, ts: Date.now() });
     for (const client of wsClients) {
       if (client.readyState === 1) {
@@ -824,6 +849,7 @@ export async function startGateway(
       }
     }
   };
+  sessionManager.setGatewayEmitter(emit);
   // ICI-570: in-process Todo writes (cron mints, session-lifecycle reconciles)
   // reach the dashboard through the same company:changed lane the routes use.
   setTodoLiveEmitter((event) => emit("company:changed", event));
@@ -847,8 +873,8 @@ export async function startGateway(
     // prompt has to say so, and a dead run leaves its reason behind.
     todoLifecycle: workflowTodoLifecycle,
     readTranscript: (id) => getMessages(id).map(({ id: messageId, role, content, timestamp }) => ({ id: messageId, role, content, timestamp })),
-    onChange: ({ workflowId, runId }) => emit("company:changed", { entity: "workflow", workflowId, runId }),
-    onDefinitionChange: ({ workflowId, revision }) => emit("company:changed", { entity: "workflow", workflowId, revision }) });
+    onChange: ({ workflowId, runId }) => emit("company:changed", { entity: "workflow-run", workflowId, runId }),
+    onDefinitionChange: ({ workflowId, revision }) => emit("company:changed", { entity: "workflow-definition", id: workflowId, revision }) });
   await workflowService.recover(new Date().toISOString());
 
   // Discover dynamic engine models in the background. Fire-and-forget: the
@@ -1025,7 +1051,7 @@ export async function startGateway(
   });
 
   const cronJobs = loadJobs();
-  startScheduler(cronJobs, sessionManager, config, connectorMap);
+  startScheduler(cronJobs, sessionManager, config, connectorMap, emit);
   logger.info(`Loaded ${cronJobs.length} cron job(s)`);
 
   // Resolve web UI directory — bundled into dist/web/ by postbuild script
@@ -1321,23 +1347,6 @@ export async function startGateway(
     logger.warn(`Surfaced ${callbackRecovery.orphanedRecovered} orphaned delegation completion claim(s) after restart`);
   }
 
-  // Notify connected WebSocket clients about interrupted sessions available for resume
-  if (resumable.length > 0) {
-    // Small delay to let WebSocket clients connect after server starts
-    setTimeout(() => {
-      emit("sessions:interrupted", {
-        count: resumable.length,
-        sessions: resumable.map((s) => ({
-          id: s.id,
-          engine: s.engine,
-          employee: s.employee,
-          title: s.title,
-          lastActivity: s.lastActivity,
-        })),
-      });
-    }, 1000);
-  }
-
   // Prevent macOS from sleeping while the gateway is running
   let caffeinate: ChildProcess | null = null;
   if (process.platform === "darwin") {
@@ -1414,7 +1423,7 @@ export async function startGateway(
     setTodoApprovalDecisionListener(null);
 
     // Stop connectors
-    for (const connector of connectors) {
+    for (const connector of connectorMap.values()) {
       try {
         await connector.stop();
       } catch (err) {

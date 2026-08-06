@@ -131,7 +131,6 @@ function useRevisionSafeNote(note: NoteDocument, onSaved?: (note: NoteDocument) 
     }
     // A changed revision for the same open path is an external cache refresh;
     // it must never replace an active local draft. Reinitialize only on identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.path])
 
   useEffect(() => {

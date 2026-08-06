@@ -8,6 +8,7 @@ import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2, type WorkflowNodeWire, nodeBo
 export interface NodeRunView {
   status: string
   dimmed: boolean
+  workflowCall?: { succeeded: number; total: number }
 }
 
 /** Run state for one wire: `taken` marks the traversed path. Its presence
@@ -141,6 +142,8 @@ function defaultConfig(type: WorkflowNodeTypeV2): Record<string, unknown> {
       return { kind: "manual" }
     case "employee":
       return { employee: { source: "fixed", value: "" }, prompt: "" }
+    case "workflow-call":
+      return { workflowId: { source: "fixed", value: "" }, concurrency: 2 }
     case "condition":
       return { cases: [{ port: "case-1", label: "Case 1", all: [] }], defaultPort: "else" }
     case "merge":

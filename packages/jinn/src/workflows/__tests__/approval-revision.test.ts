@@ -87,12 +87,18 @@ class RecordingLifecycle implements WorkflowTodoLifecycle {
   readonly reflections: Array<{ todoId: string; status: string; nodeId: string }> = [];
   readonly failures: Array<{ todoId: string; code: string }> = [];
   readonly revisions: WorkflowRevisionRequest[] = [];
+  readonly decisions: Array<Parameters<WorkflowTodoLifecycle["recordApprovalDecision"]>[0]> = [];
+  readonly completions: Array<Parameters<WorkflowTodoLifecycle["complete"]>[0]> = [];
   reflect(input: Parameters<WorkflowTodoLifecycle["reflect"]>[0]): void {
     this.reflections.push({ todoId: input.todoId, status: input.status, nodeId: input.nodeId });
   }
   recordFailure(input: Parameters<WorkflowTodoLifecycle["recordFailure"]>[0]): void {
     this.failures.push({ todoId: input.todoId, code: input.error.code });
   }
+  recordApprovalDecision(input: Parameters<WorkflowTodoLifecycle["recordApprovalDecision"]>[0]): void {
+    this.decisions.push(input);
+  }
+  complete(input: Parameters<WorkflowTodoLifecycle["complete"]>[0]): void { this.completions.push(input); }
   requestRevision(input: WorkflowRevisionRequest): void { this.revisions.push(input); }
 }
 
@@ -153,7 +159,7 @@ async function runToGate(definition: WorkflowDefinition, todoId: string,
   events += 1;
   feed.pending.push({
     id: `wie_${events}`, workItemId: todoId, fromStatus: "backlog", toStatus, actor,
-    item: { source: "human", department: null, assignee: null, labels: [] },
+    item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
   });
   await service.recover(now.toISOString());
   const run = service.listRuns(definition.id, { limit: 10 }).items.at(-1)!;
@@ -209,6 +215,11 @@ describe("a rejection carrying feedback sends the work round again", () => {
       feedback: "The empty state still reads as an error.", decidedBy: "operator",
       rearm: { status: "assigned", actor: "operator" },
     }]);
+    expect(lifecycle.decisions).toEqual([{
+      todoId: "OPS-1", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      decision: "reject", decidedBy: "operator", note: "The empty state still reads as an error.",
+    }]);
+    expect(lifecycle.completions).toEqual([]);
   });
 
   it("does NOT take the authored rejected route — feedback is a different decision", async () => {
@@ -232,6 +243,10 @@ describe("a rejection carrying feedback sends the work round again", () => {
     await decide(definition, run.id, "reject", { reason: "   \n  " });
 
     expect(lifecycle.revisions).toEqual([]);
+    expect(lifecycle.decisions).toEqual([{
+      todoId: "OPS-3", workflowId: definition.id, runId: run.id, nodeId: "gate",
+      decision: "reject", decidedBy: "operator",
+    }]);
     expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
     expect(lifecycle.reflections.at(-1)).toMatchObject({ status: "blocked", nodeId: "not-merged" });
   });
@@ -307,6 +322,7 @@ describe("a rejection carrying feedback sends the work round again", () => {
     await decide(definition, run.id, "reject", { reason: "Not what I meant." });
 
     expect(lifecycle.revisions).toEqual([]);
+    expect(lifecycle.decisions).toEqual([]);
     expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "jinn-cli",
-  "version": "0.29.0",
+  "version": "0.29.1",
   "description": "Lightweight AI gateway daemon orchestrating Claude Code, Codex, Grok, and Antigravity CLI",
   "license": "MIT",
   "type": "module",
@@ -23,7 +23,8 @@
     "build": "node scripts/build.mjs",
     "dev": "tsc && (tsc --watch &) && node --watch-path=dist dist/bin/jinn.js start",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && vitest run --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000",
+    "lint": "eslint .",
+    "test": "pnpm build && node --test scripts/gateway-events-artifact.test.mjs && vitest run --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000",
     "coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "migration:generate": "node scripts/instance-migration-bundle.mjs generate",
@@ -58,6 +59,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@jinn/gateway-events": "workspace:*",
     "@types/better-sqlite3": "^7.6.0",
     "@types/busboy": "^1.5.4",
     "@types/js-yaml": "^4.0.0",

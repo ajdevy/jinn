@@ -157,7 +157,6 @@ export function ThreadPeek({ peek, onClose, onOpenFullChat, renderContent, onExi
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
     // displayPeek is intentionally read as the retained shell, not an open trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peek, finishExit])
 
   const requestClose = useCallback(() => {

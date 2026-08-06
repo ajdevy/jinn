@@ -1,11 +1,6 @@
 export type StreamDeltaType = "text" | "text_snapshot" | "tool_use" | "tool_result" | "status" | "error" | "context" | "block";
 
-type CompanyChangedBase = { action: string; id: string; sessionId?: string };
-export type CompanyChangedEvent =
-  | (CompanyChangedBase & { entity: "todo"; version: number; value?: JsonObject })
-  | (CompanyChangedBase & { entity: "workflow-definition"; version: number })
-  | (CompanyChangedBase & { entity: "workflow-run"; workflowId: string; runId: string; version: number })
-  | (CompanyChangedBase & { entity: "workflow-trigger"; workflowId: string; revision: string });
+export type { CompanyChangedEvent } from "./gateway-events.js";
 
 export interface NoteSummary {
   /** Public path below JINN_HOME, for example knowledge/product/brief.md. */
@@ -99,7 +94,7 @@ export type WorkflowRunActivityPayload = JsonObject & {
   activityReceipt?: ActivityReceipt;
 };
 
-export interface ChatBlock {
+export type ChatBlock = JsonObject & {
   id: string;
   type: ChatBlockType;
   version: number;
@@ -111,12 +106,12 @@ export interface ChatBlock {
   title?: string;
   summary?: string;
   payload: JsonObject;
-}
+};
 
-export interface ChatBlockEnvelope {
+export type ChatBlockEnvelope = JsonObject & {
   op: ChatBlockOp;
   block: ChatBlock;
-}
+};
 
 export interface StreamDelta {
   type: StreamDeltaType;
@@ -270,6 +265,8 @@ export type ReplyContext = JsonObject;
 
 export interface Connector {
   name: string;
+  /** Instance id — the connector's registry key; equals the type for legacy top-level config. */
+  id: string;
   start(): Promise<void>;
   stop(): Promise<void>;
   getCapabilities(): ConnectorCapabilities;
@@ -545,6 +542,7 @@ export interface CronJob {
 }
 
 export interface CronDelivery {
+  /** Connector instance id, matching the gateway registry key. */
   connector: string;
   channel: string;
 }
@@ -1013,14 +1011,13 @@ export interface JinnConfig {
     language?: string;
     languages?: string[];
   };
-  /** /talk voice loop — optional, off unless explicitly configured. */
+  /** Read-aloud TTS (`/api/tts` + Kokoro) — optional, off unless configured. */
   talk?: {
+    /** @deprecated The Talk orchestrator is retired. Kept for patch-release source compatibility. */
     enabled?: boolean;
-    /** Engine for the hands-free voice orchestrator session. When unset (or
-     *  unavailable) the talk session falls back to `engines.default`, then to the
-     *  first available engine. */
+    /** @deprecated The Talk orchestrator is retired. Kept for patch-release source compatibility. */
     engine?: string;
-    /** Model for the hands-free voice orchestrator session (default: "sonnet" — capable enough to orchestrate). */
+    /** @deprecated The Talk orchestrator is retired. Kept for patch-release source compatibility. */
     orchestratorModel?: string;
     kokoro?: {
       voice?: string;

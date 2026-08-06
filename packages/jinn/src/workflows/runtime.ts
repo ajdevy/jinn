@@ -106,8 +106,21 @@ export interface WorkflowApprovalRecord {
   reason?: string;
 }
 
+export interface WorkflowChildRunSummary {
+  runId: string;
+  workflowId: string;
+  nodeId: string;
+  itemIndex: number;
+  status: WorkflowRunStatus;
+  startedAt: string;
+  endedAt?: string;
+  endOutput?: Record<string, JsonValue>;
+  error?: WorkflowError;
+}
+
 export interface WorkflowRunDetail extends WorkflowRunRecord {
   nodeRuns: WorkflowNodeRunRecord[];
   attempts: WorkflowAttemptRecord[];
   approvals: WorkflowApprovalRecord[];
+  childRuns: WorkflowChildRunSummary[];
 }

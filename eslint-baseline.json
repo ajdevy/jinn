@@ -1,0 +1,1120 @@
+{
+  "_instructions": "Every entry is code that predates the lint floor, exempt from exactly the rules listed. To leave the list: split the function at its seams into named helpers, give the branchy part its own function with an early return per case, hoist a nested loop or condition into a helper so the body reads flat, group related parameters into one options object, await the promise or hand it to `void`. Then run `node scripts/eslint-baseline.mjs` and commit the shrunken file. Add nothing here by hand — inline eslint-disable comments are ignored outright, so this file is the only suppression channel, and it is meant to shrink.",
+  "files": {
+    "packages/jinn/src/cli/__tests__/migrate-prompt.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/cli/__tests__/migrate.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/cli/container-contract.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/cli/limits.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/cli/migrate-prompt.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cli/migrate.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/cli/nuke.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cli/pair.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "max-depth"
+    ],
+    "packages/jinn/src/cli/setup.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cli/skills.ts": [
+      "max-depth"
+    ],
+    "packages/jinn/src/cli/start.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cli/status.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/connectors/discord/index.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/connectors/slack/index.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/connectors/telegram/__tests__/connector.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/connectors/telegram/index.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/connectors/whatsapp/index.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cron/run-summary.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/cron/runner.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/cron/validation.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/engines/__tests__/claude-interactive.test.ts": [
+      "@typescript-eslint/no-floating-promises"
+    ],
+    "packages/jinn/src/engines/__tests__/grok-interactive.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/engines/antigravity-protocol.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/engines/antigravity.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/claude-interactive.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/claude-permission-prompt.ts": [
+      "max-depth"
+    ],
+    "packages/jinn/src/engines/codex-interactive.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/codex.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/grok-interactive.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/grok-mcp.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/grok.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/hermes-acp.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/hermes-jsonrpc.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity"
+    ],
+    "packages/jinn/src/engines/hermes-mcp.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/engines/hermes-protocol.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/pi.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/pty-snapshot.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/engines/pty-stream.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/engines/sse-pty-proxy.ts": [
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/engines/transcript-tailer.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/experiments/store.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/__tests__/approval-root-fallback.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/gateway/__tests__/dispatch-route.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/gateway/__tests__/org-update.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/gateway/__tests__/work-item-approval-route.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": [
+      "max-params"
+    ],
+    "packages/jinn/src/gateway/api.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/gateway/approval-authority.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/auth.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/byte-range.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/chat-activity.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/external-turns.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/files.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/gateway/hook-endpoint.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/http-helpers.ts": [
+      "complexity",
+      "max-depth"
+    ],
+    "packages/jinn/src/gateway/lifecycle.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/manager-visibility.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/media-type.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/org-hierarchy.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/org.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/pty-ws.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/server.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/session-comm-guards.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/skills.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/status-reconciler.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/streamed-blocks.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/watcher.ts": [
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/gateway/workflow-api.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity"
+    ],
+    "packages/jinn/src/gateway/workflow-todo-surface.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/instances/access.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/instances/create.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/instances/directory.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/instances/start.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/mcp/__tests__/search-tools.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/mcp/approval-tools.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/attachment.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/delegation-tools.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/experiment-tools.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/file-tools.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/knowledge-tools.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/note-tools.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/org-tools.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/resolver.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/search-tools.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/server.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/session-tools.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/temp-sandbox.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/mcp/toolkit.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/mcp/work-item-tools.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/migrations/completion.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/migrations/service.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/migrations/snapshot.ts": [
+      "complexity",
+      "max-depth"
+    ],
+    "packages/jinn/src/notes/store.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/__tests__/context.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/sessions/callbacks.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/context.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/sessions/delegation-completion-contract.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/sessions/fork.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/manager.ts": [
+      "complexity",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/sessions/migrate.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/partial-stream.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/rate-limit-handler.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/sessions/registry.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/sessions/session-patch.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/activity-receipts.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/blocks.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/claude-models.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/claude-settings.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/codex-models.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/config.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/db.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/effort.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/engine-limits.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/grok-models.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/shared/hermes-models.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/models.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/shared/pi-models.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/stt/model-store.ts": [
+      "complexity",
+      "max-depth"
+    ],
+    "packages/jinn/src/stt/settings-store.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/stt/stt.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/talk/kokoro.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/talk/speakable.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/__tests__/optimistic-concurrency.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/work-items/approvals.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/attachments.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/migrate.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/reconcile.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/store.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/transitions.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/work-items/workflow-event-feed.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/workflows/__tests__/repository-definitions.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/workflows/__tests__/workflow-recovery.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/jinn/src/workflows/bindings.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/import-v1.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/workflows/model.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/output.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/repository-migrations.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/repository-run-transaction.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/jinn/src/workflows/repository-runs.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/repository-support.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/repository.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/runner.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/jinn/src/workflows/service.ts": [
+      "complexity",
+      "max-depth"
+    ],
+    "packages/jinn/src/workflows/session-executor.ts": [
+      "complexity"
+    ],
+    "packages/jinn/src/workflows/trigger-service.ts": [
+      "complexity",
+      "max-params"
+    ],
+    "packages/jinn/src/workflows/validation.ts": [
+      "complexity"
+    ],
+    "packages/web/src/components/activity/log-browser.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/auth/pairing-screen.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/auth/remote-access-panel.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-depth"
+    ],
+    "packages/web/src/components/chat/agent-relay.tsx": [
+      "complexity"
+    ],
+    "packages/web/src/components/chat/background-activity-status.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/callback-burst.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-blocks.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-employee-picker.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-input.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-messages.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-pane.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-sidebar.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/chat-tabs.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/cli-keybar.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/comms-callout.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/company-activity-card.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/dispatch-row.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/file-attachment.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/file-view.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/fold-region.tsx": [
+      "complexity",
+      "max-lines-per-function",
+      "max-params"
+    ],
+    "packages/web/src/components/chat/handoff-card.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/media-preview.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/message-markdown.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/message-media.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/mic-waveform.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/mobile-tab-bar.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/model-selector-row.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/queue-panel.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/session-row-menu.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/shortcut-overlay.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/stale-chat-notice.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/teammate-reply.tsx": [
+      "complexity"
+    ],
+    "packages/web/src/components/chat/thread-peek.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/todo-activity-burst.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/tts-engine.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/chat/voice-message.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/cli-terminal.tsx": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/code-block-chrome.tsx": [
+      "@typescript-eslint/no-floating-promises"
+    ],
+    "packages/web/src/components/crons/weekly-schedule.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/global-search.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/live-stream-widget.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/markdown-view.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/migration/__tests__/instance-migration-gate.test.tsx": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/web/src/components/migration/instance-migration-gate.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/onboarding-wizard.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/org/employee-detail.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/org/employee-editor.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/org/employee-node.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/org/layout/d3-tree-layout.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/org/layout/dagre-fallback.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/pill-nav.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/stt/whisper-download-modal.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/ui/emoji-picker.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/ui/image-lightbox.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/ui/state-line.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/ui/video-player.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/workspaces/create-workspace-dialog.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/components/workspaces/workspace-menu.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-chat-tabs.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-gateway.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-keyboard-shortcuts.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity"
+    ],
+    "packages/web/src/hooks/use-live-session.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-query-invalidation.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-sessions.ts": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity"
+    ],
+    "packages/web/src/hooks/use-stick-to-bottom.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/hooks/use-stt.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/lib/api.ts": [
+      "complexity"
+    ],
+    "packages/web/src/lib/blocks.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/lib/conversations.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/lib/cron-utils.ts": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/lib/file-read-request.ts": [
+      "complexity"
+    ],
+    "packages/web/src/lib/skills.ts": [
+      "complexity"
+    ],
+    "packages/web/src/lib/todos.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity"
+    ],
+    "packages/web/src/lib/ws.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/auth-provider.tsx": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/chat/page.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/cron/detail.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/cron/page.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/experiments/detail.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/experiments/reading-chart.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/limits/page.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/limits/use-engine-limits.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/logs/page.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/more/page.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/notes/note-editor.tsx": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/notes/note-list.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/notes/note-mic.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/notes/note-sidebar.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/notes/page.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/org/page.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/redesign/page.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/settings-provider.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/settings/page.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/skills/detail.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/skills/page.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": [
+      "@typescript-eslint/no-floating-promises"
+    ],
+    "packages/web/src/routes/todos/__tests__/task-page.test.tsx": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/web/src/routes/todos/board/board-page.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/board-route.ts": [
+      "@typescript-eslint/no-unused-vars"
+    ],
+    "packages/web/src/routes/todos/board/board-switcher.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/card-tree.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/card.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/column.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/use-board-drag.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/board/use-board.ts": [
+      "@typescript-eslint/no-unused-vars",
+      "max-params"
+    ],
+    "packages/web/src/routes/todos/filter-bar.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/list/group-items.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/list/list-group.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/list/list-row.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/needs-you-view.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/new-todo-dialog.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/pickers/picker-contents.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/pickers/picker-shell.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/acceptance.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/activity.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/attachment-preview.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/attachments.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/banner.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/body-editor.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/chip-cluster.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/crumb-bar.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/live-body-editor.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/props-rail.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/relations.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/subtasks.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/task-page.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/task-page/use-task-pickers.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/todo-dialog.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/todo-edit-request.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/todo-filter-sheet.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/todos/todo-status-mutation.ts": [
+      "complexity"
+    ],
+    "packages/web/src/routes/workflow/editor/edge.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/editor/editor.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/editor/inspector.tsx": [
+      "@typescript-eslint/no-unused-vars",
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/editor/node-card.tsx": [
+      "complexity"
+    ],
+    "packages/web/src/routes/workflow/editor/palette.tsx": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/editor/store.ts": [
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/list.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/page.tsx": [
+      "@typescript-eslint/no-floating-promises",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/run-canvas.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/run-inspector.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/src/routes/workflow/run.tsx": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "packages/web/vite.config.ts": [
+      "complexity",
+      "max-lines-per-function"
+    ]
+  }
+}

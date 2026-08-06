@@ -65,7 +65,8 @@ function edge(id: string, from: string, to: string) {
 }
 function todoEvent(id: string, item: Partial<WorkflowTodoStatusEvent["item"]> = {}, actor: string | null = "operator"): WorkflowTodoStatusEvent {
   return { id, workItemId: "ICI-1", fromStatus: "executing", toStatus: "in_review", actor,
-    item: { source: "human", department: "platform", assignee: "worker", labels: [], ...item } };
+    item: { source: "human", department: "platform", assignee: "worker", labels: [],
+      live: { assignee: "worker", parentId: null }, ...item } };
 }
 function todoTrigger(config: Omit<Extract<TriggerNode["config"], { kind: "todo-status" }>, "kind" | "status">): WorkflowNode {
   return { id: "start", type: "trigger", name: "Todo", config: { kind: "todo-status", status: "in_review", ...config } };
@@ -93,6 +94,43 @@ beforeEach(() => {
 afterEach(() => { service.dispose(); database.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 describe("Workflow trigger adapters", () => {
+  it("arms and calls a definition with Todo and Workflow Call triggers", async () => {
+    const draft = service.createDefinition({ id: "dual-trigger-flow", title: "Dual trigger flow" });
+    const todo: WorkflowNode = { id: "todo-start", type: "trigger", name: "Todo",
+      config: { kind: "todo-status", status: "in_review" } };
+    const called: WorkflowNode = { id: "call-start", type: "trigger", name: "Called",
+      config: { kind: "workflow-call" } };
+    const todoEnd: WorkflowNode = { id: "todo-end", type: "end", name: "Todo end", config: { result: "success" } };
+    const callEnd: WorkflowNode = { id: "call-end", type: "end", name: "Call end", config: { result: "success" } };
+    const saved = service.saveDefinition({ ...draft, nodes: [todo, called, todoEnd, callEnd],
+      edges: [edge("todo-finish", todo.id, todoEnd.id), edge("call-finish", called.id, callEnd.id)] }, draft.revision);
+    const definition = service.setEnabled({ id: saved.id, enabled: true, expectedRevision: saved.revision });
+
+    feed.pending.push(todoEvent("dual-trigger-event"));
+    await service.recover(now);
+    const todoRun = service.listRuns(definition.id, {}).items[0]!;
+    expect(service.getRun(definition.id, todoRun.id)).toMatchObject({
+      status: "completed",
+      trigger: { nodeId: "todo-start", kind: "todo-status", todoId: "ICI-1" },
+    });
+
+    const callerDefinition = save("dual-trigger-caller", {
+      id: "start", type: "trigger", name: "Manual", config: { kind: "manual" },
+    });
+    const callerRun = await service.startManual({ workflowId: callerDefinition.id, input: {} });
+    const calledRun = await service.callWorkflow({
+      workflowId: definition.id,
+      caller: { workflowId: callerDefinition.id, runId: callerRun.id, nodeId: "work" },
+      input: {},
+      idempotencyKey: "dual-trigger-call",
+    });
+
+    expect(calledRun).toMatchObject({
+      status: "completed",
+      trigger: { nodeId: "call-start", kind: "workflow-call" },
+    });
+  });
+
   it("rebuilds only enabled Schedule definitions and fires each instant idempotently across restart and disable", async () => {
     const trigger: WorkflowNode = { id: "start", type: "trigger", name: "Schedule", config: { kind: "schedule", cron: "0 * * * *", timezone: "UTC" } };
     const definition = save("scheduled-flow", trigger, false);
@@ -184,6 +222,55 @@ describe("Workflow trigger adapters", () => {
       { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("label") },
     ]);
     expect(feed.listPendingEvents()).toHaveLength(0);
+  });
+
+  it("fires an unlabelled, unassigned Todo and names the unlabeled filter when the same Todo carries a label", async () => {
+    const definition = save("todo-intake", todoTrigger({ unlabeled: true, unassigned: true }));
+    const bare = { assignee: null, live: { assignee: null, parentId: null } };
+    feed.pending.push(todoEvent("bare-todo", bare));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(1);
+
+    feed.pending.push(todoEvent("build-todo", { ...bare, labels: [{ id: "lbl_0000000000ab", name: "build" }] }));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(1);
+    expect(feed.processed.get("build-todo")).toMatchObject([
+      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("unlabeled") },
+    ]);
+  });
+
+  it("suppresses an unassigned filter against the live assignee even when the frozen snapshot has none", async () => {
+    const definition = save("todo-unassigned", todoTrigger({ unassigned: true }));
+    feed.pending.push(todoEvent("reassigned-todo", { assignee: null, live: { assignee: "other", parentId: null } }));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(0);
+    expect(feed.processed.get("reassigned-todo")).toMatchObject([
+      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("unassigned") },
+    ]);
+  });
+
+  it("fires a rootOnly Todo trigger for a root Todo and suppresses a child", async () => {
+    const definition = save("todo-root-only", todoTrigger({ rootOnly: true }));
+    feed.pending.push(todoEvent("child-todo", { live: { assignee: "worker", parentId: "ICI-9" } }));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(0);
+    expect(feed.processed.get("child-todo")).toMatchObject([
+      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("rootOnly") },
+    ]);
+
+    feed.pending.push(todoEvent("root-todo"));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(1);
+  });
+
+  it("refuses the live filters for a Todo whose row is gone instead of defaulting to a match", async () => {
+    const definition = save("todo-vanished", todoTrigger({ unlabeled: true, unassigned: true, rootOnly: true }));
+    feed.pending.push(todoEvent("deleted-todo", { assignee: null, live: null }));
+    await service.recover(now);
+    expect(service.listRuns(definition.id, {}).items).toHaveLength(0);
+    expect(feed.processed.get("deleted-todo")).toMatchObject([
+      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("no longer exists") },
+    ]);
   });
 
   it("fires an actor-filtered Todo trigger for the operator's own transition and suppresses an employee's", async () => {

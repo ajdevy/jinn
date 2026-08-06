@@ -55,6 +55,18 @@ function buildGraph(
     nodes: placed.map((node) => {
       const nodeRun = nodeRuns.get(node.id)
       const status = deriveNodeStatus(nodeRun, attemptsByNode.get(node.id) ?? [])
+      const children = (detail.childRuns ?? []).filter((child) => child.nodeId === node.id)
+      const outputSucceeded = nodeRun?.output?.fields?.["succeeded"]
+      const outputTotal = nodeRun?.output?.fields?.["total"]
+      const configuredTotal = nodeRun?.resolvedConfig?.["total"]
+      const workflowCall = node.data.node.type === "workflow-call" ? {
+        succeeded: typeof outputSucceeded === "number"
+          ? outputSucceeded
+          : children.filter((child) => child.status === "completed").length,
+        total: typeof outputTotal === "number"
+          ? outputTotal
+          : typeof configuredTotal === "number" ? configuredTotal : children.length,
+      } : undefined
       return {
         ...node,
         selected: node.id === selectedNodeId,
@@ -63,7 +75,11 @@ function buildGraph(
         className: "cursor-pointer",
         data: {
           ...node.data,
-          run: { status, dimmed: status === "skipped" || (status === "pending" && !nodeRun?.activated) },
+          run: {
+            status,
+            dimmed: status === "skipped" || (status === "pending" && !nodeRun?.activated),
+            ...(workflowCall ? { workflowCall } : {}),
+          },
         },
       }
     }),

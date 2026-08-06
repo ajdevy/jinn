@@ -1,23 +1,32 @@
 import { isDeepStrictEqual } from "node:util";
 import { logger } from "../shared/logger.js";
 import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shared/types.js";
+import { TODO_ID_PATTERN } from "../work-items/id.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import type {
   ConditionNode,
   ConditionPredicate,
   EmployeeNode,
+  EndNode,
   JsonValue,
   ApprovalNode,
   TriggerNode,
   WaitNode,
+  WorkflowCallNode,
   WorkflowNode,
   WorkflowNodeOutput,
 } from "./model.js";
 import { dispatchFailure, interruptedAttemptFailure, workflowError } from "./failure.js";
 import { parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
-import type { ResolvedEmployeeConfig, WorkflowError, WorkflowNodeRunRecord, WorkflowRunDetail } from "./runtime.js";
+import type {
+  ResolvedEmployeeConfig,
+  WorkflowChildRunSummary,
+  WorkflowError,
+  WorkflowNodeRunRecord,
+  WorkflowRunDetail,
+} from "./runtime.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { todoApprovalRef } from "./todo-approval-ref.js";
 import { topologicalOrder, validateExecutableWorkflow } from "./validation.js";
@@ -29,6 +38,14 @@ export interface WorkflowRunnerOptions {
   models: () => ModelRegistry;
   now?: () => string;
   onChange?: (change: { workflowId: string; runId: string }) => void;
+  callWorkflow: (input: {
+    workflowId: string;
+    caller: { workflowId: string; runId: string; nodeId: string };
+    input: Record<string, JsonValue>;
+    idempotencyKey: string;
+    itemIndex: number;
+    todoId?: string;
+  }) => Promise<WorkflowRunDetail>;
   /** Mirrors an Approval node's gate onto the run's bound Todo so the operator
    *  decides it from Todos, not from Workflows. Absent = no Todo surface (the
    *  gate still parks the run and is decidable through the workflow API). */
@@ -60,6 +77,14 @@ export interface WorkflowTodoSessionLink {
 
 export interface WorkflowTodoLifecycle {
   reflect(input: { todoId: string; status: WorkflowRunReflection; workflowId: string; runId: string; nodeId: string }): void;
+  recordApprovalDecision(input: {
+    todoId: string; workflowId: string; runId: string; nodeId: string;
+    decision: "approve" | "reject"; decidedBy: string; choice?: string; note?: string;
+  }): void;
+  complete(input: {
+    todoId: string; workflowId: string; runId: string; nodeId: string;
+    approvedBy: string; approvedAt: string;
+  }): void;
   /** Write onto the bound Todo why a run settled failed: which node died, the
    *  error, and the run id. Factual, no LLM call. */
   recordFailure(input: { todoId: string; workflowId: string; runId: string; nodeId: string; error: WorkflowError }): void;
@@ -94,6 +119,7 @@ export interface WorkflowRevisionRequest {
 
 type NodeAction =
   | { kind: "activate" | "skip" | "condition" | "merge" | "approval" | "wait" | "end"; node: WorkflowNode }
+  | { kind: "fanout"; node: WorkflowCallNode }
   | { kind: "dispatch"; node: EmployeeNode; config: ResolvedEmployeeConfig };
 const REMINDER_RUNGS_MINUTES = [5, 15, 30] as const;
 const DEFAULT_ATTEMPT_TIMEOUT_MINUTES = 180;
@@ -106,14 +132,80 @@ function hasWorkflowOutputBlock(text: string): boolean {
   return /(?:^|\n)```jinn-output[ \t]*(?:\r?\n|$)/.test(text);
 }
 function bindingContext(run: WorkflowRunDetail): WorkflowBindingContext {
+  const itemIndex = run.trigger.payload.itemIndex;
   return {
     input: run.input,
-    trigger: { kind: run.trigger.kind, payload: run.trigger.payload },
+    trigger: {
+      kind: run.trigger.kind,
+      payload: run.trigger.payload,
+      ...(Number.isInteger(itemIndex) ? { itemIndex: itemIndex as number } : {}),
+    },
     run: { id: run.id, startedAt: run.startedAt, ...(run.trigger.todoId ? { todoId: run.trigger.todoId } : {}) },
     nodes: Object.fromEntries(run.nodeRuns.map((node) => [node.nodeId, {
       status: node.status, output: node.output ?? null, error: node.error ?? null,
     }])),
   };
+}
+
+interface FanoutPlan {
+  workflowId: string;
+  concurrency: number;
+  items: JsonValue[];
+  hasItems: boolean;
+}
+
+function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode): FanoutPlan {
+  const context = bindingContext(run);
+  const workflowId = resolveString(node.config.workflowId, context, "Workflow Call target");
+  if (!node.config.items) return { workflowId, concurrency: node.config.concurrency, items: [null], hasItems: false };
+  const items = resolveBinding(node.config.items, context);
+  if (!Array.isArray(items)) throw new Error(`Workflow Call ${node.id} items must resolve to an array.`);
+  if (items.length > 100) throw new Error(`Workflow Call ${node.id} items may contain at most 100 entries.`);
+  return { workflowId, concurrency: node.config.concurrency, items, hasItems: true };
+}
+
+function fanoutInput(run: WorkflowRunDetail, node: WorkflowCallNode, plan: FanoutPlan, index: number): Record<string, JsonValue> {
+  const base = bindingContext(run);
+  const context: WorkflowBindingContext = {
+    ...base,
+    trigger: {
+      ...base.trigger,
+      itemIndex: index,
+      ...(plan.hasItems ? { item: plan.items[index]! } : {}),
+    },
+  };
+  return Object.fromEntries(Object.entries(node.config.input ?? {})
+    .map(([key, binding]) => [key, resolveBinding(binding, context)]));
+}
+
+function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowChildRunSummary[] {
+  return run.childRuns.filter((child) => child.nodeId === nodeId);
+}
+
+function childTerminal(child: WorkflowChildRunSummary): boolean {
+  return ["completed", "failed", "cancelled"].includes(child.status);
+}
+
+function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowChildRunSummary[]): void {
+  if (children.some((child) => child.itemIndex >= plan.items.length)) {
+    throw new Error(`Workflow Call ${node.id} has a child outside its item range.`);
+  }
+}
+
+function fanoutOutput(children: WorkflowChildRunSummary[]): WorkflowNodeOutput {
+  const outcomes = children.map((child) => ({
+    index: child.itemIndex,
+    runId: child.runId,
+    workflowId: child.workflowId,
+    status: child.status === "completed" ? "succeeded" : child.status,
+    fields: child.endOutput ?? {},
+  }));
+  const succeeded = outcomes.filter((outcome) => outcome.status === "succeeded").length;
+  const failed = outcomes.filter((outcome) => outcome.status === "failed").length;
+  const cancelled = outcomes.filter((outcome) => outcome.status === "cancelled").length;
+  const total = outcomes.length;
+  const summary = total > 0 && succeeded === total ? "all-succeeded" : succeeded > 0 ? "partial" : "none-succeeded";
+  return { text: "", fields: { total, succeeded, failed, cancelled, summary, outcomes } };
 }
 function upstreamSessions(run: WorkflowRunDetail, nodeId: string): Array<{ nodeId: string; sessionId?: string }> {
   const ancestors = new Set<string>();
@@ -259,7 +351,20 @@ function waitResumeAt(run: WorkflowRunDetail, node: WaitNode, now: string): stri
   }
   return value;
 }
+function endOutput(run: WorkflowRunDetail, node: EndNode): WorkflowNodeOutput {
+  let fields: Record<string, JsonValue> = {};
+  if (node.config.output) {
+    const value = resolveBinding(node.config.output, bindingContext(run));
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Workflow End ${node.id} output must resolve to a JSON object.`);
+    }
+    fields = value as Record<string, JsonValue>;
+  }
+  return { text: node.config.message ?? "", fields };
+}
 export class WorkflowRunner {
+  private readonly advances = new Map<string, Promise<WorkflowRunDetail>>();
+
   constructor(private readonly options: WorkflowRunnerOptions) {}
   private now(): string { return (this.options.now ?? (() => new Date().toISOString()))(); }
   private detail(workflowId: string, runId: string): WorkflowRunDetail {
@@ -304,13 +409,30 @@ export class WorkflowRunner {
     for (const id of topologicalOrder(run.definition)) {
       const node = run.definition.nodes.find((candidate) => candidate.id === id)!;
       const runtime = nodeRun(run, id);
-      if (node.type === "trigger" || runtime.status !== "pending") continue;
+      if (node.type === "trigger"
+        || (node.type === "workflow-call" ? !["pending", "running"].includes(runtime.status) : runtime.status !== "pending")) continue;
       if (!runtime.activated && incoming(run, id).some((edge) => edgeActivated(run, edge))) return { kind: "activate", node };
       if (!runtime.activated && canNeverActivate(run, id)) return { kind: "skip", node };
       if (!runtime.activated) continue;
       if (node.type === "employee") {
         try { return { kind: "dispatch", node, config: resolveDispatch(run, node, this.options) }; }
         catch (error) { this.failRun(run, error, node.id); return null; }
+      }
+      if (node.type === "workflow-call") {
+        try {
+          const plan = fanoutPlan(run, node);
+          const children = fanoutChildren(run, node.id);
+          validateFanoutChildren(node, plan, children);
+          const active = children.filter((child) => !childTerminal(child)).length;
+          if (runtime.status === "pending" || (children.length === plan.items.length && active === 0)
+            || (children.length < plan.items.length && active < plan.concurrency)) {
+            return { kind: "fanout", node };
+          }
+        } catch (error) {
+          this.failRun(run, error, node.id);
+          return null;
+        }
+        continue;
       }
       if (node.type === "condition") return { kind: "condition", node };
       if (node.type === "merge" && mergeReady(run, node.id)) return { kind: "merge", node };
@@ -321,12 +443,17 @@ export class WorkflowRunner {
     return null;
   }
 
-  private applyInline(run: WorkflowRunDetail, action: Exclude<NodeAction, { kind: "dispatch" }>): void {
+  private applyInline(run: WorkflowRunDetail, action: Exclude<NodeAction, { kind: "dispatch" | "fanout" }>): void {
     const at = this.now();
     let approver: string | undefined;
     let resumeAt: string | undefined;
+    let output: WorkflowNodeOutput | undefined;
     if (action.kind === "approval") approver = approvalRef(run, action.node as ApprovalNode);
     if (action.kind === "wait") resumeAt = waitResumeAt(run, action.node as WaitNode, at);
+    if (action.kind === "end" && action.node.type === "end") {
+      try { output = endOutput(run, action.node); }
+      catch (error) { this.failRun(run, error, action.node.id); return; }
+    }
     const failureEnd: WorkflowError | undefined = action.kind === "end" && action.node.type === "end"
       && action.node.config.result === "failure"
       ? { code: "workflow-failure-end", message: `Workflow reached failure End ${action.node.id}.`,
@@ -349,13 +476,73 @@ export class WorkflowRunner {
         tx.setNodeStatus(action.node.id, "waiting", { resumeAt, startedAt: at });
         tx.setRunStatus("waiting");
       } else {
-        tx.setNodeStatus(action.node.id, "completed", { startedAt: at, endedAt: at });
+        tx.setNodeStatus(action.node.id, "completed", { output, startedAt: at, endedAt: at });
         if (failureEnd) tx.setRunStatus("failed", { endedAt: at, error: failureEnd });
       }
     });
     if (action.kind === "approval") this.reflect(run, "in_review", action.node.id);
     if (failureEnd) this.reflectFailure(run, action.node.id, failureEnd);
     this.changed(run);
+  }
+
+  private async reconcileFanout(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
+    const plan = fanoutPlan(run, node);
+    const runtime = nodeRun(run, node.id);
+    if (runtime.status === "pending") {
+      const at = this.now();
+      this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+        tx.setNodeStatus(node.id, "running", {
+          resolvedConfig: { workflowId: plan.workflowId, concurrency: plan.concurrency, total: plan.items.length },
+          startedAt: at,
+        });
+      });
+      this.changed(run);
+      return;
+    }
+
+    const children = fanoutChildren(run, node.id);
+    validateFanoutChildren(node, plan, children);
+    if (children.length === plan.items.length && children.every(childTerminal)) {
+      const at = this.now();
+      this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+        tx.setNodeStatus(node.id, "completed", { output: fanoutOutput(children), endedAt: at });
+      });
+      this.changed(run);
+      return;
+    }
+
+    const active = children.filter((child) => !childTerminal(child)).length;
+    const started = new Set(children.map((child) => child.itemIndex));
+    const indexes = plan.items.map((_, index) => index).filter((index) => !started.has(index));
+    const capacity = Math.max(0, plan.concurrency - active);
+    try {
+      for (const index of indexes.slice(0, capacity)) {
+        const input = fanoutInput(run, node, plan, index);
+        let todoId: string | undefined;
+        if (node.config.input && Object.hasOwn(node.config.input, "todoId")) {
+          const mappedTodoId = input.todoId;
+          if (typeof mappedTodoId !== "string" || !TODO_ID_PATTERN.test(mappedTodoId)) {
+            throw new Error(`Workflow Call ${node.id} todoId must resolve to a Todo id matching AAA-123.`);
+          }
+          todoId = mappedTodoId;
+        }
+        await this.options.callWorkflow({
+          workflowId: plan.workflowId,
+          caller: { workflowId: run.workflowId, runId: run.id, nodeId: node.id },
+          input,
+          idempotencyKey: `${run.id}:${node.id}:${index}`,
+          itemIndex: index,
+          ...(todoId === undefined ? {} : { todoId }),
+        });
+      }
+    } catch (error) {
+      const current = this.detail(run.workflowId, run.id);
+      if (!current.cancelRequestedAt && !["completed", "failed", "cancelled"].includes(current.status)) {
+        this.failRun(current, error, node.id);
+      }
+      return;
+    }
+    if (capacity > 0 && indexes.length > 0) this.changed(run);
   }
 
   /** Mirror a parked gate onto the run's bound Todo (Gap 2: the operator picks
@@ -485,7 +672,7 @@ export class WorkflowRunner {
       const endedAt = this.now();
       const failure = dispatchFailure(error, node.id, attempt.attempt);
       const stored = current.attempts.find((item) => item.nodeId === node.id && item.attempt === attempt.attempt)!;
-      if (this.settleFailure(current, stored, failure, "failed", endedAt)) await this.advance(run.workflowId, run.id);
+      this.settleFailure(current, stored, failure, "failed", endedAt);
     }
   }
 
@@ -496,24 +683,67 @@ export class WorkflowRunner {
     if (active || !successfulEnd || run.status !== "running") return false;
     const endedAt = this.now();
     this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus("completed", { endedAt }));
+    const approvedGate = run.approvals.find((approval) => {
+      const authored = run.definition.nodes.find((node) => node.id === approval.nodeId);
+      const runtime = run.nodeRuns.find((node) => node.nodeId === approval.nodeId);
+      return authored?.type === "approval" && authored.config.operatorOnly === true
+        && runtime?.status === "completed" && approval.status === "approved"
+        && approval.decidedBy !== undefined && approval.decidedAt !== undefined;
+    });
+    const todoId = run.trigger.todoId;
+    if (todoId && approvedGate?.decidedBy && approvedGate.decidedAt && this.options.todoLifecycle) {
+      try {
+        this.options.todoLifecycle.complete({
+          todoId, workflowId: run.workflowId, runId: run.id, nodeId: approvedGate.nodeId,
+          approvedBy: approvedGate.decidedBy, approvedAt: approvedGate.decidedAt,
+        });
+      } catch (error) {
+        logger.warn(`Workflow run ${run.id} could not complete Todo ${todoId}: `
+          + `${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     this.changed(run);
     return true;
   }
 
-  private async advance(workflowId: string, runId: string): Promise<WorkflowRunDetail> {
-    const max = this.detail(workflowId, runId).definition.nodes.length * 4 + 4;
+  private advance(workflowId: string, runId: string): Promise<WorkflowRunDetail> {
+    const previous = this.advances.get(runId) ?? Promise.resolve(this.detail(workflowId, runId));
+    const current = previous.catch(() => this.detail(workflowId, runId))
+      .then(() => this.advanceNow(workflowId, runId));
+    this.advances.set(runId, current);
+    const clear = () => { if (this.advances.get(runId) === current) this.advances.delete(runId); };
+    void current.then(clear, clear);
+    return current;
+  }
+
+  private async advanceNow(workflowId: string, runId: string): Promise<WorkflowRunDetail> {
+    const definition = this.detail(workflowId, runId).definition;
+    const max = definition.nodes.length * 4 + 4
+      + definition.nodes.filter((node) => node.type === "workflow-call").length * 100;
     for (let index = 0; index < max; index += 1) {
       const run = this.detail(workflowId, runId);
       if (["completed", "failed", "cancelled"].includes(run.status)) return run;
+      if (run.cancelRequestedAt) return run;
       const action = this.nextAction(run);
       if (!action) {
         if (this.finish(run)) continue;
         return this.detail(workflowId, runId);
       }
       if (action.kind === "dispatch") await this.dispatch(run, action.node, action.config);
+      else if (action.kind === "fanout") await this.reconcileFanout(run, action.node);
       else this.applyInline(run, action);
     }
     return this.failRun(this.detail(workflowId, runId), new Error("Workflow control flow did not settle."));
+  }
+
+  async advanceCaller(workflowId: string, runId: string, nodeId: string): Promise<boolean> {
+    const run = this.detail(workflowId, runId);
+    const authored = run.definition.nodes.find((node) => node.id === nodeId);
+    const runtime = run.nodeRuns.find((node) => node.nodeId === nodeId);
+    if (authored?.type !== "workflow-call" || !runtime?.activated || terminalNode(runtime)
+      || run.cancelRequestedAt || ["completed", "failed", "cancelled"].includes(run.status)) return false;
+    await this.advance(workflowId, runId);
+    return true;
   }
 
   async resumeWait(workflowId: string, runId: string, nodeId: string, now: string): Promise<boolean> {
@@ -605,7 +835,8 @@ export class WorkflowRunner {
     // practice, an End that abandons the work), so it is deliberately NOT taken:
     // this run stops here and the bound Todo goes round again carrying the note.
     // Silence still means stop, and takes the authored route exactly as before.
-    const feedback = input.decision === "reject" ? (input.reason ?? "").trim() : "";
+    const note = input.reason?.trim();
+    const feedback = input.decision === "reject" ? note ?? "" : "";
     const revising: WorkflowError | undefined = feedback && run.trigger.todoId && this.options.todoLifecycle
       ? { code: "workflow-revision-requested", nodeId: input.nodeId, retryable: false,
           message: `Workflow approval ${input.nodeId} was rejected with feedback; the Todo goes round again.` }
@@ -635,6 +866,20 @@ export class WorkflowRunner {
         tx.setRunStatus("failed", { error: missingRoute, endedAt: at });
       }
     });
+    const todoId = run.trigger.todoId;
+    if (todoId && this.options.todoLifecycle) {
+      try {
+        this.options.todoLifecycle.recordApprovalDecision({
+          todoId, workflowId: run.workflowId, runId: run.id, nodeId: input.nodeId,
+          decision: input.decision, decidedBy: input.decidedBy,
+          ...(input.choice !== undefined ? { choice: input.choice } : {}),
+          ...(note ? { note } : {}),
+        });
+      } catch (error) {
+        logger.warn(`Workflow run ${run.id} could not record gate ${input.nodeId} decision onto Todo ${todoId}: `
+          + `${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     this.changed(run);
     if (revising) {
       this.requestRevision(run, input.nodeId, feedback, input.decidedBy);

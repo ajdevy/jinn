@@ -33,7 +33,7 @@ import {
   updateSessionForAttempt,
 } from "./registry.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel } from "./callbacks.js";
-import { buildContext, buildPlatformContextSnapshot, type BuildContextOptions } from "./context.js";
+import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "./context.js";
 import { SessionQueue } from "./queue.js";
 import { JINN_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
@@ -58,6 +58,7 @@ import {
   isDurableWorkflowUserMessageInterruption,
   workflowAttemptInterruptionCause,
 } from "./workflow-interruptions.js";
+import type { GatewayEmit } from "../shared/gateway-events.js";
 
 export interface RouteOptions {
   employee?: Employee;
@@ -68,7 +69,7 @@ export interface RouteOptions {
 }
 
 const WORKFLOW_CAPABILITIES = { threading: false, messageEdits: false, reactions: false, attachments: false };
-const WORKFLOW_CONNECTOR: Connector = { name: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
+const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
 function maybeRevertEngineOverride(session: Session): Session {
   const meta = (session.transportMeta || {}) as Record<string, unknown>;
   const override = meta["engineOverride"] as Record<string, unknown> | undefined;
@@ -150,6 +151,7 @@ export class SessionManager {
   private connectorProvider: () => Map<string, Connector> = () => new Map();
   private workflowAttemptCompletionListeners = new Set<WorkflowAttemptCompletionListener>();
   private emittedWorkflowAttemptCompletions = new Set<string>();
+  private gatewayEmit: GatewayEmit | undefined;
 
   constructor(
     config: JinnConfig,
@@ -169,6 +171,10 @@ export class SessionManager {
   }
   setConnectorProvider(provider: () => Map<string, Connector>): void {
     this.connectorProvider = provider;
+  }
+
+  setGatewayEmitter(next: GatewayEmit | undefined): void {
+    this.gatewayEmit = next;
   }
 
   /** Live connector ids — reflects reloads, with no cached copy to refresh. */
@@ -234,7 +240,9 @@ export class SessionManager {
     const session = getSession(input.sessionId); if (!session || session.workflowProvenance?.kind !== "phase") return;
     const stopped = interruptSessionAttempt(session.id, input.reason, new Date().toISOString()); if (!stopped) return; cancelWorkflowAttemptDispatch(stopped.id);
     this.queue.clearQueue(stopped.sessionKey); const engine = this.engines.get(stopped.engine);
-    if (engine && isInterruptibleEngine(engine)) engine.kill(stopped.id, input.reason); this.emitWorkflowAttemptCompletion(stopped, "attempt-stop");
+    if (engine && isInterruptibleEngine(engine)) engine.kill(stopped.id, input.reason);
+    this.gatewayEmit?.("session:stopped", { sessionId: stopped.id });
+    this.emitWorkflowAttemptCompletion(stopped, "attempt-stop");
   }
   emitWorkflowAttemptTurnCompletion(sessionId: string): void {
     this.emitWorkflowAttemptCompletion(getSession(sessionId));
@@ -424,8 +432,9 @@ export class SessionManager {
       const effortLevel = session.workflowProvenance?.kind === "phase" ? session.effortLevel ?? undefined
         : resolveEffort(engineConfig, session, employee, effortLevelsForModel(this.config, session.engine, session.model ?? undefined));
       const modelForTurn = session.model ?? engineConfig.model;
+      const runtimeSource = runtimeSessionSource(session.source);
       const contextOptions: BuildContextOptions = {
-        source: session.source,
+        source: runtimeSource,
         channel: msg.channel,
         thread: msg.thread,
         user: msg.user,
@@ -556,7 +565,7 @@ export class SessionManager {
         resolvedMcp,
         attachments: attachments.length > 0 ? attachments : undefined,
         sessionId: session.id,
-        source: session.source,
+        source: runtimeSource,
         onStream: (delta) => {
           if (!getSession(session.id)) return;
           const normalized = normalizeBlockDeltaForTurn(delta, turnStartedAt);

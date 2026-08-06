@@ -103,6 +103,20 @@ const approvalNode = (): ApprovalNode => ({
   config: { description: 'Approve this result.', approver: { source: 'run', path: 'id' } },
 });
 const waitNode = (): WaitNode => ({ id: 'pause', type: 'wait', name: 'Pause', config: { mode: 'duration', minutes: 1 } });
+const workflowCallNode = () => ({
+  id: 'children',
+  type: 'workflow-call' as const,
+  name: 'Run children',
+  config: {
+    workflowId: { source: 'fixed' as const, value: 'child-flow' },
+    items: { source: 'node' as const, nodeId: 'work', path: 'fields.items' },
+    input: {
+      topic: { source: 'trigger' as const, path: 'item.topic' },
+      ordinal: { source: 'trigger' as const, path: 'itemIndex' },
+    },
+    concurrency: 4,
+  },
+});
 const endNode = (): EndNode => ({
   id: 'done',
   type: 'end',
@@ -235,10 +249,11 @@ function arrayMutationProxy(): unknown[] {
 }
 
 describe('canonical workflow node model', () => {
-  it('parses exactly the seven node discriminators', () => {
+  it('parses exactly the eight node discriminators', () => {
     const nodes: WorkflowNode[] = [
       triggerNode(),
       employeeNode(),
+      workflowCallNode(),
       conditionNode(),
       mergeNode(),
       approvalNode(),
@@ -247,11 +262,25 @@ describe('canonical workflow node model', () => {
     ];
 
     expect(nodes.map((node) => workflowNodeSchema.parse(node).type)).toEqual([
-      'trigger', 'employee', 'condition', 'merge', 'approval', 'wait', 'end',
+      'trigger', 'employee', 'workflow-call', 'condition', 'merge', 'approval', 'wait', 'end',
     ]);
     expectTypeOf<WorkflowNode['type']>().toEqualTypeOf<
-      'trigger' | 'employee' | 'condition' | 'merge' | 'approval' | 'wait' | 'end'
+      'trigger' | 'employee' | 'workflow-call' | 'condition' | 'merge' | 'approval' | 'wait' | 'end'
     >();
+  });
+
+  it('round-trips workflow-call bindings and applies only the authored concurrency default', () => {
+    const authored = workflowCallNode();
+    expect(workflowNodeSchema.parse(authored)).toEqual(authored);
+    const { concurrency: _concurrency, ...withoutConcurrency } = authored.config;
+    expect(workflowNodeSchema.parse({ ...authored, config: withoutConcurrency })).toEqual({
+      ...authored,
+      config: { ...withoutConcurrency, concurrency: 2 },
+    });
+    expect(workflowNodeSchema.safeParse({
+      ...authored,
+      config: { ...authored.config, unexpected: true },
+    }).success).toBe(false);
   });
 
   it('parses all five trigger kinds and both Wait modes', () => {
@@ -273,6 +302,19 @@ describe('canonical workflow node model', () => {
       if (parsed.type !== 'wait') throw new Error('expected Wait node');
       return parsed.config.mode;
     })).toEqual(['duration', 'until']);
+  });
+
+  it('parses each live todo-status filter on its own and refuses a stored false', () => {
+    const triggerConfigs: TriggerNode['config'][] = [
+      { kind: 'todo-status', status: 'assigned', unlabeled: true },
+      { kind: 'todo-status', status: 'assigned', unassigned: true },
+      { kind: 'todo-status', status: 'assigned', rootOnly: true },
+    ];
+
+    expect(triggerConfigs.map((config) => workflowNodeSchema.parse(triggerNode(config)).config)).toEqual(triggerConfigs);
+    expect(workflowNodeSchema.safeParse(triggerNode(
+      { kind: 'todo-status', status: 'assigned', unlabeled: false } as unknown as TriggerNode['config'],
+    )).success).toBe(false);
   });
 });
 

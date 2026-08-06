@@ -5,7 +5,7 @@ import type { WorkflowError } from './runtime.js';
 
 export interface WorkflowBindingContext {
   input: Record<string, JsonValue>;
-  trigger: { kind: string; payload: Record<string, JsonValue> };
+  trigger: { kind: string; payload: Record<string, JsonValue>; item?: JsonValue; itemIndex?: number };
   nodes: Record<string, { status: string; output: WorkflowNodeOutput | null; error: WorkflowError | null }>;
   run: { id: string; startedAt: string; todoId?: string };
 }

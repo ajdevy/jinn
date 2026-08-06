@@ -20,7 +20,7 @@ import {
   type WorkflowNodeWire,
 } from "./ports"
 import { useEditorApi } from "./store"
-import { StatusGlyph } from "../run-support"
+import { StatusGlyph, statusMeta } from "../run-support"
 import type { NodeRunView } from "./graph"
 
 const DOT = (
@@ -210,6 +210,12 @@ function nodeCaption(node: WorkflowNodeWire): string {
       const description = config.description
       return typeof description === "string" && description.trim() ? description : "Approval gate"
     }
+    case "workflow-call": {
+      const workflowId = config.workflowId as { source?: unknown; value?: unknown } | undefined
+      return workflowId?.source === "fixed" && typeof workflowId.value === "string" && workflowId.value
+        ? workflowId.value
+        : "Choose workflow"
+    }
     case "wait":
       return config.mode === "until" ? "Until timestamp" : `${typeof config.minutes === "number" ? config.minutes : "?"} min`
     case "end":
@@ -229,6 +235,9 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
   const node = data.node
   const readOnly = data.run !== undefined
   const employee = employeeName(node)
+  const caption = node.type === "workflow-call" && data.run?.workflowCall
+    ? `${data.run.workflowCall.succeeded}/${data.run.workflowCall.total} · ${statusMeta(data.run.status).label}`
+    : nodeCaption(node)
   return (
     <CardShell node={node} selected={selected ?? false} run={data.run}>
       <div className="flex h-full items-center gap-2.5 px-3.5">
@@ -242,7 +251,7 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
             {node.name}
           </span>
           <span className="block truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-            {nodeCaption(node)}
+            <span className="[font-variant-numeric:tabular-nums]">{caption}</span>
           </span>
         </span>
       </div>
@@ -325,6 +334,7 @@ function MergeDisc({ data, selected }: NodeProps<EditorNode>) {
 export const editorNodeTypes = {
   trigger: StandardCard,
   employee: StandardCard,
+  "workflow-call": StandardCard,
   approval: StandardCard,
   wait: StandardCard,
   end: StandardCard,

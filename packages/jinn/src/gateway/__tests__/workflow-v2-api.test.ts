@@ -208,6 +208,10 @@ describe("Workflow v2 canonical API", () => {
         runId: "run_11111111-1111-4111-8111-111111111111", nodeId: "review",
         status: "pending", requestedAt: "2026-07-23T12:30:00.000Z",
       }],
+      childRuns: [{
+        runId: "run_22222222-2222-4222-8222-222222222222", workflowId: "publish-item", nodeId: "fanout",
+        itemIndex: 0, status: "running", startedAt: "2026-07-23T12:10:00.000Z",
+      }],
     };
     const service = { getRun: vi.fn(() => detail), getRunSpend: vi.fn(() => 0) };
     const context = { gatewayAuthToken: "test-token", workflowService: service, getConfig: () => ({ gateway: {}, engines: {} }),
@@ -223,6 +227,7 @@ describe("Workflow v2 canonical API", () => {
     expect(body.definitionRevision).toBe(4);
     expect(body.nodeRuns).toEqual(detail.nodeRuns);
     expect(body.approvals).toEqual(detail.approvals);
+    expect(body.childRuns).toEqual(detail.childRuns);
     const attempts = body.attempts as Array<Record<string, unknown>>;
     expect(attempts).toHaveLength(1);
     expect(attempts[0]).not.toHaveProperty("promptText");
@@ -239,6 +244,7 @@ describe("Workflow v2 canonical API", () => {
     expect(fat.status).toBe(200);
     expect(fat.body.definition).toEqual(detail.definition);
     expect(fat.body.nodeRuns).toEqual(detail.nodeRuns);
+    expect(fat.body.childRuns).toEqual(detail.childRuns);
     const fatAttempts = fat.body.attempts as Array<Record<string, unknown>>;
     expect(fatAttempts[0]).not.toHaveProperty("input");
     expect(fatAttempts[0]).toMatchObject({ promptText: "Write the notes.\n\n---\nContract block." });

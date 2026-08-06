@@ -9,7 +9,7 @@ import {
 import {
   WORKFLOW_ATTEMPT_STATUSES, WORKFLOW_NODE_RUN_STATUSES, WORKFLOW_RUN_STATUSES,
   type ResolvedEmployeeConfig, type WorkflowApprovalRecord, type WorkflowAttemptRecord, type WorkflowError,
-  type WorkflowNodeRunRecord, type WorkflowRunDetail, type WorkflowRunRecord,
+  type WorkflowChildRunSummary, type WorkflowNodeRunRecord, type WorkflowRunDetail, type WorkflowRunRecord,
 } from './runtime.js';
 import { canonicalJson, isCanonicalInstant, isRunId, parseStoredJson, repositoryError } from './repository-support.js';
 import type { WorkflowRunSummary } from './repository.js';
@@ -36,7 +36,7 @@ const triggerSchema = z.strictObject({
 });
 const nodeRecordSchema = z.strictObject({
   runId: z.string(), nodeId: z.string(),
-  nodeType: z.enum(['trigger', 'employee', 'condition', 'merge', 'approval', 'wait', 'end']),
+  nodeType: z.enum(['trigger', 'employee', 'workflow-call', 'condition', 'merge', 'approval', 'wait', 'end']),
   status: z.enum(WORKFLOW_NODE_RUN_STATUSES), activated: z.boolean(),
   resolvedConfig: z.record(z.string(), jsonValueSchema).optional(), input: jsonValueSchema.optional(),
   output: outputSchema.optional(), error: errorSchema.optional(), resumeAt: instantSchema.optional(),
@@ -258,7 +258,51 @@ export function readRunDetail(db: WorkflowSqliteConnection, workflowId: string, 
     || sessions.length !== new Set(sessions).size) {
     repositoryError('corrupt-record', `Workflow run ${run.id} has foreign history rows.`);
   }
-  return { ...run, nodeRuns, attempts, approvals };
+  const childRuns = run.definition.nodes
+    .filter((node) => node.type === 'workflow-call')
+    .flatMap((node) => readRunsByCaller(db, run.id, node.id));
+  return { ...run, nodeRuns, attempts, approvals, childRuns };
+}
+
+export function readRunsByCaller(
+  db: WorkflowSqliteConnection,
+  parentRunId: string,
+  nodeId: string,
+): WorkflowChildRunSummary[] {
+  let rows: RunRow[];
+  try {
+    rows = db.prepare(`SELECT * FROM workflow_runs
+      WHERE json_extract(trigger_json, '$.kind') = 'workflow-call'
+        AND json_extract(trigger_json, '$.payload.caller.runId') = ?
+        AND json_extract(trigger_json, '$.payload.caller.nodeId') = ?
+      ORDER BY json_extract(trigger_json, '$.payload.itemIndex'), started_at, id`).all(parentRunId, nodeId) as RunRow[];
+  } catch (error) {
+    if (error instanceof Error && /malformed JSON/i.test(error.message)) {
+      repositoryError('corrupt-record', `Workflow child runs for ${parentRunId}:${nodeId} contain invalid JSON.`);
+    }
+    throw error;
+  }
+  const seen = new Set<number>();
+  return rows.map((row) => {
+    const run = decodeRun(row);
+    const itemIndex = run.trigger.payload.itemIndex;
+    if (!Number.isInteger(itemIndex) || (itemIndex as number) < 0 || seen.has(itemIndex as number)) {
+      repositoryError('corrupt-record', `Workflow child runs for ${parentRunId}:${nodeId} have invalid item indexes.`);
+    }
+    seen.add(itemIndex as number);
+    const end = orderedNodes(db, run).find((candidate) => candidate.nodeType === 'end' && candidate.status === 'completed');
+    return {
+      runId: run.id,
+      workflowId: run.workflowId,
+      nodeId,
+      itemIndex: itemIndex as number,
+      status: run.status,
+      startedAt: run.startedAt,
+      ...(run.endedAt ? { endedAt: run.endedAt } : {}),
+      ...(end?.output ? { endOutput: end.output.fields } : {}),
+      ...(run.error ? { error: run.error } : {}),
+    };
+  });
 }
 function summary(db: WorkflowSqliteConnection, run: WorkflowRunRecord): WorkflowRunSummary {
   const nodeRuns = orderedNodes(db, run);

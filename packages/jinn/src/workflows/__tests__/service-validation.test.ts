@@ -32,6 +32,10 @@ const eventTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start"
   config: { kind: "event", eventName: "build.finished" } };
 const poisonSchedule: WorkflowNode = { id: "start", type: "trigger", name: "Start",
   config: { kind: "schedule", cron: "every weekday please", timezone: "UTC" } };
+const todoStatusTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start",
+  config: { kind: "todo-status", status: "in_review", label: "build" } };
+const conflictingTodoFilters: WorkflowNode = { id: "start", type: "trigger", name: "Start",
+  config: { kind: "todo-status", status: "in_review", label: "build", unlabeled: true } };
 const finish: WorkflowNode = { id: "finish", type: "end", name: "Finish", config: { result: "success" } };
 const employee: Employee = { name: "worker", displayName: "Worker", department: "operations", rank: "employee",
   engine: "test-engine", model: "test-model", effortLevel: "high", persona: "Complete work." };
@@ -85,6 +89,22 @@ afterEach(() => {
 });
 
 describe("Workflow executable service boundaries", () => {
+  it("refuses a fixed self-targeting workflow-call before saving the draft", () => {
+    const created = service.createDefinition({ id: "self-call", title: "Self call" });
+    const call: WorkflowNode = { id: "children", type: "workflow-call", name: "Children", config: {
+      workflowId: { source: "fixed", value: created.id }, concurrency: 2,
+    } };
+    const draft = { ...created, nodes: [trigger, call, finish], edges: [
+      edge("start-call", "start", "children"), edge("call-finish", "children", "finish"),
+    ] };
+
+    expect(() => service.saveDefinition(draft, created.revision)).toThrow(expect.objectContaining({
+      code: "invalid-definition",
+      issues: [expect.objectContaining({ code: "workflow-call-self-reference", nodeId: "children" })],
+    }));
+    expect(repository.getDefinition(created.id)).toEqual(created);
+  });
+
   it("rejects zero-node enable without changing the stored definition", () => {
     const created = service.createDefinition({ id: "empty-flow", title: "Empty flow" });
     definitionChanges.length = 0;
@@ -97,7 +117,7 @@ describe("Workflow executable service boundaries", () => {
 
     expect(caught).toEqual(new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [
       { code: "missing-end-path", message: "A Trigger must have a directed path to an End." },
-      { code: "trigger-count", message: "Workflow must contain exactly one Trigger." },
+      { code: "trigger-count", message: "Workflow must contain at least one Trigger." },
     ]));
     expect(repository.getDefinition(created.id)).toEqual(created);
     expect(definitionChanges).toEqual([]);
@@ -135,7 +155,7 @@ describe("Workflow executable service boundaries", () => {
       new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [
         { code: "unreachable-node", message: "Node is not reachable from a Trigger.", nodeId: "finish" },
         { code: "missing-end-path", message: "A Trigger must have a directed path to an End." },
-        { code: "trigger-count", message: "Workflow must contain exactly one Trigger." },
+        { code: "trigger-count", message: "Workflow must contain at least one Trigger." },
       ]),
     );
     expect(revised).toMatchObject({ enabled: true, revision: enabled.revision + 1 });
@@ -223,6 +243,27 @@ describe("Workflow executable service boundaries", () => {
 
     expect(enableError).toEqual(expected);
     expect(repository.getDefinition(stored.id)).toMatchObject({ enabled: false, revision: stored.revision });
+    expect(definitionChanges).toEqual([]);
+  });
+
+  it("refuses a conflicting unlabeled+label revision of an already-enabled todo-status Workflow", () => {
+    const authored = save("todo-filters", [todoStatusTrigger, finish], [edge("start-finish", "start", "finish")]);
+    const enabled = service.setEnabled({ id: authored.id, enabled: true, expectedRevision: authored.revision });
+    definitionChanges.length = 0;
+    let caught: unknown;
+
+    try {
+      service.saveDefinition({ ...enabled, nodes: [conflictingTodoFilters, finish] }, enabled.revision);
+    } catch (error) { caught = error; }
+
+    expect(caught).toEqual(new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [{
+      code: "conflicting-todo-filters",
+      message: "A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels"
+        + " can never carry the one named. Set only one.",
+      nodeId: "start",
+      path: "nodes.0.config.unlabeled",
+    }]));
+    expect(repository.getDefinition(enabled.id)).toEqual(enabled);
     expect(definitionChanges).toEqual([]);
   });
 

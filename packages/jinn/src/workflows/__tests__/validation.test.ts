@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   Binding,
   ConditionNode,
+  TriggerNode,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowInputField,
@@ -24,6 +25,20 @@ function trigger(id = 'trigger'): WorkflowNode {
 
 function employee(id: string, employeeBinding: Binding<string> = fixed('worker')): WorkflowNode {
   return { id, type: 'employee', name: id, config: { employee: employeeBinding, prompt: `Run ${id}.` } };
+}
+
+function workflowCall(id: string, workflowId: Binding<string> = fixed('child-flow')): WorkflowNode {
+  return {
+    id,
+    type: 'workflow-call',
+    name: id,
+    config: {
+      workflowId,
+      items: { source: 'fixed', value: [{ topic: 'one' }] },
+      input: { topic: { source: 'trigger', path: 'item.topic' } },
+      concurrency: 2,
+    },
+  };
 }
 
 function condition(id: string, ports = ['yes'], defaultPort = 'no'): ConditionNode {
@@ -148,6 +163,34 @@ describe('valid executable graphs', () => {
     expect(validateExecutableWorkflow(validChain())).toEqual({ ok: true, issues: [] });
   });
 
+  it('accepts a workflow-call success path and validates every authored binding', () => {
+    const graph = definition(
+      [trigger(), workflowCall('children'), end()],
+      [edge('e1', 'trigger', 'children'), edge('e2', 'children', 'end')],
+    );
+
+    expect(outputPorts(graph.nodes[1]!)).toEqual(['success']);
+    expect(validateExecutableWorkflow(graph)).toEqual({ ok: true, issues: [] });
+
+    const malformed = structuredClone(graph);
+    const call = malformed.nodes[1] as Extract<WorkflowNode, { type: 'workflow-call' }>;
+    call.config.input = { topic: { source: 'node', nodeId: 'missing', path: 'fields.topic' } };
+    expect(codes(validateExecutableWorkflow(malformed))).toContain('unknown-node-binding');
+  });
+
+  it('refuses a fixed workflow-call target equal to the defining workflow', () => {
+    const graph = definition(
+      [trigger(), workflowCall('children', fixed('validation-fixture')), end()],
+      [edge('e1', 'trigger', 'children'), edge('e2', 'children', 'end')],
+    );
+
+    expect(validateExecutableWorkflow(graph).issues).toContainEqual(expect.objectContaining({
+      code: 'workflow-call-self-reference',
+      nodeId: 'children',
+      path: 'nodes.1.config.workflowId',
+    }));
+  });
+
   it('accepts branching, fan-out, Condition, Merge, Approval recovery, and Wait', () => {
     const graph = definition(
       [
@@ -198,11 +241,35 @@ describe('canonical schema boundary', () => {
 });
 
 describe('triggers, End paths, and cycles', () => {
-  it.each([
-    ['zero', definition([employee('work'), end()], [edge('e1', 'work', 'end')])],
-    ['two', definition([trigger('first-trigger'), trigger('second-trigger'), end()], [edge('e1', 'first-trigger', 'end')])],
-  ])('requires exactly one Trigger for %s Trigger definitions', (_label, graph) => {
-    expect(codes(validateExecutableWorkflow(graph))).toContain('trigger-count');
+  it('requires at least one Trigger', () => {
+    const result = validateExecutableWorkflow(definition([employee('work'), end()], [edge('e1', 'work', 'end')]));
+    expect(result.issues).toContainEqual({ code: 'trigger-count', message: 'Workflow must contain at least one Trigger.' });
+  });
+
+  it('accepts one Todo trigger and one Workflow Call trigger when both reach an End', () => {
+    const graph = definition([
+      { id: 'todo-trigger', type: 'trigger', name: 'Todo', config: { kind: 'todo-status', status: 'in_review' } },
+      { id: 'call-trigger', type: 'trigger', name: 'Called', config: { kind: 'workflow-call' } },
+      end('todo-end'),
+      end('call-end'),
+    ], [edge('todo-finish', 'todo-trigger', 'todo-end'), edge('call-finish', 'call-trigger', 'call-end')]);
+
+    expect(validateExecutableWorkflow(graph)).toEqual({ ok: true, issues: [] });
+  });
+
+  it('reports a duplicate Trigger kind on the duplicate node', () => {
+    const graph = definition([
+      trigger('first-trigger'),
+      trigger('second-trigger'),
+      end('first-end'),
+      end('second-end'),
+    ], [edge('first-finish', 'first-trigger', 'first-end'), edge('second-finish', 'second-trigger', 'second-end')]);
+
+    expect(validateExecutableWorkflow(graph).issues).toContainEqual({
+      code: 'duplicate-trigger-kind',
+      message: 'Workflow must contain at most one manual Trigger.',
+      nodeId: 'second-trigger',
+    });
   });
 
   it('requires a directed Trigger-to-End path even when an End exists', () => {
@@ -901,5 +968,33 @@ describe('Schedule trigger cron and timezone', () => {
     const result = validateExecutableWorkflow(scheduled(cron, timezone));
     expect(result.ok).toBe(false);
     expect(issue(result, 'invalid-schedule')).toEqual({ code: 'invalid-schedule', message, nodeId: 'trigger', path });
+  });
+});
+
+describe('Todo trigger filters', () => {
+  function filtered(config: Record<string, unknown>): WorkflowDefinition {
+    return definition(
+      [{ id: 'todo-trigger', type: 'trigger', name: 'trigger',
+        config: { kind: 'todo-status', status: 'assigned', ...config } as TriggerNode['config'] }, end()],
+      [edge('e1', 'todo-trigger', 'end')],
+    );
+  }
+
+  it('accepts each live filter on its own', () => {
+    expect(validateExecutableWorkflow(filtered({ unlabeled: true, unassigned: true, rootOnly: true })))
+      .toEqual({ ok: true, issues: [] });
+    expect(validateExecutableWorkflow(filtered({ label: 'build', unassigned: true }))).toEqual({ ok: true, issues: [] });
+  });
+
+  it('rejects a trigger that demands no labels and a specific label at once', () => {
+    const result = validateExecutableWorkflow(filtered({ unlabeled: true, label: 'build' }));
+
+    expect(result.ok).toBe(false);
+    expect(issue(result, 'conflicting-todo-filters')).toEqual({
+      code: 'conflicting-todo-filters',
+      message: 'A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels can never carry the one named. Set only one.',
+      nodeId: 'todo-trigger',
+      path: 'nodes.0.config.unlabeled',
+    });
   });
 });

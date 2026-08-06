@@ -160,6 +160,14 @@ const triggerConfigSchema = z.discriminatedUnion('kind', [
      *  move to `assigned` leaves the assignee null. Filtering on `assignee` for
      *  such a Todo never fires — pick the status the assignment itself produces. */
     assignee: z.string().min(1).max(80).optional(),
+    /** These three read the Todo's CURRENT row when the trigger fires rather than
+     *  the provenance snapshot frozen into the status event, so a Todo re-tagged,
+     *  reassigned, or re-parented after it moved is judged as it stands now.
+     *  `true` is the only storable value: a persisted `false` reads as a filter
+     *  that is set and matches everything, which is never what an author meant. */
+    unlabeled: z.literal(true).optional(),
+    unassigned: z.literal(true).optional(),
+    rootOnly: z.literal(true).optional(),
   }),
   z.strictObject({ kind: z.literal('workflow-call') }),
 ]);
@@ -182,6 +190,17 @@ const employeeNodeSchema = z.strictObject({
     output: workflowOutputSchema.optional(),
     retry: workflowRetrySchema.optional(),
     timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
+  }),
+});
+const workflowCallNodeSchema = z.strictObject({
+  id: nodeIdSchema,
+  type: z.literal('workflow-call'),
+  name: z.string().min(1).max(80),
+  config: z.strictObject({
+    workflowId: stringBindingSchema,
+    items: bindingSchema.optional(),
+    input: z.record(pathSegmentSchema, bindingSchema).optional(),
+    concurrency: finiteNumberSchema.int().min(1).max(16).default(2),
   }),
 });
 const conditionPredicateSchema = z.strictObject({
@@ -256,6 +275,7 @@ const endNodeSchema = z.strictObject({
 const rawWorkflowNodeSchema = z.discriminatedUnion('type', [
   triggerNodeSchema,
   employeeNodeSchema,
+  workflowCallNodeSchema,
   conditionNodeSchema,
   mergeNodeSchema,
   approvalNodeSchema,
@@ -349,6 +369,7 @@ export type WorkflowOutputSchema = z.infer<typeof workflowOutputSchema>;
 export type WorkflowInputField = z.infer<typeof workflowInputFieldSchema>;
 export type TriggerNode = z.infer<typeof triggerNodeSchema>;
 export type EmployeeNode = z.infer<typeof employeeNodeSchema>;
+export type WorkflowCallNode = z.infer<typeof workflowCallNodeSchema>;
 export type ConditionPredicate = z.infer<typeof conditionPredicateSchema>;
 export type ConditionNode = z.infer<typeof conditionNodeSchema>;
 export type MergeNode = z.infer<typeof mergeNodeSchema>;

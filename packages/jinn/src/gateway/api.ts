@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
+import type { GatewayEmit } from "../shared/gateway-events.js";
 import type { ChatBlock, ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { compactEmployeeRole } from "../shared/employee-role.js";
@@ -26,9 +27,10 @@ import {
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
 import type { SessionManager } from "../sessions/manager.js";
-import { buildContext, buildPlatformContextSnapshot, type BuildContextOptions } from "../sessions/context.js";
+import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "../sessions/context.js";
 import { buildPlatformContextRefresh, fingerprintPlatformContext } from "../engines/platform-context.js";
 import { stripControlChars, hasControlBytes } from "../shared/sanitize.js";
+import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
 import { initDb } from "../shared/db.js";
 import {
   listSessions,
@@ -124,7 +126,7 @@ import {
   TEMPLATE_MIGRATIONS_DIR,
   resolveHomeIdentity,
 } from "../shared/paths.js";
-import { saveConfigAtomic } from "../shared/config.js";
+import { saveConfigAtomic, gatewayEnvOverrides } from "../shared/config.js";
 import { messageBodyError } from "../shared/message-body.js";
 import { logger } from "../shared/logger.js";
 import { redactText } from "../shared/redact.js";
@@ -134,6 +136,7 @@ import {
   writeSharedSttSettings,
 } from "../stt/settings-store.js";
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
+import { resolveClaudeConfigDir } from "../shared/home.js";
 import { resolveEffort } from "../shared/effort.js";
 import { selectClaudeModelFallback } from "../shared/model-fallback.js";
 import { detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
@@ -141,7 +144,7 @@ import { collectEngineLimits } from "../shared/engine-limits.js";
 import { handleRateLimit } from "../sessions/rate-limit-handler.js";
 import { resolveEngineRunMcp } from "../sessions/engine-run-mcp.js";
 import { decideJinnAttachment } from "../mcp/attachment.js";
-import { getPendingInstanceMigration, type PendingInstanceMigration } from "../migrations/service.js";
+import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
 import { pickEncoding, compressBuffer, MIN_COMPRESS_BYTES } from "./compress.js";
@@ -161,7 +164,7 @@ import { isJsonMediaType } from "./media-type.js";
 import { readJsonlTail } from "./jsonl-tail.js";
 import { completedStreamedBlockIds } from "./streamed-blocks.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
-import { deliverClaimedSessionDelivery, notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, notifyAttachedTalkSessions, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
+import { deliverClaimedSessionDelivery, notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
 import { clearDelegationCompletionContract, DELEGATION_COMPLETION_TRACKED_META_KEY } from "../sessions/delegation-completion-contract.js";
 import { clipSessionMessage, sessionCommGuards, prepareLateralSend, isDescendantOf, resolveCallerIdentity, type CallerIdentity } from "./session-comm-guards.js";
 import {
@@ -312,19 +315,17 @@ import {
   PAIRING_CHALLENGE_TTL_MS,
 } from "./pairing-challenge.js";
 import { markTranscriptSyncedThrough, scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
-import { getOrchestratorPersona } from "../talk/orchestrator-persona.js";
 import {
-  feedTalkText,
-  flushTalkSpeech,
-  discardTalkSpeech,
   streamTtsSentences,
   ttsStatus,
   validateTtsText,
 } from "../talk/tts-stream.js";
-import { isTalkMuted } from "../talk/mute-state.js";
-import { maybeEmitTalkGraph } from "../talk/graph.js";
 import { onboardingNeeded, applyEngineChoice } from "./onboarding-policy.js";
-import { restartDetached, type RestartDetachedOptions } from "./lifecycle.js";
+import {
+  CONTAINER_RESTART_UNSUPPORTED_MESSAGE,
+  restartDetached,
+  type RestartDetachedOptions,
+} from "./lifecycle.js";
 import { updateSkillContent } from "./skills.js";
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
@@ -372,7 +373,7 @@ export interface ApiContext {
   /** Opaque process-generation id used only in platform-context fingerprints. */
   gatewayBootId?: string;
   getConfig: () => JinnConfig;
-  emit: (event: string, payload: unknown) => void;
+  emit: GatewayEmit;
   connectors: Map<string, import("../shared/types.js").Connector>;
   reloadConnectorInstances?: () => Promise<{ started: string[]; stopped: string[]; errors: string[] }>;
   /** Re-read config.yaml into memory immediately (same as the file-watcher does,
@@ -499,6 +500,10 @@ async function openInstanceMigration(
       changedFiles: pending.changedFiles,
       materialization: pending.materialization,
     });
+    reconcileServiceOwnedRemovals({
+      instanceHome: context.jinnHome ?? JINN_HOME,
+      pending,
+    });
     const afterSnapshot = acceptedInstanceMigrationSession(sessionKey, prompt);
     if (afterSnapshot) return { sessionId: afterSnapshot.id, migrationKey, reused: true };
     retireUnacceptedInstanceMigrationSession(sessionKey);
@@ -538,7 +543,6 @@ async function openInstanceMigration(
       });
       throw error;
     }
-    maybeEmitTalkGraph(session.id, "added", { getSession, emit: context.emit });
     return { sessionId: session.id, migrationKey, reused: false };
   });
   migrationOpenLocks.set(migrationKey, create);
@@ -599,7 +603,7 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // receipts are the exception: acceptance already committed this internal
     // turn, so startup replay must finish it regardless of the parent's source.
     const callbackDelivery = getSessionDeliveryByQueueItemId(item.id);
-    if (session.source !== "web" && !callbackDelivery) continue;
+    if (runtimeSessionSource(session.source) !== "web" && !callbackDelivery) continue;
     session = maybeRevertEngineOverride(session);
 
     const config = context.getConfig();
@@ -734,13 +738,6 @@ function dispatchWebSessionRun(
           error: errMsg,
         });
       }
-      // This outer dispatch-error path bypasses notifyParentSession (run() failed
-      // before its own completion handling), so wake any attached talk sessions
-      // here too — otherwise an attachment wake is silently lost on a hard failure.
-      if (erroredOnDispatch) {
-        notifyAttachedTalkSessions(erroredOnDispatch, { error: errMsg });
-        maybeEmitTalkGraph(session.id, "completed", { getSession, emit: context.emit });
-      }
     });
   };
 
@@ -754,7 +751,7 @@ function dispatchWebSessionRun(
 /**
  * GET /api/skills description cache, keyed by skill dir name and invalidated
  * by SKILL.md mtime (statSync is far cheaper than re-reading + re-parsing ~70
- * files per request). Mirrors the mtime-cache in talk/orchestrator-persona.ts.
+ * files per request).
  */
 const skillDescriptionCache = new Map<string, { mtimeMs: number; description: string }>();
 
@@ -2619,6 +2616,12 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/system/restart") {
       const auth = authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome);
       if (!auth.ok) return json(res, { error: auth.reason || "Unauthorized" }, 401);
+      if (process.env.JINN_CONTAINER === "1") {
+        return json(res, {
+          code: "container_restart_unsupported",
+          error: CONTAINER_RESTART_UNSUPPORTED_MESSAGE,
+        }, 409);
+      }
       const requestingSessionId = headerValue(req, "x-jinn-session-id")?.trim();
       if (requestingSessionId) {
         const requestingSession = getSession(requestingSessionId);
@@ -2702,13 +2705,18 @@ export async function handleApiRequest(
       }
       const currentConfig = context.getConfig();
       const currentPort = context.runtimePort ?? currentConfig.gateway.port ?? 7777;
+      // The configured host, not the one JINN_HOST resolved: this goes into the NEW
+      // workspace's config.yaml, and the variable describes this container, not that
+      // home. Undefined leaves the new config's own loopback default alone.
+      const envHost = gatewayEnvOverrides().host;
+      const configuredHost = currentConfig.gateway.host;
       let created: CreateInstanceResult;
       try {
         created = await (context.createWorkspaceInstance ?? createInstance)({
           name: body.name,
           port: body.port as number | undefined,
           currentPort,
-          gatewayHost: currentConfig.gateway.host,
+          gatewayHost: configuredHost === envHost ? undefined : configuredHost,
           authRequired: shouldRequireGatewayAuth(currentConfig),
         });
       } catch (error) {
@@ -3252,7 +3260,6 @@ export async function handleApiRequest(
       if (!session) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const updates: UpdateSessionFields = {};
       if (body.title !== undefined) {
@@ -3337,7 +3344,6 @@ export async function handleApiRequest(
       killSessionEngines(context, session, "Interrupted: session deleted");
       context.sessionManager.getQueue().clearQueue(session.sessionKey || session.sourceRef || session.id);
 
-      maybeEmitTalkGraph(params.id, "removed", { getSession, emit: context.emit });
       const deleted = deleteSession(params.id);
       if (!deleted) return notFound(res);
       // Remove any per-session Codex CODEX_HOME overlay (holds a session-scoped
@@ -3350,8 +3356,10 @@ export async function handleApiRequest(
     }
 
     // POST /api/sessions/:id/archive — reversible operator cleanup. The
-    // session, transcript, engine snapshot, and Codex overlay remain intact;
-    // normal list queries simply omit its archived_at row until unarchived.
+    // session, transcript, and engine snapshot remain intact; normal list
+    // queries simply omit its archived_at row until unarchived. Archiving does
+    // not delete the Codex overlay either, but it does not exempt it from the
+    // 14-day idle retention sweep (see startCodexSessionHomeSweeps).
     params = matchRoute("/api/sessions/:id/archive", pathname);
     if (method === "POST" && params) {
       const session = getSession(params.id);
@@ -3557,7 +3565,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const ids: string[] = body.ids;
       if (!Array.isArray(ids) || ids.length === 0) return badRequest(res, "ids array is required");
@@ -3579,9 +3586,6 @@ export async function handleApiRequest(
         context.sessionManager.getQueue().clearQueue(session.sessionKey || session.sourceRef || session.id);
       }
 
-      for (const session of deletable) {
-        maybeEmitTalkGraph(session.id, "removed", { getSession, emit: context.emit });
-      }
       const deletableIds = deletable.map((session) => session.id);
       const count = deleteSessions(deletableIds);
       for (const id of deletableIds) {
@@ -4964,7 +4968,6 @@ export async function handleApiRequest(
       if (!_parsed.body || typeof _parsed.body !== "object" || Array.isArray(_parsed.body)) {
         return badRequest(res, "request body must be a JSON object");
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       const callerRef = delegationCaller.kind === "session" ? delegationCaller.callerId : "operator";
@@ -5293,7 +5296,6 @@ export async function handleApiRequest(
           title,
         });
       }
-      maybeEmitTalkGraph(session.id, "added", { getSession, emit: context.emit });
 
       // The delegation card above is the atomic response's sole transcript row.
       // Publish the Todo cache invalidation through the shared boundary without
@@ -5330,7 +5332,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/sessions") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const prompt = body.prompt || body.message;
       const promptError = messageBodyError(prompt, "prompt or message");
@@ -5402,23 +5403,12 @@ export async function handleApiRequest(
         // Fixes #38.
         model: selection.model,
         prompt,
-        // Optional excerpt override (talk delegation passes the operator's
-        // verbatim ask so list UIs don't show the scaffolded prompt).
+        // Optional excerpt override (callers that wrap the operator's ask in a
+        // scaffolded prompt pass the verbatim ask so list UIs show that instead).
         promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : undefined,
         portalName: config.portal?.portalName,
       });
       logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
-      // Voice mode: when the hands-free orchestrator (source:"talk") spawns a COO
-      // child, tell the Talk UI which channel to animate to. Auto-derived here so
-      // the orchestrator persona carries zero focus-signalling burden.
-      if (session.parentSessionId) {
-        const talkParent = getSession(session.parentSessionId);
-        if (talkParent?.source === "talk") {
-          const label = String(body.employee || prompt || "task").replace(/\s+/g, " ").trim().slice(0, 48);
-          context.emit("talk:focus", { cooId: session.id, label, parentId: talkParent.id });
-        }
-      }
-      maybeEmitTalkGraph(session.id, "added", { getSession, emit: context.emit });
       // First-message attachments were uploaded before the session existed (FILES_DIR).
       // Re-home them under uploads/<date>/<sessionId>/ now that we have an id, then persist
       // the media on the user message so the bubble renders chips/thumbnails on reload.
@@ -5475,7 +5465,6 @@ export async function handleApiRequest(
       session = maybeRevertEngineOverride(session);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       // Child callbacks claim a durable outbox identity before entering this
@@ -5609,18 +5598,6 @@ export async function handleApiRequest(
       const prompt = body.message || body.prompt;
       const messageError = messageBodyError(prompt);
       if (messageError) return badRequest(res, messageError);
-
-      // Voice mode: when the orchestrator CONTINUES an existing COO child (a
-      // thread switch/reuse), re-signal focus so the Talk UI relights that
-      // satellite + morphs the main orb to its channel — mirroring the
-      // talk:focus emitted on new-session spawn in POST /api/sessions.
-      if (session.parentSessionId) {
-        const talkParent = getSession(session.parentSessionId);
-        if (talkParent?.source === "talk") {
-          context.emit("talk:focus", { cooId: session.id, label: session.title || "", parentId: talkParent.id });
-        }
-      }
-      maybeEmitTalkGraph(session.id, "status", { getSession, emit: context.emit });
 
       // Allow internal callers (e.g. child session callbacks) to specify a non-user role
       const messageRole: string = body.role === "notification" ? "notification" : "user";
@@ -5831,7 +5808,6 @@ export async function handleApiRequest(
           lastError: null,
         });
         session = getSession(session.id) ?? session;
-        context.emit("session:resumed", { sessionId: session.id });
       }
 
       // If a turn is already running, check whether we should interrupt or queue.
@@ -5843,8 +5819,6 @@ export async function handleApiRequest(
           // SessionQueue serializes per-session; the new turn enqueued below will
           // wait for the killed run()'s promise to settle before starting.
           context.emit("session:interrupted", { sessionId: session.id, reason: "new message" });
-        } else if (!isNotification) {
-          context.emit("session:queued", { sessionId: session.id, message: prompt });
         }
       }
 
@@ -5856,7 +5830,6 @@ export async function handleApiRequest(
           lastActivity: new Date().toISOString(),
           lastError: null,
         });
-        context.emit("session:resumed", { sessionId: session.id });
       }
 
       // Clear any pending cancellation so the new message runs normally.
@@ -5935,7 +5908,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/cron") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const jobs = loadJobs();
       // Job ids are identity (run-log files and PUT/DELETE routing) —
@@ -5979,7 +5951,6 @@ export async function handleApiRequest(
       if (idx === -1) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const merged = { ...jobs[idx], ...body, id: params.id } as CronJob;
       const scheduleErrors = validateCronSchedule({ schedule: merged.schedule, ...(merged.timezone !== undefined ? { timezone: merged.timezone } : {}) });
@@ -6012,7 +5983,7 @@ export async function handleApiRequest(
       logger.info(`Manual trigger for cron job "${job.name}" (${job.id})`);
 
       // Fire and forget — respond immediately, run in background.
-      runCronJob(job, context.sessionManager, context.getConfig(), context.connectors).catch(
+      runCronJob(job, context.sessionManager, context.getConfig(), context.connectors, { emit: context.emit }).catch(
         (err) => logger.error(`Manual cron trigger failed for "${job.name}": ${err}`)
       );
 
@@ -6108,7 +6079,6 @@ export async function handleApiRequest(
       // G1: synchronously refresh the in-memory registry (and drop warm PTYs) so an
       // immediate session spawn sees the new persona/model — don't wait for the watcher.
       context.reloadOrg?.();
-      context.emit("org:updated", { employee: params.name });
 
       const updated = scanOrg(context.getConfig()).get(params.name);
       return json(res, { status: "ok", employee: updated ?? null });
@@ -6136,10 +6106,8 @@ export async function handleApiRequest(
       if (!fs.existsSync(deptDir)) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
-      context.emit("board:updated", { department: p.name });
       return json(res, { status: "ok" });
     }
 
@@ -6183,7 +6151,6 @@ export async function handleApiRequest(
       const result = updateSkillContent(params.name, body.content);
       if (!result.ok) return json(res, { error: result.error }, result.status);
       skillDescriptionCache.delete(params.name);
-      context.emit("skills:updated", { name: params.name });
       logger.info(`Skill updated via API: ${params.name}`);
       return json(res, { status: "updated", name: params.name, content: result.content });
     }
@@ -6252,7 +6219,6 @@ export async function handleApiRequest(
     if (method === "PUT" && pathname === "/api/config") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       // Basic validation: must be a plain object
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -6282,17 +6248,37 @@ export async function handleApiRequest(
       if (unknownKeys.length > 0) {
         return badRequest(res, `Unknown config keys: ${unknownKeys.join(", ")}`);
       }
-      // Validate critical field types
+      // Validate critical field types. A value the shape validator would reject must
+      // not reach the file: loadConfig() then throws and the gateway cannot restart.
       if (body.gateway !== undefined) {
-        if (typeof body.gateway !== "object" || Array.isArray(body.gateway)) {
+        if (typeof body.gateway !== "object" || body.gateway === null || Array.isArray(body.gateway)) {
           return badRequest(res, "gateway must be an object");
         }
         if (body.gateway.port !== undefined && typeof body.gateway.port !== "number") {
           return badRequest(res, "gateway.port must be a number");
         }
+        if (body.gateway.host !== undefined && typeof body.gateway.host !== "string") {
+          return badRequest(res, "gateway.host must be a string");
+        }
       }
       if (body.engines !== undefined && (typeof body.engines !== "object" || Array.isArray(body.engines))) {
         return badRequest(res, "engines must be an object");
+      }
+      // GET /api/config serves the EFFECTIVE binding, so the Settings page echoes
+      // JINN_HOST/JINN_PORT back with every unrelated edit; saveConfigAtomic drops those.
+      // A different value is a real edit, and refusing beats accepting a no-op.
+      const envGateway = gatewayEnvOverrides();
+      for (const key of ["host", "port"] as const) {
+        const override = envGateway[key];
+        if (override === undefined || body.gateway?.[key] === undefined) continue;
+        if (body.gateway[key] !== override) {
+          const variable = key === "host" ? "JINN_HOST" : "JINN_PORT";
+          return badRequest(
+            res,
+            `gateway.${key} is set to ${JSON.stringify(override)} by ${variable} in this environment and cannot be ` +
+            `changed here. Unset ${variable} to manage gateway.${key} from config.yaml.`,
+          );
+        }
       }
       // Deep-merge incoming config with existing config to preserve
       // fields not included in the update (e.g. connector tokens).
@@ -6333,19 +6319,15 @@ export async function handleApiRequest(
       }
       try {
         const result = await context.reloadConnectorInstances();
-        context.emit("connectors:reloaded", result);
         return json(res, result);
       } catch (err) {
         return json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
       }
     }
 
-    // POST /api/connectors/:id/incoming — receive proxied Discord messages from primary instance
-    // Supports both the legacy /api/connectors/discord/incoming and named instance ids
-    params = matchRoute("/api/connectors/:id/incoming", pathname);
-    if (method === "POST" && params && params.id) {
-      // Try the exact instance id first, then fall back to "discord" for the legacy path
-      const connector = context.connectors.get(params.id) ?? (params.id === "discord" ? context.connectors.get("discord") : undefined);
+    // POST /api/connectors/discord/incoming — receive proxied Discord messages from a primary instance
+    if (method === "POST" && pathname === "/api/connectors/discord/incoming") {
+      const connector = context.connectors.get("discord");
       if (!connector) return notFound(res);
       if (!("deliverMessage" in connector)) {
         return json(res, { error: "Discord connector is not in remote mode" }, 400);
@@ -6353,7 +6335,6 @@ export async function handleApiRequest(
 
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       // Download attachments from Discord CDN URLs to local temp
@@ -6373,7 +6354,7 @@ export async function handleApiRequest(
       );
 
       const incomingMsg: IncomingMessage = {
-        connector: params.id,
+        connector: "discord",
         source: "discord",
         sessionKey: body.sessionKey,
         channel: body.channel,
@@ -6388,21 +6369,17 @@ export async function handleApiRequest(
         raw: body,
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (connector as any).deliverMessage(incomingMsg);
       return json(res, { status: "delivered" });
     }
 
-    // POST /api/connectors/:id/proxy — proxy connector operations from remote instances
-    // Supports both the legacy /api/connectors/discord/proxy and named instance ids
-    params = matchRoute("/api/connectors/:id/proxy", pathname);
-    if (method === "POST" && params && params.id) {
-      const connector = context.connectors.get(params.id) ?? (params.id === "discord" ? context.connectors.get("discord") : undefined);
+    // POST /api/connectors/discord/proxy — proxy connector operations from remote instances
+    if (method === "POST" && pathname === "/api/connectors/discord/proxy") {
+      const connector = context.connectors.get("discord");
       if (!connector) return notFound(res);
 
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       const action = body.action as string;
@@ -6442,14 +6419,14 @@ export async function handleApiRequest(
       return json(res, { status: "ok", messageId });
     }
 
-    // POST /api/connectors/:name/send — send a message via a connector
+    // POST /api/connectors/:name/send — send via the connector with that instance id
     params = matchRoute("/api/connectors/:name/send", pathname);
     if (method === "POST" && params) {
+      if (!isValidConnectorId(params.name)) return badRequest(res, `connector id ${CONNECTOR_ID_REQUIREMENTS}`);
       const connector = context.connectors.get(params.name);
       if (!connector) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       if (!body.channel || !body.text) return badRequest(res, "channel and text are required");
       await connector.sendMessage(
@@ -6459,10 +6436,12 @@ export async function handleApiRequest(
       return json(res, { status: "sent" });
     }
 
-    // GET /api/connectors/whatsapp/qr — return current QR code as PNG data URL
-    if (method === "GET" && pathname === "/api/connectors/whatsapp/qr") {
-      const waConnector = context.connectors.get("whatsapp");
-      if (!waConnector) return notFound(res);
+    // GET /api/connectors/:id/qr — return the selected WhatsApp instance QR as a PNG data URL
+    params = matchRoute("/api/connectors/:id/qr", pathname);
+    if (method === "GET" && params) {
+      if (!isValidConnectorId(params.id)) return badRequest(res, `connector id ${CONNECTOR_ID_REQUIREMENTS}`);
+      const waConnector = context.connectors.get(params.id);
+      if (!waConnector || waConnector.name !== "whatsapp" || !("getQrCode" in waConnector)) return notFound(res);
       const qrString = (waConnector as WhatsAppConnector).getQrCode();
       if (!qrString) return json(res, { qr: null });
       const dataUrl = await QRCode.toDataURL(qrString, { width: 256, margin: 2 });
@@ -6523,7 +6502,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/onboarding") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const { companyName, companyPrefix, portalName, operatorName, language, engine, model, effortLevel } = body;
       const config = context.getConfig();
@@ -6599,8 +6577,6 @@ export async function handleApiRequest(
       if (fs.existsSync(agentsMdPath) && !fs.lstatSync(agentsMdPath).isSymbolicLink()) {
         personalizeManual(agentsMdPath);
       }
-
-      context.emit("config:updated", { portal: updated.portal });
       return json(res, { status: "ok", portal: updated.portal });
     }
 
@@ -6673,7 +6649,6 @@ export async function handleApiRequest(
     if (method === "PUT" && pathname === "/api/stt/config") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const langs = body.languages;
 
@@ -6700,7 +6675,7 @@ export async function handleApiRequest(
     // ── TTS (per-message read-aloud) ──────────────────────────
     // GET /api/tts — engine readiness so the client can pick Kokoro vs the
     // browser Web Speech fallback WITHOUT a failed POST. Reuses the shared Kokoro
-    // engine (also driving the /talk voice loop); gated on weights + venv present.
+    // engine; gated on weights + venv present.
     if (method === "GET" && pathname === "/api/tts") {
       const { available, voice } = ttsStatus(context.getConfig().talk?.kokoro);
       return json(res, { available, voice });
@@ -6831,11 +6806,7 @@ interface TranscriptEntry {
 }
 
 function loadRawTranscript(engineSessionId: string): TranscriptEntry[] {
-  const claudeProjectsDir = path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".claude",
-    "projects",
-  );
+  const claudeProjectsDir = path.join(resolveClaudeConfigDir(), "projects");
   if (!fs.existsSync(claudeProjectsDir)) return [];
 
   const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true });
@@ -6948,12 +6919,8 @@ function scheduleTranscriptBackfill(sessionId: string, engineSessionId: string, 
 }
 
 function loadTranscriptMessages(engineSessionId: string): Array<{ role: string; content: string }> {
-  // Claude Code stores transcripts in ~/.claude/projects/<project-key>/<sessionId>.jsonl
-  const claudeProjectsDir = path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".claude",
-    "projects",
-  );
+  // Claude Code stores transcripts in <config dir>/projects/<project-key>/<sessionId>.jsonl
+  const claudeProjectsDir = path.join(resolveClaudeConfigDir(), "projects");
   if (!fs.existsSync(claudeProjectsDir)) return [];
 
   // Search all project dirs for the transcript
@@ -7028,7 +6995,10 @@ export async function deliverConnectorReply(
   if (!text || NON_CONNECTOR_SOURCES.has(session.source)) return;
   if (!session.connector || !session.replyContext) return;
   const connector = connectors.get(session.connector);
-  if (!connector) return;
+  if (!connector) {
+    logger.warn(`Connector reply dropped for session ${session.id ?? "?"}: no connector registered as "${session.connector}"`);
+    return;
+  }
   try {
     const target = connector.reconstructTarget(session.replyContext);
     await connector.replyMessage(target, text);
@@ -7070,7 +7040,6 @@ async function runWebSession(
       lastError: errMsg,
     });
     context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     if (erroredSession) notifyParentSession(erroredSession, { error: errMsg });
     return;
   }
@@ -7101,7 +7070,6 @@ async function runWebSession(
       lastError: errMsg,
     });
     context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     // Wake the parent COO if this was a delegated child session (parity with
     // the normal error path; no-op for top-level sessions).
     if (erroredSession) {
@@ -7118,7 +7086,6 @@ async function runWebSession(
     insertMessage(currentSession.id, "assistant", `⛔ ${errMsg}`);
     const erroredSession = completeSessionAttempt(currentSession.id, attemptToken, { status: "error", lastActivity: new Date().toISOString(), lastError: errMsg });
     context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     if (erroredSession) notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
     return;
   }
@@ -7158,8 +7125,9 @@ async function runWebSession(
       effortLevelsForModel(config, currentSession.engine, currentSession.model ?? undefined),
     );
     let modelForTurn = currentSession.model ?? engineConfig.model;
+    const runtimeSource = runtimeSessionSource(currentSession.source);
     const baseContextOptions: Omit<BuildContextOptions, "model"> = {
-      source: currentSession.source,
+      source: runtimeSource,
       channel: currentSession.sourceRef,
       user: currentSession.userId ?? "web-user",
       employee,
@@ -7173,18 +7141,6 @@ async function runWebSession(
       // The diet keys off the built-in jinn server specifically — custom MCP
       // servers don't carry the company tools (same rule as manager.ts).
       jinnMcpAttached: Boolean(resolvedMcp?.mcpServers?.["jinn"]),
-      // Hands-free voice orchestrator: layer its persona on top of the base
-      // identity so it behaves as the thin voice layer above the COO.
-      voicePersona: currentSession.source === "talk" ? getOrchestratorPersona() : undefined,
-      talkThreads:
-        currentSession.source === "talk"
-          ? listChildSessions(currentSession.id).slice(0, 12).map((c) => ({
-              id: c.id,
-              label: c.title || "(untitled)",
-              status: c.status,
-              lastActivity: c.lastActivity,
-            }))
-          : undefined,
     };
     const preparePlatformContext = (model: string | undefined) => {
       const contextOptions: BuildContextOptions = { ...baseContextOptions, model };
@@ -7283,7 +7239,7 @@ async function runWebSession(
       resolvedMcp,
       attachments: attachments?.length ? attachments : undefined,
       sessionId: currentSession.id,
-      source: currentSession.source,
+      source: runtimeSource,
       onStream: (delta) => {
         // Same guard as runHeartbeat: a delta may arrive after the user
         // deleted the session; don't resurrect registry state for it.
@@ -7334,19 +7290,6 @@ async function runWebSession(
           partialStream.persist(outgoingDelta);
         } catch (err) {
           logger.warn(`Failed to persist partial block for session ${currentSession.id}: ${err instanceof Error ? err.message : err}`);
-        }
-        // Voice mode: stream the orchestrator's spoken text — complete sentences
-        // synthesize immediately (per-sentence streaming); the flush at completion
-        // speaks the remainder. Only `text` deltas are spoken; tool_use/context
-        // are not. Skip entirely when the client is muted (silent/read mode) —
-        // there's no point buffering or synthesizing audio the browser will discard.
-        if (
-          currentSession.source === "talk" &&
-          !isTalkMuted(currentSession.id) &&
-          outgoingDelta.type === "text" &&
-          typeof outgoingDelta.content === "string"
-        ) {
-          feedTalkText(currentSession.id, outgoingDelta.content, config.talk?.kokoro, context.emit);
         }
       },
       // A turn that settled as failed but whose CLI later finished delivers the
@@ -7411,7 +7354,6 @@ async function runWebSession(
       if (fallbackModel) {
         logger.warn(`Claude model "${modelForTurn}" failed availability check; retrying session ${currentSession.id} with "${fallbackModel}"`);
         deletePartialMessages(currentSession.id);
-        if (currentSession.source === "talk") discardTalkSpeech(currentSession.id);
         modelForTurn = fallbackModel;
         updateSession(currentSession.id, { model: fallbackModel, lastError: null });
         result = await runAttempt(modelForTurn);
@@ -7432,7 +7374,6 @@ async function runWebSession(
     if (liveAfterRun?.engine !== engineAtTurnStart) {
       deletePartialMessages(currentSession.id);
       clearSupersededTurnMeta(currentSession.id);
-      if (currentSession.source === "talk") discardTalkSpeech(currentSession.id);
       logger.info(
         `Dropping stale ${engineAtTurnStart} result for session ${currentSession.id}; session now uses ${liveAfterRun?.engine ?? "unknown"}`,
       );
@@ -7469,8 +7410,6 @@ async function runWebSession(
     const streamedThrough = streamedBlocks.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
 
     if (rateLimit.limited) {
-      // Drop any buffered voice text — we won't speak a rate-limited turn.
-      if (currentSession.source === "talk") discardTalkSpeech(currentSession.id);
       const emitDelta = (delta: StreamDelta) => {
         const normalized = normalizeBlockDeltaForTurn(delta, turnStartedAt);
         if (!normalized.ok) {
@@ -7570,7 +7509,6 @@ async function runWebSession(
                 cost: fallbackResult.cost,
                 durationMs: fallbackResult.durationMs,
               });
-              maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
             }
           },
           onWaitingStart: ({ resumeAt }) => {
@@ -7597,12 +7535,6 @@ async function runWebSession(
                 : undefined,
             );
 
-            context.emit("session:rate-limited", {
-              sessionId: currentSession.id,
-              employee: currentSession.employee,
-              error: result.error,
-              resetsAt: rateLimit.resetsAt ?? null,
-            });
           },
           onRetryStream: emitDelta,
           onRetrySuccess: (retryResult) => {
@@ -7649,7 +7581,6 @@ async function runWebSession(
                 cost: retryResult.cost,
                 durationMs: retryResult.durationMs,
               });
-              maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
             }
           },
           onTimeout: () => {
@@ -7672,7 +7603,6 @@ async function runWebSession(
                 result: null,
                 error: timeoutError,
               });
-              maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
             }
           },
         },
@@ -7700,15 +7630,6 @@ async function runWebSession(
         formatEngineErrorAssistantMessage(result.error),
         streamedThrough,
       );
-    }
-
-    // Voice mode: flush the remainder of the turn's spoken text (final chunk,
-    // carries last:true). Fire-and-forget so completion isn't blocked on audio.
-    // Discard (don't synthesize) on a half-finished interrupt OR when the client
-    // is muted — the browser plays nothing in silent mode.
-    if (currentSession.source === "talk") {
-      if (quietPreempted || isTalkMuted(currentSession.id)) discardTalkSpeech(currentSession.id);
-      else void flushTalkSpeech(currentSession.id, config.talk?.kokoro, context.emit);
     }
 
     const completedAt = new Date().toISOString();
@@ -7767,7 +7688,6 @@ async function runWebSession(
         cost: result.cost,
         durationMs: result.durationMs,
       });
-      maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     }
 
     logger.info(
@@ -7789,7 +7709,6 @@ async function runWebSession(
       }
       deletePartialMessages(currentSession.id);
       clearSupersededTurnMeta(currentSession.id);
-      if (currentSession.source === "talk") discardTalkSpeech(currentSession.id);
       logger.info(
         `Dropping stale ${engineAtTurnStart} error for session ${currentSession.id}; session now uses ${live.engine}`,
       );
@@ -7811,7 +7730,6 @@ async function runWebSession(
         result: null,
         error: errMsg,
       });
-      maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     }
     logger.error(`Web session ${currentSession.id} error: ${errMsg}`);
   } finally {

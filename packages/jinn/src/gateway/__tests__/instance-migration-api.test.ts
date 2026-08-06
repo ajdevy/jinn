@@ -5,6 +5,7 @@ import path from "node:path"
 import { Readable } from "node:stream"
 import type { ServerResponse } from "node:http"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Connector, IncomingMessage } from "../../shared/types.js"
 
 const registryHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-migration-api-registry-"))
 process.env.JINN_HOME = registryHome
@@ -63,6 +64,33 @@ function seedEmptyBundle() {
   }, null, 2) + "\n")
 }
 
+function seedRemovalBundle() {
+  seedBundle()
+  const target = path.join(home, "retired.md")
+  fs.writeFileSync(target, "stock retirement file\n")
+  const dir = path.join(migrationsDir, "0.26.0")
+  fs.rmSync(path.join(dir, "files"), { recursive: true, force: true })
+  fs.mkdirSync(path.join(dir, "files/base"), { recursive: true })
+  const base = path.join(dir, "files/base/retired.md")
+  fs.writeFileSync(base, "stock retirement file\n")
+  const sha = crypto.createHash("sha256").update(fs.readFileSync(base)).digest("hex")
+  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({
+    schemaVersion: 1,
+    version: "0.26.0",
+    baseVersion: "0.25.0",
+    generatedFrom: { baseRef: "v0.25.0", headRef: "WORKTREE" },
+    files: [{
+      path: "retired.md",
+      operation: "remove",
+      baseSha256: sha,
+      targetSha256: null,
+      basePayload: "files/base/retired.md",
+      targetPayload: null,
+    }],
+  }, null, 2) + "\n")
+  return target
+}
+
 function responseCapture() {
   let status = 200
   const chunks: Buffer[] = []
@@ -117,10 +145,89 @@ beforeEach(() => {
   seedBundle()
   dispatched.length = 0
   engineAvailable = true
+  context.connectors.clear()
   for (const session of registry.listSessions()) registry.deleteSession(session.id)
 })
 
+function connectorStub(id: string, name: string): Connector {
+  const capabilities = { threading: false, messageEdits: false, reactions: false, attachments: false }
+  return {
+    id,
+    name,
+    start: async () => {},
+    stop: async () => {},
+    getCapabilities: () => capabilities,
+    getHealth: () => ({ status: "running", capabilities }),
+    reconstructTarget: () => ({ channel: "test" }),
+    sendMessage: async () => undefined,
+    replyMessage: async () => undefined,
+    addReaction: async () => {},
+    removeReaction: async () => {},
+    editMessage: async () => {},
+    onMessage: () => {},
+  }
+}
+
 describe("instance migration API", () => {
+  it("keeps operator-chosen connector labels out of public status", async () => {
+    context.connectors.set("private-support-label", connectorStub("private-support-label", "slack"))
+    context.connectors.set("private-ops-label", connectorStub("private-ops-label", "telegram"))
+
+    const status = await request("GET", "/api/status", undefined, false)
+
+    expect(status.status).toBe(200)
+    expect(Object.keys(status.body.connectors).sort()).toEqual(["slack", "telegram"])
+    expect(JSON.stringify(status.body)).not.toContain("private-support-label")
+    expect(JSON.stringify(status.body)).not.toContain("private-ops-label")
+  })
+
+  it("addresses the selected named WhatsApp instance when reading a QR code", async () => {
+    const legacyQr = vi.fn(() => "legacy-qr")
+    const supportQr = vi.fn(() => "support-qr")
+    context.connectors.set("whatsapp", Object.assign(connectorStub("whatsapp", "whatsapp"), { getQrCode: legacyQr }))
+    context.connectors.set("whatsapp-support", Object.assign(connectorStub("whatsapp-support", "whatsapp"), { getQrCode: supportQr }))
+
+    const named = await request("GET", "/api/connectors/whatsapp-support/qr")
+
+    expect(named.status).toBe(200)
+    expect(named.body.qr).toMatch(/^data:image\/png;base64,/)
+    expect(supportQr).toHaveBeenCalledOnce()
+    expect(legacyQr).not.toHaveBeenCalled()
+  })
+
+  it("rejects HTTP connector ids outside the normalized lowercase contract", async () => {
+    const invalid = await request("POST", "/api/connectors/Slack-Support/send", { channel: "C1", text: "hello" })
+    expect(invalid.status).toBe(400)
+    expect(invalid.body.error).toMatch(/connector id/i)
+  })
+
+  it("keeps legacy Remote Discord inbound identity and rejects named route widening", async () => {
+    const legacyDelivery = vi.fn<(message: IncomingMessage) => void>()
+    context.connectors.set("discord", Object.assign(connectorStub("discord", "discord"), { deliverMessage: legacyDelivery }))
+    const body = {
+      sessionKey: "discord:C1",
+      channel: "C1",
+      user: "tester",
+      userId: "U1",
+      text: "hello",
+      messageId: "M1",
+      replyContext: { channel: "C1" },
+    }
+
+    const legacy = await request("POST", "/api/connectors/discord/incoming", body)
+    expect(legacy.status).toBe(200)
+    expect(legacyDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      connector: "discord",
+      sessionKey: "discord:C1",
+    }))
+
+    const namedDelivery = vi.fn<(message: IncomingMessage) => void>()
+    context.connectors.set("discord-ops", Object.assign(connectorStub("discord-ops", "discord"), { deliverMessage: namedDelivery }))
+    const named = await request("POST", "/api/connectors/discord-ops/incoming", body)
+    expect(named.status).toBe(404)
+    expect(namedDelivery).not.toHaveBeenCalled()
+  })
+
   it("adds version and a compact migration summary to status and exposes the canonical contract", async () => {
     const status = await request("GET", "/api/status")
     const migration = await request("GET", "/api/instance-migration")
@@ -147,6 +254,26 @@ describe("instance migration API", () => {
     expect(queue[0]).toMatchObject({ sessionId: first.body.sessionId, status: "pending" })
     expect(fs.existsSync(path.join(home, ".migration-snapshots", pending.body.migrationKey, "snapshot.json"))).toBe(true)
     expect(registry.getSessionBySessionKey(`instance-migration:${pending.body.migrationKey}`)?.id).toBe(first.body.sessionId)
+  })
+
+  it("runs service-owned exact-byte removals before dispatching the migration session", async () => {
+    const target = seedRemovalBundle()
+    const pending = await request("GET", "/api/instance-migration")
+
+    const opened = await request("POST", "/api/instance-migration/open", { migrationKey: pending.body.migrationKey })
+
+    expect(opened.status).toBe(201)
+    expect(fs.existsSync(target)).toBe(false)
+    const serviceReceipt = JSON.parse(fs.readFileSync(path.join(
+      home,
+      ".migration-snapshots",
+      pending.body.migrationKey,
+      "service-removal-receipt.json",
+    ), "utf8"))
+    expect(serviceReceipt.outcomes).toEqual([
+      expect.objectContaining({ path: "retired.md", status: "removed" }),
+    ])
+    expect(dispatched).toHaveLength(1)
   })
 
   it("persists nothing when the selected engine is unavailable, then accepts one retry durably across restart", async () => {

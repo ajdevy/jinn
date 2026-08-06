@@ -36,6 +36,48 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+      # ESLint's core rules carry fixed messages that a config cannot override,
+      # so the remediation lives here — the one place a contributor reading a red
+      # run is already looking.
+      - name: How to clear these
+        if: failure()
+        run: |
+          cat <<'EOF'
+          The lint floor is six rules, all errors. Change the code, not the config.
+
+            complexity, max-lines-per-function
+              Split the function at its seams into named helpers, and give the
+              branchy part its own function with an early return per case.
+            max-depth
+              Hoist the nested loop or condition into a helper so the body reads flat.
+            max-params
+              Group the related parameters into one options object.
+            @typescript-eslint/no-floating-promises
+              Await the promise, or hand it to `void` when the result is genuinely
+              not wanted.
+            @typescript-eslint/no-unused-vars
+              Remove the binding. If a signature forces it to exist, rename it with
+              a leading underscore.
+
+          Inline eslint-disable comments are ignored outright, so
+          eslint-baseline.json is the only suppression channel. It grandfathers code
+          that predates the floor and is meant to shrink: run
+          `node scripts/eslint-baseline.mjs` after a fix removes an entry, never to
+          add one for new code.
+          EOF
+
   unit-tests:
     name: unit-tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -76,3 +118,165 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # `pnpm build` leaves packages/web/out in place — sync-web-dist.mjs only
+      # clears its own target under packages/jinn/dist/web — so the bundle-size
+      # gate reads this job's output instead of paying for a second build.
+      - name: Web performance budgets
+        run: pnpm --filter @jinn/web perf:budget
+
+  coverage:
+    runs-on: ubuntu-latest
+    # A v8-instrumented run of the jinn suite, which already uses most of
+    # `unit-tests`' 30 minutes uninstrumented.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm coverage
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Roughly 3 minutes in practice. The fixture serves a static bundle and mocks
+    # every API call, so no step here waits on a gateway.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The spec serves packages/web/out from its own fixture server, so the web
+      # bundle is the only build it needs. Filtered with `...` because @jinn/web
+      # cannot resolve @jinn/gateway-events until that workspace dep is built.
+      - run: pnpm exec turbo build --filter=@jinn/web...
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # Named rather than `pnpm test:e2e`, because the rest of e2e/ needs
+      # something a runner does not have:
+      #   - scroll.spec.ts       a live gateway with a chat thread already loaded;
+      #                          it waits on .chat-messages-scroll and otherwise
+      #                          times out. Seeding that fixture is new e2e work.
+      #   - smoke.spec.ts        a gateway on :7779, to assert the page title is
+      #                          non-empty. The `docker` job already asserts
+      #                          strictly more against a real container.
+      #   - e2e/workflow-layout/ JINN_VERIFY_HOME and JINN_VERIFY_ARTIFACTS — it
+      #                          throws at collection without them — and it drives
+      #                          real, billed Codex sessions. Never on a runner.
+      - run: pnpm test:e2e e2e/instance-migration.spec.ts
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+
+  docker:
+    runs-on: ubuntu-latest
+    # The failure worth catching is a gateway that builds but cannot spawn a
+    # session — a wrong-ABI sqlite binding, or a skipped node-pty build. `docker
+    # build` never loads a native addon or starts the gateway, so the two steps
+    # after it are what actually exercise that. Plain `docker build` because
+    # nothing is published and fork PRs get a read-only token.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build --tag jinn:ci .
+
+      # Formula/jinn.rb asserts the same for the Homebrew install. --workdir is the
+      # jinn package because pnpm links these under packages/jinn/node_modules.
+      # Fails closed: a lost exit event must not drain the loop and exit 0.
+      - name: Native addons load and a PTY spawns
+        run: |
+          docker run --rm --workdir /opt/jinn/packages/jinn --entrypoint node jinn:ci -e '
+            process.exitCode = 1;
+            const Database = require("better-sqlite3");
+            new Database(":memory:").close();
+            const pty = require("node-pty");
+            const timer = setTimeout(() => {
+              console.error("pty exit event never arrived");
+              process.exit(1);
+            }, 30000);
+            const p = pty.spawn("/bin/sh", ["-c", "exit 0"], {});
+            p.onExit(({ exitCode }) => {
+              clearTimeout(timer);
+              if (exitCode !== 0) { console.error("pty exited " + exitCode); return; }
+              process.exitCode = 0;
+              console.log("better-sqlite3 + node-pty OK");
+            });
+          '
+
+      # End-to-end boot: first-run `jinn setup` on an empty volume,
+      # scripts/docker-configure.mjs (which now exits non-zero rather than leaving
+      # the gateway on the container's loopback), and the port publish. /api/status
+      # is deliberately auth-exempt, so this needs no token.
+      - name: Gateway boots and answers
+        run: |
+          set -o pipefail
+          # Both docker calls tolerate a container that is already gone: under `bash -e`
+          # a failure inside the helper aborts the step before it reaches the echo, so
+          # the one message explaining the failure would be lost with it.
+          give_up() {
+            docker logs jinn-smoke || true
+            docker rm -f jinn-smoke >/dev/null 2>&1 || true
+            echo "$1"
+            exit 1
+          }
+          # -m: a gateway that accepts and never answers would otherwise hold the step
+          # until the job timeout instead of reaching give_up.
+          wait_for_status() {
+            for _ in $(seq 1 60); do
+              curl -fsS -m 5 http://127.0.0.1:7777/api/status >/dev/null 2>&1 && return 0
+              sleep 2
+            done
+            return 1
+          }
+
+          docker run -d --name jinn-smoke --init -p 127.0.0.1:7777:7777 jinn:ci
+          wait_for_status || give_up "gateway never answered on /api/status"
+
+          # A healthy public status route does not prove the auth boundary survived the
+          # image/entrypoint wiring. A protected read must reject a request with no token.
+          protected_status=$(curl -sS -m 10 -o /tmp/jinn-protected.json -w '%{http_code}' \
+            http://127.0.0.1:7777/api/sessions) \
+            || give_up "the protected-route auth probe could not reach the gateway"
+          [ "$protected_status" = "401" ] \
+            || give_up "unauthenticated /api/sessions returned HTTP $protected_status instead of 401"
+
+          # The dashboard, not just the API: a build filtered to the jinn package ships a
+          # gateway with no UI, and /api/status answers 200 either way. `id="root"` is the
+          # marker dashboardIsReady() uses in gateway/lifecycle.ts. Not piped into grep —
+          # `grep -q` closes the pipe on the first match and curl then fails under pipefail.
+          curl -fsS -m 10 http://127.0.0.1:7777/ -o /tmp/jinn-index.html \
+            || give_up "the gateway did not serve / at all"
+          grep -q 'id="root"' /tmp/jinn-index.html \
+            || give_up "the gateway served no dashboard at / (image built without dist/web?)"
+
+          # The HEALTHCHECK is the only signal for a gateway that is alive but not serving,
+          # so a broken probe is a silent loss of it. `|| true` because docker inspect exits
+          # non-zero on a container that has gone, which under `bash -e` would kill the step
+          # before give_up() dumps the logs.
+          health=
+          for _ in $(seq 1 45); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' jinn-smoke 2>/dev/null || true)
+            [ "$health" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$health" = "healthy" ] || give_up "HEALTHCHECK never reported healthy (last: ${health:-none})"
+
+          # A leftover gateway.pid names a number the next container has recycled, and it
+          # answers kill(pid, 0) as an unrelated process — `jinn start` then detaches and
+          # exits PID 1 into a restart loop. The boot has to clear it.
+          docker exec jinn-smoke sh -c 'echo 1 > /home/node/.jinn/gateway.pid'
+          docker restart jinn-smoke >/dev/null
+          wait_for_status || give_up "gateway did not come back after a restart with a stale gateway.pid"
+
+          docker logs jinn-smoke
+          docker rm -f jinn-smoke >/dev/null

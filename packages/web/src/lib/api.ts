@@ -386,7 +386,7 @@ export interface WorkflowDefinitionV2Wire {
   inputs?: Array<Record<string, unknown>>
   nodes: Array<{
     id: string
-    type: "trigger" | "employee" | "condition" | "merge" | "approval" | "wait" | "end"
+    type: "trigger" | "employee" | "workflow-call" | "condition" | "merge" | "approval" | "wait" | "end"
     name: string
     config: Record<string, unknown>
   }>
@@ -470,11 +470,24 @@ export interface WorkflowNodeRunV2Wire {
   /** What the node was handed: the single activated upstream output, or the run
    *  input when the node fans in from several. The attempts do not repeat it. */
   input?: unknown
+  resolvedConfig?: Record<string, unknown>
   output?: WorkflowNodeOutputV2Wire
   error?: WorkflowRunErrorV2Wire
   resumeAt?: string
   startedAt?: string
   endedAt?: string
+}
+
+export interface WorkflowChildRunV2Wire {
+  runId: string
+  workflowId: string
+  nodeId: string
+  itemIndex: number
+  status: WorkflowRunStatusV2
+  startedAt: string
+  endedAt?: string
+  endOutput?: Record<string, unknown>
+  error?: WorkflowRunErrorV2Wire
 }
 
 export interface WorkflowAttemptV2Wire {
@@ -533,6 +546,7 @@ export interface WorkflowRunDetailV2Wire {
   nodeRuns: WorkflowNodeRunV2Wire[]
   attempts: WorkflowAttemptV2Wire[]
   approvals: WorkflowApprovalV2Wire[]
+  childRuns: WorkflowChildRunV2Wire[]
 }
 
 /** What the run route returns without `?view=full`: everything needed to judge

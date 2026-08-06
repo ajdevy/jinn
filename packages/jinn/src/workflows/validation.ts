@@ -99,6 +99,7 @@ function portsOf(node: WorkflowNode): string[] {
   switch (type) {
     case 'trigger': return ['success'];
     case 'employee': return ['success', 'error'];
+    case 'workflow-call': return ['success'];
     case 'condition': return conditionPorts(node);
     case 'merge': return ['success'];
     case 'approval': return ['approved', 'rejected'];
@@ -165,6 +166,13 @@ function addNodeBindingIssues(node: WorkflowNode, nodeIndex: number, context: Bi
   const base = `nodes.${nodeIndex}.config`;
   if (value?.type === 'employee') {
     for (const key of ['employee', 'engine', 'model', 'effort']) checkBinding(config?.[key], `${base}.${key}`, id, context);
+  } else if (value?.type === 'workflow-call') {
+    checkBinding(config?.workflowId, `${base}.workflowId`, id, context);
+    checkBinding(config?.items, `${base}.items`, id, context);
+    const input = record(config?.input);
+    for (const [key, binding] of Object.entries(input ?? {})) {
+      checkBinding(binding, `${base}.input.${key}`, id, context);
+    }
   } else if (value?.type === 'condition') {
     const cases = Array.isArray(config?.cases) ? config.cases : [];
     for (const [caseIndex, item] of cases.entries()) {
@@ -294,10 +302,17 @@ function addCardinalityIssues(nodes: WorkflowNode[], graph: Graph, add: AddIssue
 }
 
 function addReachabilityIssues(nodes: WorkflowNode[], graph: Graph, add: AddIssue): void {
-  const triggers = nodes.filter((node) => record(node)?.type === 'trigger');
+  const triggers = nodes.filter((node): node is Extract<WorkflowNode, { type: 'trigger' }> => node.type === 'trigger');
   const triggerIds = triggers.map(nodeId).filter((id): id is string => id !== undefined);
   const endIds = nodes.filter((node) => record(node)?.type === 'end').map(nodeId).filter((id): id is string => id !== undefined);
-  if (triggers.length !== 1) add({ code: 'trigger-count', message: 'Workflow must contain exactly one Trigger.' });
+  if (triggers.length === 0) add({ code: 'trigger-count', message: 'Workflow must contain at least one Trigger.' });
+  const triggerKinds = new Set<string>();
+  for (const trigger of triggers) {
+    if (triggerKinds.has(trigger.config.kind)) {
+      add({ code: 'duplicate-trigger-kind', message: `Workflow must contain at most one ${trigger.config.kind} Trigger.`, nodeId: trigger.id });
+    }
+    triggerKinds.add(trigger.config.kind);
+  }
   const reachable = walk(triggerIds, graph.forward);
   const reachesEnd = walk(endIds, graph.reverse);
   if (!endIds.some((id) => reachable.has(id))) add({ code: 'missing-end-path', message: 'A Trigger must have a directed path to an End.' });
@@ -355,6 +370,37 @@ export function scheduleTriggerIssues(definition: WorkflowDefinition): WorkflowV
   return issues;
 }
 
+/** `unlabeled` and `label` contradict each other, so a trigger setting both can
+ *  never fire. A silently unarmable definition is worse than a rejected save:
+ *  nothing distinguishes it from a Todo that simply has not moved yet. */
+export function todoTriggerFilterIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
+  const safe = safeDefinition(definition);
+  if (!safe) return [];
+  return safe.nodes.flatMap((node, index) => node.type === 'trigger' && node.config.kind === 'todo-status'
+    && node.config.unlabeled !== undefined && node.config.label !== undefined
+    ? [{
+        code: 'conflicting-todo-filters',
+        message: 'A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels can never carry the one named. Set only one.',
+        nodeId: node.id,
+        path: `nodes.${index}.config.unlabeled`,
+      }]
+    : []);
+}
+
+export function workflowCallTargetIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
+  const safe = safeDefinition(definition);
+  if (!safe) return [];
+  return safe.nodes.flatMap((node, index) => node.type === 'workflow-call'
+    && node.config.workflowId.source === 'fixed' && node.config.workflowId.value === safe.id
+    ? [{
+        code: 'workflow-call-self-reference',
+        message: 'A Workflow Call cannot target its own defining Workflow.',
+        nodeId: node.id,
+        path: `nodes.${index}.config.workflowId`,
+      }]
+    : []);
+}
+
 export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok: boolean; issues: WorkflowValidationIssue[] } {
   const safe = safeDefinition(definition);
   if (!safe) return {
@@ -373,6 +419,8 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   addCardinalityIssues(nodes, graph, add);
   addReachabilityIssues(nodes, graph, add);
   for (const item of scheduleTriggerIssues(safe)) add(item);
+  for (const item of todoTriggerFilterIssues(safe)) add(item);
+  for (const item of workflowCallTargetIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
   return { ok: issues.length === 0, issues };
 }

@@ -13,6 +13,7 @@
   <a href="https://www.npmjs.com/package/jinn-cli"><img src="https://img.shields.io/npm/v/jinn-cli?color=7c3aed&label=npm" alt="npm version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/jinn-cli?color=7c3aed" alt="license" /></a>
   <img src="https://img.shields.io/node/v/jinn-cli?color=7c3aed" alt="node version" />
+  <img src="https://img.shields.io/badge/Docker-supported-2496ED?logo=docker&logoColor=white" alt="Docker supported" />
   <img src="https://img.shields.io/badge/status-beta-7c3aed" alt="status: beta" />
 </p>
 
@@ -39,6 +40,8 @@ Agent CLIs are powerful alone. Jinn gives them shared structure, ownership, and 
 ---
 
 ## Quickstart
+
+### Native install
 
 > **Prerequisites:** Node.js **22 or newer** (the repository pins **24.13.0** in `.nvmrc`), and at least one agent CLI installed **and signed in**. Jinn orchestrates your engines and can't run a session without one.
 
@@ -69,13 +72,43 @@ jinn setup && jinn start
 
 > **`--version` ≠ signed in.** Jinn drives the official engine CLIs, so authenticate each one *before* `jinn start` (run `claude` → `/login`, run `codex` to sign in, and so on). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 
-Everyday commands:
+### Docker
+
+Docker needs Docker Engine or Docker Desktop with Compose v2, but it does **not** need Node.js or an agent CLI installed on the host. The image includes Claude Code. Containerising bounds the engine's permission-free access to the directories you explicitly mount instead of your whole home directory:
+
+```bash
+git clone https://github.com/hristo2612/jinn.git
+cd jinn
+
+# Edit docker-compose.yml and uncomment at least one "Project mounts" entry.
+# Without one, /work is empty and the agents have nothing to work on.
+docker compose up -d --build
+docker compose exec jinn claude     # run once, use /login, then quit
+docker compose exec jinn jinn pair  # prints a code for the browser
+```
+
+Then open **[http://localhost:7777](http://localhost:7777)** and enter the code at the pairing prompt. The gateway binds `0.0.0.0` inside the container, so it requires auth, and your browser reaches it through Docker's NAT rather than loopback — which is why pairing replaces the automatic sign-in a host install gets.
+
+The compose image runs one Jinn instance. Additional instances need separate containers, dedicated Jinn/Claude volumes and separately published ports. The writable blast radius includes those state volumes (OAuth, sessions and plugins), every writable project mount, and unrestricted network egress; see the Docker guide before mounting sensitive data.
+
+The image ships the `claude` engine only. `codex`, `grok` and `hermes` are not included, and neither are `ffmpeg`/`whisper-cli` for speech-to-text — the same as a Homebrew or npm install, which leave those to you. See **[docs/docker.md](docs/docker.md)** for the mount model, what persists across upgrades, how to add speech-to-text, and what the isolation does and does not cover.
+
+Everyday commands for a native install:
 
 ```bash
 jinn start      # start the gateway daemon (auto-opens the dashboard)
 jinn stop       # stop it
 jinn restart    # restart safely (detached; works even from inside a session)
 jinn status     # is the daemon running?
+```
+
+Docker owns the gateway lifecycle instead — `jinn start`, `jinn stop`, and `jinn restart` are intentionally unavailable inside the container:
+
+```bash
+docker compose ps                 # status and health
+docker compose logs -f jinn       # follow gateway logs
+docker compose restart jinn       # restart safely
+docker compose down               # stop; named volumes remain intact
 ```
 
 After upgrading an older install, run **`jinn migrate`**. Your COO applies the latest operating doctrine without overwriting your customizations.
@@ -271,7 +304,7 @@ On deck:
 
 - **Engines:** local models and fallback chains.
 - **Connectors:** iMessage and email.
-- **Platform:** plugins, multi-user roles, and Docker.
+- **Platform:** plugins and multi-user roles.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history, or [open an issue](https://github.com/hristo2612/jinn/issues).
 
