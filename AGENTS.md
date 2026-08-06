@@ -95,10 +95,14 @@ nothing.
   is stamped onto the child at `:208`.
 
 **Rung 4 — a custom, out-of-process MCP server.** Declared under `mcp.custom` in the instance
-`config.yaml` and resolved per employee: `packages/jinn/src/mcp/resolver.ts:30`
-(`resolveMcpServers`), with the per-employee allowlist at `:58`. Documented in
-`packages/jinn/template/docs/mcp.md:27`. Costs zero for every employee who has not opted in,
-and it lives outside this repo entirely.
+`config.yaml` and scoped per employee by the persona's `mcp` field
+(`packages/jinn/src/shared/types.ts:565`), which `packages/jinn/src/mcp/resolver.ts:30`
+(`resolveMcpServers`) reads: `mcp: false` drops every server, an `mcp:` list keeps only the
+ids it names (`:58`). Know which way the default falls before you add one — an employee with
+no `mcp` field gets every configured server (`:77`), so a new custom server reaches the whole
+company until personas scope it out. Documented in
+`packages/jinn/template/docs/mcp.md:27`. Either way it costs this repo nothing: the server
+lives outside it entirely.
 
 *There is no in-repo plugin system.* Skills are Markdown with no plugin API, and plugins are a
 roadmap line (`README.md:307`), not a thing you can build against today. `mcp.custom` is the
