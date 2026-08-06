@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { isVideoMedia, type MediaAttachment } from '@/lib/conversations'
 import { FileAttachment } from './file-attachment'
 import { VoiceMessage } from './voice-message'

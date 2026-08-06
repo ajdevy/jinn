@@ -93,7 +93,7 @@ function rollbackTodoStatus(
   return changed ? next : value
 }
 
-interface TodoCacheSnapshot {
+export interface TodoCacheSnapshot {
   entries: Array<{ queryKey: QueryKey; previous: CachedTodoStatus }>
 }
 

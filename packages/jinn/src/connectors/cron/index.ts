@@ -19,7 +19,6 @@ const capabilities: ConnectorCapabilities = {
 export class CronConnector implements Connector {
   name = "cron";
   id = "cron";
-  private handler: ((msg: IncomingMessage) => void) | null = null;
 
   constructor(
     private readonly connectors: Map<string, Connector>,
@@ -69,9 +68,10 @@ export class CronConnector implements Connector {
     await connector.editMessage(target, text);
   }
 
-  onMessage(handler: (msg: IncomingMessage) => void): void {
-    this.handler = handler;
-  }
+  /** Required by Connector, but cron has no inbound path: nothing constructs a
+   *  CronConnector through createConnector, and the runner routes fires into
+   *  the session manager directly. This exists as an outbound reply channel. */
+  onMessage(_handler: (msg: IncomingMessage) => void): void {}
 
   private async forward(target: Target, text: string, asReply: boolean): Promise<string | void> {
     if (!this.delivery) return undefined;

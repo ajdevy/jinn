@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../shared/logger.js';
 import { initDb } from '../shared/db.js';
-import { stripControlChars, hasControlBytes } from '../shared/sanitize.js';
+import { stripControlChars } from '../shared/sanitize.js';
 import { getMeta, setMeta, canonicalCallbackIdentityText, canonicalSessionDeliveryIdentity, sessionDeliveryFromRow, validateSessionDeliveryIdentity, type SessionDeliveryRow } from './migrate.js';
 import { parseTodoId } from '../work-items/id.js';
 import type { ChatBlock, ChatBlockEnvelope, EngineSessionRef, EngineSessionRefs, JsonObject, ReplyContext, Session, SessionAttemptOutcome, SessionDelivery, SessionDeliveryIdentity, SessionDeliveryPayload, WorkflowAttemptInterruptionCause, WorkflowSessionProvenance } from '../shared/types.js';

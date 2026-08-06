@@ -9,11 +9,6 @@ export type BoardId =
   | { kind: "everything" }
   | { kind: "department"; slug: string }
 
-/** Reserved board keywords. A department slug can never shadow these — the
- *  keywords win at parse time (departments are kebab slugs; the onboarding
- *  namespace avoids these words). */
-const RESERVED = new Set(["my", "attention", "everything"])
-
 export const DEFAULT_BOARD_PATH = "/todos/b/my"
 
 /** Parse the :board route param. Unknown/empty values fall back to My requests

@@ -5,7 +5,7 @@
     "jsx": "react-jsx",
     "allowJs": true,
     "noEmit": true,
-    "declaration": false,
+    "declaration": true,
     "declarationMap": false,
     "incremental": true,
     "tsBuildInfoFile": "./tsconfig.tsbuildinfo",

@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { JinnConfig, Connector, Employee, Engine, JsonObject, Session, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
+import type { JinnConfig, Connector, Engine, Session, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
 import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
   getModelRegistry,

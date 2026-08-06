@@ -6,7 +6,6 @@
  * download it. Progress (downloadProgress) streams over `stt:*` WS events while
  * api.sttDownload() runs. Keep this dependency-free so any surface can mount it.
  */
-import React from "react"
 
 interface WhisperDownloadModalProps {
   open: boolean

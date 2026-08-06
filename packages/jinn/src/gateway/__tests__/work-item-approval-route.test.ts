@@ -105,53 +105,6 @@ const apiCtx = {
   },
 } as unknown as import("../api.js").ApiContext;
 
-const viteOrigin = "http://127.0.0.1:4174";
-const gatewayAuthority = "127.0.0.1:7800";
-
-function browserReq(
-  method: string,
-  urlPath: string,
-  body?: unknown,
-  overrides: Record<string, string> = {},
-) {
-  const payload = body !== undefined ? [Buffer.from(JSON.stringify(body))] : [];
-  const headers: Record<string, string> = {
-    host: gatewayAuthority,
-    accept: "application/json",
-    referer: `${viteOrigin}/workflows`,
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-    "user-agent": "Mozilla/5.0 Chrome/149.0.0.0 Safari/537.36",
-    ...(body !== undefined ? { "content-type": "application/json" } : {}),
-    ...(method !== "GET" ? { origin: viteOrigin } : {}),
-    ...overrides,
-  };
-  const req = Object.assign(Readable.from(payload), {
-    method,
-    url: urlPath,
-    headers,
-    rawHeaders: Object.entries(headers).flatMap(([name, value]) => [name, value]),
-    socket: {
-      remoteAddress: "127.0.0.1",
-      localAddress: "127.0.0.1",
-      localPort: 7800,
-    },
-  });
-  return req as unknown as Parameters<Api["handleApiRequest"]>[0];
-}
-
-async function browserCall(
-  method: string,
-  urlPath: string,
-  body?: unknown,
-  overrides: Record<string, string> = {},
-): Promise<{ status: number; body: any }> {
-  const cap = makeRes();
-  await api.handleApiRequest(browserReq(method, urlPath, body, overrides), cap.res, apiCtx);
-  return { status: cap.status, body: cap.body };
-}
-
 function makeRes() {
   let status = 200;
   const chunks: Buffer[] = [];

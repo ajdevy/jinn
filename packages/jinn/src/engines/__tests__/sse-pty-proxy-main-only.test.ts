@@ -11,17 +11,24 @@ import { SsePtyProxy, MAIN_AGENT_SENTINEL } from "../sse-pty-proxy.js";
 // heuristic dropped real turns and broke streaming. The sentinel is the one signal
 // the gateway fully owns.
 
-/** shouldTeeToUi is private; reach it directly for a focused unit test. */
+type Classification = { isAgent: boolean; teeToUi: boolean };
+
+/** classifyRequest is private; reach it directly for a focused unit test. This
+ *  is the same method production handle() calls, url included. */
+function classify(proxy: SsePtyProxy, url: string, body: string): Classification {
+  return (proxy as unknown as { classifyRequest(u: string | undefined, b: Buffer): Classification })
+    .classifyRequest(url, Buffer.from(body));
+}
+
 function tee(proxy: SsePtyProxy, body: unknown): boolean {
-  return (proxy as unknown as { shouldTeeToUi(b: Buffer): boolean })
-    .shouldTeeToUi(Buffer.from(JSON.stringify(body)));
+  return classify(proxy, "/v1/messages", JSON.stringify(body)).teeToUi;
 }
 
 const TOOLS = [{ name: "Bash", description: "run", input_schema: { type: "object" } }];
 const newProxy = () => new SsePtyProxy("test", () => {});
 const SYS = `You are the COO.\n\n${MAIN_AGENT_SENTINEL}`;
 
-describe("SsePtyProxy.shouldTeeToUi", () => {
+describe("SsePtyProxy.classifyRequest", () => {
   it("tees a tool-bearing request whose system carries the sentinel (main agent)", () => {
     const proxy = newProxy();
     // system as a plain string
@@ -48,6 +55,16 @@ describe("SsePtyProxy.shouldTeeToUi", () => {
 
   it("suppresses non-JSON bodies (e.g. count_tokens)", () => {
     const proxy = newProxy();
-    expect((proxy as unknown as { shouldTeeToUi(b: Buffer): boolean }).shouldTeeToUi(Buffer.from("not json"))).toBe(false);
+    expect(classify(proxy, "/v1/messages", "not json").teeToUi).toBe(false);
+  });
+
+  it("suppresses every URL but /v1/messages, however main-agent the body looks", () => {
+    const proxy = newProxy();
+    const mainAgentBody = JSON.stringify({ system: SYS, messages: [], tools: TOOLS });
+
+    expect(classify(proxy, "/v1/messages/count_tokens", mainAgentBody)).toEqual({ isAgent: false, teeToUi: false });
+    expect(classify(proxy, "/v1/complete", mainAgentBody)).toEqual({ isAgent: false, teeToUi: false });
+    // A query string is not part of the path, so it must not disqualify the route.
+    expect(classify(proxy, "/v1/messages?beta=true", mainAgentBody)).toEqual({ isAgent: true, teeToUi: true });
   });
 });

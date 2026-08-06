@@ -40,13 +40,11 @@ fs.writeFileSync(
 type Api = typeof import("../api.js");
 type Store = typeof import("../../work-items/store.js");
 type Approvals = typeof import("../../work-items/approvals.js");
-type Registry = typeof import("../../sessions/registry.js");
 type ApprovalAuthority = typeof import("../approval-authority.js");
 
 let api: Api;
 let store: Store;
 let approvals: Approvals;
-let registry: Registry;
 let approvalAuthority: ApprovalAuthority;
 
 const apiCtx = {
@@ -126,7 +124,7 @@ beforeAll(async () => {
   api = await import("../api.js");
   store = await import("../../work-items/store.js");
   approvals = await import("../../work-items/approvals.js");
-  registry = await import("../../sessions/registry.js");
+  await import("../../sessions/registry.js");
   approvalAuthority = await import("../approval-authority.js");
   (await import("../../shared/db.js")).initDb();
 });

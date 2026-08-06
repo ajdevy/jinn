@@ -37,7 +37,6 @@ const DOWNLOADS: Array<{ url: string; dest: string; size: number }> = [
 
 const DEFAULT_VOICE = "af_heart"
 const DEFAULT_PORT = 8765
-const HEALTH_TIMEOUT_MS = 60_000 // model load is lazy + heavy on first synth
 const SYNTH_TIMEOUT_MS = 120_000
 
 interface HealthResponse {

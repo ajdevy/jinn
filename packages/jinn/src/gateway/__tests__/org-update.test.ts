@@ -22,7 +22,7 @@ vi.mock("../../shared/logger.js", () => ({
   },
 }));
 
-import { updateEmployeeYaml, validateEmployeeUpdate, scanOrg } from "../org.js";
+import { updateEmployeeYaml, validateEmployeeUpdate } from "../org.js";
 import { invalidateModelRegistry } from "../../shared/models.js";
 
 function writeYaml(subdir: string, filename: string, content: string) {

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlock, ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { compactEmployeeRole } from "../shared/employee-role.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
@@ -89,7 +89,6 @@ import {
   listDeadLetterSessionDeliveries,
   requeueDeadLetterSessionDelivery,
   acceptSessionDelivery,
-  claimSessionDelivery,
   getFile,
   getSessionBySessionKey,
   recordChildReportedToParent,
@@ -115,7 +114,6 @@ import { removeCodexSessionHome } from "../engines/codex.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
   CONFIG_PATH,
-  CRON_JOBS,
   CRON_RUNS,
   ORG_DIR,
   SKILLS_DIR,
@@ -155,7 +153,7 @@ import { validateCronSchedule } from "../cron/validation.js";
 import { runCronJob } from "../cron/runner.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
-import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, ensureFilesDir, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
+import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
 import { streamFile } from "./byte-range.js";
 import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
@@ -164,7 +162,7 @@ import { isJsonMediaType } from "./media-type.js";
 import { readJsonlTail } from "./jsonl-tail.js";
 import { completedStreamedBlockIds } from "./streamed-blocks.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
-import { deliverClaimedSessionDelivery, notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
+import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
 import { clearDelegationCompletionContract, DELEGATION_COMPLETION_TRACKED_META_KEY } from "../sessions/delegation-completion-contract.js";
 import { clipSessionMessage, sessionCommGuards, prepareLateralSend, isDescendantOf, resolveCallerIdentity, type CallerIdentity } from "./session-comm-guards.js";
 import {
@@ -186,7 +184,6 @@ import {
   appendWorkItemEvent,
   createWorkItem,
   getWorkItem,
-  getWorkItemBySourceRef,
   getWorkItems,
   getWorkItemSpend,
   getWorkItemTree,
@@ -194,7 +191,6 @@ import {
   linkSession,
   listWorkItemEvents,
   listWorkItemEventsForItems,
-  listWorkItems,
   queryWorkItems,
   STICKY_STATUSES,
   updateWorkItemConditional,
@@ -2373,7 +2369,6 @@ export async function handleApiRequest(
     if (method === "POST" && callbackRequeueParams) {
       if (!requireCallbackRecoveryAuthority(req, res, context)) return;
       try {
-        const existing = getSessionDelivery(callbackRequeueParams.id);
         const delivery = requeueDeadLetterSessionDelivery(callbackRequeueParams.id);
         void recoverPendingSessionDeliveries().catch((error) => {
           logger.error(`[callbacks] Requeued delivery ${delivery.id} could not start recovery: ${error instanceof Error ? error.message : String(error)}`);
@@ -3607,6 +3602,7 @@ export async function handleApiRequest(
     params = matchRoute("/api/sessions/:id/children", pathname);
     if (method === "GET" && params) {
       const session = getSession(params.id);
+      if (!session) return notFound(res);
       const children = listChildSessions(params.id);
       return json(res, serializeSessionList(children, context));
     }
@@ -5350,7 +5346,13 @@ export async function handleApiRequest(
         return;
       }
       body.parentSessionId = resolveSpawnParentSessionId(spawnCaller, body.parentSessionId, "session spawn");
-      const parentSession = typeof body.parentSessionId === "string" ? getSession(body.parentSessionId) : undefined;
+      // After the resolver, not before: a SESSION caller's unknown parent has
+      // already collapsed to the caller, which is the documented fallback. What
+      // survives to here is an operator-supplied id naming no row, which would
+      // persist a child whose lineage dead-ends.
+      if (typeof body.parentSessionId === "string" && !getSession(body.parentSessionId)) {
+        return badRequest(res, `unknown parentSessionId "${body.parentSessionId}"`);
+      }
       const config = context.getConfig();
       const employeeName = coercePortalEmployee(body.employee, config.portal?.portalName);
       const spawnAsRoot = spawnAsRootRefusal(spawnCaller, employeeName);

@@ -339,12 +339,6 @@ export class SsePtyProxy {
     return { isAgent: true, teeToUi: systemHasSentinel(json?.system) };
   }
 
-  /** Focused test seam for the main-only tee contract. Production handle()
-   *  classifies once and reuses both answers. */
-  private shouldTeeToUi(body: Buffer): boolean {
-    return this.classifyRequest("/v1/messages", body).teeToUi;
-  }
-
   /** Consume complete SSE frames (separated by a blank line) from `buf`, JSON.parse
    *  each event's `data:` payload, fire onEvent, and return the trailing incomplete
    *  remainder for the next chunk. Only ever called for the main agent's stream. */

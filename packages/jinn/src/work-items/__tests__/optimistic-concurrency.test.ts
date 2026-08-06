@@ -10,13 +10,11 @@ process.env.JINN_HOME = tmp;
 
 type Store = typeof import("../store.js");
 type UpdateWorkItemInput = import("../store.js").UpdateWorkItemInput;
-type Registry = typeof import("../../sessions/registry.js");
 let store: Store;
-let registry: Registry;
 
 beforeAll(async () => {
   store = await import("../store.js");
-  registry = await import("../../sessions/registry.js");
+  await import("../../sessions/registry.js");
 });
 
 function conditional(

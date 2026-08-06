@@ -25,7 +25,7 @@ import type {
 } from "../../shared/types.js";
 import { createSession, getMessages, getSession, listSessions, updateSession } from "../../sessions/registry.js";
 import { SessionManager } from "../../sessions/manager.js";
-import type { Binding, JsonValue, WorkflowDefinition } from "../model.js";
+import type { Binding, WorkflowDefinition } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import { WorkflowSessionExecutor } from "../session-executor.js";
@@ -365,9 +365,11 @@ describe("first Workflow vertical", () => {
       prompt: "Handle {{ input.topic }} with {{ input.employee }}." }, { employee: "writer", engine: "claude", model: "sonnet", effort: "medium", topic: "dynamic" },
       { engine: "claude", model: "sonnet", effort: "medium" }, "Handle dynamic with writer."],
   ] as const)("resolves %s before dispatch", async (_label, overrides, input, expected, prompt) => {
-    void prompt; // this expected rendered prompt is not asserted yet — ICI-734 owns closing that gap
     const authored = definition({ id: `dispatch-${_label.replaceAll(" ", "-")}`, ...overrides }); const started = await service.startManual({ workflowId: authored.id, input: { ...input } });
     await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    // composeEmployeePrompt appends the node contract after a "\n\n---\n"
+    // separator; the rendered prompt is the segment before it.
+    expect(engine.calls[0]!.prompt.split("\n\n---\n")[0]).toBe(prompt);
     expect({ model: engine.calls[0]!.model, ...(engine.calls[0]!.effortLevel ? { effortLevel: engine.calls[0]!.effortLevel } : {}) }).toStrictEqual({ model: expected.model, ...("effort" in expected ? { effortLevel: expected.effort } : {}) });
     expect(service.getRun(authored.id, started.id)?.attempts[0]?.resolvedConfig).toStrictEqual({ employeeId: "writer", ...expected,
       retry: { attempts: 1, delaySeconds: 0, backoff: "fixed" }, timeoutMinutes: 180 });

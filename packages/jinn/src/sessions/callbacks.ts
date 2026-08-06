@@ -16,7 +16,7 @@ import { GATEWAY_INFO_FILE } from "../shared/paths.js";
 import { gatewayBaseUrl, readGatewayInfo } from "../gateway/gateway-info.js";
 import type { ChatBlockEnvelope, JsonObject } from "../shared/types.js";
 import { enforceDelegationCompletionContract } from "./delegation-completion-contract.js";
-import type { SessionDelivery, SessionDeliveryPayload } from "../shared/types.js";
+import type { SessionDeliveryPayload } from "../shared/types.js";
 
 export const CALLBACK_DELIVERY_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
 export const CALLBACK_DELIVERY_MAX_ATTEMPTS = CALLBACK_DELIVERY_RETRY_DELAYS_MS.length + 1;

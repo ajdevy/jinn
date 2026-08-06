@@ -185,13 +185,15 @@ export function formatPairingInstructions(
   ].join("\n");
 }
 
-export function formatPairedDevices(devices: PairedDeviceResponse[]): string {
+export function formatPairedDevices(devices: PairedDeviceResponse[], instance = "jinn"): string {
   if (devices.length === 0) {
     return [
       "Paired browsers",
       "",
       "No paired browsers yet.",
-      "Create a code with jinn pair, then open Jinn from the other browser and enter it.",
+      // Name the instance: a bare `jinn pair` mints a code for the DEFAULT
+      // instance, which is the wrong one to hand someone reading this list.
+      `Create a code with ${pairCommandFor(instance)}, then open Jinn from the other browser and enter it.`,
     ].join("\n");
   }
   const lines = ["Paired browsers", ""];
@@ -204,6 +206,20 @@ export function formatPairedDevices(devices: PairedDeviceResponse[]): string {
     lines.push(`  unpair: jinn unpair ${unpairId}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Printed after pairing the default instance when others exist, so an operator
+ * who meant one of them sees its exact command rather than a `<instance>`
+ * placeholder they have to fill in correctly from memory.
+ */
+export function formatPairInstanceNudge(otherInstances: string[]): string {
+  return [
+    "",
+    `This paired the default instance. ${otherInstances.length} other instance(s) exist.`,
+    "To pair a different one, name it:",
+    ...otherInstances.map((name) => `  ${pairCommandFor(name)}`),
+  ].join("\n");
 }
 
 export async function runPair(opts: { json?: boolean } = {}): Promise<void> {
@@ -230,11 +246,7 @@ export async function runPair(opts: { json?: boolean } = {}): Promise<void> {
       // form so they don't mint a code for `.jinn` when they meant another one.
       if (instance === "jinn") {
         const others = loadInstances().filter((i) => i.name !== "jinn");
-        if (others.length > 0) {
-          console.log("");
-          console.log(`This paired the default instance. ${others.length} other instance(s) exist.`);
-          console.log("To pair a different one, name it: jinn -i <instance> pair");
-        }
+        if (others.length > 0) console.log(formatPairInstanceNudge(others.map((i) => i.name)));
       }
     }
   } catch (err) {
@@ -260,7 +272,7 @@ export async function runUnpair(deviceId?: string, opts: { json?: boolean } = {}
     if (!deviceId) {
       const devices = await requestPairedDevices(connection);
       if (opts.json) console.log(JSON.stringify({ devices }, null, 2));
-      else console.log(formatPairedDevices(devices));
+      else console.log(formatPairedDevices(devices, resolveJinnInstance()));
       return;
     }
     const result = await requestUnpairDevice({ ...connection, deviceId });

@@ -147,7 +147,7 @@ function ChatPage() {
   // can ignore stale meta from a previous session mid-switch (title flash fix).
   const [sessionMeta, setSessionMeta] = useState<{ sessionId: string; engine?: string; engineSessionId?: string; model?: string; title?: string; employee?: string; archivedAt?: string | null } | null>(null)
   // Sibling sessions for the currently selected employee (empty if direct/single session)
-  const [employeeSessions, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
+  const [, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
   // When true, user explicitly started a new chat — don't auto-select first session
   const newChatIntentRef = useRef(false)
   // Employee to preselect for a brand-new chat (contacting a session-less

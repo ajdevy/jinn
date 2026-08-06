@@ -83,7 +83,6 @@ vi.mock("../migrate-prompt.js", async () => {
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { scanMigrationPrompts, scanFutureMigrations } from "../migrate-prompt.js";
-import { getInstanceVersion } from "../../shared/version.js";
 import { getPendingInstanceMigration } from "../../migrations/service.js";
 import { completeInstanceMigration } from "../../migrations/completion.js";
 import { stampVersionInYaml } from "../migrate.js";
@@ -98,7 +97,6 @@ const mockRmSync = vi.mocked(fs.rmSync);
 const mockScan = vi.mocked(scanMigrationPrompts);
 const mockScanFuture = vi.mocked(scanFutureMigrations);
 const mockReadFileSync = vi.mocked(fs.readFileSync);
-const mockGetInstanceVersion = vi.mocked(getInstanceVersion);
 const mockGetPending = vi.mocked(getPendingInstanceMigration);
 const mockComplete = vi.mocked(completeInstanceMigration);
 

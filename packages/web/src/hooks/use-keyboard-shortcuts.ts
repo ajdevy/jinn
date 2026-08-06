@@ -43,7 +43,6 @@ function matchesShortcut(e: KeyboardEvent, s: ShortcutDef): boolean {
 export function useKeyboardShortcuts(shortcuts: ShortcutDef[], options: ShortcutOptions = {}) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      const isEscape = e.key === 'Escape'
       const active = document.activeElement as HTMLElement | null
       const tagName = active?.tagName?.toLowerCase() ?? ''
       const isEditing = tagName === 'input' || tagName === 'textarea' || active?.isContentEditable === true

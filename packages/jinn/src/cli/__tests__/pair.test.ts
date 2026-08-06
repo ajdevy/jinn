@@ -5,6 +5,7 @@ import path from "node:path";
 import { expectPosixMode } from "../../shared/test-support/posix-mode.js";
 import {
   formatPairedDevices,
+  formatPairInstanceNudge,
   formatPairingInstructions,
   requestPairedDevices,
   requestPairingCode,
@@ -283,5 +284,21 @@ describe("pair CLI helpers", () => {
     expect(text).toContain("jinn unpair -- -device-2");
     expect(formatPairedDevices([])).toContain("Create a code with jinn pair");
     expect(text).not.toContain("gateway-token");
+  });
+
+  it("names the instance in the pair command it tells the operator to run", () => {
+    expect(formatPairedDevices([], "jinn")).toContain("Create a code with jinn pair,");
+
+    const forSecondary = formatPairedDevices([], "jinn-staging");
+    expect(forSecondary).toContain("Create a code with jinn -i jinn-staging pair,");
+    expect(forSecondary).not.toContain("Create a code with jinn pair,");
+  });
+
+  it("nudges toward the -i form by naming each other instance's own pair command", () => {
+    const nudge = formatPairInstanceNudge(["jinn-staging", "jinn-research"]);
+
+    expect(nudge).toContain("2 other instance(s) exist");
+    expect(nudge).toContain("jinn -i jinn-staging pair");
+    expect(nudge).toContain("jinn -i jinn-research pair");
   });
 });
