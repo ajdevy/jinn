@@ -99,6 +99,7 @@ function portsOf(node: WorkflowNode): string[] {
   switch (type) {
     case 'trigger': return ['success'];
     case 'employee': return ['success', 'error'];
+    case 'workflow-call': return ['success'];
     case 'condition': return conditionPorts(node);
     case 'merge': return ['success'];
     case 'approval': return ['approved', 'rejected'];
@@ -165,6 +166,13 @@ function addNodeBindingIssues(node: WorkflowNode, nodeIndex: number, context: Bi
   const base = `nodes.${nodeIndex}.config`;
   if (value?.type === 'employee') {
     for (const key of ['employee', 'engine', 'model', 'effort']) checkBinding(config?.[key], `${base}.${key}`, id, context);
+  } else if (value?.type === 'workflow-call') {
+    checkBinding(config?.workflowId, `${base}.workflowId`, id, context);
+    checkBinding(config?.items, `${base}.items`, id, context);
+    const input = record(config?.input);
+    for (const [key, binding] of Object.entries(input ?? {})) {
+      checkBinding(binding, `${base}.input.${key}`, id, context);
+    }
   } else if (value?.type === 'condition') {
     const cases = Array.isArray(config?.cases) ? config.cases : [];
     for (const [caseIndex, item] of cases.entries()) {
@@ -355,6 +363,20 @@ export function scheduleTriggerIssues(definition: WorkflowDefinition): WorkflowV
   return issues;
 }
 
+export function workflowCallTargetIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
+  const safe = safeDefinition(definition);
+  if (!safe) return [];
+  return safe.nodes.flatMap((node, index) => node.type === 'workflow-call'
+    && node.config.workflowId.source === 'fixed' && node.config.workflowId.value === safe.id
+    ? [{
+        code: 'workflow-call-self-reference',
+        message: 'A Workflow Call cannot target its own defining Workflow.',
+        nodeId: node.id,
+        path: `nodes.${index}.config.workflowId`,
+      }]
+    : []);
+}
+
 export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok: boolean; issues: WorkflowValidationIssue[] } {
   const safe = safeDefinition(definition);
   if (!safe) return {
@@ -373,6 +395,7 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   addCardinalityIssues(nodes, graph, add);
   addReachabilityIssues(nodes, graph, add);
   for (const item of scheduleTriggerIssues(safe)) add(item);
+  for (const item of workflowCallTargetIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
   return { ok: issues.length === 0, issues };
 }

@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Employee, ModelRegistry } from "../shared/types.js";
+import { logger } from "../shared/logger.js";
 import type { WorkflowTodoEventFeed } from "../work-items/workflow-event-feed.js";
 import { jsonValueSchema, nodeIdSchema, workflowIdSchema, type JsonValue, type WorkflowDefinition, type WorkflowId } from "./model.js";
 import {
@@ -16,7 +17,12 @@ import type { WorkflowError, WorkflowRunDetail } from "./runtime.js";
 import { WorkflowRunner, type WorkflowTodoApprovalMirror, type WorkflowTodoLifecycle, type WorkflowTodoSessionLink } from "./runner.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { WorkflowTriggerService, type FireWorkflowEventInput } from "./trigger-service.js";
-import { scheduleTriggerIssues, validateExecutableWorkflow, type WorkflowValidationIssue } from "./validation.js";
+import {
+  scheduleTriggerIssues,
+  validateExecutableWorkflow,
+  workflowCallTargetIssues,
+  type WorkflowValidationIssue,
+} from "./validation.js";
 
 export { WorkflowRepositoryError };
 export type { FireWorkflowEventInput };
@@ -57,6 +63,7 @@ export interface WorkflowCallInput {
   caller: { workflowId: string; runId: string; nodeId: string };
   input: Record<string, JsonValue>;
   idempotencyKey: string;
+  itemIndex?: number;
 }
 export class WorkflowServiceError extends Error {
   readonly code: "forbidden" | "conflict" | "invalid-definition";
@@ -124,9 +131,13 @@ export class WorkflowService {
   private disposed = false;
 
   constructor(private readonly options: WorkflowServiceOptions) {
-    this.runner = new WorkflowRunner({ ...options, onChange: ({ workflowId, runId }) => {
+    this.runner = new WorkflowRunner({ ...options, callWorkflow: (input) => this.callWorkflow(input),
+      onChange: ({ workflowId, runId }) => {
       const run = options.repository.getRun(workflowId, runId);
-      if (run) options.onChange?.({ workflowId, runId });
+      if (run) {
+        options.onChange?.({ workflowId, runId });
+        this.wakeCaller(run);
+      }
       this.armWakeTimer();
     } });
     this.triggers = new WorkflowTriggerService(options.repository, this.runner,
@@ -141,7 +152,16 @@ export class WorkflowService {
   }
   private runChanged(run: WorkflowRunDetail): void {
     this.options.onChange?.({ workflowId: run.workflowId, runId: run.id });
+    this.wakeCaller(run);
     this.armWakeTimer();
+  }
+  private wakeCaller(run: WorkflowRunDetail): void {
+    if (!["completed", "failed", "cancelled"].includes(run.status) || run.trigger.kind !== "workflow-call") return;
+    const caller = run.trigger.payload.caller;
+    if (!callerIdentity(caller)) return;
+    void this.runner.advanceCaller(caller.workflowId, caller.runId, caller.nodeId).catch((error) => {
+      logger.warn(`Workflow caller ${caller.runId}:${caller.nodeId} could not resume: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
   private requiredRun(workflowId: string, runId: string): WorkflowRunDetail {
     const run = this.options.repository.getRun(workflowId, runId);
@@ -166,14 +186,17 @@ export class WorkflowService {
   private validateCaller(targetWorkflowId: string, caller: WorkflowCallInput["caller"]): void {
     let current = this.options.repository.getRun(caller.workflowId, caller.runId)
       ?? fail("bad-input", "Workflow caller run was not found.");
+    const authored = current.definition.nodes.find((node) => node.id === caller.nodeId);
+    const runtime = current.nodeRuns.find((node) => node.nodeId === caller.nodeId);
     const attempt = current.attempts.filter((item) => item.nodeId === caller.nodeId).at(-1);
-    if (current.definition.nodes.find((node) => node.id === caller.nodeId)?.type !== "employee"
-      || !current.nodeRuns.find((node) => node.nodeId === caller.nodeId)?.activated || !attempt
-      || !["dispatching", "running"].includes(attempt.status)) {
+    const activeEmployee = authored?.type === "employee" && attempt && ["dispatching", "running"].includes(attempt.status);
+    const activeWorkflowCall = authored?.type === "workflow-call" && runtime?.status === "running";
+    if (!runtime?.activated || (!activeEmployee && !activeWorkflowCall)) {
       fail("bad-input", "Workflow caller node is not an active invocation.");
     }
     const seen = new Set<string>();
     for (let depth = 0; depth < 128; depth += 1) {
+      if (current.cancelRequestedAt) fail("bad-input", "Workflow caller run is being cancelled.");
       if (current.workflowId === targetWorkflowId) fail("bad-input", "Workflow call recursion is not allowed.");
       if (seen.has(current.id)) fail("bad-input", "Workflow caller ancestry contains a cycle.");
       seen.add(current.id);
@@ -182,7 +205,8 @@ export class WorkflowService {
       if (!callerIdentity(parent)) fail("bad-input", "Workflow caller ancestry is invalid.");
       current = this.options.repository.getRun(parent.workflowId, parent.runId)
         ?? fail("bad-input", "Workflow caller ancestry was not found.");
-      if (!current.definition.nodes.some((node) => node.id === parent.nodeId && node.type === "employee")) {
+      if (!current.definition.nodes.some((node) => node.id === parent.nodeId
+        && (node.type === "employee" || node.type === "workflow-call"))) {
         fail("bad-input", "Workflow caller ancestry is invalid.");
       }
     }
@@ -222,7 +246,7 @@ export class WorkflowService {
   saveDefinition(definition: WorkflowDefinition, expectedRevision: number): WorkflowDefinition {
     // Saving a revision of an already-enabled Workflow bypasses the enable gate,
     // so an unarmable schedule is refused here before it can become durable.
-    const issues = scheduleTriggerIssues(definition);
+    const issues = [...scheduleTriggerIssues(definition), ...workflowCallTargetIssues(definition)];
     if (issues.length > 0) throw new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", issues);
     const value = this.options.repository.saveDefinition(definition, expectedRevision); this.definitionChanged(value); return value;
   }
@@ -269,9 +293,13 @@ export class WorkflowService {
     if (typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 128) {
       fail("bad-input", "Workflow idempotency key is invalid.");
     }
+    if (input.itemIndex !== undefined && (!Number.isInteger(input.itemIndex) || input.itemIndex < 0 || input.itemIndex >= 100)) {
+      fail("bad-input", "Workflow call item index is invalid.");
+    }
     const value = boundedRecord(input.input, "Workflow input");
     const replay = this.options.repository.findWorkflowCallByIdempotency({ workflowId: workflowId.data,
-      input: value, caller: input.caller, idempotencyKey: input.idempotencyKey });
+      input: value, caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }),
+      idempotencyKey: input.idempotencyKey });
     if (replay) return this.requiredRun(replay.workflowId, replay.id);
     const definition = this.options.repository.getDefinition(workflowId.data);
     const targets = definition?.nodes.filter((node) => node.type === "trigger" && node.config.kind === "workflow-call") ?? [];
@@ -281,7 +309,8 @@ export class WorkflowService {
     this.validateCaller(definition.id, input.caller);
     const created = this.options.repository.createRun({ workflowId: definition.id,
       input: value, trigger: { nodeId: targets[0]!.id, kind: "workflow-call",
-        payload: { caller: input.caller } }, idempotencyKey: input.idempotencyKey });
+        payload: { caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }) } },
+      idempotencyKey: input.idempotencyKey });
     const detail = this.requiredRun(definition.id, created.id);
     return detail.status === "pending" ? this.runner.start(created.id) : detail;
   }
@@ -301,6 +330,15 @@ export class WorkflowService {
     const requestedAt = this.now();
     this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus(run.status, { cancelRequestedAt: requestedAt }));
     run = this.requiredRun(input.workflowId, input.runId); this.runChanged(run);
+    const children = run.definition.nodes
+      .filter((node) => node.type === "workflow-call")
+      .flatMap((node) => this.options.repository.listChildRuns(run.id, node.id))
+      .filter((child) => !["completed", "failed", "cancelled"].includes(child.status));
+    await Promise.allSettled(children.map((child) => this.cancelRun({
+      workflowId: child.workflowId,
+      runId: child.runId,
+      reason: input.reason || "Parent Workflow run cancelled.",
+    })));
     await Promise.allSettled(run.attempts.filter((item) => item.status === "running" && item.sessionId)
       .map((item) => this.options.executor.stopAttempt({ sessionId: item.sessionId!, reason: input.reason || "Workflow run cancelled." })));
     run = this.requiredRun(input.workflowId, input.runId);
@@ -408,6 +446,16 @@ export class WorkflowService {
           await this.options.executor.stopAttempt({ sessionId: attempt.sessionId!, reason: "Workflow attempt timed out." }).catch(() => undefined);
           if (await this.runner.timeoutAttempt(run.workflowId, run.id, attempt.nodeId, attempt.attempt, now)) resumedRuns += 1;
         }
+      }
+      const current = this.requiredRun(run.workflowId, run.id);
+      if (current.definition.nodes.some((node) => node.type === "workflow-call"
+        && current.nodeRuns.some((runtime) => runtime.nodeId === node.id && runtime.activated
+          && !["completed", "failed", "skipped", "cancelled"].includes(runtime.status)))) {
+        const revision = current.revision;
+        for (const node of current.definition.nodes.filter((item) => item.type === "workflow-call")) {
+          await this.runner.advanceCaller(current.workflowId, current.id, node.id);
+        }
+        if (this.requiredRun(current.workflowId, current.id).revision !== revision) resumedRuns += 1;
       }
     }
     let resumedWaits = 0;

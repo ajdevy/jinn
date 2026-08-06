@@ -64,6 +64,18 @@ function authoredDefinition(id = 'content-flow', title = 'Content flow'): Workfl
   }, created.revision);
 }
 
+function calledDefinition(id = 'child-flow'): WorkflowDefinition {
+  const created = repository.createDefinition({ id, title: 'Child flow' });
+  return repository.saveDefinition({
+    ...created,
+    nodes: [
+      { id: 'start', type: 'trigger', name: 'Called', config: { kind: 'workflow-call' } },
+      { id: 'finish', type: 'end', name: 'Finish', config: { result: 'success' } },
+    ],
+    edges: [{ id: 'finish', from: { nodeId: 'start', port: 'success' }, to: { nodeId: 'finish', port: 'input' } }],
+  }, created.revision);
+}
+
 function createRun(overrides: Partial<CreateRunInput> = {}): WorkflowRunRecord {
   return repository.createRun({
     workflowId: 'content-flow',
@@ -158,6 +170,39 @@ describe('WorkflowRepository Task 11 contract', () => {
 });
 
 describe('run creation and idempotency', () => {
+  it('lists child runs by caller in item order with their End output fields', () => {
+    const parentDefinition = authoredDefinition();
+    const childDefinition = calledDefinition();
+    const parent = repository.createRun({ workflowId: parentDefinition.id, input: {},
+      trigger: { nodeId: 'start', kind: 'manual', payload: {} } });
+    const children = [2, 0, 1].map((itemIndex) => repository.createRun({
+      workflowId: childDefinition.id,
+      input: { topic: `item-${itemIndex}` },
+      trigger: { nodeId: 'start', kind: 'workflow-call', payload: {
+        caller: { workflowId: parent.workflowId, runId: parent.id, nodeId: 'draft' }, itemIndex,
+      } },
+      idempotencyKey: `${parent.id}:draft:${itemIndex}`,
+    }));
+    for (const child of children) {
+      const itemIndex = child.trigger.payload.itemIndex as number;
+      repository.mutateRun(child.id, child.revision, (tx) => {
+        tx.setNodeStatus('start', 'completed', { activated: true, startedAt: now, endedAt: now });
+        tx.setNodeStatus('finish', 'completed', { activated: true,
+          output: { text: '', fields: { result: `done-${itemIndex}` } }, startedAt: now, endedAt: now });
+        tx.setRunStatus('completed', { endedAt: now });
+      });
+    }
+
+    expect(repository.listChildRuns(parent.id, 'draft')).toEqual([
+      expect.objectContaining({ itemIndex: 0, runId: children[1]!.id, workflowId: childDefinition.id,
+        status: 'completed', endOutput: { result: 'done-0' } }),
+      expect.objectContaining({ itemIndex: 1, runId: children[2]!.id, workflowId: childDefinition.id,
+        status: 'completed', endOutput: { result: 'done-1' } }),
+      expect.objectContaining({ itemIndex: 2, runId: children[0]!.id, workflowId: childDefinition.id,
+        status: 'completed', endOutput: { result: 'done-2' } }),
+    ]);
+  });
+
   it('freezes the exact definition, input, and trigger and initializes every authored node', () => {
     const definition = authoredDefinition();
     const input = Object.assign(Object.create(null), { topic: 'release' }) as Record<string, JsonValue>;

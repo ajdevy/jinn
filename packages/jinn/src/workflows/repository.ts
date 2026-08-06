@@ -13,7 +13,7 @@ import { RunMutation } from './repository-run-transaction.js';
 import {
   equivalentRun, insertRun, listRunSummaries, readAttempt, readAttemptByRetryKey, readAttemptBySession,
   readAttempts, readDueReminders, readDueWaits, readNextDueReminder, readNextDueTimeout, readNextDueWait, readRecoverableRuns,
-  readRun, readRunByIdempotency,
+  readRun, readRunByIdempotency, readRunsByCaller,
   readWorkflowCallByIdempotency, readRunDetail,
   type NormalizedRunListQuery,
 } from './repository-runs.js';
@@ -27,6 +27,7 @@ import {
   type ResolvedEmployeeConfig,
   type WorkflowApprovalRecord,
   type WorkflowAttemptRecord,
+  type WorkflowChildRunSummary,
   type WorkflowError,
   type WorkflowNodeRunRecord,
   type WorkflowNodeRunStatus,
@@ -328,14 +329,17 @@ export class WorkflowRepository {
     return readRunByIdempotency(this.db, id, parsed!);
   }
   findWorkflowCallByIdempotency(input: { workflowId: string; input: Record<string, JsonValue>;
-    caller: { workflowId: string; runId: string; nodeId: string }; idempotencyKey: string }): WorkflowRunRecord | null {
+    caller: { workflowId: string; runId: string; nodeId: string }; itemIndex?: number;
+    idempotencyKey: string }): WorkflowRunRecord | null {
     const workflowId = parseWorkflowId(input.workflowId);
     const value = parseJsonRecord(input.input, 'Workflow run input is invalid.');
     const caller = parseJsonRecord(input.caller, 'Workflow caller identity is invalid.');
     const key = parseBoundedString(input.idempotencyKey, 'Workflow idempotency key', 128)!;
     const replay = readWorkflowCallByIdempotency(this.db, key);
     if (replay && (replay.workflowId !== workflowId || !equivalentRun(replay, value,
-      { nodeId: replay.trigger.nodeId, kind: 'workflow-call', payload: { caller } }))) {
+      { nodeId: replay.trigger.nodeId, kind: 'workflow-call', payload: {
+        caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }),
+      } }))) {
       repositoryError('idempotency-conflict', 'Workflow idempotency key was reused with different input.');
     }
     return replay;
@@ -365,6 +369,9 @@ export class WorkflowRepository {
   }
   listAttempts(runId: string, nodeId: string): WorkflowAttemptRecord[] {
     return readAttempts(this.db, parseRunId(runId), parseNodeId(nodeId));
+  }
+  listChildRuns(parentRunId: string, nodeId: string): WorkflowChildRunSummary[] {
+    return readRunsByCaller(this.db, parseRunId(parentRunId), parseNodeId(nodeId));
   }
   findAttemptBySessionId(sessionId: string): WorkflowAttemptRecord | null {
     return readAttemptBySession(this.db, parseBoundedString(sessionId as unknown as JsonValue, 'Workflow session ID')!);

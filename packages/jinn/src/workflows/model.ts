@@ -184,6 +184,17 @@ const employeeNodeSchema = z.strictObject({
     timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
   }),
 });
+const workflowCallNodeSchema = z.strictObject({
+  id: nodeIdSchema,
+  type: z.literal('workflow-call'),
+  name: z.string().min(1).max(80),
+  config: z.strictObject({
+    workflowId: stringBindingSchema,
+    items: bindingSchema.optional(),
+    input: z.record(pathSegmentSchema, bindingSchema).optional(),
+    concurrency: finiteNumberSchema.int().min(1).max(16).default(2),
+  }),
+});
 const conditionPredicateSchema = z.strictObject({
   left: bindingSchema,
   operator: z.enum(['equals', 'not-equals', 'exists', 'not-exists', 'contains', 'gt', 'gte', 'lt', 'lte', 'in']),
@@ -256,6 +267,7 @@ const endNodeSchema = z.strictObject({
 const rawWorkflowNodeSchema = z.discriminatedUnion('type', [
   triggerNodeSchema,
   employeeNodeSchema,
+  workflowCallNodeSchema,
   conditionNodeSchema,
   mergeNodeSchema,
   approvalNodeSchema,
@@ -349,6 +361,7 @@ export type WorkflowOutputSchema = z.infer<typeof workflowOutputSchema>;
 export type WorkflowInputField = z.infer<typeof workflowInputFieldSchema>;
 export type TriggerNode = z.infer<typeof triggerNodeSchema>;
 export type EmployeeNode = z.infer<typeof employeeNodeSchema>;
+export type WorkflowCallNode = z.infer<typeof workflowCallNodeSchema>;
 export type ConditionPredicate = z.infer<typeof conditionPredicateSchema>;
 export type ConditionNode = z.infer<typeof conditionNodeSchema>;
 export type MergeNode = z.infer<typeof mergeNodeSchema>;

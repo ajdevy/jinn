@@ -26,6 +26,20 @@ function employee(id: string, employeeBinding: Binding<string> = fixed('worker')
   return { id, type: 'employee', name: id, config: { employee: employeeBinding, prompt: `Run ${id}.` } };
 }
 
+function workflowCall(id: string, workflowId: Binding<string> = fixed('child-flow')): WorkflowNode {
+  return {
+    id,
+    type: 'workflow-call',
+    name: id,
+    config: {
+      workflowId,
+      items: { source: 'fixed', value: [{ topic: 'one' }] },
+      input: { topic: { source: 'trigger', path: 'item.topic' } },
+      concurrency: 2,
+    },
+  };
+}
+
 function condition(id: string, ports = ['yes'], defaultPort = 'no'): ConditionNode {
   return {
     id,
@@ -146,6 +160,34 @@ function withPrototypeProperty(key: string, descriptor: PropertyDescriptor, run:
 describe('valid executable graphs', () => {
   it('accepts Manual -> Employee -> Employee -> End', () => {
     expect(validateExecutableWorkflow(validChain())).toEqual({ ok: true, issues: [] });
+  });
+
+  it('accepts a workflow-call success path and validates every authored binding', () => {
+    const graph = definition(
+      [trigger(), workflowCall('children'), end()],
+      [edge('e1', 'trigger', 'children'), edge('e2', 'children', 'end')],
+    );
+
+    expect(outputPorts(graph.nodes[1]!)).toEqual(['success']);
+    expect(validateExecutableWorkflow(graph)).toEqual({ ok: true, issues: [] });
+
+    const malformed = structuredClone(graph);
+    const call = malformed.nodes[1] as Extract<WorkflowNode, { type: 'workflow-call' }>;
+    call.config.input = { topic: { source: 'node', nodeId: 'missing', path: 'fields.topic' } };
+    expect(codes(validateExecutableWorkflow(malformed))).toContain('unknown-node-binding');
+  });
+
+  it('refuses a fixed workflow-call target equal to the defining workflow', () => {
+    const graph = definition(
+      [trigger(), workflowCall('children', fixed('validation-fixture')), end()],
+      [edge('e1', 'trigger', 'children'), edge('e2', 'children', 'end')],
+    );
+
+    expect(validateExecutableWorkflow(graph).issues).toContainEqual(expect.objectContaining({
+      code: 'workflow-call-self-reference',
+      nodeId: 'children',
+      path: 'nodes.1.config.workflowId',
+    }));
   });
 
   it('accepts branching, fan-out, Condition, Merge, Approval recovery, and Wait', () => {

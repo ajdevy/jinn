@@ -51,6 +51,33 @@ describe("editor store", () => {
     expect(store.getState().serial).toBe(0)
   })
 
+  it("round-trips workflow-call bindings without mutating their config", () => {
+    const withCall = structuredClone(definition)
+    const config = {
+      workflowId: { source: "fixed", value: "publish-item" },
+      items: { source: "node", nodeId: "route", path: "fields.items" },
+      input: {
+        item: { source: "trigger", path: "item" },
+        index: { source: "trigger", path: "itemIndex" },
+      },
+      concurrency: 4,
+    }
+    withCall.nodes.splice(2, 0, {
+      id: "fanout",
+      type: "workflow-call",
+      name: "Publish items",
+      config,
+    })
+    withCall.ui.positions.fanout = { x: 600, y: 120 }
+
+    const store = createEditorStore(withCall)
+    const { meta, nodes, edges } = store.getState()
+    const wire = serializeDefinition(meta, nodes, edges)
+
+    expect(wire.nodes.find((node) => node.id === "fanout")?.config).toEqual(config)
+    expect(store.getState().serial).toBe(0)
+  })
+
   it("lays out imported drafts that carry no stored positions", () => {
     const bare = structuredClone(definition)
     bare.ui = { positions: {} }
