@@ -119,9 +119,9 @@ describe("a workflow's own status write reaches the board", () => {
     const events = todoEvents();
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ entity: "todo", id: item.id, version: written.version });
-    // The client merges `value` synchronously; without it the card only moves
-    // once the debounced refetch lands.
-    expect(events[0]!.value).toMatchObject({ id: item.id, status: "executing", version: written.version });
+    // The client merges `value` synchronously; a partial payload would leave the
+    // merged card missing fields, so this is the whole item, not a subset of it.
+    expect(events[0]!.value).toEqual(written);
   });
 
   it("emits nothing when the reflection is refused", () => {
