@@ -145,6 +145,11 @@ export function realCodexHome(codexHomesBaseDir: string = CODEX_HOMES_DIR): stri
 // resume a session thread. Session rollouts and SQLite state remain private.
 const SHARED_CODEX_HOME_DIRS = ["plugins", "cache", "skills", "vendor_imports", ".tmp"] as const;
 
+// Same idea, for shared assets that are FILES. They cannot ride
+// SHARED_CODEX_HOME_DIRS: that path mkdir's its target, which would plant a bogus
+// directory of this name inside the operator's real codex home.
+const SHARED_CODEX_HOME_FILES = ["models_cache.json"] as const;
+
 function linkSharedCodexHomeDirs(sessionHome: string, realHome: string): void {
   for (const name of SHARED_CODEX_HOME_DIRS) {
     const shared = path.join(realHome, name);
@@ -164,6 +169,31 @@ function linkSharedCodexHomeDirs(sessionHome: string, realHome: string): void {
       // following it, and this runs before the session's next Codex process starts.
       fs.rmSync(link, { recursive: true, force: true });
       fs.symlinkSync(shared, link, process.platform === "win32" ? "junction" : "dir");
+    } catch (err) {
+      logger.warn(`Codex per-session home: could not share ${name} (${err instanceof Error ? err.message : err})`);
+    }
+  }
+}
+
+function linkSharedCodexHomeFiles(sessionHome: string, realHome: string): void {
+  for (const name of SHARED_CODEX_HOME_FILES) {
+    const shared = path.join(realHome, name);
+    const link = path.join(sessionHome, name);
+    try {
+      // Never create the target: codex writes these caches itself, and an empty
+      // placeholder would be worse than no link at all.
+      if (!fs.existsSync(shared)) continue;
+      let alreadyLinked = false;
+      try {
+        const stat = fs.lstatSync(link);
+        alreadyLinked =
+          stat.isSymbolicLink() &&
+          path.resolve(path.dirname(link), fs.readlinkSync(link)) === path.resolve(shared);
+      } catch { /* missing link — create it below */ }
+      if (alreadyLinked) continue;
+
+      fs.rmSync(link, { recursive: true, force: true });
+      fs.symlinkSync(shared, link);
     } catch (err) {
       logger.warn(`Codex per-session home: could not share ${name} (${err instanceof Error ? err.message : err})`);
     }
@@ -248,6 +278,7 @@ export function prepareCodexSessionHome(
   // propagate — the overlay never owns credentials.
   const realHome = realCodexHome(baseDir);
   linkSharedCodexHomeDirs(home, realHome);
+  linkSharedCodexHomeFiles(home, realHome);
   const realAuth = path.join(realHome, "auth.json");
   const linkAuth = path.join(home, "auth.json");
   try {
@@ -293,18 +324,29 @@ export function removeCodexSessionHome(sessionId: string, baseDir: string = CODE
   } catch { /* ignore cleanup errors */ }
 }
 
+/** How long an overlay may sit without a turn before it is worth nothing. */
+const CODEX_HOME_MAX_IDLE_DAYS = 14;
+const CODEX_HOME_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Startup sweep for orphaned per-session CODEX_HOME overlays. Homes are removed
- * on session teardown, but a session whose record is gone (crash, hard delete,
+ * Retention sweep for per-session CODEX_HOME overlays. Homes are removed on
+ * session teardown, but a session whose record is gone (crash, hard delete,
  * pre-fix accumulation) leaves its overlay behind forever — that leak grew to
- * 276 dirs / 2.4GB. Given the set of session ids the registry still knows about,
- * delete every overlay dir that is NOT backed by a live session. Never touches
- * the shared caches (dot-dirs / SHARED_CODEX_HOME_DIRS live alongside overlays).
- * Returns the number of orphan overlays removed.
+ * 276 dirs / 2.4GB.
+ *
+ * Age decides, not the session row: `config.toml` is rewritten on every turn, so
+ * its mtime is an exact last-activity stamp needing no DB read, and a thread that
+ * has not taken a turn in `maxAgeDays` is not worth resuming. `knownSessionIds`
+ * only breaks the tie for an overlay with no stamp at all (a crash between the
+ * mkdir and the first write) — pass EVERY session id, archived and
+ * workflow-phase included, since those resume too. Never touches the shared
+ * caches (dot-entries / SHARED_CODEX_HOME_DIRS / SHARED_CODEX_HOME_FILES live
+ * alongside overlays), at any age. Returns the number of overlays removed.
  */
 export function sweepOrphanCodexSessionHomes(
   knownSessionIds: Iterable<string>,
   baseDir: string = CODEX_HOMES_DIR,
+  maxAgeDays: number = CODEX_HOME_MAX_IDLE_DAYS,
 ): number {
   let entries: string[];
   try {
@@ -314,16 +356,51 @@ export function sweepOrphanCodexSessionHomes(
   }
   const keep = new Set<string>();
   for (const id of knownSessionIds) keep.add(safeSessionDirName(id));
-  const shared = new Set<string>(SHARED_CODEX_HOME_DIRS);
+  const shared = new Set<string>([...SHARED_CODEX_HOME_DIRS, ...SHARED_CODEX_HOME_FILES]);
+  const idleCutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   let removed = 0;
   for (const entry of entries) {
-    if (entry.startsWith(".") || shared.has(entry) || keep.has(entry)) continue;
+    if (entry.startsWith(".") || shared.has(entry)) continue;
+    let lastTurnAt: number | undefined;
+    try {
+      lastTurnAt = fs.statSync(path.join(baseDir, entry, "config.toml")).mtimeMs;
+    } catch { /* no stamp — the keep-list decides below */ }
+    const stale = lastTurnAt === undefined ? !keep.has(entry) : lastTurnAt < idleCutoff;
+    if (!stale) continue;
     try {
       fs.rmSync(path.join(baseDir, entry), { recursive: true, force: true });
       removed++;
     } catch { /* best effort */ }
   }
   return removed;
+}
+
+/**
+ * Run the overlay sweep now and every 24h thereafter. Session rows outlive their
+ * overlays' usefulness and nothing else reaps them, so a boot-only sweep leaves a
+ * long-running gateway accumulating dead homes indefinitely. `listSessionIds` is
+ * re-read on every run so sessions created since the last one are honoured.
+ * Returns the interval timer (already `unref`'d — this must never hold the
+ * process open) so a caller can stop it.
+ */
+export function startCodexSessionHomeSweeps(opts: {
+  listSessionIds: () => Iterable<string>;
+  baseDir?: string;
+  maxAgeDays?: number;
+  intervalMs?: number;
+}): NodeJS.Timeout {
+  const sweep = () => {
+    try {
+      const removed = sweepOrphanCodexSessionHomes(opts.listSessionIds(), opts.baseDir, opts.maxAgeDays);
+      if (removed > 0) logger.info(`Swept ${removed} stale Codex session home(s)`);
+    } catch (err) {
+      logger.warn(`Codex session home sweep failed (${err instanceof Error ? err.message : err})`);
+    }
+  };
+  sweep();
+  const timer = setInterval(sweep, opts.intervalMs ?? CODEX_HOME_SWEEP_INTERVAL_MS);
+  timer.unref?.();
+  return timer;
 }
 
 /**

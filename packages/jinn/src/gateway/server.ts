@@ -21,13 +21,13 @@ import {
 } from "../shared/models.js";
 import { configureLogger, logger } from "../shared/logger.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
-import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, RESTART_ACK_META_KEY } from "../sessions/registry.js";
+import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, listAllSessionIds, RESTART_ACK_META_KEY } from "../sessions/registry.js";
 import { initDb } from "../shared/db.js";
 import { SessionManager, type RouteOptions } from "../sessions/manager.js";
 import { recoverSessionDeliveryStateOnStartup } from "../sessions/callbacks.js";
 import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { enforcePtyIdleCap, PtyLifecycleManager, type PtyLifecycleOpts } from "../engines/pty-lifecycle.js";
-import { CodexEngine, sweepOrphanCodexSessionHomes } from "../engines/codex.js";
+import { CodexEngine, startCodexSessionHomeSweeps } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
 import { AntigravityEngine } from "../engines/antigravity.js";
 import { PiEngine } from "../engines/pi.js";
@@ -511,13 +511,12 @@ export async function startGateway(
     try { cleanupOldUploads(30); } catch { /* best-effort */ }
   }, 24 * 60 * 60 * 1000);
   uploadCleanupTimer.unref?.();
-  // Retention: sweep orphaned per-session Codex CODEX_HOME overlays whose session
-  // records are gone (crash/hard-delete/pre-fix accumulation). This leak reached
-  // 276 dirs / 2.4GB. Keep overlays for every session the registry still lists.
-  try {
-    const swept = sweepOrphanCodexSessionHomes(listSessions().map((s) => s.id));
-    if (swept > 0) logger.info(`Swept ${swept} orphaned Codex session home(s)`);
-  } catch { /* best-effort */ }
+  // Retention: sweep per-session Codex CODEX_HOME overlays on boot, then daily. An
+  // overlay goes once its config.toml (rewritten every turn) is 14 days stale, or —
+  // when that stamp is missing — once no session row claims it. The keep-list is
+  // EVERY session row: archived and workflow-phase sessions resume too, and
+  // listSessions() hides both.
+  startCodexSessionHomeSweeps({ listSessionIds: listAllSessionIds });
   // Same for per-session --mcp-config temp files: they live as long as the PTY, so
   // a hard kill can orphan them. Keep one for every session the registry still lists.
   try {

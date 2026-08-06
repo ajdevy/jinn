@@ -3357,8 +3357,10 @@ export async function handleApiRequest(
     }
 
     // POST /api/sessions/:id/archive — reversible operator cleanup. The
-    // session, transcript, engine snapshot, and Codex overlay remain intact;
-    // normal list queries simply omit its archived_at row until unarchived.
+    // session, transcript, and engine snapshot remain intact; normal list
+    // queries simply omit its archived_at row until unarchived. Archiving does
+    // not delete the Codex overlay either, but it does not exempt it from the
+    // 14-day idle retention sweep (see startCodexSessionHomeSweeps).
     params = matchRoute("/api/sessions/:id/archive", pathname);
     if (method === "POST" && params) {
       const session = getSession(params.id);

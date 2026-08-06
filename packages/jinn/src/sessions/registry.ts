@@ -1114,6 +1114,18 @@ export function listSessions(filter?: ListSessionsFilter): Session[] {
   return rows.map(rowToSession);
 }
 
+/**
+ * Every session id in the registry — archived and workflow-phase rows included.
+ * Retention sweeps over per-session on-disk state must use this rather than
+ * `listSessions`, whose `archived_at IS NULL AND workflow_kind IS NULL` filter is
+ * a display concern: to a sweep an absent id means "delete that session's data",
+ * and both of those kinds still resume.
+ */
+export function listAllSessionIds(): string[] {
+  const rows = initDb().prepare('SELECT id FROM sessions').all() as { id: string }[];
+  return rows.map((row) => row.id);
+}
+
 export interface ChatPin {
   key: string;
   kind: 'session' | 'employee';

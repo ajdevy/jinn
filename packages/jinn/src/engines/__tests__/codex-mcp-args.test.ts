@@ -233,6 +233,26 @@ describe("prepareCodexSessionHome", () => {
     expect(fs.existsSync(path.join(home.home, "plugins", "duplicated-marker"))).toBe(false);
   });
 
+  it("shares the models_cache.json file without ever mkdir-ing one in the real home", () => {
+    // It is a ~350KB FILE, so it cannot ride SHARED_CODEX_HOME_DIRS: that path
+    // mkdir's its target and would plant a bogus directory in the real codex home.
+    const realCache = path.join(realHome, "models_cache.json");
+
+    const withoutCache = prepareCodexSessionHome(jinnResolvedWithCapability(), "sess-1", { baseDir })!;
+    expect(fs.existsSync(realCache)).toBe(false);
+    expect(fs.existsSync(path.join(withoutCache.home, "models_cache.json"))).toBe(false);
+
+    fs.writeFileSync(realCache, '{"models":[]}');
+    const first = prepareCodexSessionHome(jinnResolvedWithCapability(), "sess-1", { baseDir })!;
+    const second = prepareCodexSessionHome(jinnResolvedWithCapability(), "sess-1", { baseDir })!;
+
+    const link = path.join(second.home, "models_cache.json");
+    expect(second.home).toBe(first.home);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(link)).toBe(fs.realpathSync(realCache));
+    expect(fs.statSync(realCache).isFile()).toBe(true);
+  });
+
   it("is idempotent across turns and rewrites config.toml when the capability rotates", () => {
     const first = prepareCodexSessionHome(jinnResolvedWithCapability("cap-round-1"), "sess-1", { baseDir })!;
     const second = prepareCodexSessionHome(jinnResolvedWithCapability("cap-round-2"), "sess-1", { baseDir })!;
