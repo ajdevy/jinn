@@ -1,0 +1,88 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 0,
+  "numFailedTestSuites": 3,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 3,
+  "numPassedTests": 1,
+  "numFailedTests": 1,
+  "numPendingTests": 1,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1700000000000,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "passes",
+          "status": "passed",
+          "title": "passes",
+          "duration": 1,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "fails an assertion",
+          "status": "failed",
+          "title": "fails an assertion",
+          "duration": 1,
+          "failureMessages": [
+            "AssertionError: expected 1 to be 2 // Object.is equality\n    at /repo/packages/example/src/assertfail.test.ts:3:46\n    at file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:296:11\n    at file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:1258:26\n    at file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:1681:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:1678:10)\n    at file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:1660:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:1627:10)\n    at file:///repo/node_modules/.pnpm/@vitest+runner@4.1.0/node_modules/@vitest/runner/dist/index.js:2309:64"
+          ],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "failed",
+      "message": "",
+      "name": "/repo/packages/example/src/assertfail.test.ts"
+    },
+    {
+      "assertionResults": [],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "failed",
+      "message": "boom at collection",
+      "name": "/repo/packages/example/src/collectfail.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "never runs",
+          "status": "skipped",
+          "title": "never runs",
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1700000000000,
+      "endTime": 1700000000100,
+      "status": "failed",
+      "message": "boom in hook",
+      "name": "/repo/packages/example/src/hookfail.test.ts"
+    }
+  ]
+}
