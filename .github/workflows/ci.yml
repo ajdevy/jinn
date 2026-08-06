@@ -78,6 +78,34 @@ jobs:
           add one for new code.
           EOF
 
+  footguns:
+    runs-on: ubuntu-latest
+    steps:
+      # The checker judges the lines this change ADDS, which needs a merge base;
+      # a shallow clone has none, and the run would silently widen to the whole
+      # tree, where hundreds of pre-existing lines match.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The spawn-without-stdio rule parses TypeScript rather than grepping for
+      # `spawn(`, so it needs the workspace's own typescript.
+      - run: pnpm install --frozen-lockfile
+
+      # On a pull request the base branch is what the change is measured
+      # against. A push to main has no base_ref, and its own parent is the only
+      # honest answer - a missing base must not quietly pass everything.
+      - name: Footguns added by this change
+        run: node scripts/check-footguns.mjs --diff "${BASE:-HEAD^}"
+        env:
+          BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+
+      - run: node --test scripts/__tests__/check-footguns.test.mjs
+
   unit-tests:
     name: unit-tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

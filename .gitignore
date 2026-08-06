@@ -22,6 +22,10 @@ packages/jinn/.npmrc
 # Local one-off recording/capture harnesses (contain personal paths) — never commit
 .tmp-*
 
+# Terms the footgun checker treats as private — real names, clients, products.
+# Committing that list would publish exactly what the privacy rule exists to keep out.
+scripts/.footgun-terms.local
+
 # Docker Compose local overrides — personal host paths, merged automatically.
 # The tracked docker-compose.yml carries the inline mount examples.
 docker-compose.override.yml

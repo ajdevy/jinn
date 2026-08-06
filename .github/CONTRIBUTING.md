@@ -41,6 +41,30 @@ Thanks for your interest in contributing. This guide covers the basics.
 - Tailwind CSS for styling in the web package.
 - Follow existing patterns in the codebase.
 
+## Footgun Checks
+
+CI runs `scripts/check-footguns.mjs` over the lines your change **adds**. It
+covers six things this project has actually shipped by accident: an absolute
+`/Users/` path, a `.jinn` home built from `os.homedir()` instead of
+`resolveJinnHome()`, an email on a real domain, a literal `7777`/`7788` port, a
+`process.env` read outside the config layer, and a `child_process` spawn with no
+explicit `stdio`. Each finding prints the fix.
+
+- `pnpm footguns` checks your branch against `origin/main`.
+- `node scripts/check-footguns.mjs --staged` checks what you are about to commit.
+- `node scripts/check-footguns.mjs --all` audits the whole tree, including the
+  debt that predates the check. CI never reads that debt.
+- `node scripts/check-footguns.mjs --list` prints the six rules and their fixes.
+
+Suppress a single line by ending it with `// footgun: ok <reason>` (or
+`# footgun: ok <reason>` in YAML and shell). The reason is the point — a
+suppression without one still suppresses, but the run lists it as unaudited, so
+`git grep 'footgun: ok'` stays a document rather than noise.
+
+The privacy rule ships structural checks only. A committed list of real names
+would itself be the leak, so personal terms are read at run time from
+`scripts/.footgun-terms.local` (gitignored) or from `$FOOTGUN_TERMS_FILE`.
+
 ## Project Layout
 
 - `packages/jinn` -- Core gateway daemon and CLI (package dir).
