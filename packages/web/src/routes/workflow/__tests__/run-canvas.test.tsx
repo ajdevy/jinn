@@ -31,7 +31,10 @@ vi.mock("@/components/page-layout", () => ({
 }))
 vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
+import { toFlowEdges, toFlowNodes } from "../editor/graph"
+import { tidyLayout } from "../editor/layout"
 import WorkflowRunPage from "../run"
+import { AGENT_WRITTEN } from "./fixtures/specimen"
 
 const nodes = [
   { id: "trigger", type: "trigger", name: "Kickoff", config: { kind: "manual" } },
@@ -414,6 +417,21 @@ describe("workflow run canvas", () => {
     expect(positionOf("Writer").x).toBeGreaterThan(positionOf("Kickoff").x)
     expect(positionOf("Done").x).toBeGreaterThan(positionOf("Publish gate").x)
   })
+
+  it("paints the 23-node specimen on tidyLayout's placement, not its agent-written one", async () => {
+    serveRun(baseDetail({
+      definition: { nodes: AGENT_WRITTEN.nodes, edges: AGENT_WRITTEN.edges, ui: AGENT_WRITTEN.ui },
+      nodeRuns: [],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Item arrives")).toBeTruthy()
+    const tidied = tidyLayout(toFlowNodes(AGENT_WRITTEN), toFlowEdges(AGENT_WRITTEN))
+    expect(tidied).toHaveLength(23)
+    const painted = Object.fromEntries(tidied.map((node) => [node.id, positionOf(node.data.node.name)]))
+    expect(painted).toEqual(Object.fromEntries(tidied.map((node) => [node.id, node.position])))
+    expect(painted).not.toEqual(AGENT_WRITTEN.ui.positions)
+  }, 10000)
 
   it("keeps a hand-arranged definition on its exact stored coordinates", async () => {
     serveRun(baseDetail({

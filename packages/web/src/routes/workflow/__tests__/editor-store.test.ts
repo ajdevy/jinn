@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { WorkflowDefinitionV2Wire } from "@/lib/api"
-import { serializeDefinition } from "../editor/graph"
+import { serializeDefinition, toFlowEdges, toFlowNodes } from "../editor/graph"
+import { tidyLayout } from "../editor/layout"
 import { outputPorts, nodeBox } from "../editor/ports"
 import { createEditorStore } from "../editor/store"
+import { AGENT_WRITTEN, SNAKE } from "./fixtures/specimen"
 
 const definition: WorkflowDefinitionV2Wire = {
   schemaVersion: 1,
@@ -100,6 +102,16 @@ describe("editor store", () => {
     expect(byId.get("trigger")).not.toEqual(definition.ui.positions.trigger)
     expect(byId.get("route")!.x).toBeGreaterThan(byId.get("trigger")!.x)
     expect(byId.get("end")!.x).toBeGreaterThan(byId.get("route")!.x)
+  })
+
+  it("opens the 23-node specimen on tidyLayout's placement, not its agent-written one", () => {
+    const placed = createEditorStore(structuredClone(AGENT_WRITTEN)).getState().nodes
+    const tidied = tidyLayout(toFlowNodes(AGENT_WRITTEN), toFlowEdges(AGENT_WRITTEN))
+    const positionsOf = (nodes: typeof placed) => Object.fromEntries(nodes.map((node) => [node.id, node.position]))
+
+    expect(placed).toHaveLength(23)
+    expect(positionsOf(placed)).toEqual(positionsOf(tidied))
+    expect(positionsOf(placed)).not.toEqual(SNAKE)
   })
 
   it("re-tidies a manual arrangement once a node arrives without a position", () => {
