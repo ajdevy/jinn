@@ -5,7 +5,6 @@
  *  finding 2). Shared by the FTS sanitizer and the search routes so hostile
  *  encoded input (%00 etc.) yields a normal result everywhere, never a 500. */
 export function stripControlChars(value: string): string {
-  // eslint-disable-next-line no-control-regex
   return value.replace(/[\u0000-\u001f\u007f]/g, ' ');
 }
 

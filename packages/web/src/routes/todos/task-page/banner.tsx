@@ -101,7 +101,6 @@ export function TaskBanner({
   useEffect(() => {
     if ((focusReason || needsReason) && reasonRef.current) reasonRef.current.focus()
     // Focus once on arrival / when the field appears — not on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusReason, needsReason])
 
   if (!kind) return null

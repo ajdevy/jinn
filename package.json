@@ -9,7 +9,7 @@
     "postinstall": "node scripts/fix-prebuild-permissions.mjs",
     "build": "turbo build && node scripts/sync-web-dist.mjs",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "turbo run build --filter=@jinn/gateway-events && turbo run lint",
     "typecheck": "turbo typecheck",
     "test": "turbo run test --concurrency=1",
     "coverage": "turbo run coverage",
@@ -34,8 +34,10 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "eslint": "^10.8.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.66.0"
   },
   "dependencies": {
     "classic-level": "^2.0.0"

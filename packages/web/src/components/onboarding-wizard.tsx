@@ -157,7 +157,7 @@ export function OnboardingWizard({ forceOpen, initialVisible, onClose }: Onboard
         setVisible(true)
       }
     })
-  }, [forceOpen, initialVisible]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [forceOpen, initialVisible])
 
   // Select the default engine/model once the shared registry is available.
   useEffect(() => {

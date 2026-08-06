@@ -8,7 +8,6 @@ import { WhatsAppConnector } from "../../connectors/whatsapp/index.js";
 import { SessionManager } from "../../sessions/manager.js";
 import type { Connector, JinnConfig } from "../../shared/types.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const configWith = (connectors: Record<string, any>, stt?: JinnConfig["stt"]): JinnConfig =>
   ({ connectors, stt }) as unknown as JinnConfig;
 
@@ -199,7 +198,6 @@ describe("connector wiring", () => {
     }
     const manager = new SessionManager(mixedConfig, new Map(), "connector-names-boot");
     manager.setConnectorProvider(() => registry);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const names = (): string[] => (manager as any).connectorNames();
 
     expect(names()).toEqual(["slack", "telegram", "slack-second"]);

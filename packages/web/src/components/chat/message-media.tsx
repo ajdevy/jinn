@@ -50,7 +50,6 @@ function LoadingImage({
       // Reserve the slot so the skeleton has size and the image swap causes no jump.
       style={!isGrid && status === 'loading' ? { minHeight: 140 } : undefined}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={alt}
