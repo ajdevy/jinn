@@ -7,12 +7,13 @@ import type { ServerResponse } from "node:http";
 import type { JinnConfig } from "../../shared/types.js";
 
 /**
- * Contract for the per-domain router seam (`cron-api.ts`, `org-api.ts`). Every
- * route that moved out of handleApiRequest is driven end-to-end through
- * handleApiRequest — the delegation, not the module — and pinned to the status
- * and body shape it returned while inline, alongside the three properties of the
- * seam itself: the operator-only gate still fires before delegation, an unmatched
- * adjacent path falls through, and a throw still lands in api.ts's 500 envelope.
+ * Contract for the per-domain router seam (`cron-api.ts`, `org-api.ts`). Every moved
+ * route is driven through handleApiRequest — the delegation, not the module — and
+ * pinned exactly to what it returned while inline. Those assertions are green on the
+ * pre-move commit too, by design: byte-identical responses either side of the move is
+ * the claim. What is new is the seam, and each of its properties goes red when broken
+ * — the operator gate fires before delegating, an adjacent unmatched path falls
+ * through, and a throw inside a module still lands in api.ts's 500 envelope.
  */
 
 const bootHome = fs.mkdtempSync(path.join(os.tmpdir(), "domain-router-boot-"));
@@ -110,6 +111,13 @@ const JOBS = [
   { id: "nightly", name: "Nightly", enabled: true, schedule: "0 3 * * *", employee: "ops", prompt: "Run." },
 ];
 
+// The fixture org, spelled out so every field the org routes return is pinned: the
+// authored employee, its persona and edges, and the system employee every org carries.
+const WORKER = { name: "worker", displayName: "Worker", department: "platform", rank: "employee", engine: "codex", model: "gpt-5.6-sol", alwaysNotify: true };
+const PERSONA = "Does platform work.";
+const EDGES = { parentName: null, directReports: [], depth: 0, chain: ["worker"] };
+const DISPATCHER = { name: "todo-dispatcher", displayName: "Todo Dispatcher", department: "system", rank: "senior", emoji: "🧭", jinnMcp: true, system: true, engine: "codex", model: "gpt-5.6-sol", alwaysNotify: true, role: "Todo Dispatcher, a system employee that starts tracked Todo work", parentName: null, directReports: [], depth: 0, chain: ["todo-dispatcher"] };
+
 beforeEach(() => {
   cronRunsThrows = false;
   runCronJob.mockClear();
@@ -126,7 +134,7 @@ beforeEach(() => {
   );
   fs.writeFileSync(
     path.join(orgDir, "platform", "worker.yaml"),
-    "name: worker\ndisplayName: Worker\ndepartment: platform\nrank: employee\nengine: codex\nmodel: gpt-5.6-sol\npersona: Does platform work.\n",
+    `name: ${WORKER.name}\ndisplayName: ${WORKER.displayName}\ndepartment: ${WORKER.department}\nrank: ${WORKER.rank}\nengine: ${WORKER.engine}\nmodel: ${WORKER.model}\npersona: ${PERSONA}\n`,
   );
   fs.writeFileSync(path.join(orgDir, "platform", "board.json"), JSON.stringify({ todo: ["ship it"] }));
 });
@@ -158,7 +166,7 @@ describe("cron routes still answer identically through handleCronApi", () => {
   it("POST /api/cron creates a job (201) and rejects a duplicate id (400)", async () => {
     const created = await call("POST", "/api/cron", { id: "weekly", name: "Weekly", schedule: "0 4 * * 1" });
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ id: "weekly", name: "Weekly", schedule: "0 4 * * 1", enabled: true });
+    expect(created.body).toEqual({ id: "weekly", name: "Weekly", enabled: true, schedule: "0 4 * * 1", prompt: "" });
 
     const dupe = await call("POST", "/api/cron", { id: "weekly", name: "Weekly again", schedule: "0 5 * * 1" });
     expect(dupe.status).toBe(400);
@@ -168,7 +176,7 @@ describe("cron routes still answer identically through handleCronApi", () => {
   it("PUT /api/cron/:id merges the update, and 404s an unknown id", async () => {
     const r = await call("PUT", "/api/cron/nightly", { enabled: false });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ id: "nightly", name: "Nightly", enabled: false });
+    expect(r.body).toEqual({ ...JOBS[0], enabled: false });
 
     const missing = await call("PUT", "/api/cron/ghost", { enabled: false });
     expect(missing.status).toBe(404);
@@ -202,25 +210,18 @@ describe("org routes still answer identically through handleOrgApi", () => {
   it("GET /api/org returns departments, employees and hierarchy", async () => {
     const r = await call("GET", "/api/org");
     expect(r.status).toBe(200);
-    expect(r.body.departments).toContain("platform");
-    expect(r.body.employees).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "worker", department: "platform", depth: expect.any(Number) })]),
-    );
-    expect(r.body.hierarchy).toMatchObject({ sorted: expect.arrayContaining(["worker"]) });
-    // persona is replaced by the compact role on this surface.
-    expect(r.body.employees.find((e: any) => e.name === "worker")).not.toHaveProperty("persona");
+    // persona is replaced by the compact role on this surface; the exact match proves it.
+    expect(r.body).toEqual({
+      departments: ["platform"],
+      employees: [{ ...WORKER, role: "Does platform work", ...EDGES }, DISPATCHER],
+      hierarchy: { root: null, sorted: ["worker", "todo-dispatcher"], warnings: [] },
+    });
   });
 
   it("GET /api/org/employees/:name returns the employee with its hierarchy edges, 404 for unknown", async () => {
     const r = await call("GET", "/api/org/employees/worker");
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({
-      name: "worker",
-      department: "platform",
-      directReports: [],
-      depth: expect.any(Number),
-      chain: expect.arrayContaining(["worker"]),
-    });
+    expect(r.body).toEqual({ ...WORKER, persona: PERSONA, ...EDGES });
 
     const missing = await call("GET", "/api/org/employees/ghost");
     expect(missing.status).toBe(404);
@@ -230,14 +231,16 @@ describe("org routes still answer identically through handleOrgApi", () => {
   it("PATCH /api/org/employees/:name persists a valid field and 400s an invalid one", async () => {
     const ok = await call("PATCH", "/api/org/employees/worker", { model: "gpt-5.5" });
     expect(ok.status).toBe(200);
-    expect(ok.body).toMatchObject({ status: "ok", employee: { name: "worker", model: "gpt-5.5" } });
+    // The persisted employee comes back whole; the compact role is list-only.
+    expect(ok.body).toEqual({ status: "ok", employee: { ...WORKER, model: "gpt-5.5", persona: PERSONA } });
 
     const bad = await call("PATCH", "/api/org/employees/worker", { rank: "boss" });
     expect(bad.status).toBe(400);
-    expect(bad.body.error).toMatch(/rank/i);
+    expect(bad.body).toEqual({ error: 'invalid rank "boss" (valid: executive, manager, senior, employee)' });
 
     const missing = await call("PATCH", "/api/org/employees/ghost", { model: "gpt-5.5" });
     expect(missing.status).toBe(404);
+    expect(missing.body).toEqual({ error: "Not found" });
   });
 
   it("GET /api/org/departments/:name/board returns the board, 404 when absent", async () => {
