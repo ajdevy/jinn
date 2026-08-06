@@ -187,7 +187,7 @@ function report(violations, tightenings) {
   if (tightenings.length > 0) {
     console.log("The committed baseline is looser than the tree:")
     for (const { file, change } of tightenings) console.log(`  ${file}  ${change}`)
-    console.log("  fix: run `pnpm ratchet` and commit size-baseline.json.")
+    console.log(`  fix: run \`pnpm ratchet\` and commit size-baseline.json to bank the shrink. ${SPLIT_REMEDIATION}`)
     console.log("")
   }
 }

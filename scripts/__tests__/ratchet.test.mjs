@@ -140,6 +140,7 @@ test("shrinking is stale until `pnpm ratchet` rewrites the baseline downward", (
   assert.equal(stale.status, 1, stale.stdout)
   assert.match(stale.stdout, /shrank: 400 → 380 lines \(-20\)/)
   assert.match(stale.stdout, /run `pnpm ratchet` and commit size-baseline\.json/)
+  assert.match(stale.stdout, /Split the file by responsibility/)
   assert.equal(readBaseline(root).files["scripts/big.mjs"].lines, 400, "--check must never write")
 
   const rewritten = ratchet(root)
