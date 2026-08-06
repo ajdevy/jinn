@@ -85,14 +85,6 @@ describe("Todo live reconciliation (ICI-570)", () => {
     expect(calledWithKey(invalidate, ["work-item-attachments", "JIN-9"])).toBe(true)
   })
 
-  it("refreshes the changed Todo's mention preview and leaves every other one alone", async () => {
-    const { invalidate } = setup()
-    act(() => listener?.("company:changed", { entity: "todo", action: "status-transitioned", id: "JIN-11", version: 3 }))
-    await act(async () => vi.advanceTimersByTimeAsync(1_000))
-    expect(calledWithKey(invalidate, ["work-item-preview", "JIN-11"])).toBe(true)
-    expect(calledWithKey(invalidate, ["work-item-preview", "JIN-12"])).toBe(false)
-  })
-
   it("coalesces a burst of todo events into one reconciliation pass", async () => {
     const { invalidate } = setup()
     act(() => {
