@@ -3260,7 +3260,6 @@ export async function handleApiRequest(
       if (!session) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const updates: UpdateSessionFields = {};
       if (body.title !== undefined) {
@@ -3566,7 +3565,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const ids: string[] = body.ids;
       if (!Array.isArray(ids) || ids.length === 0) return badRequest(res, "ids array is required");
@@ -4970,7 +4968,6 @@ export async function handleApiRequest(
       if (!_parsed.body || typeof _parsed.body !== "object" || Array.isArray(_parsed.body)) {
         return badRequest(res, "request body must be a JSON object");
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       const callerRef = delegationCaller.kind === "session" ? delegationCaller.callerId : "operator";
@@ -5335,7 +5332,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/sessions") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const prompt = body.prompt || body.message;
       const promptError = messageBodyError(prompt, "prompt or message");
@@ -5469,7 +5465,6 @@ export async function handleApiRequest(
       session = maybeRevertEngineOverride(session);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       // Child callbacks claim a durable outbox identity before entering this
@@ -5913,7 +5908,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/cron") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const jobs = loadJobs();
       // Job ids are identity (run-log files and PUT/DELETE routing) —
@@ -5957,7 +5951,6 @@ export async function handleApiRequest(
       if (idx === -1) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const merged = { ...jobs[idx], ...body, id: params.id } as CronJob;
       const scheduleErrors = validateCronSchedule({ schedule: merged.schedule, ...(merged.timezone !== undefined ? { timezone: merged.timezone } : {}) });
@@ -6113,7 +6106,6 @@ export async function handleApiRequest(
       if (!fs.existsSync(deptDir)) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
       return json(res, { status: "ok" });
@@ -6227,7 +6219,6 @@ export async function handleApiRequest(
     if (method === "PUT" && pathname === "/api/config") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       // Basic validation: must be a plain object
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -6344,7 +6335,6 @@ export async function handleApiRequest(
 
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       // Download attachments from Discord CDN URLs to local temp
@@ -6379,7 +6369,6 @@ export async function handleApiRequest(
         raw: body,
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (connector as any).deliverMessage(incomingMsg);
       return json(res, { status: "delivered" });
     }
@@ -6391,7 +6380,6 @@ export async function handleApiRequest(
 
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
 
       const action = body.action as string;
@@ -6439,7 +6427,6 @@ export async function handleApiRequest(
       if (!connector) return notFound(res);
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       if (!body.channel || !body.text) return badRequest(res, "channel and text are required");
       await connector.sendMessage(
@@ -6515,7 +6502,6 @@ export async function handleApiRequest(
     if (method === "POST" && pathname === "/api/onboarding") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const { companyName, companyPrefix, portalName, operatorName, language, engine, model, effortLevel } = body;
       const config = context.getConfig();
@@ -6663,7 +6649,6 @@ export async function handleApiRequest(
     if (method === "PUT" && pathname === "/api/stt/config") {
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = _parsed.body as any;
       const langs = body.languages;
 

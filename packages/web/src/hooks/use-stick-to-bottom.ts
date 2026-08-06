@@ -193,7 +193,6 @@ export function useStickToBottom({
     }
     prevCountRef.current = messageCount
     prevLatestKeyRef.current = latestKey
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [el, streamingText, messageCount, latestKey, pinNow])
 
   // ── Viewport resize / mobile keyboard: re-pin when following (RO on the container). ──

@@ -9,7 +9,7 @@
     "postinstall": "node scripts/fix-prebuild-permissions.mjs",
     "build": "turbo build && node scripts/sync-web-dist.mjs",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "turbo run build --filter=@jinn/gateway-events && turbo run lint",
     "typecheck": "turbo typecheck && pnpm typecheck:root",
     "typecheck:root": "tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p tsconfig.scripts.json",
     "test": "turbo run test --concurrency=1 && pnpm test:node",
@@ -38,8 +38,10 @@
     "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "eslint": "^10.8.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.66.0"
   },
   "dependencies": {
     "classic-level": "^2.0.0"

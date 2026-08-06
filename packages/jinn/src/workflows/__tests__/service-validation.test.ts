@@ -32,6 +32,10 @@ const eventTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start"
   config: { kind: "event", eventName: "build.finished" } };
 const poisonSchedule: WorkflowNode = { id: "start", type: "trigger", name: "Start",
   config: { kind: "schedule", cron: "every weekday please", timezone: "UTC" } };
+const todoStatusTrigger: WorkflowNode = { id: "start", type: "trigger", name: "Start",
+  config: { kind: "todo-status", status: "in_review", label: "build" } };
+const conflictingTodoFilters: WorkflowNode = { id: "start", type: "trigger", name: "Start",
+  config: { kind: "todo-status", status: "in_review", label: "build", unlabeled: true } };
 const finish: WorkflowNode = { id: "finish", type: "end", name: "Finish", config: { result: "success" } };
 const employee: Employee = { name: "worker", displayName: "Worker", department: "operations", rank: "employee",
   engine: "test-engine", model: "test-model", effortLevel: "high", persona: "Complete work." };
@@ -239,6 +243,27 @@ describe("Workflow executable service boundaries", () => {
 
     expect(enableError).toEqual(expected);
     expect(repository.getDefinition(stored.id)).toMatchObject({ enabled: false, revision: stored.revision });
+    expect(definitionChanges).toEqual([]);
+  });
+
+  it("refuses a conflicting unlabeled+label revision of an already-enabled todo-status Workflow", () => {
+    const authored = save("todo-filters", [todoStatusTrigger, finish], [edge("start-finish", "start", "finish")]);
+    const enabled = service.setEnabled({ id: authored.id, enabled: true, expectedRevision: authored.revision });
+    definitionChanges.length = 0;
+    let caught: unknown;
+
+    try {
+      service.saveDefinition({ ...enabled, nodes: [conflictingTodoFilters, finish] }, enabled.revision);
+    } catch (error) { caught = error; }
+
+    expect(caught).toEqual(new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", [{
+      code: "conflicting-todo-filters",
+      message: "A todo-status trigger cannot set both unlabeled and label: a Todo carrying no labels"
+        + " can never carry the one named. Set only one.",
+      nodeId: "start",
+      path: "nodes.0.config.unlabeled",
+    }]));
+    expect(repository.getDefinition(enabled.id)).toEqual(enabled);
     expect(definitionChanges).toEqual([]);
   });
 

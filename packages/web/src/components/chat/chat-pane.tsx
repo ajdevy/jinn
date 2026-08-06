@@ -142,7 +142,7 @@ export function ChatPane({
       if (data.sessionId === sessionId) return data.message
     } catch { /* ignore */ }
     return undefined
-  }, [sessionId, pendingUserMessage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, pendingUserMessage])
   // Consume the storage entry once detected so a page refresh doesn't re-show
   // the seed as an optimistic bubble on top of the already-loaded messages.
   useEffect(() => {
