@@ -313,6 +313,94 @@ export interface Target {
   replyContext?: ReplyContext;
 }
 
+/** Short-lived credential a browser client uses to open its own realtime
+ *  connection, so the account key never leaves the gateway. */
+export interface RealtimeEphemeralToken {
+  value: string;
+  /** Unix seconds. */
+  expiresAt: number;
+}
+
+/** Token counts as the provider reports them, accumulated over a session.
+ *  Audio and text are separate because they are priced separately. */
+export interface RealtimeUsage {
+  inputAudioTokens: number;
+  outputAudioTokens: number;
+  inputTextTokens: number;
+  outputTextTokens: number;
+  /** Input tokens served from the provider's prompt cache, billed at the cached rate. */
+  cachedInputTokens: number;
+}
+
+/** A tool the model may call mid-conversation. `parameters` is a JSON Schema. */
+export interface RealtimeTool {
+  name: string;
+  description: string;
+  parameters: JsonObject;
+}
+
+/** Who decides a user turn has ended. `server_vad` lets the provider close the
+ *  turn on detected silence (hot mic); `none` means the caller commits each turn
+ *  itself (push-to-talk). Metered billing makes `none` the sane default. */
+export type RealtimeTurnDetection = "server_vad" | "none";
+
+export interface RealtimeSessionOptions {
+  model?: string;
+  voice?: string;
+  /** System prompt for the voice session. */
+  instructions?: string;
+  tools?: RealtimeTool[];
+  turnDetection?: RealtimeTurnDetection;
+}
+
+/** Everything a caller observes on a live realtime session. */
+export type RealtimeEvent =
+  /** A chunk of assistant speech, PCM16 mono at the provider's session rate. */
+  | { type: "audio"; audio: Buffer }
+  | { type: "transcript"; role: "user" | "assistant"; text: string; final: boolean }
+  /** VAD heard the user start talking — the caller's cue to duck playback. */
+  | { type: "speech_started" }
+  | { type: "speech_stopped" }
+  /** The assistant turn was cut short. `barge_in` means the user talked over it. */
+  | { type: "response_cancelled"; reason: "barge_in" | "client" }
+  | { type: "tool_call"; callId: string; name: string; arguments: string }
+  /** The assistant turn finished; `usage` is the session total after this turn. */
+  | { type: "turn_done"; usage: RealtimeUsage }
+  | { type: "error"; message: string }
+  | { type: "closed"; reason: string };
+
+/**
+ * A speech-to-speech provider (OpenAI Realtime, Gemini Live).
+ *
+ * One instance owns one connection. Implemented by talk/realtime/openai.ts and
+ * constructed only through `createRealtimeProvider`; talk/realtime/README.md
+ * writes up Gemini Live against this same interface.
+ */
+export interface RealtimeProvider {
+  readonly name: string;
+  /**
+   * Mint a short-lived client credential. Callable without connecting — the
+   * gateway hands the token to a browser that opens its own connection.
+   */
+  mintEphemeralToken(options?: RealtimeSessionOptions): Promise<RealtimeEphemeralToken>;
+  /** Open the session's transport and configure it. Rejects if it cannot connect. */
+  connect(options?: RealtimeSessionOptions): Promise<void>;
+  /** Close the transport. Safe to call when never connected or already closed. */
+  disconnect(): void;
+  /** Append captured microphone audio (PCM16 mono) to the current user turn. */
+  sendAudio(pcm: Buffer): void;
+  /** End the user turn and ask for a response. Required under `turnDetection: "none"`. */
+  commitAudio(): void;
+  /** Barge-in: abandon the in-flight assistant turn immediately. */
+  interrupt(): void;
+  /** Answer a `tool_call` event. `output` is the JSON-encoded result. */
+  sendToolResult(callId: string, output: string): void;
+  /** Subscribe to session events. Later subscribers do not replace earlier ones. */
+  on(handler: (event: RealtimeEvent) => void): void;
+  /** Token totals observed so far this session. */
+  usage(): RealtimeUsage;
+}
+
 export interface EngineSessionRef {
   id?: string;
   model?: string;
@@ -1024,6 +1112,22 @@ export interface JinnConfig {
       modelDir?: string;
       sidecarPort?: number;
     };
+  };
+  /**
+   * Speech-to-speech realtime provider — optional, off unless configured. A
+   * sibling of `talk` rather than a child of it, because `talk`'s
+   * enabled/engine/orchestratorModel fields are retired-orchestrator residue
+   * slated for removal.
+   */
+  realtime?: {
+    /** Provider name. `createRealtimeProvider` throws on one it does not know. */
+    provider?: string;
+    model?: string;
+    /** The provider's account key. Supports `${ENV_VAR}` indirection so the key
+     *  can live in the environment rather than in config.yaml. */
+    apiKey?: string;
+    voice?: string;
+    turnDetection?: RealtimeTurnDetection;
   };
   remotes?: Record<string, { url: string; label?: string; token?: string }>;
 }

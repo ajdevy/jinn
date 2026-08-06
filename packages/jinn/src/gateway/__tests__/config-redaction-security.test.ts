@@ -38,6 +38,27 @@ describe("GET /api/config redaction", () => {
     expect(sanitized.remotes[0].url).toBe("http://127.0.0.1:7777");
   });
 
+  it("never sends the realtime provider key to the UI", () => {
+    expect(isSensitiveConfigKey("apiKey")).toBe(true);
+
+    const sanitized = sanitizeConfigForApi({
+      realtime: { provider: "openai", model: "gpt-realtime", apiKey: "sk-realtime", voice: "marin" },
+    });
+
+    expect(sanitized.realtime.apiKey).toBe("***");
+    expect(JSON.stringify(sanitized)).not.toContain("sk-realtime");
+    // The rest of the block is not secret and the UI needs to render it.
+    expect(sanitized.realtime.provider).toBe("openai");
+    expect(sanitized.realtime.model).toBe("gpt-realtime");
+    expect(sanitized.realtime.voice).toBe("marin");
+  });
+
+  it("redacts an ${ENV_VAR} realtime key reference too", () => {
+    const sanitized = sanitizeConfigForApi({ realtime: { apiKey: "${OPENAI_API_KEY}" } });
+
+    expect(sanitized.realtime.apiKey).toBe("***");
+  });
+
   it("preserves the numeric stale-chat token threshold", () => {
     const sanitized = sanitizeConfigForApi({
       sessions: { staleChat: { tokenThreshold: 1_500 } },
