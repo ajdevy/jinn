@@ -1,5 +1,6 @@
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { initDb } from '../shared/db.js';
+import { notifyTodoChanged } from './live-events.js';
 import {
   appendWorkItemEvent,
   effectiveMaxRounds,
@@ -259,6 +260,13 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
     return { item: getWorkItem(id)!, escalated: escalatedByRounds, event };
   });
   const result = txn();
+  // ICI-749: the board's live signal belongs to the status write, not to the HTTP
+  // routes. A workflow reflecting its run, the reconciler, and an approval's
+  // consequence all commit here with no route to announce them, so the dashboard
+  // stayed stale until a reload. Emitted before the workflow bridge so a recovery
+  // failure can never swallow the update; the route lanes suppress their own
+  // duplicate (`persistTodoMutationActivity`).
+  if (result.event) notifyTodoChanged(result.item, 'status-transitioned', opts.callerSessionId);
   notifyTodoStatusChange(result.event, result.item);
   return result;
 }

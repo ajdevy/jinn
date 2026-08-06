@@ -1493,14 +1493,21 @@ function persistTodoMutationActivity(
   item: WorkItem,
   action: string,
   changed = true,
+  /** The row's status before this write, for the routes whose write can reach
+   *  `transition()`. A status that moved was already announced live from there
+   *  (ICI-749) — the seam every non-HTTP writer commits through — so emitting
+   *  again here would double it. Assignment writes its own status change outside
+   *  `transition()`, so that lane still announces itself here. */
+  previousStatus?: WorkItemStatus,
 ): string | undefined {
   const target = verifiedActivityTarget(req.headers, context, TODO_ACTIVITY_TOOLS[action] ?? []);
+  const announced = previousStatus !== undefined && previousStatus !== item.status;
   return persistAndEmitActivityBlock({
     context: chatActivityContext(context),
     ...target,
     envelope: todoActivityBlock(item, action),
     ...(!changed ? { idempotentReplay: true } : {}),
-    ...(changed ? {
+    ...(changed && !announced ? {
       companyEvent: {
         entity: "todo" as const,
         action,
@@ -4018,7 +4025,7 @@ export async function handleApiRequest(
           versionEffect: "state",
         });
         const annotated = getWorkItem(params.id)!;
-        const activityReceiptId = persistTodoMutationActivity(req, context, annotated, "status-transitioned", true);
+        const activityReceiptId = persistTodoMutationActivity(req, context, annotated, "status-transitioned", true, item.status);
         return json(res, withActivityReceipt({ workItem: annotated, escalated: false }, activityReceiptId));
       }
       try {
@@ -4045,6 +4052,7 @@ export async function handleApiRequest(
           result.item,
           "status-transitioned",
           result.item.version !== item.version,
+          item.status,
         );
         return json(res, withActivityReceipt({ workItem: result.item, escalated: result.escalated }, activityReceiptId));
       } catch (err) {
@@ -4148,7 +4156,7 @@ export async function handleApiRequest(
           ...(caller.kind === "session" ? { callerSessionId: caller.callerId } : {}),
           ...(note ? { note } : {}),
         });
-        const activityReceiptId = persistTodoMutationActivity(req, context, archived, "archived");
+        const activityReceiptId = persistTodoMutationActivity(req, context, archived, "archived", true, item.status);
         return json(res, withActivityReceipt({ workItem: archived, archived: true }, activityReceiptId));
       } catch (err) {
         if (err instanceof TransitionError) {
@@ -4867,7 +4875,7 @@ export async function handleApiRequest(
             return json(res, { error: result.message }, 400);
         }
       }
-      const activityReceiptId = persistTodoMutationActivity(req, context, result.item, "approval-decided");
+      const activityReceiptId = persistTodoMutationActivity(req, context, result.item, "approval-decided", true, item.status);
       return json(res, withActivityReceipt({
         workItem: result.item,
         escalated: result.escalated,
