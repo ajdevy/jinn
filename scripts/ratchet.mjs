@@ -31,6 +31,7 @@ const SCANNED_TREES = [
   /^packages\/[^/]+\/src\//,
   /^packages\/jinn\/bin\//,
   /^packages\/web\//,
+  /^packages\/[^/]+\/scripts\//,
   /^scripts\//,
   /^tools\//,
   /^e2e\//,

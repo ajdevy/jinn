@@ -3,15 +3,47 @@ import tseslint from "typescript-eslint"
 import baseline from "./eslint-baseline.json" with { type: "json" }
 
 // Type-aware lint needs every linted file to belong to a tsconfig. These trees
-// are exactly the ones their package tsconfigs already cover.
-export const LINTED = [
+// are exactly the ones their package tsconfigs already cover, so the project
+// service finds each file's project by walking up to the package root.
+const PACKAGE_TREES = [
   "packages/jinn/bin/**/*.ts",
   "packages/jinn/src/**/*.ts",
   "packages/web/**/*.{ts,tsx}",
   "packages/gateway-events/src/**/*.ts",
 ]
 
-const TESTS = ["packages/*/**/__tests__/**/*.{ts,tsx}", "packages/*/**/*.test.{ts,tsx}"]
+// The trees `tsconfig.e2e.json` and `tsconfig.scripts.json` cover. The project
+// service cannot find those two: it resolves by walking up for a file named
+// `tsconfig.json`, and this repo has none at the root. They are named
+// explicitly below instead.
+const ROOT_TREES = [
+  "e2e/**/*.{ts,mjs}",
+  "scripts/**/*.mjs",
+  "tools/**/*.mjs",
+  // `.mjs` only: a `.ts` here would have to join `tsconfig.scripts.json`, and
+  // that config compiles with `checkJs` and `strict` off. Pulling a file that
+  // imports `src/` into it would typecheck half the package a second time under
+  // options the package never chose.
+  "packages/*/scripts/**/*.mjs",
+]
+
+export const LINTED = [...PACKAGE_TREES, ...ROOT_TREES]
+
+// Every tree in `LINTED` names its tests, because a test left out of this list
+// is a test judged by the size caps the ones beside it are excused from. Each
+// entry stays inside a `LINTED` tree on purpose: a file that matches here but
+// not there would be linted by this block alone, with neither the parser nor
+// the plugin its rules need.
+const TESTS = [
+  "packages/*/**/__tests__/**/*.{ts,tsx}",
+  "packages/*/**/*.test.{ts,tsx}",
+  // The root trees name a suite by suffix alone — a `.test.mjs` beside the
+  // module it covers, or a playwright `.spec.ts`.
+  "e2e/**/*.{test,spec}.{ts,mjs}",
+  "scripts/**/*.test.mjs",
+  "tools/**/*.test.mjs",
+  "packages/*/scripts/**/*.test.mjs",
+]
 
 /**
  * The floor. Every one of these is an error, never a warning, because a warning
@@ -79,8 +111,42 @@ export const enforcement = tseslint.config(
     rules: CAPS,
   },
   {
+    files: ROOT_TREES,
+    languageOptions: {
+      parserOptions: {
+        // `languageOptions` merges rather than replaces, so the block above's
+        // `projectService: true` wins unless it is switched off here — and with
+        // it on, every file in these trees fails at parse with "was not found by
+        // the project service". `allowDefaultProject` is not the way out: these
+        // trees nest, and a `**` glob is rejected outright as too wide.
+        projectService: false,
+        project: ["./tsconfig.e2e.json", "./tsconfig.scripts.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     files: TESTS,
-    rules: Object.fromEntries(CAPS_OFF_IN_TESTS.map((rule) => [rule, "off"])),
+    rules: {
+      ...Object.fromEntries(CAPS_OFF_IN_TESTS.map((rule) => [rule, "off"])),
+      // A bare `test()` from `node:test` returns a promise the runner itself
+      // owns and awaits; nobody writes `await test(...)`. Reporting it is an
+      // idiom mismatch, not the un-awaited assertion the rule exists to catch,
+      // so the exemption is scoped to calls that resolve to `node:test` — a
+      // vitest `it()` is a different declaration and stays covered.
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        {
+          allowForKnownSafeCalls: [
+            {
+              from: "package",
+              package: "node:test",
+              name: ["after", "afterEach", "before", "beforeEach", "describe", "it", "test"],
+            },
+          ],
+        },
+      ],
+    },
   },
 )
 
@@ -102,14 +168,11 @@ export default [
       "**/test-results/**",
       "**/.turbo/**",
       "packages/jinn/template/**",
-      // ICI-709 brought `e2e/`, `scripts/`, `tools/` and the build scripts into
-      // `tsconfig.e2e.json` and `tsconfig.scripts.json`, so type-aware lint is
-      // no longer blocked on them. Switching it on is ICI-735.
-      "e2e/**",
-      "scripts/**",
-      "tools/**",
-      "packages/*/scripts/**",
-      "**/*.{js,cjs,mjs}",
+      // `.mjs` is absent: it is the extension the root trees are written in, and
+      // a global ignore outranks every `files` entry, so listing it here would
+      // mask `LINTED` rather than complement it. A stray `.mjs` outside those
+      // trees matches no `files` glob and is skipped anyway.
+      "**/*.{js,cjs}",
     ],
   },
   ...enforcement,

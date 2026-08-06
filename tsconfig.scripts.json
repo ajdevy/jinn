@@ -9,5 +9,10 @@
     "strict": false,
     "types": ["node"]
   },
-  "include": ["scripts/**/*.mjs", "tools/**/*.mjs", "e2e/**/*.mjs"]
+  "include": [
+    "scripts/**/*.mjs",
+    "tools/**/*.mjs",
+    "e2e/**/*.mjs",
+    "packages/*/scripts/**/*.mjs"
+  ]
 }
