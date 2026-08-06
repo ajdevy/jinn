@@ -216,6 +216,7 @@ function restoreConfigLink(stray, target) {
 function acceptBypassPermissions() {
   const claudeJson = claudeJsonPath();
 
+  /** @type {Record<string, unknown>} */
   let data = {};
   if (fs.existsSync(claudeJson)) {
     try {

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "allowJs": true,
+    "types": ["node"]
+  },
+  "include": [
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "playwright.workflow-layout.config.ts"
+  ]
+}

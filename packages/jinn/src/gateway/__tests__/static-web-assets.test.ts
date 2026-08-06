@@ -12,7 +12,7 @@ class FakeResponse extends Writable {
   headers: Record<string, string> = {}
   chunks: Buffer[] = []
 
-  _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
+  override _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
     this.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
     callback()
   }

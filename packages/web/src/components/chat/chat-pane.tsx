@@ -108,10 +108,8 @@ export interface FreshChatSourceSession {
 
 export function ChatPane({
   sessionId,
-  isActive,
   onFocus,
   onSessionCreated,
-  onNewChat,
   onSessionMetaChange,
   onRefresh,
   portalName = 'Jinn',

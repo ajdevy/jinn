@@ -43,7 +43,7 @@ function makeRes() {
   let headers: Record<string, unknown> = {};
   const chunks: Buffer[] = [];
   const res = new class extends Writable {
-    _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    override _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       callback();
     }

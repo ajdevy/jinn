@@ -20,6 +20,7 @@ const resolvedIdentity = (value) => {
   try { return fs.realpathSync(absolute) } catch { return absolute }
 }
 
+/** @type {Array<{ name: string, width: number, height: number, theme: "light" | "dark" }>} */
 export const MIGRATION_SCREENSHOT_CASES = [
   { name: "desktop-light", width: 1440, height: 900, theme: "light" },
   { name: "desktop-dark", width: 1440, height: 900, theme: "dark" },
@@ -112,10 +113,10 @@ export function buildMinimalEnvironment(layout, base = {}) {
 }
 
 export function mergeFileThreeWay({ base, user, target }) {
-  const result = spawnSync("git", ["merge-file", "-p", user, base, target], {
+  const result = spawnSync("git", ["merge-file", "-p", user, base, target], /** @type {import("node:child_process").SpawnSyncOptionsWithBufferEncoding} */ ({
     encoding: null,
     stdio: ["ignore", "pipe", "pipe"],
-  })
+  }))
   if (result.error) throw result.error
   if (result.status === 0) return { ok: true, contents: result.stdout }
   if (result.status === 1) return { ok: false, contents: result.stdout, reason: "text merge conflict" }
@@ -188,10 +189,10 @@ export function deriveLabPort(rootInput) {
 export async function allocateLabPort(rootInput) {
   const port = deriveLabPort(rootInput)
   const server = net.createServer()
-  await new Promise((resolve, reject) => {
+  await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
     server.once("error", (error) => reject(new Error(`Deterministic lab port ${port} is already in use or unavailable: ${error.message}`)))
     server.listen(port, "127.0.0.1", resolve)
-  })
+  }))
   const address = server.address()
   if (!address || typeof address === "string" || address.port !== port) {
     server.close()
@@ -273,7 +274,7 @@ export function lookupListeningPid(port) {
   const commands = process.platform === "darwin" ? ["/usr/sbin/lsof", "lsof"] : ["lsof"]
   for (const command of commands) {
     const result = spawnSync(command, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" })
-    if (result.error?.code === "ENOENT") continue
+    if (/** @type {NodeJS.ErrnoException} */ (result.error)?.code === "ENOENT") continue
     if (result.error) throw result.error
     if (result.status === 1 && !result.stdout.trim()) return null
     if (result.status !== 0) throw new Error(`Unable to inspect owner of lab port ${port}: ${result.stderr.trim() || `lsof exited ${result.status}`}`)
@@ -320,10 +321,10 @@ export function signalVerifiedLabProcess({ pid, port, labHome, signal }, depende
 async function probePortAvailable(port) {
   const server = net.createServer()
   try {
-    await new Promise((resolve, reject) => {
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       server.once("error", reject)
       server.listen(port, "127.0.0.1", resolve)
-    })
+    }))
   } finally {
     if (server.listening) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   }
@@ -925,6 +926,7 @@ export function assertStockBundleApplied({ home, materializedBundleDir, manifest
   }
 }
 
+/** @param {{ scenario: string, candidateTarball?: string, baselineTarball?: string, root: string, keep?: boolean, dryRun?: boolean }} options */
 async function executeScenario({ scenario, candidateTarball, baselineTarball, root, keep, dryRun }) {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
   const layout = assertIsolatedLayout(root)
@@ -992,7 +994,7 @@ async function executeScenario({ scenario, candidateTarball, baselineTarball, ro
       fs.writeFileSync(config, updated)
     }
 
-    const service = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "service.js")))
+    const service = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "service.js")).href)
     const migrationsDir = path.join(candidateInstall.packageRoot, "template", "migrations")
     const expectedPending = candidateNeedsMigrationHandoff({
       scenario,
@@ -1073,8 +1075,8 @@ async function executeScenario({ scenario, candidateTarball, baselineTarball, ro
       summary.checks.noMigrationHandoffRequired = "PASS"
     }
 
-    const snapshot = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "snapshot.js")))
-    const completion = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "completion.js")))
+    const snapshot = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "snapshot.js")).href)
+    const completion = await import(pathToFileURL(path.join(candidateInstall.packageRoot, "dist", "src", "migrations", "completion.js")).href)
     let pending = service.getPendingInstanceMigration({ instanceHome: layout.home, packageVersion: candidateVersion, migrationsDir })
     if (!expectedPending) {
       if (pending.required) throw new Error("no-handoff candidate unexpectedly produced a migration")

@@ -65,17 +65,17 @@ function NotesFeatureRoute() {
 }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state: { error: Error | null } = { error: null }
+  override state: { error: Error | null } = { error: null }
 
   static getDerivedStateFromError(error: Error) {
     return { error }
   }
 
-  componentDidCatch(error: Error) {
+  override componentDidCatch(error: Error) {
     console.error('[AppErrorBoundary]', error)
   }
 
-  render() {
+  override render() {
     if (!this.state.error) return this.props.children
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background p-6 text-center">
