@@ -494,6 +494,7 @@ export default function SettingsPage() {
     setOperatorName,
     setPortalEmoji,
     setLanguage,
+    setTalkOrb,
     resetAll,
   } = useSettings()
   const { theme, setTheme } = useTheme()
@@ -810,6 +811,22 @@ export default function SettingsPage() {
                   Reset
                 </button>
               )}
+            </div>
+
+            <div className="mt-[var(--space-4)]">
+              <FieldRow label="Talk Orb">
+                <div className="flex sm:justify-end">
+                  <ToggleSwitch
+                    checked={settings.talkOrb}
+                    ariaLabel="Talk orb"
+                    onChange={setTalkOrb}
+                  />
+                </div>
+              </FieldRow>
+              <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+                A floating sphere you can drag to any corner. It shows what the
+                assistant is doing through motion alone.
+              </div>
             </div>
           </Section>
 

@@ -25,6 +25,7 @@ const SkillDetailPage = lazyRoute(() => import('./routes/skills/detail'), 'skill
 const FilePage = lazyRoute(() => import('./routes/file/page'), 'file')
 const MorePage = lazyRoute(() => import('./routes/more/page'), 'more')
 const RedesignPage = lazyRoute(() => import('./routes/redesign/page'), 'redesign')
+const TalkOrbHarnessPage = lazyRoute(() => import('./routes/talk-orb-harness/page'), 'talk-orb-harness')
 const WorkflowListPage = lazyRoute(() => import('./routes/workflow/list'), 'workflow-list')
 const WorkflowPage = lazyRoute(() => import('./routes/workflow/page'), 'workflow')
 const WorkflowRunPage = lazyRoute(() => import('./routes/workflow/run'), 'workflow-run')
@@ -135,6 +136,7 @@ const router = createBrowserRouter([
       ...(import.meta.env.DEV
         ? [
             { path: '/redesign', element: <RedesignPage /> },
+            { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
           ]
         : []),
     ],
