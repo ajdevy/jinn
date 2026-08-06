@@ -338,9 +338,50 @@ function renderApproval(config: Record<string, unknown>) {
   return store
 }
 
+function renderWait(config: Record<string, unknown>) {
+  const initial = structuredClone(definition)
+  initial.nodes = [{ id: "hold", type: "wait", name: "Ask operator", config }]
+  initial.ui.positions = { hold: { x: 0, y: 0 } }
+  const store = createEditorStore(initial)
+  store.getState().selectNode("hold")
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <EditorStoreContext.Provider value={store}>
+        <Inspector />
+      </EditorStoreContext.Provider>
+    </QueryClientProvider>,
+  )
+  return store
+}
+
 function approvalConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
+
+describe("wait inspector todo-comment mode", () => {
+  it("explains the mode read-only instead of offering controls that would drop it", () => {
+    const config = { mode: "todo-comment", timeoutMinutes: 10080 }
+    const store = renderWait(config)
+
+    expect(screen.getByText(/Resumes when you comment on the run/)).toBeTruthy()
+    // Every control in this form replaces the whole config, so one appearing here
+    // is the data loss itself: mode and timeout would be gone on first touch.
+    expect(screen.queryByRole("combobox", { name: "Wait" })).toBeNull()
+    expect(screen.queryByLabelText("Minutes")).toBeNull()
+    expect(screen.queryByLabelText("Timestamp (ISO)")).toBeNull()
+    expect(store.getState().nodes[0]!.data.node.config).toEqual(config)
+    expect(store.getState().serial).toBe(0)
+  })
+
+  it("still edits a duration wait", () => {
+    const store = renderWait({ mode: "duration", minutes: 60 })
+
+    fireEvent.change(screen.getByLabelText("Minutes"), { target: { value: "30" } })
+
+    expect(store.getState().nodes[0]!.data.node.config).toEqual({ mode: "duration", minutes: 30 })
+  })
+})
 
 describe("approval inspector operator-only gate", () => {
   it("reserves the gate and drops any approver, since the two contradict", () => {

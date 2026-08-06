@@ -370,12 +370,12 @@ describe("Workflow retry, cancellation, and restart recovery", () => {
     service = new WorkflowService({ repository, executor: new RealExecutor(sessions),
       employees: () => new Map([[employee.name, employee]]), models: () => models, now: () => now.toISOString() });
 
-    expect(await service.recover(now.toISOString())).toEqual({ resumedRuns: 1, resumedWaits: 0 });
+    expect(await service.recover(now.toISOString())).toEqual({ resumedRuns: 1, resumedWaits: 0, resumedComments: 0 });
     await vi.waitFor(() => expect(engine.calls).toBe(1));
     expect(service.getRun(definition.id, created.id)?.attempts).toMatchObject([
       { attempt: 1, status: "running", sessionId: inserted.id },
     ]);
-    expect(await service.recover(now.toISOString())).toEqual({ resumedRuns: 0, resumedWaits: 0 });
+    expect(await service.recover(now.toISOString())).toEqual({ resumedRuns: 0, resumedWaits: 0, resumedComments: 0 });
     expect(service.getRun(definition.id, created.id)?.attempts).toHaveLength(1);
     expect((await import("../../shared/db.js")).initDb().prepare("SELECT COUNT(*) AS count FROM sessions WHERE session_key = ?").get(key))
       .toEqual({ count: 1 });

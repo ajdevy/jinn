@@ -376,6 +376,15 @@ function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: Work
   )
 }
 
+/** The Todo a wait is bound to, when it is a comment-wait: this mode resumes on
+ *  the operator's comment and keeps resumeAt only as its timeout deadline. */
+function commentWaitTodoId(nodeRun: WorkflowNodeRunV2Wire | undefined): string | null {
+  const config = nodeRun?.resolvedConfig
+  if (config?.["mode"] !== "todo-comment") return null
+  const todoId = config["todoId"]
+  return typeof todoId === "string" ? todoId : null
+}
+
 function triggerCaption(node: WorkflowNodeWire): string {
   const config = node.config as { kind?: unknown; cron?: unknown }
   switch (config.kind) {
@@ -415,6 +424,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
   const latest = latestAttempt(attempts)
   const approval = detail.approvals.find((item) => item.nodeId === nodeId)
   const status = deriveNodeStatus(nodeRun, attempts)
+  const commentWaitTodo = commentWaitTodoId(nodeRun)
   const output = nodeRun?.output ?? latest?.output
   const sessionId = latest?.sessionId ?? output?.sessionId
 
@@ -492,9 +502,19 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           {node.type === "approval" && approval && (
             <ApprovalSection approval={approval} onDecide={onDecide} deciding={deciding} />
           )}
-          {node.type === "wait" && nodeRun?.resumeAt && (
+          {/* A settled comment-wait says nothing: the node keeps its resumeAt and
+              resolvedConfig after it resumes, and neither "waiting" nor "resumes"
+              is true of a step that already continued on a comment. */}
+          {node.type === "wait" && nodeRun?.resumeAt
+            && (commentWaitTodo === null || nodeRun.status === "waiting") && (
             <Section title="Wait">
-              <Note>Resumes {formatStarted(nodeRun.resumeAt)}</Note>
+              {commentWaitTodo
+                ? (
+                  <Note>
+                    Waiting for your comment on {commentWaitTodo} · times out {formatStarted(nodeRun.resumeAt)}
+                  </Note>
+                )
+                : <Note>Resumes {formatStarted(nodeRun.resumeAt)}</Note>}
             </Section>
           )}
           {node.type === "end" && (

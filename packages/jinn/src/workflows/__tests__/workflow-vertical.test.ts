@@ -298,8 +298,8 @@ describe("first Workflow vertical", () => {
 
     manager = new SessionManager(config, new Map([["claude", engine], ["codex", engine]]), "reconstructed", (id) => id === employee.name ? employee : undefined);
     service = createService();
-    expect(await service.recover(new Date().toISOString())).toEqual({ resumedRuns: 1, resumedWaits: 0 });
-    expect(await service.recover(new Date().toISOString())).toEqual({ resumedRuns: 0, resumedWaits: 0 });
+    expect(await service.recover(new Date().toISOString())).toEqual({ resumedRuns: 1, resumedWaits: 0, resumedComments: 0 });
+    expect(await service.recover(new Date().toISOString())).toEqual({ resumedRuns: 0, resumedWaits: 0, resumedComments: 0 });
     expect(service.getRun(authored.id, lost.id)?.status).toBe("completed");
   });
 
