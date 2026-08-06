@@ -149,6 +149,18 @@ for (const { rule, triggers, passes, passesBecause } of RULE_CASES) {
   })
 }
 
+test("a frozen migration excuses the historical path, never a live leak", () => {
+  const root = repoWith({
+    "packages/jinn/template/migrations/0001-initial/notes.md":
+      "Wrote /Users/someone/.jinn/config.yaml\nContact dev@acme-widgets.io\n",
+  })
+
+  const { status, stdout } = check(root, "--all")
+  assert.equal(violationsOf(stdout, "personal-path"), 0, stdout)
+  assert.equal(violationsOf(stdout, "privacy-leak"), 1, stdout)
+  assert.equal(status, 1)
+})
+
 test("--list prints every rule with a remediation", () => {
   const { status, stdout } = check(process.cwd(), "--list")
 

@@ -22,9 +22,11 @@ import path from "node:path"
 const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 const TEXT_EXTENSIONS = new Set([...CODE_EXTENSIONS, ".json", ".md", ".yml", ".yaml", ".sh"])
 
-// Shipped release artifacts. They record what an older version wrote and cannot
-// be edited retroactively, so flagging them only teaches contributors to ignore
-// the checker.
+// Shipped release artifacts. The paths in them record what an older version
+// wrote to a machine and cannot be edited retroactively, so personal-path
+// exempts them rather than teaching contributors to ignore the checker. Only
+// that rule: a real address published in a migration is a live leak no matter
+// which version wrote it, and every other rule reads a file that still runs.
 const FROZEN_MIGRATIONS = /^packages\/[^/]+\/template\/migrations\//
 
 // The rules cannot be written, tested or explained without spelling out every
@@ -98,7 +100,7 @@ const RULES = [
     name: "personal-path",
     message: "an absolute /Users/ path — this repo is published to npm, and the path names its author's machine",
     fix: "Derive the path at runtime — resolveJinnHome(), os.homedir(), or mkdtempSync(os.tmpdir()) in a fixture — or write a neutral placeholder.",
-    scans: (relPath) => extensionIn(relPath, TEXT_EXTENSIONS),
+    scans: (relPath) => extensionIn(relPath, TEXT_EXTENSIONS) && !FROZEN_MIGRATIONS.test(relPath),
     find: (text) => matchingLines(text, /\/Users\//),
   },
   {
@@ -377,7 +379,7 @@ function loadTypeScript() {
 }
 
 function ruleApplies(rule, relPath) {
-  if (DESCRIBES_THE_RULES.has(relPath) || FROZEN_MIGRATIONS.test(relPath)) return false
+  if (DESCRIBES_THE_RULES.has(relPath)) return false
   if (rule.allow?.has(relPath)) return false
   return rule.scans(relPath)
 }
