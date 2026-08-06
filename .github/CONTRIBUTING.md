@@ -39,7 +39,7 @@ reach for, what makes a test worth keeping, and what a plan has to show.
 
 - Create a feature branch from `main`.
 - Keep commits focused and descriptive.
-- Run all four gates before submitting. Each one is a required CI job, so a failure here is a
+- Run all four gates before submitting. Each one runs as a CI job, so a failure here is a
   failure there:
   ```bash
   pnpm typecheck
@@ -49,6 +49,12 @@ reach for, what makes a test worth keeping, and what a plan has to show.
   ```
   `pnpm test` also runs on Windows in CI; if you touch filesystem paths or process spawning,
   expect that leg to have an opinion.
+- Branch protection on `main` requires exactly one status check: `all-checks-pass`. It needs
+  every other job in `.github/workflows/ci.yml` and passes only when all of them report
+  `success` — a skipped or cancelled job counts as a failure, because it proved nothing.
+  Individual jobs are never added to the required list, so **a new CI job has to be added to
+  that job's `needs`**, and `scripts/__tests__/ci-workflow.test.mjs` fails the build if it is
+  not.
 - Open a pull request against `main` with a clear description of your changes.
 
 ## Code Style
