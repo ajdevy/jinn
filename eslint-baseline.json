@@ -1,11 +1,14 @@
 {
   "_instructions": "Every entry is code that predates the lint floor, exempt from exactly the rules listed. To leave the list: split the function at its seams into named helpers, give the branchy part its own function with an early return per case, hoist a nested loop or condition into a helper so the body reads flat, group related parameters into one options object, await the promise or hand it to `void`. Then run `node scripts/eslint-baseline.mjs` and commit the shrunken file. Add nothing here by hand — inline eslint-disable comments are ignored outright, so this file is the only suppression channel, and it is meant to shrink.",
   "files": {
-    "packages/jinn/src/cli/__tests__/migrate-prompt.test.ts": [
-      "@typescript-eslint/no-unused-vars"
+    "e2e/workflow-layout/bounded-reporter.mjs": [
+      "complexity"
     ],
-    "packages/jinn/src/cli/__tests__/migrate.test.ts": [
-      "@typescript-eslint/no-unused-vars"
+    "e2e/workflow-layout/fixtures.mjs": [
+      "max-params"
+    ],
+    "packages/jinn/scripts/instance-migration-bundle.mjs": [
+      "complexity"
     ],
     "packages/jinn/src/cli/container-contract.ts": [
       "complexity"
@@ -24,7 +27,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/cli/pair.ts": [
-      "@typescript-eslint/no-unused-vars",
       "max-depth"
     ],
     "packages/jinn/src/cli/setup.ts": [
@@ -53,9 +55,6 @@
       "max-depth",
       "max-lines-per-function"
     ],
-    "packages/jinn/src/connectors/telegram/__tests__/connector.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/jinn/src/connectors/telegram/index.ts": [
       "@typescript-eslint/no-floating-promises",
       "complexity",
@@ -78,9 +77,6 @@
     ],
     "packages/jinn/src/engines/__tests__/claude-interactive.test.ts": [
       "@typescript-eslint/no-floating-promises"
-    ],
-    "packages/jinn/src/engines/__tests__/grok-interactive.test.ts": [
-      "@typescript-eslint/no-unused-vars"
     ],
     "packages/jinn/src/engines/antigravity-protocol.ts": [
       "complexity"
@@ -159,23 +155,10 @@
       "complexity",
       "max-lines-per-function"
     ],
-    "packages/jinn/src/gateway/__tests__/approval-root-fallback.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
-    "packages/jinn/src/gateway/__tests__/dispatch-route.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
-    "packages/jinn/src/gateway/__tests__/org-update.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
-    "packages/jinn/src/gateway/__tests__/work-item-approval-route.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": [
       "max-params"
     ],
     "packages/jinn/src/gateway/api.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function",
@@ -199,7 +182,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/gateway/files.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function",
@@ -240,7 +222,6 @@
     ],
     "packages/jinn/src/gateway/server.ts": [
       "@typescript-eslint/no-floating-promises",
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function"
@@ -283,9 +264,6 @@
     "packages/jinn/src/instances/start.ts": [
       "complexity"
     ],
-    "packages/jinn/src/mcp/__tests__/search-tools.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/jinn/src/mcp/approval-tools.ts": [
       "max-lines-per-function"
     ],
@@ -294,7 +272,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/mcp/delegation-tools.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -322,7 +299,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/mcp/search-tools.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -362,11 +338,7 @@
       "complexity",
       "max-lines-per-function"
     ],
-    "packages/jinn/src/sessions/__tests__/context.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/jinn/src/sessions/callbacks.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -403,7 +375,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/sessions/registry.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function",
@@ -469,18 +440,13 @@
       "complexity"
     ],
     "packages/jinn/src/stt/stt.ts": [
-      "@typescript-eslint/no-unused-vars",
       "max-lines-per-function"
     ],
     "packages/jinn/src/talk/kokoro.ts": [
-      "@typescript-eslint/no-unused-vars",
       "max-lines-per-function"
     ],
     "packages/jinn/src/talk/speakable.ts": [
       "max-lines-per-function"
-    ],
-    "packages/jinn/src/work-items/__tests__/optimistic-concurrency.test.ts": [
-      "@typescript-eslint/no-unused-vars"
     ],
     "packages/jinn/src/work-items/approvals.ts": [
       "complexity",
@@ -498,7 +464,6 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/work-items/store.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -509,15 +474,6 @@
     "packages/jinn/src/work-items/workflow-event-feed.ts": [
       "complexity",
       "max-lines-per-function"
-    ],
-    "packages/jinn/src/workflows/__tests__/repository-definitions.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
-    "packages/jinn/src/workflows/__tests__/workflow-recovery.test.ts": [
-      "@typescript-eslint/no-unused-vars"
-    ],
-    "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": [
-      "@typescript-eslint/no-unused-vars"
     ],
     "packages/jinn/src/workflows/bindings.ts": [
       "complexity"
@@ -541,14 +497,12 @@
       "max-lines-per-function"
     ],
     "packages/jinn/src/workflows/repository-runs.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity"
     ],
     "packages/jinn/src/workflows/repository-support.ts": [
       "complexity"
     ],
     "packages/jinn/src/workflows/repository.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity"
     ],
     "packages/jinn/src/workflows/runner.ts": [
@@ -609,20 +563,17 @@
       "max-lines-per-function"
     ],
     "packages/web/src/components/chat/chat-messages.tsx": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function"
     ],
     "packages/web/src/components/chat/chat-pane.tsx": [
       "@typescript-eslint/no-floating-promises",
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
     "packages/web/src/components/chat/chat-sidebar.tsx": [
       "@typescript-eslint/no-floating-promises",
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function"
@@ -736,16 +687,12 @@
       "@typescript-eslint/no-unused-vars",
       "max-lines-per-function"
     ],
-    "packages/web/src/components/migration/__tests__/instance-migration-gate.test.tsx": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/web/src/components/migration/instance-migration-gate.tsx": [
       "complexity",
       "max-lines-per-function"
     ],
     "packages/web/src/components/onboarding-wizard.tsx": [
       "@typescript-eslint/no-floating-promises",
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function"
@@ -807,7 +754,6 @@
       "max-lines-per-function"
     ],
     "packages/web/src/hooks/use-keyboard-shortcuts.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity"
     ],
     "packages/web/src/hooks/use-live-session.ts": [
@@ -854,7 +800,6 @@
       "complexity"
     ],
     "packages/web/src/lib/todos.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity"
     ],
     "packages/web/src/lib/ws.ts": [
@@ -867,12 +812,10 @@
     ],
     "packages/web/src/routes/chat/page.tsx": [
       "@typescript-eslint/no-floating-promises",
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
     "packages/web/src/routes/cron/detail.tsx": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -931,7 +874,6 @@
       "max-lines-per-function"
     ],
     "packages/web/src/routes/settings/page.tsx": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -945,16 +887,10 @@
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": [
       "@typescript-eslint/no-floating-promises"
     ],
-    "packages/web/src/routes/todos/__tests__/task-page.test.tsx": [
-      "@typescript-eslint/no-unused-vars"
-    ],
     "packages/web/src/routes/todos/board/board-page.tsx": [
       "@typescript-eslint/no-floating-promises",
       "complexity",
       "max-lines-per-function"
-    ],
-    "packages/web/src/routes/todos/board/board-route.ts": [
-      "@typescript-eslint/no-unused-vars"
     ],
     "packages/web/src/routes/todos/board/board-switcher.tsx": [
       "@typescript-eslint/no-floating-promises",
@@ -971,13 +907,11 @@
       "max-lines-per-function"
     ],
     "packages/web/src/routes/todos/board/use-board-drag.ts": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-depth",
       "max-lines-per-function"
     ],
     "packages/web/src/routes/todos/board/use-board.ts": [
-      "@typescript-eslint/no-unused-vars",
       "max-params"
     ],
     "packages/web/src/routes/todos/filter-bar.tsx": [
@@ -1078,7 +1012,6 @@
       "max-lines-per-function"
     ],
     "packages/web/src/routes/workflow/editor/inspector.tsx": [
-      "@typescript-eslint/no-unused-vars",
       "complexity",
       "max-lines-per-function"
     ],
@@ -1114,6 +1047,39 @@
     "packages/web/vite.config.ts": [
       "complexity",
       "max-lines-per-function"
+    ],
+    "scripts/docker-configure.mjs": [
+      "max-lines-per-function"
+    ],
+    "scripts/hermes-acp-smoke.mjs": [
+      "complexity",
+      "max-depth"
+    ],
+    "scripts/ratchet.mjs": [
+      "complexity"
+    ],
+    "scripts/upgrade-lab/run.mjs": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "scripts/upgrade-lab/state-probe.mjs": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function"
+    ],
+    "tools/prerelease-todo-converter/artifacts.mjs": [
+      "complexity",
+      "max-lines-per-function"
+    ],
+    "tools/prerelease-todo-converter/dry-run.mjs": [
+      "complexity"
+    ],
+    "tools/prerelease-todo-converter/inventory.mjs": [
+      "complexity",
+      "max-depth",
+      "max-lines-per-function",
+      "max-params"
     ]
   }
 }

@@ -16,7 +16,7 @@ function fail(message) {
 function parseArgs(argv) {
   const [mode, ...rest] = argv
   if (mode !== "generate" && mode !== "check") throw new Error("first argument must be generate or check")
-  const values = { mode, allowEmpty: false }
+  const values = { mode, allowEmpty: false, baseRef: "", version: "" }
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]
     if (arg === "--") continue
@@ -39,6 +39,7 @@ function roots() {
   throw new Error("run from the repository root or packages/jinn")
 }
 
+/** @param {BufferEncoding} encoding */
 function git(repoRoot, args, encoding = "utf8") {
   return execFileSync("git", args, { cwd: repoRoot, encoding })
 }

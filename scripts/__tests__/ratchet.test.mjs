@@ -132,6 +132,17 @@ test("a rule added to a file the size baseline already records still fails", () 
   assert.doesNotMatch(stdout, /\+complexity/)
 })
 
+test("a package's own scripts are scanned, so their exemptions cannot skip the mirror", () => {
+  const root = seeded({ "packages/jinn/scripts/build.mjs": source(10) })
+  writeExemptions(root, { "packages/jinn/scripts/build.mjs": ["complexity"] })
+
+  const { status, stdout } = ratchet(root, "--check")
+
+  assert.equal(status, 1, stdout)
+  assert.match(stdout, /^packages\/jinn\/scripts\/build\.mjs$/m)
+  assert.match(stdout, /\+complexity/)
+})
+
 test("shrinking is stale until `pnpm ratchet` rewrites the baseline downward", () => {
   const root = seeded({ "scripts/big.mjs": source(400) })
   write(root, "scripts/big.mjs", source(380))
