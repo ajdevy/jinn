@@ -32,7 +32,7 @@ const definition: WorkflowDefinitionV2Wire = {
     { id: "e1", from: { nodeId: "trigger", port: "success" }, to: { nodeId: "route", port: "input" } },
     { id: "e2", from: { nodeId: "route", port: "case-2" }, to: { nodeId: "end", port: "input" } },
   ],
-  ui: { positions: { trigger: { x: 0, y: 0 }, route: { x: 400, y: 0 }, end: { x: 800, y: 0 } } },
+  ui: { positions: { trigger: { x: 0, y: 0 }, route: { x: 400, y: 0 }, end: { x: 800, y: 0 } }, layout: "manual" },
 }
 
 function freshStore() {
@@ -86,6 +86,40 @@ describe("editor store", () => {
     expect(byId.get("route")!.x).toBeGreaterThan(byId.get("trigger")!.x)
     expect(byId.get("end")!.x).toBeGreaterThan(byId.get("route")!.x)
     expect(store.getState().serial).toBe(0)
+  })
+
+  it("keeps a manually arranged definition on its exact stored coordinates", () => {
+    const positions = Object.fromEntries(freshStore().getState().nodes.map((node) => [node.id, node.position]))
+    expect(positions).toEqual(definition.ui.positions)
+  })
+
+  it("lays out agent-written positions, which carry no manual marker", () => {
+    const authored = structuredClone(definition)
+    delete authored.ui.layout
+    const byId = new Map(createEditorStore(authored).getState().nodes.map((node) => [node.id, node.position]))
+    expect(byId.get("trigger")).not.toEqual(definition.ui.positions.trigger)
+    expect(byId.get("route")!.x).toBeGreaterThan(byId.get("trigger")!.x)
+    expect(byId.get("end")!.x).toBeGreaterThan(byId.get("route")!.x)
+  })
+
+  it("re-tidies a manual arrangement once a node arrives without a position", () => {
+    const grown = structuredClone(definition)
+    delete grown.ui.positions["end"]
+    const byId = new Map(createEditorStore(grown).getState().nodes.map((node) => [node.id, node.position]))
+    expect(byId.get("end")).not.toEqual({ x: 0, y: 0 })
+    expect(byId.get("end")!.x).toBeGreaterThan(byId.get("route")!.x)
+  })
+
+  it("stamps the manual marker on save, so a drag survives the next reload", () => {
+    const store = freshStore()
+    store.getState().onNodesChange([{ id: "route", type: "position", position: { x: 640, y: 220 } }])
+    const { meta, nodes, edges } = store.getState()
+    const wire = serializeDefinition(meta, nodes, edges)
+
+    expect(wire.ui.layout).toBe("manual")
+    expect(wire.ui.positions["route"]).toEqual({ x: 640, y: 220 })
+    const reloaded = createEditorStore(structuredClone(wire))
+    expect(Object.fromEntries(reloaded.getState().nodes.map((node) => [node.id, node.position]))).toEqual(wire.ui.positions)
   })
 
   it("adds nodes with allocated ids and connects them once", () => {

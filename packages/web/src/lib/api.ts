@@ -395,7 +395,7 @@ export interface WorkflowDefinitionV2Wire {
     from: { nodeId: string; port: string }
     to: { nodeId: string; port: "input" }
   }>
-  ui: { positions: Record<string, { x: number; y: number }> }
+  ui: { positions: Record<string, { x: number; y: number }>; layout?: "manual" }
 }
 
 /** One server validation verdict — the client renders these, never re-derives them. */

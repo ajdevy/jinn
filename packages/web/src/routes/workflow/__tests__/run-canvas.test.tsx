@@ -112,6 +112,14 @@ function statusOf(name: string): string | null {
   return card?.getAttribute("data-node-status") ?? null
 }
 
+/** Where the canvas actually placed a card, read off React Flow's transform. */
+function positionOf(name: string): { x: number; y: number } {
+  const wrapper = screen.getByText(name).closest(".react-flow__node") as HTMLElement | null
+  const matched = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(wrapper?.style.transform ?? "")
+  if (!matched) throw new Error(`node "${name}" is not placed on the canvas`)
+  return { x: Number(matched[1]), y: Number(matched[2]) }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   getSession.mockResolvedValue({ status: "idle" })
@@ -395,6 +403,43 @@ describe("workflow run canvas", () => {
     expect(await inspector.findByText(/Retried prompt\./, {}, { timeout: 6000 })).toBeTruthy()
     expect(getWorkflowRunFull).toHaveBeenCalledTimes(2)
   }, 10000)
+
+  it("lays out a definition whose positions were written by an agent, not arranged by hand", async () => {
+    serveRun(baseDetail({ nodeRuns: [nodeRun("trigger", "completed")] }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    // The stored y is 0 for every node, so a tidied graph must move the branches off it.
+    expect(positionOf("Quality gate")).not.toEqual(positions.route)
+    expect(positionOf("Writer").x).toBeGreaterThan(positionOf("Kickoff").x)
+    expect(positionOf("Done").x).toBeGreaterThan(positionOf("Publish gate").x)
+  })
+
+  it("keeps a hand-arranged definition on its exact stored coordinates", async () => {
+    serveRun(baseDetail({
+      definition: { nodes, edges, ui: { positions, layout: "manual" } },
+      nodeRuns: [nodeRun("trigger", "completed")],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    expect(positionOf("Kickoff")).toEqual(positions.trigger)
+    expect(positionOf("Quality gate")).toEqual(positions.route)
+    expect(positionOf("Done")).toEqual(positions.finish)
+  })
+
+  it("re-tidies a hand-arranged definition once a node arrives without a position", async () => {
+    const { finish: _finish, ...partial } = positions
+    serveRun(baseDetail({
+      definition: { nodes, edges, ui: { positions: partial, layout: "manual" } },
+      nodeRuns: [nodeRun("trigger", "completed")],
+    }))
+    renderRun()
+
+    expect(await screen.findByText("Writer")).toBeTruthy()
+    expect(positionOf("Done")).not.toEqual({ x: 0, y: 0 })
+    expect(positionOf("Done").x).toBeGreaterThan(positionOf("Publish gate").x)
+  })
 
   it("renders the run header without any editing affordances", async () => {
     serveRun(baseDetail({

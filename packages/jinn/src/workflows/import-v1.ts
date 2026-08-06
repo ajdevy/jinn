@@ -138,7 +138,9 @@ function convert(value: unknown): WorkflowDefinition {
     enabled: false,
     nodes: converted.map((item) => item.node),
     edges: legacy.edges.map(edge),
-    ui: { positions: Object.fromEntries(converted.map((item) => [item.node.id, item.position])) },
+    // The v1 canvas was a hand-arranged surface, so its coordinates carry over
+    // as manual and the imported graph opens exactly where its author left it.
+    ui: { positions: Object.fromEntries(converted.map((item) => [item.node.id, item.position])), layout: "manual" as const },
     createdAt: stamp,
     updatedAt: stamp,
   };

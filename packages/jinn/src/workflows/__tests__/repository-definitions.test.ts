@@ -416,8 +416,8 @@ describe('optimistic revision mutations', () => {
     expect(graph.revision).toBe(2);
 
     now = '2026-07-21T02:00:00.000Z';
-    const dragged = repository.saveDefinition({ ...graph, ui: { positions: { start: { x: 320, y: 96 } } } }, 2);
-    expect(dragged).toMatchObject({ revision: 2, updatedAt: now, ui: { positions: { start: { x: 320, y: 96 } } } });
+    const dragged = repository.saveDefinition({ ...graph, ui: { positions: { start: { x: 320, y: 96 } }, layout: 'manual' } }, 2);
+    expect(dragged).toMatchObject({ revision: 2, updatedAt: now, ui: { positions: { start: { x: 320, y: 96 } }, layout: 'manual' } });
     expect(repository.getDefinition(created.id)).toEqual(dragged);
 
     const renamed = repository.saveDefinition({ ...dragged, title: 'Renamed' }, 2);

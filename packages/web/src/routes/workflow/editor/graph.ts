@@ -76,8 +76,15 @@ export function toFlowEdges(definition: GraphSnapshot): EditorEdge[] {
   }))
 }
 
-export function hasStoredPositions(definition: GraphSnapshot): boolean {
-  const positions = definition.ui?.positions ?? {}
+/** Whether the canvas should honour the stored coordinates. Agents author
+ *  definitions through the API and write positions too, so the marker the
+ *  editor stamps — not the presence of coordinates — is the evidence a person
+ *  arranged this. Completeness still matters: a node added to an arranged graph
+ *  has no position of its own, and dropping it at the origin reads worse than
+ *  re-tidying the whole thing. */
+export function usesManualLayout(definition: GraphSnapshot): boolean {
+  if (definition.ui?.layout !== "manual") return false
+  const positions = definition.ui.positions
   return definition.nodes.length > 0 && definition.nodes.every((node) => positions[node.id] !== undefined)
 }
 
@@ -105,10 +112,13 @@ export function serializeDefinition(
       from: { nodeId: edge.source, port: edge.sourceHandle ?? "success" },
       to: { nodeId: edge.target, port: "input" as const },
     })),
+    // The editor is the only surface where a person arranges the canvas, so
+    // saving from it is what makes these coordinates authoritative.
     ui: {
       positions: Object.fromEntries(
         nodes.map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]),
       ),
+      layout: "manual",
     },
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
