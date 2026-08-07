@@ -146,7 +146,7 @@ function callbackDeliveriesTableSql(tableName = 'callback_deliveries'): string {
 CREATE TABLE ${tableName} (
   id TEXT PRIMARY KEY,
   target_session_id TEXT NOT NULL CHECK (length(target_session_id) > 0 AND target_session_id = jinn_callback_identity(target_session_id)),
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('session', 'workflow-run')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('session', 'workflow-run', 'heartbeat')),
   source_id TEXT NOT NULL CHECK (length(source_id) > 0 AND source_id = jinn_callback_identity(source_id)),
   source_attempt TEXT NOT NULL CHECK (length(source_attempt) > 0 AND source_attempt = jinn_callback_identity(source_attempt)),
   source_outcome TEXT NOT NULL CHECK (length(source_outcome) > 0 AND source_outcome = jinn_callback_identity(source_outcome)),
@@ -451,7 +451,7 @@ function hasSessionDeliveryConstraints(sql: string): boolean {
   return canonicalColumns.every((column) =>
     normalized.includes(`length(${column}) > 0 and ${column} = jinn_callback_identity(${column})`),
   )
-    && normalized.includes("source_kind in ('session', 'workflow-run')")
+    && normalized.includes("source_kind in ('session', 'workflow-run', 'heartbeat')")
     && normalized.includes('source_version >= 1')
     && normalized.includes('json_valid(payload)')
     && normalized.includes("json_type(payload) = 'object'")
@@ -755,7 +755,7 @@ export function sessionDeliveryFromRow(row: SessionDeliveryRow): SessionDelivery
   if (!Number.isInteger(row.sourceVersion) || row.sourceVersion < 1) {
     throw new Error(`Session delivery ${row.id} has an invalid source version`);
   }
-  if (row.sourceKind !== 'session' && row.sourceKind !== 'workflow-run') {
+  if (!['session', 'workflow-run', 'heartbeat'].includes(row.sourceKind)) {
     throw new Error(`Session delivery ${row.id} has an invalid source kind`);
   }
   if (!['pending', 'accepted', 'dead_letter'].includes(row.status)) {
@@ -888,7 +888,7 @@ export function validateSessionDeliveryIdentity(identity: SessionDeliveryIdentit
   })) {
     if (typeof value !== 'string' || !canonicalCallbackIdentityText(value)) throw new Error(`${name} is required for session delivery`);
   }
-  if (identity.sourceKind !== 'session' && identity.sourceKind !== 'workflow-run') {
+  if (!['session', 'workflow-run', 'heartbeat'].includes(identity.sourceKind)) {
     throw new Error('sourceKind is invalid for session delivery');
   }
   if (!Number.isInteger(identity.sourceVersion) || identity.sourceVersion < 1) {

@@ -56,6 +56,7 @@ import { resolveCallerIdentity, sessionCommGuards, LATERAL_MAX_HOPS, type Caller
 import { UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
 import { startStatusReconciler } from "./status-reconciler.js";
+import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
 import { pickEncoding, isCompressibleExt, compressBuffer, compressStream, type Encoding } from "./compress.js";
@@ -1027,6 +1028,7 @@ export async function startGateway(
   // Unstick sessions whose completion event was lost (status:"running" with no
   // live turn). 15s sweep; logs one line per fix.
   const stopStatusReconciler = startStatusReconciler({ engines, emit });
+  const stopHeartbeatScheduler = startHeartbeatScheduler();
 
   // Todos ledger truth-keeping (GRS-021a): periodically re-derive work-item
   // status from linked-session evidence, so a session settling mid-process moves
@@ -1381,10 +1383,8 @@ export async function startGateway(
   return async () => {
     logger.info("Gateway cleanup starting...");
 
-    // Stop the status reconciler sweep before we start marking sessions
-    // interrupted below — a mid-shutdown sweep must not race the teardown.
-    stopStatusReconciler();
-    stopWorkItemReconciler();
+    // Stop the periodic sweeps before we start marking sessions interrupted below — a mid-shutdown sweep must not race the teardown.
+    stopStatusReconciler(); stopWorkItemReconciler(); stopHeartbeatScheduler();
     clearInterval(modelRefreshTimer);
     workflowService.dispose(); workflowDatabase.close();
 

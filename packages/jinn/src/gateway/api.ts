@@ -110,7 +110,7 @@ export {
 } from "../sessions/partial-stream.js";
 import { isBudgetExhausted } from "./budgets.js";
 import { forkEngineSession } from "../sessions/fork.js";
-import { removeCodexSessionHome } from "../engines/codex.js";
+import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
   CONFIG_PATH,
@@ -322,6 +322,7 @@ import {
 import { updateSkillContent } from "./skills.js";
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
+import { handleHeartbeatApi } from "./heartbeat-api.js";
 
 /** Max bytes accepted on /api/internal/hook (loopback-only relay payloads are tiny). */
 const HOOK_BODY_MAX_BYTES = 64 * 1024;
@@ -2352,6 +2353,7 @@ export async function handleApiRequest(
       },
     })) return;
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
+    if (await handleHeartbeatApi(req, res, { resolveCaller: () => resolveScopedWriteCallerIdentity(req, context) })) return;
 
     if (method === "GET" && pathname === "/api/features") {
       const config = context.getConfig();
@@ -3353,9 +3355,7 @@ export async function handleApiRequest(
 
       const deleted = deleteSession(params.id);
       if (!deleted) return notFound(res);
-      // Remove any per-session Codex CODEX_HOME overlay (holds a session-scoped
-      // capability in its config.toml). No-op for non-codex sessions. Idempotent.
-      removeCodexSessionHome(params.id);
+      cleanUpDeletedSession(params.id);
       logger.info(`Session deleted: ${params.id}`);
       context.emit("session:deleted", { sessionId: params.id });
       context.emit("pins:changed", {});
@@ -3596,9 +3596,7 @@ export async function handleApiRequest(
       const deletableIds = deletable.map((session) => session.id);
       const count = deleteSessions(deletableIds);
       for (const id of deletableIds) {
-        // Remove any per-session Codex CODEX_HOME overlay for each deleted id
-        // (session-scoped capability on disk). No-op for non-codex sessions.
-        removeCodexSessionHome(id);
+        cleanUpDeletedSession(id);
         context.emit("session:deleted", { sessionId: id });
       }
       if (count > 0) context.emit("pins:changed", {});

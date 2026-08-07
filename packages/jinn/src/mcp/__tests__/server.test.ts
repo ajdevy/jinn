@@ -88,7 +88,7 @@ describe("buildTools", () => {
   it("exposes exactly the admitted company tool groups (scope discipline; NO gate-resolve, NO session-delete, NO cancel Todo tool)", () => {
     const names = buildTools().map((t) => t.name).sort();
     expect(names).toEqual([
-      "archive_work_item",
+      "archive_work_item", "arm_heartbeat",
       "assign_work_item",
       "attach_to_work_item",
       "cancel_workflow_run",
@@ -124,7 +124,7 @@ describe("buildTools", () => {
       "list_departments",
       "list_employees",
       "list_experiments",
-      "list_files",
+      "list_files", "list_heartbeats",
       "list_labels",
       "list_notes",
       "list_sessions",
@@ -150,7 +150,7 @@ describe("buildTools", () => {
       "send_connector_message",
       "send_to_session",
       "spawn_session",
-      "start_workflow_run",
+      "start_workflow_run", "stop_heartbeat",
       "stop_session",
       "unlink_work_items",
       "update_experiment",
@@ -255,7 +255,7 @@ describe("handleMcpRequest — tools/call", () => {
 
   it("compiles every advertised registry schema or supplies its shared runtime schema", () => {
     const tools = buildTools();
-    expect(tools).toHaveLength(69);
+    expect(tools).toHaveLength(72);
     for (const tool of tools) {
       expect(() => tool.runtimeSchema ?? z.fromJSONSchema({ ...tool.inputSchema, additionalProperties: false } as Parameters<typeof z.fromJSONSchema>[0]), tool.name).not.toThrow();
     }
