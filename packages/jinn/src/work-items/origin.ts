@@ -33,13 +33,21 @@ export function readWriteOrigin(header: string | string[] | undefined): WriteOri
   return (WRITE_ORIGINS as readonly string[]).includes(header) ? (header as WriteOrigin) : undefined;
 }
 
-/** The `created` event's detail. Stays null when there is nothing to say, because
- *  an empty object in the audit row reads as a payload that was lost rather than
- *  one that was never there. */
+/** An event's detail with the caller's origin folded in. Stays undefined when
+ *  there is nothing to say, because an empty object in the audit row reads as a
+ *  payload that was lost rather than one that was never there. */
+export function writeDetail(
+  fields: Record<string, unknown>,
+  origin: WriteOrigin | undefined,
+): Record<string, unknown> | undefined {
+  const detail = { ...fields, ...(origin ? { origin } : {}) };
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
+/** The `created` event's detail, which the store persists as a nullable column. */
 export function createdEventDetail(
   sourceRef: string | null,
   origin: WriteOrigin | undefined,
 ): Record<string, unknown> | null {
-  const detail = { ...(sourceRef ? { sourceRef } : {}), ...(origin ? { origin } : {}) };
-  return Object.keys(detail).length > 0 ? detail : null;
+  return writeDetail({ ...(sourceRef ? { sourceRef } : {}) }, origin) ?? null;
 }

@@ -944,7 +944,7 @@
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 338,
+      "lines": 337,
       "exempt": [
         "complexity",
         "max-lines-per-function"

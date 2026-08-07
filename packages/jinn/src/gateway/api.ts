@@ -244,7 +244,7 @@ import {
   WorkItemAttachmentError,
   type AttachmentActor,
 } from "../work-items/attachments.js";
-import { readWriteOrigin, WRITE_ORIGIN_HEADER, type WriteOrigin } from "../work-items/origin.js";
+import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER, type WriteOrigin } from "../work-items/origin.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
@@ -1329,9 +1329,8 @@ function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   return false;
 }
 
-type WorkItemCaller =
-  | { kind: 'operator'; session?: undefined; callerId?: undefined; origin?: WriteOrigin }
-  | { kind: 'session'; session: Session; callerId: string; origin?: WriteOrigin };
+type WorkItemCaller = { origin?: WriteOrigin }
+  & ({ kind: 'operator'; session?: undefined; callerId?: undefined } | { kind: 'session'; session: Session; callerId: string });
 
 function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: ApiContext): WorkItemCaller | undefined {
   const identity = resolveScopedWriteCallerIdentity(req, context);
@@ -4012,8 +4011,7 @@ export async function handleApiRequest(
         actingAsOperator = permitted.actingAs;
       }
       const actor = body.asOperator === true ? "operator" : workItemActor(caller);
-      const detailFields = { ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}), ...(caller.origin ? { origin: caller.origin } : {}) };
-      const detail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
+      const detail = writeDetail({ ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }, caller.origin);
       // The banner's asked-for-after reason (design-doc §5): a same-status
       // operator PUT with a note annotates the CURRENT exception state instead
       // of vanishing in transition()'s same-status no-op. The note event
@@ -4024,7 +4022,7 @@ export async function handleApiRequest(
           kind: "note",
           toStatus: target as WorkItemStatus,
           actor,
-          detail: { note, ...(caller.origin ? { origin: caller.origin } : {}) },
+          detail: writeDetail({ note }, caller.origin),
           versionEffect: "state",
         });
         const annotated = getWorkItem(params.id)!;
