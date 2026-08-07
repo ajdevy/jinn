@@ -4408,7 +4408,7 @@ export async function handleApiRequest(
         const comment = tombstoneComment(params.cid, {
           ...workItemCommentAuthor(caller),
           operator: caller.kind === "operator",
-        });
+        }, caller.origin);
         emitTodoProjectionEvent(context, params.id, "comment-deleted");
         return json(res, { comment });
       } catch (err) {

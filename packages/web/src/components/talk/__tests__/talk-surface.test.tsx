@@ -8,6 +8,12 @@ import { PAYLOADS } from "./situation-fixtures"
 
 vi.mock("@/lib/api", () => ({ api: {} }))
 
+const bindTalkActionLog = vi.fn()
+vi.mock("../talk-action-log", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../talk-action-log")>()),
+  bindTalkActionLog: (id: string | null) => bindTalkActionLog(id),
+}))
+
 const SITUATION = { id: "s-1", title: "A decision", payload: PAYLOADS.options }
 
 /** A desktop sheet's box: jsdom lays nothing out, so the sheet is given one. */
@@ -23,6 +29,7 @@ const offset = () => /translate3d\((-?[\d.]+)px, (-?[\d.]+)px/.exec(orb().style.
 const measure = Element.prototype.getBoundingClientRect
 
 beforeEach(() => {
+  bindTalkActionLog.mockClear()
   localStorage.clear()
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -114,6 +121,15 @@ describe("TalkSurface", () => {
 
     expect(orb().className).toBe(parked)
     expect(localStorage.getItem(PARK_STORAGE_KEY)).toBe("top-left")
+  })
+
+  it("binds the action log to the session it is mounted for, and lets it go on the way out", () => {
+    const mounted = render(<TalkSurface sessionId="talk-1" />, { container: document.getElementById("root")! })
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith("talk-1")
+
+    mounted.unmount()
+
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith(null)
   })
 
   it("docks a left-parked orb to the same right edge, across the sheet", () => {

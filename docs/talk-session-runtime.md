@@ -327,8 +327,8 @@ consent lane rather than shipping an undo that lies.
 |---|---|---|---|
 | `talk_comment_todo` | fast | Internal, cheap, fully reversible. | Tombstone the comment. |
 | `talk_create_todo` | fast | Creates a draft nobody has acted on yet. | Archive it — the row and its audit survive. |
-| `talk_set_todo_status` | fast, **except `cancelled`** | A status move is a board gesture. Closing work is not, and agents have no cancel tool server-side. | Re-`PUT` the previous status. `cancelled` gets no undo, which is why it asks. |
-| `talk_assign_todo` | fast | Internal, idempotent, reversible. | Re-assign, or clear the assignee through the version-fenced edit lane. |
+| `talk_set_todo_status` | fast **only when the board can move it back** | A status move is a board gesture, but the edge map is one-way in places: nothing returns from `done` except to `backlog`, and `executing`/`in_review` have no edge back to where work started. `cancelled` asks whatever the edges say — closing work is not a gesture, and agents have no cancel tool server-side. | Re-`PUT` the previous status. When `canDropOn(to, from)` is false the move takes the consent lane and gets no undo, which is why it asks. |
+| `talk_assign_todo` | fast | Internal, idempotent, reversible. | Re-assign (or clear the assignee through the version-fenced edit lane), then put the status back — assigning out of `backlog` moves the item too. |
 | `talk_label_todo` | fast | Full-set replace, idempotent by construction. | `PUT` the previous set. |
 | `talk_start_workflow_run` | consent | Spends money and wakes agents the moment it starts. Cancelling later un-bills nothing. | None. |
 | `talk_record_reading` | consent | No delete route and no way to edit: a wrong reading corrupts a measurement series permanently. | None — which is exactly why it cannot be fast. |

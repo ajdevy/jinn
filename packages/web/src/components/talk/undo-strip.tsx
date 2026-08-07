@@ -108,7 +108,13 @@ export function UndoStrip() {
         ...(reduce ? {} : { animation: `jinn-undo-rise ${ENTRANCE_MS}ms var(--ease-smooth) both` }),
       }}
       className={cn(
-        "pointer-events-auto fixed inset-x-[var(--space-3)] bottom-[calc(var(--space-3)+env(safe-area-inset-bottom))] z-[80]",
+        "pointer-events-auto fixed inset-x-[var(--space-3)] z-[80]",
+        // Above the mobile tab bar, never over it: the strip takes pointer
+        // events, so overlapping the bar would swallow taps meant for a
+        // destination. Same measurement the orb parks by — the bar's 49px tap
+        // target plus the padding `mobile-tab-bar.tsx` adds below it. The bar is
+        // `lg:hidden`, so from `lg` up the strip goes back to the screen edge.
+        "bottom-[calc(49px+max(var(--safe-bottom),6px)+var(--space-3))] lg:bottom-[calc(var(--space-3)+var(--safe-bottom))]",
         "flex max-w-[420px] items-center gap-[var(--space-3)]",
         // `--material-regular` rather than the sheet's `--material-thick`: the
         // sheet reads as a surface because of the scrim behind it, and this has

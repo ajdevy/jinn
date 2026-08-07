@@ -26,8 +26,10 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 const mocked = vi.mocked(api)
 
+// `assigned` because the fast lane is per-edge: from `executing` the board has
+// no way back to anywhere, so every status move off it asks.
 const TODO = {
-  workItem: { id: "ABC-59", title: "Ship the orb", status: "executing", assignee: "a-lead", version: 4 },
+  workItem: { id: "ABC-59", title: "Ship the orb", status: "assigned", assignee: "a-lead", version: 4 },
   labels: [{ id: "l1", name: "build" }],
   comments: { total: 1, comments: [{ id: "c1", author: "operator", createdAt: "2026-01-02T00:00:00Z", body: "first" }] },
 }
@@ -38,8 +40,8 @@ function stubEveryWrite() {
   mocked.getWorkItem.mockResolvedValue(TODO as never)
   mocked.addWorkItemComment.mockResolvedValue({ comment: { id: "wic_1" } } as never)
   mocked.createWorkItem.mockResolvedValue({ workItem: { id: "ABC-60", title: "New", status: "backlog", version: 1 } } as never)
-  mocked.setWorkItemStatus.mockResolvedValue({ workItem: { id: "ABC-59", status: "done", version: 5 } } as never)
-  mocked.assignWorkItem.mockResolvedValue({ workItem: { id: "ABC-59", assignee: "b-lead", version: 5 } } as never)
+  mocked.setWorkItemStatus.mockResolvedValue({ workItem: { id: "ABC-59", status: "blocked", version: 5 } } as never)
+  mocked.assignWorkItem.mockResolvedValue({ workItem: { id: "ABC-59", assignee: "b-lead", status: "assigned", version: 5 } } as never)
   mocked.setWorkItemLabels.mockResolvedValue({ labels: [{ id: "l2", name: "shipped" }] } as never)
 }
 
@@ -48,7 +50,7 @@ function stubEveryWrite() {
 const FAST_CALLS: Record<string, string> = {
   talk_comment_todo: '{"id":"ABC-59","body":"Looks right to me."}',
   talk_create_todo: '{"title":"Ship the orb"}',
-  talk_set_todo_status: '{"id":"ABC-59","status":"done"}',
+  talk_set_todo_status: '{"id":"ABC-59","status":"blocked"}',
   talk_assign_todo: '{"id":"ABC-59","assignee":"b-lead"}',
   talk_label_todo: '{"id":"ABC-59","labels":"shipped"}',
 }
@@ -90,7 +92,7 @@ describe("commenting through the orb", () => {
     const undone = await takeUndo()
 
     expect(undone.ok).toBe(true)
-    expect(mocked.deleteWorkItemComment).toHaveBeenCalledWith("ABC-59", "wic_1")
+    expect(mocked.deleteWorkItemComment).toHaveBeenCalledWith("ABC-59", "wic_1", "talk")
     expect(pendingUndo()).toBeNull()
   })
 
@@ -131,25 +133,64 @@ describe("the fast lane's one rule", () => {
     },
   )
 
-  it("puts an unassigned Todo back through the edit lane, which is the only route that can clear an assignee", async () => {
-    mocked.getWorkItem.mockResolvedValue({ ...TODO, workItem: { ...TODO.workItem, assignee: null } } as never)
+  it("puts a backlog Todo back where it was, name and status both — assigning one out of the backlog moves it too", async () => {
+    mocked.getWorkItem.mockResolvedValue({ ...TODO, workItem: { ...TODO.workItem, assignee: null, status: "backlog" } } as never)
     await executeToolCall("talk_assign_todo", FAST_CALLS.talk_assign_todo)
 
     await takeUndo()
 
+    // The assign route requires a name, so clearing one is the edit lane's job.
     expect(mocked.updateWorkItem).toHaveBeenCalledWith("ABC-59", expect.objectContaining({
       patch: { assignee: null },
       expectedVersion: 5,
     }))
+    expect(mocked.setWorkItemStatus).toHaveBeenCalledWith("ABC-59", "backlog", undefined, "talk")
   })
 
-  it("reports a write the gateway refused as a failure, and offers nothing to undo", async () => {
+  it("leaves the status alone when assigning did not move the Todo", async () => {
+    await executeToolCall("talk_assign_todo", FAST_CALLS.talk_assign_todo)
+
+    await takeUndo()
+
+    expect(mocked.assignWorkItem).toHaveBeenLastCalledWith("ABC-59", "a-lead", "talk")
+    expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
+  })
+
+  it("reports a write the gateway refused as a failure, offers nothing to undo, and still logs the attempt", async () => {
     mocked.addWorkItemComment.mockRejectedValue(new Error("Todo ABC-59 does not exist"))
 
     const result = await executeToolCall("talk_comment_todo", FAST_CALLS.talk_comment_todo)
 
     expect(result).toEqual({ ok: false, error: "Could not comment on ABC-59: Todo ABC-59 does not exist." })
     expect(pendingUndo()).toBeNull()
+    expect(talkActions()).toEqual([
+      expect.objectContaining({ tool: "talk_comment_todo", subject: "ABC-59", lane: "fast", consent: "not-required" }),
+    ])
+  })
+})
+
+describe("a status move the board cannot take back", () => {
+  it("asks first rather than offering an undo the ledger would refuse", async () => {
+    const pending = executeToolCall("talk_set_todo_status", '{"id":"ABC-59","status":"done"}')
+    await vi.waitFor(() => expect(mocked.getWorkItem).toHaveBeenCalled())
+
+    expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
+    answerSituation("go")
+    const result = await pending
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.data.undo).toBeUndefined()
+    expect(pendingUndo()).toBeNull()
+  })
+
+  it("writes nothing when the operator waves it off", async () => {
+    const pending = executeToolCall("talk_set_todo_status", '{"id":"ABC-59","status":"done"}')
+    await vi.waitFor(() => expect(mocked.getWorkItem).toHaveBeenCalled())
+    dismissSituation()
+
+    expect(await pending).toMatchObject({ ok: false })
+    expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
   })
 })
 
@@ -191,6 +232,23 @@ describe("the action log", () => {
     expect(talkActions().map((entry) => ({ tool: entry.tool, lane: entry.lane, consent: entry.consent }))).toEqual([
       { tool: "talk_comment_todo", lane: "fast", consent: "not-required" },
       { tool: "talk_undo", lane: "fast", consent: "not-required" },
+    ])
+  })
+
+  it("records a reversal the gateway refused, which is the attempt most worth finding later", async () => {
+    mocked.deleteWorkItemComment.mockRejectedValue(new Error("comment wic_1 not found"))
+    await executeToolCall("talk_comment_todo", FAST_CALLS.talk_comment_todo)
+
+    expect(await executeToolCall("talk_undo", "{}")).toMatchObject({ ok: false })
+
+    expect(talkActions().map((entry) => entry.tool)).toEqual(["talk_comment_todo", "talk_undo"])
+  })
+
+  it("records an undo with nothing on the table — the model asked for a write either way", async () => {
+    expect(await executeToolCall("talk_undo", "{}")).toMatchObject({ ok: false })
+
+    expect(talkActions()).toEqual([
+      expect.objectContaining({ tool: "talk_undo", subject: null, lane: "fast", consent: "not-required" }),
     ])
   })
 

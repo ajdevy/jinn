@@ -1,17 +1,19 @@
 import { api, type WorkItemStatusWire } from "@/lib/api"
+import { canDropOn } from "@/lib/legal-targets"
 import { newTodoEditRequest } from "@/routes/todos/todo-edit-request"
-import { takeUndo } from "../talk-undo-store"
+import { pendingUndo, takeUndo } from "../talk-undo-store"
+import { recordTalkAction } from "../talk-action-log"
 import { withConsent } from "./consent"
 import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./tool-spec"
-import { UNDO_TOOL, fastWrite, writeFailed } from "./write-lane"
+import { UNDO_TOOL, fastWrite, fastWriteFailed, writeFailed } from "./write-lane"
 
 /**
  * The speak-and-go lane: internal, cheap, and reversible writes.
  *
  * Each one declares the reversal it hands to {@link fastWrite}, which is what
- * earns it the fast lane. `cancelled` is the exception the status tool carries:
- * a board gesture is one thing, and closing work the operator did not close is
- * another, so that one word takes the consent path instead.
+ * earns it the fast lane. Where an instance of one of these has no reversal, it
+ * falls back to the consent lane rather than shipping an undo that lies:
+ * `cancelled` always, and any status move the ledger has no way back from.
  */
 
 const TALK = "talk" as const
@@ -40,10 +42,10 @@ const commentTodo: TalkTool = {
         tool: "talk_comment_todo",
         subject: id,
         performed: `Commented on ${id}.`,
-        reverse: async () => { await api.deleteWorkItemComment(id, comment.id) },
+        reverse: async () => { await api.deleteWorkItemComment(id, comment.id, TALK) },
       })
     } catch (error) {
-      return writeFailed(`comment on ${id}`, error)
+      return fastWriteFailed({ tool: "talk_comment_todo", subject: id }, `comment on ${id}`, error)
     }
   },
 }
@@ -78,25 +80,25 @@ const createTodo: TalkTool = {
         reverse: async () => { await api.archiveWorkItem(workItem.id) },
       })
     } catch (error) {
-      return writeFailed(`create a Todo titled "${title}"`, error)
+      return fastWriteFailed({ tool: "talk_create_todo", subject: null }, `create a Todo titled "${title}"`, error)
     }
   },
 }
 
-/** Cancelling closes work. It is reachable, but only through the sheet, and it
- *  is never offered an undo — a reopened Todo is a decision of its own. */
-async function cancelTodo(id: string, note: string | undefined): Promise<ToolResult> {
+/** A status move with no undo behind it: the consent lane's half of the status
+ *  tool. It never offers a reversal, which is the whole reason it asked. */
+async function moveTodoOneWay(id: string, status: WorkItemStatusWire, note: string | undefined, performed: string): Promise<ToolResult> {
   try {
-    const { workItem } = await api.setWorkItemStatus(id, "cancelled", note, TALK)
-    return { ok: true, data: { performed: `Cancelled ${id}.`, subject: workItem.id } }
+    const { workItem } = await api.setWorkItemStatus(id, status, note, TALK)
+    return { ok: true, data: { performed, subject: workItem.id } }
   } catch (error) {
-    return writeFailed(`cancel ${id}`, error)
+    return writeFailed(`move ${id} to ${status}`, error)
   }
 }
 
 const setTodoStatus: TalkTool = {
   name: "talk_set_todo_status",
-  description: "Move a Todo to another status. Cancelling asks first; every other move is reversible for a short window.",
+  description: "Move a Todo to another status. Moves the board cannot take back — cancelling, closing, starting work — ask first; the rest are reversible for a short window.",
   exposure: "on-intent",
   parameters: params(
     {
@@ -113,12 +115,26 @@ const setTodoStatus: TalkTool = {
     if (status === "cancelled") {
       return withConsent(
         { tool: "talk_set_todo_status", title: `Cancel ${id}?`, hint: "Cancelling closes the work. There is no undo for it.", confirm: "Cancel it", subject: id },
-        () => cancelTodo(id, note),
+        () => moveTodoOneWay(id, status, note, `Cancelled ${id}.`),
+      )
+    }
+    let wasStatus: WorkItemStatusWire
+    try {
+      wasStatus = (await api.getWorkItem(id)).workItem.status
+    } catch (error) {
+      return fastWriteFailed({ tool: "talk_set_todo_status", subject: id }, `move ${id} to ${status}`, error)
+    }
+    // The board does not rewind every move: work that has started or closed has
+    // no edge back to where it came from. `canDropOn` is the same parity-tested
+    // legality the board drags on, read in the reverse direction — so a move the
+    // ledger would refuse to undo asks first instead of promising a way back.
+    if (!canDropOn(status, wasStatus)) {
+      return withConsent(
+        { tool: "talk_set_todo_status", title: `Move ${id} to ${status}?`, hint: `The board has no way back from ${status} to ${wasStatus}, so this one cannot be undone.`, confirm: "Move it", subject: id },
+        () => moveTodoOneWay(id, status, note, `Moved ${id} to ${status}.`),
       )
     }
     try {
-      const before = await api.getWorkItem(id)
-      const wasStatus = before.workItem.status
       const { workItem } = await api.setWorkItemStatus(id, status, note, TALK)
       return fastWrite({
         tool: "talk_set_todo_status",
@@ -128,7 +144,7 @@ const setTodoStatus: TalkTool = {
         reverse: async () => { await api.setWorkItemStatus(id, wasStatus, undefined, TALK) },
       })
     } catch (error) {
-      return writeFailed(`move ${id} to ${status}`, error)
+      return fastWriteFailed({ tool: "talk_set_todo_status", subject: id }, `move ${id} to ${status}`, error)
     }
   },
 }
@@ -147,21 +163,25 @@ const assignTodo: TalkTool = {
     try {
       const before = await api.getWorkItem(id)
       const wasAssignee = before.workItem.assignee
+      const wasStatus = before.workItem.status
       const { workItem } = await api.assignWorkItem(id, assignee, TALK)
       return fastWrite({
         tool: "talk_assign_todo",
         subject: id,
         performed: `Assigned ${id} to ${assignee}.`,
         data: { from: wasAssignee, assignee },
-        // The assign route requires a name, so putting an unassigned Todo back
-        // has to go through the version-fenced edit lane instead.
         reverse: async () => {
+          // The assign route requires a name, so putting an unassigned Todo back
+          // has to go through the version-fenced edit lane instead.
           if (wasAssignee) await api.assignWorkItem(id, wasAssignee, TALK)
           else await api.updateWorkItem(id, newTodoEditRequest({ assignee: null }, workItem.version ?? 1))
+          // Assigning a Todo out of the backlog also moves it, so restoring the
+          // name is only half the reversal — the other half is where it sat.
+          if (workItem.status !== wasStatus) await api.setWorkItemStatus(id, wasStatus, undefined, TALK)
         },
       })
     } catch (error) {
-      return writeFailed(`assign ${id} to ${assignee}`, error)
+      return fastWriteFailed({ tool: "talk_assign_todo", subject: id }, `assign ${id} to ${assignee}`, error)
     }
   },
 }
@@ -190,7 +210,7 @@ const labelTodo: TalkTool = {
         reverse: async () => { await api.setWorkItemLabels(id, wasLabels, TALK) },
       })
     } catch (error) {
-      return writeFailed(`label ${id}`, error)
+      return fastWriteFailed({ tool: "talk_label_todo", subject: id }, `label ${id}`, error)
     }
   },
 }
@@ -201,6 +221,12 @@ const undoLastWrite: TalkTool = {
   exposure: "on-intent",
   parameters: params({}),
   execute: async (): Promise<ToolResult> => {
+    // A reversal that ran logs itself from the offer's own callback, whichever
+    // surface took it. An undo with nothing on the table has no callback to do
+    // that, and it is still an attempt the log has to show.
+    if (!pendingUndo()) {
+      recordTalkAction({ tool: UNDO_TOOL, subject: null, lane: "fast", consent: "not-required" })
+    }
     const outcome = await takeUndo()
     return outcome.ok
       ? { ok: true, data: { performed: `Undone: ${outcome.performed}` } }

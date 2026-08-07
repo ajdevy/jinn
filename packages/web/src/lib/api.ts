@@ -197,8 +197,11 @@ async function post<T>(path: string, body?: unknown, origin?: WriteOriginWire): 
   return res.json();
 }
 
-async function del<T>(path: string): Promise<T> {
-  const res = await authFetch(path, { method: "DELETE" });
+async function del<T>(path: string, origin?: WriteOriginWire): Promise<T> {
+  const res = await authFetch(path, {
+    method: "DELETE",
+    ...(origin ? { headers: { "X-Jinn-Origin": origin } } : {}),
+  });
   if (!res.ok) throw await responseError(res);
   return res.json();
 }
@@ -1225,9 +1228,10 @@ export const api = {
       { body },
     ),
   /** Tombstone: the row survives with an empty body; the UI renders [deleted]. */
-  deleteWorkItemComment: (id: string, commentId: string) =>
+  deleteWorkItemComment: (id: string, commentId: string, origin?: WriteOriginWire) =>
     del<{ comment: WorkItemCommentWire }>(
       `/api/work-items/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`,
+      origin,
     ),
   /** Todos v2 slice 3: the shared label registry (existing labels only). */
   listLabels: () => get<{ labels: WorkItemLabelWire[] }>("/api/labels"),

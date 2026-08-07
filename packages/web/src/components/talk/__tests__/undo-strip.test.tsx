@@ -53,6 +53,18 @@ describe("the undo strip", () => {
     expect(reverse).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(strip()).toBeNull())
   })
+
+  it("sits above the mobile tab bar rather than over its tap targets", () => {
+    render(<UndoStrip />)
+
+    offer(COMMENTED, vi.fn(async () => {}))
+
+    // jsdom runs no cascade, so the class is the only handle on the offset. The
+    // strip takes pointer events: sitting on the bar would swallow taps meant
+    // for Chat, Todos or Workflows.
+    expect(strip()!.className).toContain("bottom-[calc(49px+max(var(--safe-bottom),6px)+var(--space-3))]")
+    expect(strip()!.className).toContain("lg:bottom-[calc(var(--space-3)+var(--safe-bottom))]")
+  })
 })
 
 describe("the countdown", () => {

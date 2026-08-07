@@ -35,6 +35,23 @@ describe("X-Jinn-Origin write provenance on work-item events", () => {
     expect(lastEvent(item.id, "comment_added").detail).toEqual({ commentId: viaUi.body.comment.id });
   });
 
+  it("stamps the deletion that takes a talk comment back, so a reversal is not the one write the audit cannot place", async () => {
+    const item = store.createWorkItem({ title: "comment undo origin" });
+
+    const added = await call("POST", `/api/work-items/${item.id}/comments`, { body: "misheard" }, talkHeaders);
+    expect(added.status).toBe(201);
+    const commentId = added.body.comment.id as string;
+
+    const removed = await call("DELETE", `/api/work-items/${item.id}/comments/${commentId}`, undefined, talkHeaders);
+    expect(removed.status).toBe(200);
+    expect(lastEvent(item.id, "comment_deleted").detail).toEqual({ commentId, origin: "talk" });
+
+    const clicked = await call("POST", `/api/work-items/${item.id}/comments`, { body: "typed" }, operatorHeaders);
+    const clickedId = clicked.body.comment.id as string;
+    expect((await call("DELETE", `/api/work-items/${item.id}/comments/${clickedId}`, undefined, operatorHeaders)).status).toBe(200);
+    expect(lastEvent(item.id, "comment_deleted").detail).toEqual({ commentId: clickedId });
+  });
+
   it("stamps a talk-issued status write with origin as its whole detail and leaves the same UI write unstamped", async () => {
     const talked = store.createWorkItem({ title: "status origin" });
     const moved = await call("PUT", `/api/work-items/${talked.id}/status`, { status: "executing" }, talkHeaders);
