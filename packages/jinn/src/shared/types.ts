@@ -321,15 +321,15 @@ export interface RealtimeEphemeralToken {
   expiresAt: number;
 }
 
-/** Token counts as the provider reports them, accumulated over a session.
- *  Audio and text are separate because they are priced separately. */
+/** Token counts as the provider reports them, accumulated over a session. Audio and text are priced
+ *  apart, cached tiers included, and a cached count is a subset of the input count it names. */
 export interface RealtimeUsage {
   inputAudioTokens: number;
   outputAudioTokens: number;
   inputTextTokens: number;
   outputTextTokens: number;
-  /** Input tokens served from the provider's prompt cache, billed at the cached rate. */
-  cachedInputTokens: number;
+  cachedInputAudioTokens: number;
+  cachedInputTextTokens: number;
 }
 
 /** A tool the model may call mid-conversation. `parameters` is a JSON Schema. */
