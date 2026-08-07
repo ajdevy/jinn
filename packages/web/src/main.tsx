@@ -144,8 +144,10 @@ const router = createBrowserRouter([
 ])
 
 // The Talk tool surface is driven by a voice transport rather than a render, so
-// it navigates through the router directly instead of a hook.
-registerTalkNavigator((path) => void router.navigate(path))
+// it navigates through the router directly instead of a hook. The promise is
+// handed back rather than dropped: it is what tells the tool surface the route
+// has actually landed, which is the only honest end for its latency clock.
+registerTalkNavigator((path) => router.navigate(path))
 
 function App() {
   return (

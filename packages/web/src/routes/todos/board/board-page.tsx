@@ -41,6 +41,7 @@ import {
   BOARD_STATUS_ORDER,
   CLOSED_STATUSES,
   EXCEPTION_STATUSES,
+  isColumnInStatusFilter,
   PIPELINE_STATUSES,
   useBoardData,
   useBoardRank,
@@ -110,10 +111,9 @@ export default function TodoBoardPage() {
   const navigate = useNavigate()
   const [view, setView] = useState<TodoView>(loadTodoViewPreference)
   const [searchParams, setSearchParams] = useSearchParams()
-  const filters = useMemo(() => {
-    const f = filtersFromSearchParams(searchParams)
-    return { ...f, status: "open" as const } // columns are the status dimension
-  }, [searchParams])
+  // Columns are the status dimension, so `status` narrows WHICH columns exist
+  // rather than filtering within one (useBoardData gates the queries).
+  const filters = useMemo(() => filtersFromSearchParams(searchParams), [searchParams])
   const now = useMemo(() => Date.now(), [filters.date, filters.due])
 
   const isAttention = board.kind === "attention"
@@ -415,17 +415,13 @@ export default function TodoBoardPage() {
 
   const setFilters = useCallback(
     (next: TodoFilters) => {
-      const params = filtersToSearchParams(next)
-      params.delete("status")
-      setSearchParams(params, { replace: false })
+      setSearchParams(filtersToSearchParams(next), { replace: false })
     },
     [setSearchParams],
   )
   const setSearch = useCallback(
     (q: string | undefined) => {
-      const params = filtersToSearchParams({ ...filters, q })
-      params.delete("status")
-      setSearchParams(params, { replace: true })
+      setSearchParams(filtersToSearchParams({ ...filters, q }), { replace: true })
     },
     [filters, setSearchParams],
   )
@@ -503,8 +499,8 @@ export default function TodoBoardPage() {
         // a drag could legally land in, which materializes for the drop.
         || (drag !== null && drag.legal.has(status)),
     )
-    return [...PIPELINE_STATUSES, ...exceptions]
-  }, [countByStatus, itemsByStatus, drag])
+    return [...PIPELINE_STATUSES, ...exceptions].filter((s) => isColumnInStatusFilter(filters.status, s))
+  }, [countByStatus, itemsByStatus, drag, filters.status])
 
   // Filtered-empty (states mock §6): zero visible items with filters/search
   // set always offers the way back. An unfiltered empty board celebrates
@@ -515,6 +511,7 @@ export default function TodoBoardPage() {
   )
   const filterCount = activeFilterCount(filters) + (filters.q ? 1 : 0)
   const filteredEmpty = !data.isLoading && visibleOpenCount === 0 && filterCount > 0
+  const listStatusInScope = useCallback((s: WorkItemStatusWire) => isColumnInStatusFilter(filters.status, s), [filters.status])
   const listColumns = useMemo(() => {
     const columns = {} as typeof data.columns
     for (const status of BOARD_STATUS_ORDER) {
@@ -761,6 +758,7 @@ export default function TodoBoardPage() {
             ) : (
               <TodoList
                 columns={listColumns}
+                statusInScope={listStatusInScope}
                 needsAttention={needsYou}
                 byName={byName}
                 trees={trees.data}
@@ -791,7 +789,7 @@ export default function TodoBoardPage() {
             ) : (
             <div className="flex min-h-full items-start gap-3 px-10 pb-8 pt-5">
               {visibleStatuses.map((status) => columnFor(status))}
-              {closedOpen ? (
+              {CLOSED_STATUSES.some(listStatusInScope) && (closedOpen ? (
                 <section className="flex w-[262px] min-w-[238px] flex-none flex-col gap-3" data-testid="board-closed-column">
                   <ClosedColumnHeader count={closedTotal} onCollapse={() => setClosedOpen(false)} />
                   {CLOSED_STATUSES.map((status) => (
@@ -811,7 +809,7 @@ export default function TodoBoardPage() {
                 </section>
               ) : (
                 <ClosedRail count={closedTotal} onExpand={() => setClosedOpen(true)} />
-              )}
+              ))}
             </div>
             )
             ) : (

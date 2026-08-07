@@ -21,13 +21,16 @@ import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./to
  * of waiting for the model to finish speaking.
  */
 
-function go(path: string): ToolResult {
+function go(path: string): ToolResult | Promise<ToolResult> {
   const navigate = talkNavigator()
   if (!navigate) {
     return { ok: false, error: "The app is not mounted yet, so there is nothing to navigate. Try again once it has loaded." }
   }
-  navigate(path)
-  return { ok: true, data: { path } }
+  // Issued here, with nothing awaited in front of it. What is returned is the
+  // router's own completion, so the caller's clock stops when the destination
+  // has landed instead of when the request was made.
+  const committed = navigate(path)
+  return Promise.resolve(committed).then(() => ({ ok: true, data: { path } }))
 }
 
 /** The prefix root Todos are minted under. `/api/onboarding` is fetched once at

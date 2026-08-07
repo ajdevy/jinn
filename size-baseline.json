@@ -1719,7 +1719,7 @@
       "lines": 699
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 1114,
+      "lines": 1112,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

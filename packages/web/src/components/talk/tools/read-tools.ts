@@ -15,10 +15,23 @@ import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./to
  * miss goes to `fetchQuery`, which fills that same entry.
  */
 
-async function cached<T>(key: QueryKey, fetch: () => Promise<T>): Promise<T> {
+/**
+ * `answers` guards keys the app fills with a PARTIAL shape. A page that fetched
+ * a session with `messages: false` leaves an entry that cannot say what was
+ * said, and returning it would read out "no messages" for a busy session. That
+ * entry is a miss, so `staleTime: 0` makes the refetch actually happen and fill
+ * the same key with the whole object.
+ */
+async function cached<T>(key: QueryKey, fetch: () => Promise<T>, answers?: (held: T) => boolean): Promise<T> {
   const held = queryClient.getQueryData<T>(key)
-  if (held !== undefined) return held
-  return queryClient.fetchQuery({ queryKey: key, queryFn: fetch })
+  if (held !== undefined && (answers?.(held) ?? true)) return held
+  return queryClient.fetchQuery({ queryKey: key, queryFn: fetch, staleTime: 0 })
+}
+
+/** The two keys a session's rows arrive under — `trimSession` reads either. */
+function carriesMessages(held: unknown): boolean {
+  const session = (held ?? {}) as Record<string, unknown>
+  return Array.isArray(session.messages) || Array.isArray(session.history)
 }
 
 function failed(subject: string, error: unknown): ToolResult {
@@ -54,7 +67,11 @@ const readSession: TalkTool = {
   execute: async (args: ToolArgs): Promise<ToolResult> => {
     const id = String(args.id)
     try {
-      const raw = await cached(queryKeys.sessions.detail(id), () => api.getSession(id, { last: 6 }))
+      const raw = await cached(
+        queryKeys.sessions.detail(id),
+        () => api.getSession(id, { last: 6 }),
+        (held) => carriesMessages(held),
+      )
       return { ok: true, data: trimSession(raw as Record<string, unknown>, id) }
     } catch (error) {
       return failed(`session ${id}`, error)

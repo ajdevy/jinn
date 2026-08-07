@@ -13,7 +13,10 @@ const visited: string[] = []
 beforeEach(() => {
   visited.length = 0
   clearToolTimings()
-  registerTalkNavigator((path) => visited.push(path))
+  registerTalkNavigator((path) => {
+    visited.push(path)
+    return Promise.resolve()
+  })
   queryClient.setQueryData(queryKeys.onboarding, { todoPrefix: "ABC" })
 })
 
@@ -99,6 +102,37 @@ describe("the two done-when calls", () => {
     const settling = executeToolCall("open_todos", '{"status":"executing"}')
     expect(visited).toEqual(["/todos/b/my?status=executing"])
     await settling
+  })
+
+  it("issues the route change synchronously but settles on its arrival", async () => {
+    // A navigator whose commit is delayed. The request must go out before
+    // anything is awaited (partial intent), and the timing must not stop until
+    // the destination has actually landed — a clock that stopped at the request
+    // would report a number the operator never experienced.
+    let land = () => {}
+    registerTalkNavigator((path) => {
+      visited.push(path)
+      return new Promise<void>((resolve) => { land = resolve })
+    })
+    // An earlier case's paint callback may still be in flight — two rAFs is ~32ms
+    // under jsdom — so drain before clearing. The timings read below then belong
+    // unambiguously to this call.
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    clearToolTimings()
+
+    const settling = executeToolCall("open_todos", '{"status":"executing"}')
+    expect(visited).toEqual(["/todos/b/my?status=executing"])
+
+    let settled = false
+    void settling.then(() => { settled = true })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(settled).toBe(false)
+    expect(lastToolTiming()).toBeUndefined()
+
+    land()
+    expect(await settling).toEqual({ ok: true, data: { path: "/todos/b/my?status=executing" } })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(lastToolTiming()?.ms).toBeGreaterThanOrEqual(25)
   })
 
   it("records both calls inside the budget", async () => {

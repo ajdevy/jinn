@@ -88,4 +88,22 @@ describe("groupTodoListItems", () => {
     expect(groups.flatMap((group) => group.items).filter(({ id }) => id === "ICI-1")).toHaveLength(1)
     expect(groups.flatMap((group) => group.items).filter(({ id }) => id === "ICI-2")).toHaveLength(1)
   })
+
+  it("omits the groups a one-status view never queried, rather than showing them as 0", () => {
+    const executing = item("ICI-9", "executing")
+    const empty = { items: [], total: 0 }
+    const groups = groupTodoListItems(
+      {
+        backlog: empty, assigned: empty, executing: { items: [executing], total: 1 },
+        in_review: empty, blocked: empty, escalated: empty, done: empty, cancelled: empty,
+      },
+      [],
+      (status) => status === "executing",
+    )
+
+    // "Backlog 0" would assert something nobody asked the gateway — the backlog
+    // column is disabled on this URL, so its row is absent, not zeroed.
+    expect(groups.map((group) => group.key)).toEqual(["needs-you", "executing"])
+    expect(groups.find((group) => group.key === "executing")?.count).toBe(1)
+  })
 })

@@ -8,7 +8,9 @@
  * the surface's latency budget.
  */
 
-export type TalkNavigate = (path: string) => void
+/** Returns the router's own completion promise, so a caller can time a tool call
+ *  to the arrival rather than to the request. */
+export type TalkNavigate = (path: string) => Promise<void>
 
 let navigate: TalkNavigate | null = null
 

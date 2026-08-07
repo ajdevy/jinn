@@ -4,6 +4,19 @@ import type { BoardColumnData } from "../board/use-board"
 import { groupTodoListItems } from "./group-items"
 import { TodoListGroup } from "./list-group"
 
+/** A group's paging state, gathered from the columns it spans. */
+function paging(statuses: readonly WorkItemStatusWire[], columns: Record<WorkItemStatusWire, BoardColumnData>) {
+  return {
+    hasMore: statuses.some((status) => columns[status].hasMore),
+    loadingMore: statuses.some((status) => columns[status].loadingMore),
+    onLoadMore: () => {
+      for (const status of statuses) {
+        if (columns[status].hasMore) columns[status].loadMore()
+      }
+    },
+  }
+}
+
 export function TodoList({
   columns,
   needsAttention,
@@ -12,6 +25,7 @@ export function TodoList({
   now,
   onOpen,
   onQuickAdd,
+  statusInScope,
 }: {
   columns: Record<WorkItemStatusWire, BoardColumnData>
   needsAttention: WorkItemCompactWire[]
@@ -20,37 +34,28 @@ export function TodoList({
   now: number
   onOpen: (id: string, item: WorkItemCompactWire) => void
   onQuickAdd: (askAssignee: boolean) => void
+  /** Which statuses this view was asked for — see `groupTodoListItems`. */
+  statusInScope?: (status: WorkItemStatusWire) => boolean
 }) {
-  const groups = useMemo(() => groupTodoListItems(columns, needsAttention), [columns, needsAttention])
+  const groups = useMemo(() => groupTodoListItems(columns, needsAttention, statusInScope), [columns, needsAttention, statusInScope])
   const [closedOpen, setClosedOpen] = useState(false)
 
   return (
     <div className="flex flex-col gap-[18px] px-3 pb-24 pt-5 md:px-10 md:pb-10">
-      {groups.map((group) => {
-        const loadingMore = group.statuses.some((status) => columns[status].loadingMore)
-        const hasMore = group.statuses.some((status) => columns[status].hasMore)
-        const open = group.key !== "closed" || closedOpen
-        return (
-          <TodoListGroup
-            key={group.key}
-            group={group}
-            byName={byName}
-            trees={trees}
-            now={now}
-            open={open}
-            onToggle={group.key === "closed" ? () => setClosedOpen((value) => !value) : undefined}
-            onQuickAdd={() => onQuickAdd(group.key === "assigned")}
-            onOpen={onOpen}
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-            onLoadMore={() => {
-              for (const status of group.statuses) {
-                if (columns[status].hasMore) columns[status].loadMore()
-              }
-            }}
-          />
-        )
-      })}
+      {groups.map((group) => (
+        <TodoListGroup
+          key={group.key}
+          group={group}
+          byName={byName}
+          trees={trees}
+          now={now}
+          open={group.key !== "closed" || closedOpen}
+          onToggle={group.key === "closed" ? () => setClosedOpen((value) => !value) : undefined}
+          onQuickAdd={() => onQuickAdd(group.key === "assigned")}
+          onOpen={onOpen}
+          {...paging(group.statuses, columns)}
+        />
+      ))}
     </div>
   )
 }

@@ -116,6 +116,23 @@ describe("a cold miss falls through and fills the cache", () => {
     expect(second.ok && second.data.comments).toHaveLength(5)
   })
 
+  it("refetches a session the app cached without its messages", async () => {
+    // What the Talk object renderer and the workflow run inspector leave on this
+    // key: api.getSession(id, { messages: false }). Answering from it would read
+    // out "no messages" for a busy session, so it is a miss, not a cheap hit.
+    warm([...queryKeys.sessions.detail("s2")], { id: "s2", title: "Orb work", status: "running" })
+    mocked.getSession.mockResolvedValue({
+      id: "s2", title: "Orb work", status: "running",
+      messages: [{ role: "user", content: "where are we" }],
+    } as never)
+
+    const result = await executeToolCall("read_session", '{"id":"s2"}')
+
+    expect(mocked.getSession).toHaveBeenCalledWith("s2", { last: 6 })
+    expect(result.ok && result.data.messageCount).toBe(1)
+    expect(result.ok && result.data.messages).toEqual([{ role: "user", text: "where are we" }])
+  })
+
   it("reports a failed read rather than throwing into the caller", async () => {
     mocked.getExperiment.mockRejectedValue(new Error("gateway is down"))
     await expect(executeToolCall("read_experiment", '{"id":"exp_x"}')).resolves.toEqual({

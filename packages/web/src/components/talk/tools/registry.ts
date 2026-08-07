@@ -62,8 +62,9 @@ export async function executeToolCall(name: string, argsJson?: string): Promise<
     return { ok: false, error: `"${name}" failed: ${error instanceof Error ? error.message : String(error)}.` }
   }
 
-  // Timed to the first frame painted after the call settles: the point the
-  // operator can see it, which is the only number the budget can be read against.
+  // Timed to the first frame painted after the call settles. A navigation tool
+  // settles on the router's arrival, not on its request, so this is genuinely
+  // dispatch-to-visible — the only number the budget can be read against.
   const measure = Promise.resolve(settling).then(() => {
     afterNextPaint(() => recordToolTiming(name, nowMs() - startedAt))
   })
