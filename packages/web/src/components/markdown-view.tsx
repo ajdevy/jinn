@@ -54,9 +54,8 @@ for (const [name, grammar] of Object.entries(PRISM_LANGUAGES)) {
 
 export { SyntaxHighlighter, oneDark, oneLight };
 
-// react-markdown types `components` over HTML tag names, and the element the
-// mention plugin emits is deliberately not one — hence the cast. Everything
-// else in the map below stays checked against the real tag it renders.
+// `components` is typed over HTML tag names and the mention element is not one,
+// which is the whole of what the cast buys; every other entry stays checked.
 const TODO_MENTION_COMPONENT = {
   [TODO_MENTION_TAG]: ({ id }: { id?: string }) => <TodoMention id={id ?? ""} />,
 } as Components;
@@ -68,10 +67,14 @@ export function MarkdownView({
   content,
   isDark,
   density = "comfortable",
+  mentions = false,
 }: {
   content: string;
   isDark: boolean;
   density?: "comfortable" | "compact";
+  /** Rewrite bare Todo ids into mentions. Off unless the document is about the
+   *  board: a skill, a note, a file and a workflow's output mean the string. */
+  mentions?: boolean;
 }) {
   const codeTheme = isDark ? oneDark : oneLight;
   const compact = density === "compact";
@@ -85,9 +88,9 @@ export function MarkdownView({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeTodoMentions]}
+        rehypePlugins={mentions ? [rehypeTodoMentions] : []}
         components={{
-          ...TODO_MENTION_COMPONENT,
+          ...(mentions ? TODO_MENTION_COMPONENT : {}),
           h1: ({ children }) => (
             <h1
               className={

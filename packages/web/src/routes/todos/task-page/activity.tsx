@@ -319,7 +319,7 @@ function CommentBlock({
               {commentPreview(comment.body)}
             </p>
           ) : (
-            <MarkdownView content={stripCommentMarkers(comment.body)} isDark={isDark} density="compact" />
+            <MarkdownView content={stripCommentMarkers(comment.body)} isDark={isDark} density="compact" mentions />
           )}
           {collapsible && (
             <button

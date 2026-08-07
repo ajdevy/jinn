@@ -18,7 +18,7 @@ function renderMarkdown(content: string, prefixes: ReadonlySet<string> = LIVE_PR
   return render(
     <MemoryRouter initialEntries={["/todos/ICI-1"]}>
       <TodoPrefixContext.Provider value={prefixes}>
-        <MarkdownView content={content} isDark={false} />
+        <MarkdownView content={content} isDark={false} mentions />
       </TodoPrefixContext.Provider>
     </MemoryRouter>,
   )
@@ -62,6 +62,20 @@ describe("Todo mentions in a rendered markdown document", () => {
     expect(container.querySelector("code")?.textContent).toBe("ICI-743")
     expect(screen.getByRole("link", { name: "ICI-745" }).getAttribute("href"))
       .toBe("https://example.com/x")
+  })
+
+  it("leaves a live id alone in a document that did not opt in", () => {
+    const prose = "A skill, a note, a file and a workflow's output all say ICI-747 plainly."
+    const { container } = render(
+      <MemoryRouter initialEntries={["/todos/ICI-1"]}>
+        <TodoPrefixContext.Provider value={LIVE_PREFIXES}>
+          <MarkdownView content={prose} isDark={false} />
+        </TodoPrefixContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(container.querySelector("a")).toBeNull()
+    expect(screen.getByText(/A skill/).textContent).toBe(prose)
   })
 
   it("leaves an id from an unknown prefix as the text it was", () => {
