@@ -44,6 +44,8 @@ function stubReducedMotion(reduce: boolean) {
 
 const preview = () => document.querySelector<HTMLElement>("[data-media-preview]")
 const stage = () => document.querySelector<HTMLElement>("[data-preview-stage]")!
+/** The scrim around the media, which is also the preview's own way out. */
+const backdrop = () => document.querySelector<HTMLElement>('[data-media-preview] [role="dialog"]')!
 
 function renderSheet(payload: SituationPayload, onAnswer = vi.fn()) {
   const situation: Situation = { id: "s-1", title: "Which cover?", payload }
@@ -193,6 +195,32 @@ describe("gestures the preview must not read as a dismissal", () => {
 
     expect(preview()).not.toBeNull()
     expect(stage().style.transform).toBe("")
+  })
+
+  /**
+   * The one that bit in real Chrome: a clip's box is laid out from whichever of
+   * the poster and the frames is painting, so it can move mid-gesture and leave
+   * the finger over the scrim. The click that lands there began on the clip's
+   * own controls, and a preview may not read that as a request to close.
+   */
+  it("never closes on a click whose gesture began on the clip's own controls", async () => {
+    renderSheet(PAYLOADS.video)
+    await openedAt(/Slow cut/)
+
+    fireEvent.pointerDown(clip(), { pointerId: 9, clientY: 400 })
+    fireEvent.click(backdrop())
+
+    expect(preview()).not.toBeNull()
+  })
+
+  it("still closes on a click that both starts and ends on the scrim", async () => {
+    renderSheet(PAYLOADS.video)
+    await openedAt(/Slow cut/)
+
+    fireEvent.pointerDown(backdrop(), { pointerId: 9, clientY: 400 })
+    fireEvent.click(backdrop())
+
+    expect(preview()).toBeNull()
   })
 })
 

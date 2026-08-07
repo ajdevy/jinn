@@ -1,4 +1,10 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react"
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { cn } from "@/lib/utils"
 import { MIN_ZOOM } from "@/lib/zoom-pan"
 import { PreviewBar, PreviewSteppers } from "./media-preview-chrome"
@@ -25,28 +31,59 @@ import { useZoomPan, type ZoomPan } from "./use-zoom-pan"
 
 const MEDIA_BOX = "block max-h-[calc(100dvh-112px)] max-w-[calc(100vw-24px)] w-auto object-contain sm:max-w-[calc(100vw-160px)]"
 
+/** The width allowance `MEDIA_BOX` caps at, as a variable a clip can size from. */
+const CLIP_ALLOWANCE = "[--clip-allowance:calc(100vw-24px)] sm:[--clip-allowance:calc(100vw-160px)]"
+
+/**
+ * The box a clip fills once its own shape is known: as large as the allowance
+ * permits, at the clip's ratio. Natural size cannot be used the way it is for a
+ * picture, because a clip has two natural sizes — the poster's while the still
+ * is showing, the frames' from the moment it plays — and the box would collapse
+ * between them, sliding the native controls out from under a finger already on
+ * Pause and leaving that press to land on the scrim.
+ */
+function clipBox(ratio: number): CSSProperties {
+  return {
+    width: `min(var(--clip-allowance), calc((100dvh - 112px) * ${ratio}))`,
+    aspectRatio: String(ratio),
+  }
+}
+
+/**
+ * Controls, sound and all: the point of a full preview is that the clip can
+ * actually be scrubbed, paused and replayed rather than just watched. Those
+ * controls are pointer gestures of their own, so the clip keeps its pointers
+ * instead of the stage taking them for drag-to-close.
+ */
+function PreviewClip({ item }: { item: PreviewItem }) {
+  const [ratio, setRatio] = useState<number | null>(null)
+
+  return (
+    <video
+      data-preview-media="video"
+      src={item.src}
+      poster={item.poster}
+      controls
+      playsInline
+      preload="metadata"
+      onLoadedMetadata={(event) => {
+        const { videoWidth, videoHeight } = event.currentTarget
+        if (videoWidth > 0 && videoHeight > 0) setRatio(videoWidth / videoHeight)
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      aria-label={item.label}
+      style={ratio === null ? undefined : clipBox(ratio)}
+      className={cn(MEDIA_BOX, CLIP_ALLOWANCE, "rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)]")}
+    />
+  )
+}
+
 function PreviewMedia({ item, zoomPan }: { item: PreviewItem; zoomPan: ZoomPan }) {
   const transform = `translate(${zoomPan.pan.x}px, ${zoomPan.pan.y}px) scale(${zoomPan.zoom})`
 
-  if (item.kind === "video") {
-    return (
-      // Controls, sound and all: the point of a full preview is that the clip
-      // can actually be scrubbed, paused and replayed rather than just watched.
-      // Those controls are pointer gestures of their own, so the clip keeps its
-      // pointers instead of the stage taking them for drag-to-close.
-      <video
-        data-preview-media="video"
-        src={item.src}
-        poster={item.poster}
-        controls
-        playsInline
-        preload="metadata"
-        onPointerDown={(event) => event.stopPropagation()}
-        aria-label={item.label}
-        className={cn(MEDIA_BOX, "rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)]")}
-      />
-    )
-  }
+  // Keyed, so stepping to another clip starts from that clip's shape rather
+  // than carrying the last one's over until its metadata arrives.
+  if (item.kind === "video") return <PreviewClip key={item.id} item={item} />
 
   return (
     <img
@@ -84,9 +121,29 @@ function stageStyle(entrance: PreviewEntrance, drag: SheetDrag, reduce: boolean)
   }
 }
 
-/** Anywhere but the media itself is the way out, the same as the sheet's scrim. */
-function onBackdropClick(event: ReactMouseEvent<HTMLElement>) {
-  if (event.target === event.currentTarget) closePreview()
+/**
+ * Anywhere but the media itself is the way out, the same as the sheet's scrim —
+ * except where the press began somewhere else. Where it went down is read in the
+ * capture phase, ahead of the media's own handlers, so a press that began on the
+ * clip's controls stays the clip's however the layout moves under it and
+ * whatever the eventual click reports as its target. A click that arrived
+ * without a press of its own — from assistive technology, or from a test — is
+ * nobody else's and still counts.
+ */
+function useScrimDismiss() {
+  const pressedOn = useRef<EventTarget | null>(null)
+  return {
+    onPointerDownCapture(event: ReactPointerEvent<HTMLElement>) {
+      pressedOn.current = event.target
+    },
+    onClick(event: ReactMouseEvent<HTMLElement>) {
+      const pressed = pressedOn.current
+      pressedOn.current = null
+      if (event.target !== event.currentTarget) return
+      if (pressed && pressed !== event.currentTarget) return
+      closePreview()
+    },
+  }
 }
 
 function PreviewOverlay({ preview, onPick }: { preview: PreviewSet; onPick: AnswerHandler }) {
@@ -97,6 +154,7 @@ function PreviewOverlay({ preview, onPick }: { preview: PreviewSet; onPick: Answ
   const zoomPan = useZoomPan(item.id)
   // A picture with somewhere to pan owns the pointer; otherwise a drag closes.
   const drag = useSheetDrag(closePreview, zoomPan.zoom === MIN_ZOOM)
+  const scrim = useScrimDismiss()
 
   return (
     <div data-media-preview={item.id} className="pointer-events-auto fixed inset-0 z-[100]">
@@ -106,7 +164,7 @@ function PreviewOverlay({ preview, onPick }: { preview: PreviewSet; onPick: Answ
         aria-modal="true"
         aria-label={item.label}
         tabIndex={-1}
-        onClick={onBackdropClick}
+        {...scrim}
         className={cn(
           "absolute inset-0 flex items-center justify-center outline-none",
           "bg-[var(--material-thick)] backdrop-blur-2xl",

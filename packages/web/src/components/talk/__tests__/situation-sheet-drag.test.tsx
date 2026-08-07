@@ -37,18 +37,23 @@ async function renderSheet() {
 }
 
 /**
- * jsdom fires every event inside the same millisecond, so no sample ever clears
- * the hook's one-frame floor and velocity stays at rest. Which is the point:
- * these are the distance cases, and the flick lives in `sheet-drag.test.ts`.
+ * One instant for the whole gesture, so no sample clears the hook's one-frame
+ * floor and velocity stays at rest. Which is the point: these are the distance
+ * cases, and the flick lives in `sheet-drag.test.ts`. The clock is pinned rather
+ * than left to jsdom, which usually fires a gesture inside a single millisecond
+ * but under a loaded suite can take longer than the floor between two events and
+ * turn a 40px drag into a flick nobody performed.
  */
 function drag(
   origin: HTMLElement,
   distance: number,
   pointerType: "mouse" | "touch" | "pen" = "mouse",
 ) {
+  const clock = vi.spyOn(performance, "now").mockReturnValue(0)
   fireEvent.pointerDown(origin, { pointerId: 7, pointerType, clientY: 300 })
   fireEvent.pointerMove(origin, { pointerId: 7, pointerType, clientY: 300 + distance })
   fireEvent.pointerUp(origin, { pointerId: 7, pointerType, clientY: 300 + distance })
+  clock.mockRestore()
 }
 
 beforeEach(() => {
