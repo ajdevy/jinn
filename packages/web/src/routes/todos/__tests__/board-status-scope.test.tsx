@@ -217,4 +217,18 @@ describe("/todos/b/my?status=done", () => {
 
     await waitFor(() => expect(screen.getByTestId("todo-list-filtered-empty")).toBeTruthy())
   })
+
+  /* The phone arrives on the Closed segment, so that segment rather than the
+   * Active one is where a filter matching nothing has to offer the way back. It
+   * read "Nothing closed yet.", which is a different and untrue claim. */
+  it("offers the way back on the mobile Closed segment too", async () => {
+    listWorkItems.mockImplementation(() =>
+      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
+    )
+    renderMobileBoard("/todos/b/my?status=done&q=zzzz")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-filtered-empty")).toBeTruthy())
+    expect(within(board).queryByText("Nothing closed yet.")).toBeNull()
+  })
 })

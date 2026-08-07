@@ -844,9 +844,9 @@ export default function TodoBoardPage() {
                 </div>
               )}
               {segment === "closed" && (
-                closedHistory.length === 0 ? (
-                  <EmptyCaption text="Nothing closed yet." />
-                ) : (
+                filteredEmpty ? <FilteredEmptyCard count={filterCount} onClear={clearAllFilters} />
+                : closedHistory.length === 0 ? <EmptyCaption text="Nothing closed yet." />
+                : (
                   <>
                     {closedHistory.map((group) => (
                       <section key={group.bucket} data-testid={`board-closed-${group.bucket}`}>
