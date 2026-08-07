@@ -10,7 +10,8 @@
  * `packages/web`, and the gateway's half of them is the action log on
  * `POST /api/talk/sessions/:id/actions`, not a declaration in this file.
  */
-import type { JsonObject, RealtimeTool } from "../../shared/types.js";
+import type { JsonObject } from "../../shared/types.js";
+import type { RealtimeTool } from "../../shared/voice.js";
 
 /** A fresh schema each call: declarations are handed out to callers that may
  *  keep them, so no two tools should share one parameters object. */

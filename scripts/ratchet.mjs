@@ -13,6 +13,7 @@
 // writes it. `pnpm ratchet --check` is the CI gate: it never writes, and it also
 // fails when the committed baseline is looser than the tree. Without that half,
 // the file only ever drifts loose and the ratchet never actually tightens.
+// Re-seed only from main after the merge queue drains: a snapshot taken on a build branch misses files landing on siblings merged around it, which surface later as violations nobody caused.
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"

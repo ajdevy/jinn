@@ -9,7 +9,7 @@
  * blunter instrument.
  */
 import { randomUUID } from "node:crypto";
-import type { RealtimeTool } from "../../shared/types.js";
+import type { RealtimeTool } from "../../shared/voice.js";
 import {
   TALK_CONTEXT_BUDGET_TOKENS,
   contextTokens,
