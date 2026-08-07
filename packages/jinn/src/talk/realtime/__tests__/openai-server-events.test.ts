@@ -85,10 +85,15 @@ describe("OpenAI realtime server events", () => {
     ]);
   });
 
-  it("accumulates usage across turns", async () => {
+  it("accumulates usage across turns, keeping the cached tokens split by modality", async () => {
     const { provider, events } = await connected();
     const usage = {
-      input_token_details: { text_tokens: 5, audio_tokens: 100, cached_tokens: 2 },
+      input_token_details: {
+        text_tokens: 5,
+        audio_tokens: 100,
+        cached_tokens: 3,
+        cached_tokens_details: { text_tokens: 2, audio_tokens: 1 },
+      },
       output_token_details: { text_tokens: 9, audio_tokens: 17 },
     };
 
@@ -98,11 +103,28 @@ describe("OpenAI realtime server events", () => {
     expect(provider.usage()).toEqual({
       inputAudioTokens: 200,
       inputTextTokens: 10,
-      cachedInputTokens: 4,
+      cachedInputAudioTokens: 2,
+      cachedInputTextTokens: 4,
       outputAudioTokens: 34,
       outputTextTokens: 18,
     });
     expect(events.at(-1)).toEqual({ type: "turn_done", usage: provider.usage() });
+  });
+
+  it("charges cached tokens the server did not split to the dearer modality", async () => {
+    // On the mini model cached audio costs $0.30 against text's $0.06, so an
+    // unattributed count lands on audio and over-reports rather than hides spend.
+    const { provider } = await connected({ model: "gpt-realtime-2.1-mini" });
+
+    receive({
+      type: "response.done",
+      response: {
+        status: "completed",
+        usage: { input_token_details: { text_tokens: 40, audio_tokens: 60, cached_tokens: 25 } },
+      },
+    });
+
+    expect(provider.usage()).toMatchObject({ cachedInputAudioTokens: 25, cachedInputTextTokens: 0 });
   });
 
   it("attributes an unrequested cancellation to barge-in", async () => {

@@ -68,7 +68,8 @@ describe("a session is not bound to a connection", () => {
         outputAudioTokens: 10,
         inputTextTokens: 0,
         outputTextTokens: 0,
-        cachedInputTokens: 0,
+        cachedInputAudioTokens: 0,
+        cachedInputTextTokens: 0,
       },
       transcript: "what is on the board today",
     });

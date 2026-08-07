@@ -34,7 +34,8 @@ function numericUsage(value: unknown): RealtimeUsage | null {
     "outputAudioTokens",
     "inputTextTokens",
     "outputTextTokens",
-    "cachedInputTokens",
+    "cachedInputAudioTokens",
+    "cachedInputTextTokens",
   ] as const;
   const usage = {} as RealtimeUsage;
   for (const key of keys) {

@@ -223,10 +223,14 @@ add twice.
 ### The rate table, and the model that is missing from it
 
 `pricing.ts` holds a `RATES` table keyed by model id, with per-1M-token rates for
-input audio, cached input, output audio, input text, and output text. The numbers
-come from `docs/realtime-providers.md`, which quotes the vendor pricing pages
-verbatim as checked on 2026-08-06. The keys are the versioned ids the pricing page
-actually lists: `gpt-realtime-2.1` and `gpt-realtime-2.1-mini`.
+input audio, output audio, input text, output text, and a separate cached rate for
+each input modality. Cached input gets two numbers because the vendor charges two:
+on `gpt-realtime-2.1-mini` a cached text token is $0.06 against a cached audio
+token's $0.30, so a single blended cached rate would be wrong by 5x on a
+tool-heavy turn. The numbers come from `docs/realtime-providers.md`, which quotes
+the vendor pricing pages verbatim as checked on 2026-08-06. The keys are the
+versioned ids the pricing page actually lists: `gpt-realtime-2.1` and
+`gpt-realtime-2.1-mini`.
 
 The unversioned `gpt-realtime` alias is deliberately absent. An alias resolves to
 whichever version the vendor currently points it at, and that mapping changes
@@ -247,10 +251,13 @@ for. Realtime input tokens grow with conversation length because the whole
 conversation is re-sent on every response, and prompt caching offsets that only
 while the history is left alone: changing or removing content busts the cache from
 the point of the change onward. The provider reports the cached share *inside* the
-input counts rather than beside them, so `priceTurn` deducts it before the full
-rate applies and charges it once at the cached rate — billing both buckets would
-charge the cached prefix twice, at roughly eighty times its real cost. Rolling
-truncation therefore trades cache hits for
+input counts rather than beside them, and splits it by modality, so `priceTurn`
+deducts each modality's cached count before the full rate applies and charges it at
+that modality's own cached rate — billing both buckets would charge the cached
+prefix twice, at roughly eighty times its real cost. When a `response.done` carries
+a cached total but no modality breakdown, the adapter attributes the remainder to
+whichever cached rate is higher, because an over-report shows up in the cost line
+and an under-report does not. Rolling truncation therefore trades cache hits for
 a bounded context, which is the right trade only because the budget is generous
 enough that most sessions never truncate at all.
 

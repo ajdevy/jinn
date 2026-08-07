@@ -18,7 +18,8 @@ function usage(over: Partial<RealtimeUsage> = {}): RealtimeUsage {
     outputAudioTokens: 1000,
     inputTextTokens: 0,
     outputTextTokens: 0,
-    cachedInputTokens: 0,
+    cachedInputAudioTokens: 0,
+    cachedInputTextTokens: 0,
     ...over,
   };
 }
