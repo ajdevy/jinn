@@ -133,12 +133,11 @@ const router = createBrowserRouter([
       { path: '/workflow', element: <WorkflowListPage /> },
       { path: '/workflow/:id', element: <WorkflowPage /> },
       { path: '/workflow/:id/runs/:runId', element: <WorkflowRunPage /> },
-      ...(import.meta.env.DEV
-        ? [
-            { path: '/redesign', element: <RedesignPage /> },
-            { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
-          ]
-        : []),
+      // The orb bench is screenshot-verified on built sandboxes, never on a dev
+      // server pointed at a live gateway, so it has to survive the build. It is a
+      // lazy route: nothing of it loads until someone types the path.
+      { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
+      ...(import.meta.env.DEV ? [{ path: '/redesign', element: <RedesignPage /> }] : []),
     ],
   },
 ])
