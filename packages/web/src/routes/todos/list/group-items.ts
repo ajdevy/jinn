@@ -43,6 +43,10 @@ const OPEN_GROUPS: Array<{
 export function groupTodoListItems(
   columns: TodoListColumns,
   needsAttention: WorkItemCompactWire[],
+  /** A URL that names one status scopes the view to it, and the columns outside
+   *  that scope are never queried. Those groups are omitted rather than drawn as
+   *  a zero — "Backlog 0" would claim something nobody asked the gateway. */
+  statusInScope: (status: WorkItemStatusWire) => boolean = () => true,
 ): TodoListGroup[] {
   const attentionIds = new Set(needsAttention.map(({ id }) => id))
   const needsItems = needsAttention
@@ -63,7 +67,8 @@ export function groupTodoListItems(
     const column = columns[definition.status]
     const items = column.items.filter(({ id }) => !attentionIds.has(id))
     const count = Math.max(items.length, column.total - (hoistedByStatus.get(definition.status) ?? 0))
-    if (definition.omitWhenEmpty && count === 0) continue
+    const omitWhenEmpty = definition.omitWhenEmpty || !statusInScope(definition.status)
+    if (omitWhenEmpty && count === 0) continue
     groups.push({
       key: definition.key,
       label: definition.label,
@@ -73,22 +78,25 @@ export function groupTodoListItems(
     })
   }
 
-  const closedStatuses: WorkItemStatusWire[] = ["done", "cancelled"]
-  const closedItems = closedStatuses.flatMap((status) =>
-    columns[status].items.filter(({ id }) => !attentionIds.has(id)),
-  )
-  const closedCount = closedStatuses.reduce(
+  const closed = closedGroup(columns, attentionIds, hoistedByStatus, statusInScope)
+  if (closed) groups.push(closed)
+
+  return groups
+}
+
+/** The collapsed Closed row, or null when this view never asked for closed work. */
+function closedGroup(
+  columns: TodoListColumns,
+  attentionIds: ReadonlySet<string>,
+  hoistedByStatus: ReadonlyMap<WorkItemStatusWire, number>,
+  statusInScope: (status: WorkItemStatusWire) => boolean,
+): TodoListGroup | null {
+  const statuses: WorkItemStatusWire[] = ["done", "cancelled"]
+  const items = statuses.flatMap((status) => columns[status].items.filter(({ id }) => !attentionIds.has(id)))
+  if (items.length === 0 && !statuses.some(statusInScope)) return null
+  const count = statuses.reduce(
     (total, status) => total + columns[status].total - (hoistedByStatus.get(status) ?? 0),
     0,
   )
-  groups.push({
-    key: "closed",
-    label: "Closed",
-    statuses: closedStatuses,
-    items: closedItems,
-    count: Math.max(closedItems.length, closedCount),
-    collapsed: true,
-  })
-
-  return groups
+  return { key: "closed", label: "Closed", statuses, items, count: Math.max(items.length, count), collapsed: true }
 }

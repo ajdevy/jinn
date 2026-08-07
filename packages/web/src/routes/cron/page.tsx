@@ -19,6 +19,7 @@ import {
   type CronFilter,
   type CronJobWire,
 } from "./shared"
+import { useCronViewParams, type CronLens } from "./use-cron-params"
 
 /* design-cron §2 — Cron joins the shared language: inline large-title header
  * with true counts, a Jobs/Week segmented lens (Todos idiom, zero chrome
@@ -29,7 +30,7 @@ import {
  * "Pipelines" card grid was an exact informational duplicate of this list and
  * is merged into it. */
 
-type Lens = "jobs" | "week"
+type Lens = CronLens
 
 function useEmployeesByName() {
   const org = useQuery({ queryKey: ["org"], queryFn: api.getOrg, staleTime: 60_000 })
@@ -155,8 +156,7 @@ export default function CronPage() {
   useBreadcrumbs([{ label: "Cron" }])
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [lens, setLens] = useState<Lens>("jobs")
-  const [filter, setFilter] = useState<CronFilter>("all")
+  const { lens, setLens, filter, setFilter } = useCronViewParams()
   // Re-render tick so "updated Xm ago" / next-run labels stay honest.
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {

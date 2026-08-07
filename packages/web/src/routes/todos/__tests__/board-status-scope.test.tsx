@@ -1,0 +1,234 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
+import TodoBoardPage from "../board/board-page"
+import { isColumnInStatusFilter } from "../board/status-scope"
+import { clearBoardScrollCache } from "../board/board-route"
+
+/* A board URL that names one status is a board of that one column. This is the
+ * done-when of the Talk orb's open_todos: "executing todos I started" resolves
+ * to /todos/b/my?status=executing, and that link has to render what it says. */
+
+vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
+vi.mock("@/routes/settings-provider", () => ({ useSettings: () => ({ settings: { employeeOverrides: {} } }) }))
+vi.mock("@/components/ui/employee-avatar", () => ({ EmployeeAvatar: () => <span /> }))
+vi.mock("@/hooks/use-gateway", () => ({ useGateway: () => ({ connectionSeq: 1, subscribe: () => () => {} }) }))
+
+const listWorkItems = vi.fn()
+const getWorkItemTrees = vi.fn()
+const getDepartments = vi.fn()
+const getOrg = vi.fn()
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>()
+  return {
+    ...actual,
+    api: {
+      listWorkItems: (...args: unknown[]) => listWorkItems(...args),
+      getWorkItemTrees: (...args: unknown[]) => getWorkItemTrees(...args),
+      getWorkItem: vi.fn().mockRejectedValue(new Error("not found")),
+      getWorkItems: vi.fn().mockResolvedValue({ workItems: [] }),
+      getWorkItemTree: vi.fn(),
+      getDepartments: (...args: unknown[]) => getDepartments(...args),
+      getOrg: (...args: unknown[]) => getOrg(...args),
+      setWorkItemStatus: vi.fn(),
+      updateWorkItem: vi.fn(),
+      createWorkItem: vi.fn(),
+      assignWorkItem: vi.fn(),
+      decideWorkItemApproval: vi.fn(),
+      escalateWorkItemApproval: vi.fn(),
+    },
+  }
+})
+
+function compact(id: string, status: WorkItemStatusWire): WorkItemCompactWire {
+  return {
+    id, status, version: 3, title: `Item ${id}`, assignee: null, department: "platform",
+    source: "human", sourceRef: null, approvalState: null, approvalRequest: null,
+    approvalRef: null, approvalTarget: null, approvalEscalatedAt: null, createdBy: "operator",
+    parentId: null, rootId: id, depth: 0, dueAt: null, labels: [], blocked: false,
+    updatedAt: "2026-07-23T08:00:00.000Z", rank: null,
+  }
+}
+
+function tree(id: string): WorkItemTreeWire {
+  return {
+    root: {
+      id, version: 3, title: `Item ${id}`, body: null, status: "executing", department: "platform",
+      assignee: null, priority: 2, rank: null, source: "human", sourceRef: null, acceptance: null,
+      verifyPolicy: null, rounds: 0, budgetUsd: null, approvalState: null, approvalRequest: null,
+      approvalRef: null, approvalTarget: null, approvalEscalatedAt: null, approvalDecidedBy: null,
+      approvalDecidedAt: null, createdAt: "2026-07-23T08:00:00.000Z",
+      updatedAt: "2026-07-23T08:00:00.000Z", closedAt: null, children: [],
+    },
+    totals: { executing: 1 },
+    spendUsd: 0,
+  }
+}
+
+/** One operator Todo per interesting status: backlog and executing tell an
+ *  honestly-scoped board apart from one that just draws every column, and the
+ *  closed pair tells it apart from one that treats "in scope" as "still open". */
+const ROWS: Partial<Record<WorkItemStatusWire, WorkItemCompactWire[]>> = {
+  backlog: [compact("PLA-1", "backlog")],
+  executing: [compact("PLA-2", "executing")],
+  done: [compact("PLA-3", "done")],
+  cancelled: [compact("PLA-4", "cancelled")],
+}
+
+function listResponse(params: { status?: WorkItemStatusWire }): WorkItemListWire {
+  const items = ROWS[params.status!] ?? []
+  return { workItems: items, total: items.length, totals: { [params.status!]: items.length }, nextOffset: null }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  clearBoardScrollCache()
+  sessionStorage.clear()
+  listWorkItems.mockImplementation((params: { status?: WorkItemStatusWire }) => Promise.resolve(listResponse(params)))
+  getWorkItemTrees.mockImplementation((ids: string[]) =>
+    Promise.resolve({ trees: Object.fromEntries(ids.map((id) => [id, tree(id)])) }),
+  )
+  getDepartments.mockResolvedValue({ departments: [{ slug: "platform", prefix: "PLA", createdAt: "2026-07-01", todoCount: 2 }] })
+  getOrg.mockResolvedValue({ departments: ["platform"], employees: [] })
+})
+
+function renderBoard(path: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/todos/b/:board" element={<TodoBoardPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+/** The board picks its container from a media query rather than a width, so
+ *  the phone layout is reachable in jsdom only by answering that query. */
+function renderMobileBoard(path: string) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(max-width: 700px)",
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }))
+  return renderBoard(path)
+}
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe("isColumnInStatusFilter", () => {
+  it("keeps every column on the default open board, closed ones included", () => {
+    for (const status of ["backlog", "executing", "done", "cancelled"] as const) {
+      expect(isColumnInStatusFilter("open", status)).toBe(true)
+      expect(isColumnInStatusFilter("all", status)).toBe(true)
+    }
+  })
+
+  it("keeps only the named column when the URL names one status", () => {
+    expect(isColumnInStatusFilter("executing", "executing")).toBe(true)
+    for (const status of ["backlog", "assigned", "in_review", "blocked", "escalated", "done", "cancelled"] as const) {
+      expect(isColumnInStatusFilter("executing", status)).toBe(false)
+    }
+  })
+})
+
+describe("/todos/b/my?status=executing", () => {
+  it("renders only the executing column, and only asks the gateway for it", async () => {
+    renderBoard("/todos/b/my?status=executing")
+
+    await waitFor(() => expect(screen.getByTestId("board-column-executing")).toBeTruthy())
+    expect(screen.getAllByText("Item PLA-2").length).toBeGreaterThan(0)
+    // The backlog Todo exists and is the operator's; it is simply not what the
+    // link asked for. Before this scoping it rendered anyway.
+    expect(screen.queryAllByText("Item PLA-1")).toEqual([])
+    expect(screen.queryByTestId("board-column-backlog")).toBeNull()
+
+    const asked = listWorkItems.mock.calls.map(([params]) => params).filter((params) => params?.status)
+    expect(asked.map((params) => params.status)).toEqual(["executing"])
+    // Board `my` is createdBy: operator — the other half of the done-when.
+    expect(asked[0]).toMatchObject({ status: "executing", createdBy: "operator", rootsOnly: true })
+  })
+
+  it("still draws the whole pipeline with no status in the URL", async () => {
+    renderBoard("/todos/b/my")
+
+    await waitFor(() => expect(screen.getByTestId("board-column-backlog")).toBeTruthy())
+    expect(screen.getByTestId("board-column-executing")).toBeTruthy()
+    expect(screen.getAllByText("Item PLA-1").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Item PLA-2").length).toBeGreaterThan(0)
+  })
+})
+
+/* A closed status is a scope like any other. The board loaded the row all
+ * along; it was the empty-state gate, counting only open columns, that told the
+ * operator "No todos match." about a Todo sitting one element further down. */
+describe("/todos/b/my?status=done", () => {
+  it("shows the done Todo in the list instead of the filtered-empty card", async () => {
+    renderBoard("/todos/b/my?status=done")
+
+    const list = screen.getByTestId("todo-list-scroll")
+    await waitFor(() => expect(within(list).getByTestId("todo-list-group-closed")).toBeTruthy())
+    expect(within(list).getAllByText("Item PLA-3").length).toBeGreaterThan(0)
+    expect(screen.queryByTestId("todo-list-filtered-empty")).toBeNull()
+    expect(within(list).queryAllByText("Item PLA-1")).toEqual([])
+  })
+
+  it("arrives on the desktop board with the closed column already expanded", async () => {
+    renderBoard("/todos/b/my?status=done")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-closed-column")).toBeTruthy())
+    expect(within(board).getAllByText("Item PLA-3").length).toBeGreaterThan(0)
+    // Cancelled was never asked for, so it is absent rather than drawn as a zero.
+    expect(within(board).queryByTestId("board-closed-group-cancelled")).toBeNull()
+    expect(within(board).queryByTestId("board-closed-rail")).toBeNull()
+
+    const asked = listWorkItems.mock.calls.map(([params]) => params).filter((params) => params?.status)
+    expect(asked.map((params) => params.status)).toEqual(["done"])
+  })
+
+  it("arrives on the mobile Closed segment with the Todo visible, untapped", async () => {
+    renderMobileBoard("/todos/b/my?status=done")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getAllByText("Item PLA-3").length).toBeGreaterThan(0))
+  })
+
+  it("shows the cancelled Todo the same way", async () => {
+    renderBoard("/todos/b/my?status=cancelled")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-closed-group-cancelled")).toBeTruthy())
+    expect(within(board).getAllByText("Item PLA-4").length).toBeGreaterThan(0)
+    expect(within(board).queryByTestId("board-closed-group-done")).toBeNull()
+  })
+
+  it("still offers the way back when the filter genuinely matches nothing", async () => {
+    listWorkItems.mockImplementation(() =>
+      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
+    )
+    renderBoard("/todos/b/my?status=done&q=zzzz")
+
+    await waitFor(() => expect(screen.getByTestId("todo-list-filtered-empty")).toBeTruthy())
+  })
+
+  /* The phone arrives on the Closed segment, so that segment rather than the
+   * Active one is where a filter matching nothing has to offer the way back. It
+   * read "Nothing closed yet.", which is a different and untrue claim. */
+  it("offers the way back on the mobile Closed segment too", async () => {
+    listWorkItems.mockImplementation(() =>
+      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
+    )
+    renderMobileBoard("/todos/b/my?status=done&q=zzzz")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-filtered-empty")).toBeTruthy())
+    expect(within(board).queryByText("Nothing closed yet.")).toBeNull()
+  })
+})

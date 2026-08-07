@@ -12,6 +12,7 @@ import { TODO_QUERY_FRESHNESS, TODO_WRITE_KEY } from "@/lib/query-keys"
 import { todoStatusMutationOptions } from "../todo-status-mutation"
 import type { BoardId } from "./board-route"
 import { boardKey } from "./board-route"
+import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES } from "./status-scope"
 
 /* Todos v2 slice 6 — the board data layer (design-doc §11 queries).
  * One infinite query per status column, scoped per board:
@@ -21,10 +22,6 @@ import { boardKey } from "./board-route"
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 
-export const PIPELINE_STATUSES: readonly WorkItemStatusWire[] = ["backlog", "assigned", "executing", "in_review"]
-export const EXCEPTION_STATUSES: readonly WorkItemStatusWire[] = ["blocked", "escalated"]
-export const CLOSED_STATUSES: readonly WorkItemStatusWire[] = ["done", "cancelled"]
-const BOARD_STATUSES: readonly WorkItemStatusWire[] = [...PIPELINE_STATUSES, ...EXCEPTION_STATUSES, ...CLOSED_STATUSES]
 const OPEN_STATUSES: readonly WorkItemStatusWire[] = [...PIPELINE_STATUSES, ...EXCEPTION_STATUSES]
 
 export const BOARD_PAGE_SIZE = 20
@@ -100,6 +97,34 @@ function useBoardColumn(board: BoardId, status: WorkItemStatusWire, filters: Tod
   })
 }
 
+type BoardColumnQuery = ReturnType<typeof useBoardColumn>
+
+/** The eight columns, assembled from their queries. A disabled column keeps
+ *  whatever it last loaded (keepPreviousData), so the status filter gates the
+ *  read too — otherwise ?status=executing still shows the backlog cards it
+ *  fetched on the way in. */
+function boardColumns(
+  queries: readonly BoardColumnQuery[],
+  inScope: readonly boolean[],
+): Record<WorkItemStatusWire, BoardColumnData> {
+  const columns = {} as Record<WorkItemStatusWire, BoardColumnData>
+  BOARD_STATUS_ORDER.forEach((status, i) => {
+    const q = queries[i]
+    const pages = inScope[i] ? q.data?.pages ?? [] : []
+    columns[status] = {
+      status,
+      items: pages.flatMap((p) => p.workItems),
+      total: pages.length > 0 ? pages[pages.length - 1].total : 0,
+      hasMore: inScope[i] && (q.hasNextPage ?? false),
+      loadMore: () => {
+        if (q.hasNextPage && !q.isFetchingNextPage) void q.fetchNextPage()
+      },
+      loadingMore: q.isFetchingNextPage,
+    }
+  })
+  return columns
+}
+
 export interface BoardData {
   /** One entry per status, board order; closed statuses included (the rail pages them). */
   columns: Record<WorkItemStatusWire, BoardColumnData>
@@ -113,46 +138,39 @@ export interface BoardData {
 }
 
 export function useBoardData(board: BoardId, filters: TodoFilters, now: number, enabled = true): BoardData {
-  // Hooks are unconditional: one query per status in fixed order.
-  const backlog = useBoardColumn(board, "backlog", filters, now, enabled)
-  const assigned = useBoardColumn(board, "assigned", filters, now, enabled)
-  const executing = useBoardColumn(board, "executing", filters, now, enabled)
-  const inReview = useBoardColumn(board, "in_review", filters, now, enabled)
-  const blocked = useBoardColumn(board, "blocked", filters, now, enabled)
-  const escalated = useBoardColumn(board, "escalated", filters, now, enabled)
-  const done = useBoardColumn(board, "done", filters, now, enabled)
-  const cancelled = useBoardColumn(board, "cancelled", filters, now, enabled)
+  // Hooks are unconditional: one query per status in fixed order. A status
+  // filter leaves only its own column's query on.
+  const on = (status: WorkItemStatusWire) => enabled && isColumnInStatusFilter(filters.status, status)
+  const backlog = useBoardColumn(board, "backlog", filters, now, on("backlog"))
+  const assigned = useBoardColumn(board, "assigned", filters, now, on("assigned"))
+  const executing = useBoardColumn(board, "executing", filters, now, on("executing"))
+  const inReview = useBoardColumn(board, "in_review", filters, now, on("in_review"))
+  const blocked = useBoardColumn(board, "blocked", filters, now, on("blocked"))
+  const escalated = useBoardColumn(board, "escalated", filters, now, on("escalated"))
+  const done = useBoardColumn(board, "done", filters, now, on("done"))
+  const cancelled = useBoardColumn(board, "cancelled", filters, now, on("cancelled"))
   const queries = [backlog, assigned, executing, inReview, blocked, escalated, done, cancelled]
 
   return useMemo((): BoardData => {
-    const columns = {} as Record<WorkItemStatusWire, BoardColumnData>
-    BOARD_STATUSES.forEach((status, i) => {
-      const q = queries[i]
-      const pages = q.data?.pages ?? []
-      columns[status] = {
-        status,
-        items: pages.flatMap((p) => p.workItems),
-        total: pages.length > 0 ? pages[pages.length - 1].total : 0,
-        hasMore: q.hasNextPage ?? false,
-        loadMore: () => {
-          if (q.hasNextPage && !q.isFetchingNextPage) void q.fetchNextPage()
-        },
-        loadingMore: q.isFetchingNextPage,
-      }
-    })
+    const inScope = BOARD_STATUS_ORDER.map((status) => isColumnInStatusFilter(filters.status, status))
+    const columns = boardColumns(queries, inScope)
     const openTotal = PIPELINE_STATUSES.reduce((sum, s) => sum + columns[s].total, 0)
     const closedTotal = CLOSED_STATUSES.reduce((sum, s) => sum + columns[s].total, 0)
-    const firstError = queries.find((q) => q.isError)
+    // Only the columns in scope can settle: an off-filter query stays `pending`
+    // forever, and reading it would pin the board to its skeleton.
+    const scoped = queries.filter((_, i) => inScope[i])
+    const firstError = scoped.find((q) => q.isError)
     return {
       columns,
-      isLoading: queries.some((q) => q.isPending && !q.isPlaceholderData),
+      isLoading: scoped.some((q) => q.isPending && !q.isPlaceholderData),
       isError: !!firstError,
       error: firstError?.error ?? null,
       openTotal,
       closedTotal,
     }
     // the 8 query results are the dependencies
-  }, [backlog.data, assigned.data, executing.data, inReview.data, blocked.data, escalated.data, done.data, cancelled.data,
+  }, [filters.status,
+      backlog.data, assigned.data, executing.data, inReview.data, blocked.data, escalated.data, done.data, cancelled.data,
       backlog.isFetchingNextPage, assigned.isFetchingNextPage, executing.isFetchingNextPage, inReview.isFetchingNextPage,
       blocked.isFetchingNextPage, escalated.isFetchingNextPage, done.isFetchingNextPage, cancelled.isFetchingNextPage,
       // Error/pending flips carry no data change — the states surfaces
@@ -255,7 +273,7 @@ export function useCreateSubTask() {
  *  open-details pattern the ledger already pays for; bounded for calm. */
 export function boardDetailIds(columns: Record<WorkItemStatusWire, BoardColumnData>, cap = 60): string[] {
   const ids: string[] = []
-  for (const status of BOARD_STATUSES) {
+  for (const status of BOARD_STATUS_ORDER) {
     for (const item of columns[status]?.items ?? []) {
       ids.push(item.id)
       if (ids.length >= cap) return ids
@@ -263,5 +281,3 @@ export function boardDetailIds(columns: Record<WorkItemStatusWire, BoardColumnDa
   }
   return ids
 }
-
-export const BOARD_STATUS_ORDER = BOARD_STATUSES
