@@ -9,7 +9,8 @@
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { JinnConfig, RealtimeUsage, Session } from "../shared/types.js";
+import type { JinnConfig, Session } from "../shared/types.js";
+import type { RealtimeUsage } from "../shared/voice.js";
 import { createSession, getSessionSpend, insertMessage, recordTurnAccounting } from "../sessions/registry.js";
 import { priceTurn } from "../talk/session/pricing.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";

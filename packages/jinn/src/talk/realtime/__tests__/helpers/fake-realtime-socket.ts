@@ -13,7 +13,7 @@
  * here imports the adapter at module scope for the same reason: that would pull
  * `ws` back in while its mock factory is still resolving.
  */
-import type { RealtimeEvent, RealtimeProvider, RealtimeSessionOptions } from "../../../../shared/types.js";
+import type { RealtimeEvent, RealtimeProvider, RealtimeSessionOptions } from "../../../../shared/voice.js";
 
 type Listener = (...args: never[]) => void;
 

@@ -8,7 +8,8 @@
  * ICI-756 owns the full catalog and extends the groups below. What ships here is
  * the mechanism plus a read-only seed; write actions are ICI-757's.
  */
-import type { JsonObject, RealtimeTool } from "../../shared/types.js";
+import type { JsonObject } from "../../shared/types.js";
+import type { RealtimeTool } from "../../shared/voice.js";
 
 /** A fresh schema each call: declarations are handed out to callers that may
  *  keep them, so no two tools should share one parameters object. */

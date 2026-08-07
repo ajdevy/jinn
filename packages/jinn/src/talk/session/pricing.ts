@@ -4,7 +4,7 @@
  * Rates come from docs/realtime-providers.md, which quotes the vendor pricing
  * pages verbatim (checked 2026-08-06).
  */
-import type { RealtimeUsage } from "../../shared/types.js";
+import type { RealtimeUsage } from "../../shared/voice.js";
 
 /** USD per 1M tokens. Cached input is priced per modality, not once: on
  *  `gpt-realtime-2.1-mini` a cached text token costs a fifth of a cached audio one. */

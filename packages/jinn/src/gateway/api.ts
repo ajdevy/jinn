@@ -156,8 +156,7 @@ import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
 import { streamFile } from "./byte-range.js";
-import { ensureLowVariant, ensurePoster } from "./video-variants.js";
-import { ensureThumbnail, isThumbnailable } from "./image-variants.js";
+import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
@@ -4540,52 +4539,17 @@ export async function handleApiRequest(
       }
       const reqUrl = new URL(req.url || pathname, `http://${req.headers.host || "localhost"}`);
       const download = reqUrl.searchParams.get("download") === "1";
-      let selectedPath = attachment.storagePath;
-      let selectedMime = attachment.mime;
-      let selectedFilename = attachment.filename;
-      let variant = "original";
-      const wantsThumbnail = !download && reqUrl.searchParams.get("thumb") === "1" && isThumbnailable(attachment.mime);
-      if (!download && attachment.mime.startsWith("video/")) {
-        const key = `todo:${attachment.sha256}`;
-        if (reqUrl.searchParams.get("poster") === "1") {
-          const poster = await ensurePoster(attachment.storagePath, key);
-          if (!poster) return notFound(res);
-          selectedPath = poster;
-          selectedMime = "image/jpeg";
-          selectedFilename = `${path.parse(attachment.filename).name}-poster.jpg`;
-          variant = "poster";
-        } else if (reqUrl.searchParams.get("quality") === "low") {
-          const low = ensureLowVariant(attachment.storagePath, key);
-          if (low) {
-            selectedPath = low;
-            selectedMime = "video/mp4";
-            variant = "low";
-          }
-        }
-      } else if (wantsThumbnail) {
-        const thumbnail = await ensureThumbnail(attachment.storagePath, `todo:${attachment.sha256}`);
-        if (thumbnail) {
-          selectedPath = thumbnail;
-          selectedMime = "image/webp";
-          selectedFilename = `${path.parse(attachment.filename).name}-thumb.webp`;
-          variant = "thumb";
-        }
-      }
-      const selectedStat = fs.statSync(selectedPath);
-      // A variant that could not be produced this time falls back to the original,
-      // and that fallback must not be cached for a year under an immutable ETag.
-      const variantFallback = variant === "original"
-        && (wantsThumbnail
-          || (!download && attachment.mime.startsWith("video/") && reqUrl.searchParams.get("quality") === "low"));
-      await streamFile(req, res, selectedPath, {
-        mime: selectedMime,
-        filename: selectedFilename,
+      const selected = await selectAttachmentVariant(attachment, reqUrl.searchParams, download);
+      if (!selected) return notFound(res);
+      await streamFile(req, res, selected.path, {
+        mime: selected.mime,
+        filename: selected.filename,
         disposition: download || !attachment.mime.startsWith("video/") ? "attachment" : "inline",
-        cacheHeaders: variantFallback
+        cacheHeaders: selected.isFallback
           ? { "Cache-Control": "no-store" }
           : {
               "Cache-Control": "public, max-age=31536000, immutable",
-              ETag: `"${attachment.sha256}-${variant}-${selectedStat.size}"`,
+              ETag: `"${attachment.sha256}-${selected.variant}-${selected.size}"`,
             },
       });
       return;

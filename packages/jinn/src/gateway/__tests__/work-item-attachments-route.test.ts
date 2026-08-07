@@ -1,178 +1,32 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { Readable, Writable } from "node:stream";
-import type { ServerResponse } from "node:http";
-import { ensureSessionCapability } from "../../mcp/identity.js";
-import { CALLER_SESSION_CAPABILITY_HEADER, CALLER_SESSION_HEADER, TOOL_CALL_HEADER, TOOL_CALL_HEADER_VALUE } from "../../mcp/identity.js";
-import { photoBuffer } from "./image-fixture.js";
+import { Readable } from "node:stream";
+import {
+  api,
+  attachments,
+  call,
+  comments,
+  ctx,
+  emittedEvents,
+  makeRes,
+  operatorHeaders,
+  reg,
+  store,
+  tmp,
+  toolHeaders,
+  upload,
+} from "./helpers/work-item-attachments-harness.js";
+import type { ApiRequest } from "./helpers/work-item-attachments-harness.js";
 
 /**
  * Route-level tests for Todos v2 slice 5: attachment upload (multipart + JSON
- * path), list, ranged download with a size guard, removal authority, the
- * departments surface, and the label-PUT array cap. Drives handleApiRequest
- * directly against a throwaway JINN_HOME.
+ * path), list, removal authority, the departments surface, and the label-PUT
+ * array cap. Reading an attachment back lives in
+ * work-item-attachments-download.test.ts. Drives handleApiRequest directly
+ * against a throwaway JINN_HOME.
  */
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-wi-att-route-"));
-process.env.JINN_HOME = tmp;
-fs.mkdirSync(path.join(tmp, "org"), { recursive: true });
-fs.writeFileSync(
-  path.join(tmp, "org", "platform-worker.yaml"),
-  "name: platform-worker\ndisplayName: Platform Worker\ndepartment: platform\nrank: employee\nengine: codex\nmodel: default\npersona: Route-test worker.\n",
-);
-fs.writeFileSync(
-  path.join(tmp, "org", "solo-worker.yaml"),
-  "name: solo-worker\ndisplayName: Solo Worker\ndepartment: marketing\nrank: employee\nengine: codex\nmodel: default\npersona: Route-test loner.\n",
-);
-
-type Api = typeof import("../api.js");
-type Reg = typeof import("../../sessions/registry.js");
-type Store = typeof import("../../work-items/store.js");
-type Comments = typeof import("../../work-items/comments.js");
-type Attachments = typeof import("../../work-items/attachments.js");
-let api: Api;
-let reg: Reg;
-let store: Store;
-let comments: Comments;
-let attachments: Attachments;
-
-function makeRes() {
-  let status = 200;
-  let headers: Record<string, unknown> = {};
-  const chunks: Buffer[] = [];
-  const res = new class extends Writable {
-    override _write(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      callback();
-    }
-
-    writeHead(s: number, h?: Record<string, unknown>) {
-      status = s;
-      if (h) headers = { ...headers, ...h };
-      return this;
-    }
-
-    setHeader(name: string, value: unknown) {
-      headers[name] = value;
-      return this;
-    }
-  }() as unknown as ServerResponse;
-  return {
-    res,
-    get status() {
-      return status;
-    },
-    get headers() {
-      return headers;
-    },
-    get raw() {
-      return Buffer.concat(chunks);
-    },
-    get body() {
-      const raw = Buffer.concat(chunks).toString("utf-8");
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw;
-      }
-    },
-  };
-}
-
-function makeReq(method: string, urlPath: string, body?: unknown, headers: Record<string, string> = {}) {
-  const payload = body !== undefined ? [Buffer.from(JSON.stringify(body))] : [];
-  return Object.assign(Readable.from(payload), {
-    method,
-    url: urlPath,
-    headers: { host: "localhost", "content-type": "application/json", ...headers },
-  }) as unknown as Parameters<Api["handleApiRequest"]>[0];
-}
-
-function makeMultipartReq(
-  urlPath: string,
-  parts: { file?: { name: string; content: Buffer }; fields?: Record<string, string> },
-  headers: Record<string, string> = {},
-) {
-  const boundary = "----jinnAttachmentBoundary";
-  const segments: Buffer[] = [];
-  for (const [name, value] of Object.entries(parts.fields ?? {})) {
-    segments.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
-  }
-  if (parts.file) {
-    segments.push(
-      Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${parts.file.name}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
-      ),
-    );
-    segments.push(parts.file.content, Buffer.from("\r\n"));
-  }
-  segments.push(Buffer.from(`--${boundary}--\r\n`));
-  const body = Buffer.concat(segments);
-  return Object.assign(Readable.from([body]), {
-    method: "POST",
-    url: urlPath,
-    headers: {
-      host: "localhost",
-      "content-type": `multipart/form-data; boundary=${boundary}`,
-      "content-length": String(body.length),
-      ...headers,
-    },
-  }) as unknown as Parameters<Api["handleApiRequest"]>[0];
-}
-
-const emittedEvents: Array<{ event: string; payload: Record<string, unknown> }> = [];
-
-const ctx = {
-  getConfig: () => ({ gateway: {}, engines: {} }),
-  connectors: new Map(),
-  startTime: Date.now(),
-  gatewayAuthToken: "test-token",
-  emit: (event: string, payload: Record<string, unknown>) => emittedEvents.push({ event, payload }),
-  sessionManager: {
-    getQueue: () => ({
-      getPendingCount: () => 0,
-      getTransportState: (_key: string, status: string) => status,
-    }),
-  },
-} as unknown as import("../api.js").ApiContext;
-
-const operatorHeaders = { authorization: "Bearer test-token" };
-
-function toolHeaders(sessionId: string): Record<string, string> {
-  return {
-    [TOOL_CALL_HEADER]: TOOL_CALL_HEADER_VALUE,
-    [CALLER_SESSION_HEADER]: sessionId,
-    [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(sessionId),
-  };
-}
-
-async function call(method: string, urlPath: string, body?: unknown, headers: Record<string, string> = {}) {
-  const cap = makeRes();
-  await api.handleApiRequest(makeReq(method, urlPath, body, headers), cap.res, ctx);
-  return cap;
-}
-
-async function upload(
-  urlPath: string,
-  parts: Parameters<typeof makeMultipartReq>[1],
-  headers: Record<string, string> = {},
-) {
-  const cap = makeRes();
-  await api.handleApiRequest(makeMultipartReq(urlPath, parts, headers), cap.res, ctx);
-  return cap;
-}
-
-beforeAll(async () => {
-  api = await import("../api.js");
-  reg = await import("../../sessions/registry.js");
-  store = await import("../../work-items/store.js");
-  comments = await import("../../work-items/comments.js");
-  attachments = await import("../../work-items/attachments.js");
-  (await import("../../shared/db.js")).initDb();
-});
 
 describe("POST /api/work-items/:id/attachments (multipart)", () => {
   it("uploads a file with sniffed mime and server-stamped uploader, and appears in the list", async () => {
@@ -284,7 +138,7 @@ describe("POST /api/work-items/:id/attachments — multipart hardening (review F
         "content-length": String(contentLength ?? body.length),
         ...headers,
       },
-    }) as unknown as Parameters<Api["handleApiRequest"]>[0];
+    }) as unknown as ApiRequest;
     const cap = makeRes();
     await api.handleApiRequest(req, cap.res, ctx);
     return cap;
@@ -388,150 +242,6 @@ describe("POST /api/work-items/:id/attachments (JSON path)", () => {
     expect(missing.status).toBe(404);
     const empty = await call("POST", `/api/work-items/${item.id}/attachments`, {}, operatorHeaders);
     expect(empty.status).toBe(400);
-  });
-});
-
-describe("GET /api/work-items/:id/attachments/:aid (download)", () => {
-  it("streams the bytes with the stored mime and a filename Content-Disposition", async () => {
-    const item = store.createWorkItem({ title: "download" });
-    const content = Buffer.from("download me");
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "report.pdf", content } }, operatorHeaders);
-    const id = posted.body.attachment.id;
-    const got = await call("GET", `/api/work-items/${item.id}/attachments/${id}`, undefined, operatorHeaders);
-    expect(got.status).toBe(200);
-    expect(got.headers["Accept-Ranges"]).toBe("bytes");
-    expect(got.headers["Content-Type"]).toBe("application/pdf");
-    expect(String(got.headers["Content-Disposition"])).toBe('attachment; filename="report.pdf"');
-    expect(got.raw).toEqual(content);
-  });
-
-  it("streams an exact byte range and returns 416 when the range cannot be satisfied", async () => {
-    const item = store.createWorkItem({ title: "ranged download" });
-    const content = Buffer.from("0123456789");
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "clip.mp4", content } }, operatorHeaders);
-    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
-
-    const partial = await call("GET", url, undefined, { ...operatorHeaders, range: "bytes=3-6" });
-    expect(partial.status).toBe(206);
-    expect(partial.headers["Content-Range"]).toBe("bytes 3-6/10");
-    expect(partial.headers["Accept-Ranges"]).toBe("bytes");
-    expect(partial.raw).toEqual(Buffer.from("3456"));
-
-    const impossible = await call("GET", url, undefined, { ...operatorHeaders, range: "bytes=10-" });
-    expect(impossible.status).toBe(416);
-    expect(impossible.headers["Content-Range"]).toBe("bytes */10");
-  });
-
-  it("serves a cached low video variant while download always returns the original", async () => {
-    const item = store.createWorkItem({ title: "quality download" });
-    const original = Buffer.alloc(1024, 5);
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "quality.mp4", content: original } }, operatorHeaders);
-    const attachment = posted.body.attachment;
-    const url = `/api/work-items/${item.id}/attachments/${attachment.id}`;
-
-    const fallback = await call("GET", `${url}?quality=low`, undefined, operatorHeaders);
-    expect(fallback.raw).toEqual(original);
-    expect(fallback.headers["Cache-Control"]).toBe("no-store");
-
-    const cacheDir = path.join(tmp, "cache", "video", createHash("sha256").update(`todo:${attachment.sha256}`).digest("hex"));
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(path.join(cacheDir, "low.mp4"), Buffer.from("low"));
-
-    const low = await call("GET", `${url}?quality=low`, undefined, operatorHeaders);
-    expect(low.status).toBe(200);
-    expect(low.raw).toEqual(Buffer.from("low"));
-    expect(Number(low.headers["Content-Length"])).toBeLessThan(original.length);
-
-    const download = await call("GET", `${url}?quality=low&download=1`, undefined, operatorHeaders);
-    expect(download.headers["Content-Disposition"]).toBe('attachment; filename="quality.mp4"');
-    expect(download.raw).toEqual(original);
-  });
-
-  it("serves a much smaller image thumbnail while the plain and download URLs keep the original", async () => {
-    const original = await photoBuffer();
-    const source = path.join(tmp, "thumbnail-photo.jpg");
-    fs.writeFileSync(source, original);
-
-    const item = store.createWorkItem({ title: "thumbnail" });
-    const posted = await call("POST", `/api/work-items/${item.id}/attachments`, { path: source }, operatorHeaders);
-    const attachment = posted.body.attachment;
-    const url = `/api/work-items/${item.id}/attachments/${attachment.id}`;
-
-    const thumb = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
-    expect(thumb.status).toBe(200);
-    expect(thumb.headers["Content-Type"]).toBe("image/webp");
-    expect(thumb.raw.length).toBeLessThan(original.length * 0.1);
-    expect(thumb.headers["Cache-Control"]).toBe("public, max-age=31536000, immutable");
-    expect(String(thumb.headers["ETag"])).toContain("-thumb-");
-
-    // Hashes, not toEqual: a deep-equal over two megabyte Buffers costs seconds.
-    const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
-    const plain = await call("GET", url, undefined, operatorHeaders);
-    expect(digest(plain.raw)).toBe(attachment.sha256);
-    const download = await call("GET", `${url}?thumb=1&download=1`, undefined, operatorHeaders);
-    expect(digest(download.raw)).toBe(attachment.sha256);
-    expect(download.headers["Content-Disposition"]).toBe('attachment; filename="thumbnail-photo.jpg"');
-  });
-
-  it("returns the original uncached when an image thumbnail cannot be generated", async () => {
-    const item = store.createWorkItem({ title: "thumbnail fallback" });
-    const original = Buffer.from("not really a PNG");
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "broken.png", content: original } }, operatorHeaders);
-    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
-
-    for (const attempt of [1, 2]) {
-      const got = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
-      expect(got.status, `attempt ${attempt}`).toBe(200);
-      expect(got.raw).toEqual(original);
-      expect(got.headers["Cache-Control"]).toBe("no-store");
-    }
-  });
-
-  it("never rasterises an SVG asked for as a thumbnail", async () => {
-    const item = store.createWorkItem({ title: "vector thumbnail" });
-    const original = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"></svg>');
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "logo.svg", content: original } }, operatorHeaders);
-    expect(posted.body.attachment.mime).toBe("image/svg+xml");
-    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
-
-    const got = await call("GET", `${url}?thumb=1`, undefined, operatorHeaders);
-    expect(got.status).toBe(200);
-    expect(got.raw).toEqual(original);
-    expect(got.headers["Content-Type"]).toBe("image/svg+xml");
-  });
-
-  it("rejects a stored size mismatch loudly", async () => {
-    const item = store.createWorkItem({ title: "integrity" });
-    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "gold.txt", content: Buffer.from("golden bytes") } }, operatorHeaders);
-    const attachment = posted.body.attachment;
-    fs.writeFileSync(attachment.storagePath, "tampered");
-    const got = await call("GET", `/api/work-items/${item.id}/attachments/${attachment.id}`, undefined, operatorHeaders);
-    expect(got.status).toBe(500);
-    expect(got.body.error).toMatch(/size/);
-  });
-
-  it("a same-content re-upload restores availability after blob corruption — download succeeds again (review F4)", async () => {
-    const item = store.createWorkItem({ title: "repair download" });
-    const content = Buffer.from("blob to break and repair");
-    const first = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "heal.txt", content } }, operatorHeaders);
-    fs.writeFileSync(first.body.attachment.storagePath, "broken");
-    const broken = await call("GET", `/api/work-items/${item.id}/attachments/${first.body.attachment.id}`, undefined, operatorHeaders);
-    expect(broken.status).toBe(500);
-
-    const again = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "heal2.txt", content } }, operatorHeaders);
-    expect(again.status).toBe(201);
-    const restored = await call("GET", `/api/work-items/${item.id}/attachments/${first.body.attachment.id}`, undefined, operatorHeaders);
-    expect(restored.status).toBe(200);
-    expect(restored.raw).toEqual(content);
-  });
-
-  it("404s a wrong-item path and an unknown id", async () => {
-    const a = store.createWorkItem({ title: "wrong path a" });
-    const b = store.createWorkItem({ title: "wrong path b" });
-    const posted = await upload(`/api/work-items/${a.id}/attachments`, { file: { name: "a.txt", content: Buffer.from("a") } }, operatorHeaders);
-    const id = posted.body.attachment.id;
-    expect((await call("GET", `/api/work-items/${b.id}/attachments/${id}`, undefined, operatorHeaders)).status).toBe(404);
-    expect((await call("GET", `/api/work-items/${a.id}/attachments/wia_000000000000`, undefined, operatorHeaders)).status).toBe(404);
   });
 });
 

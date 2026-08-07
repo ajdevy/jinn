@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RealtimeUsage } from "../../../shared/types.js";
+import type { RealtimeUsage } from "../../../shared/voice.js";
 import { costliestCachedModality, isPricingKnown, priceTurn } from "../pricing.js";
 
 const PRICED_MODELS = ["gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
