@@ -5,7 +5,7 @@
  * because deciding which bucket a token lands in is a billing call, not a
  * protocol one.
  */
-import type { RealtimeUsage } from "../../shared/types.js";
+import type { RealtimeUsage } from "../../shared/voice.js";
 import { costliestCachedModality } from "../session/pricing.js";
 
 /** `cached_tokens` counts the whole cached prefix and `cached_tokens_details`

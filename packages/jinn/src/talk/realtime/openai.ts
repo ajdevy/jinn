@@ -9,15 +9,15 @@
  * Constructed only through `createRealtimeProvider` in ./index.ts.
  */
 import WebSocket from "ws";
+import type { JsonObject } from "../../shared/types.js";
 import type {
-  JsonObject,
   RealtimeEphemeralToken,
   RealtimeEvent,
   RealtimeProvider,
   RealtimeSessionOptions,
   RealtimeTurnDetection,
   RealtimeUsage,
-} from "../../shared/types.js";
+} from "../../shared/voice.js";
 import { addUsage, emptyUsage, type OpenAiUsage } from "./openai-usage.js";
 
 const REALTIME_WS_URL = "wss://api.openai.com/v1/realtime";

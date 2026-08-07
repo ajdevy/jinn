@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { baseConfig, call, reg, stubMintingFetch } from "./helpers/talk-route-harness.js";
-import type { JinnConfig, RealtimeUsage } from "../../shared/types.js";
+import type { JinnConfig } from "../../shared/types.js";
+import type { RealtimeUsage } from "../../shared/voice.js";
 
 let config: JinnConfig;
 

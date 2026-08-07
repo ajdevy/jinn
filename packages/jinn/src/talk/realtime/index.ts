@@ -6,10 +6,10 @@
  * Gemini Live as the second implementation of the same interface.
  */
 import { resolveEnvVar } from "../../shared/env-ref.js";
-import type { JinnConfig, RealtimeProvider } from "../../shared/types.js";
+import type { RealtimeConfig, RealtimeProvider } from "../../shared/voice.js";
 import { createOpenAiRealtimeProvider } from "./openai.js";
 
-export type RealtimeConfig = NonNullable<JinnConfig["realtime"]>;
+export type { RealtimeConfig };
 
 /** Provider names `createRealtimeProvider` accepts. */
 export const REALTIME_PROVIDERS = ["openai"] as const;
