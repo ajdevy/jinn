@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { closePreview } from "../media-preview-store"
 import { SituationSheet } from "../situation-sheet"
 import type { Situation, SituationPayload } from "../situation-payload"
 import { KINDS, PAYLOADS } from "./situation-fixtures"
@@ -40,6 +41,11 @@ function renderSheet(value: Situation | null, onAnswer = vi.fn()) {
 
 beforeEach(() => {
   stubReducedMotion(false)
+})
+
+// The preview is held outside React, so unmounting the sheet does not close it.
+afterEach(() => {
+  closePreview()
 })
 
 describe("SituationSheet body", () => {
@@ -84,14 +90,19 @@ describe("answering", () => {
     expect(onAnswer).toHaveBeenNthCalledWith(2, "revise")
   })
 
-  it("answers image and clip cards the same way", async () => {
+  // ICI-755 superseded the tile as an answering card: a tap opens the preview,
+  // and the answer moved onto the preview's own control.
+  it("answers image and clip sets from the preview a tile opens", async () => {
     const images = renderSheet(situation("images"))
     await userEvent.click(screen.getByRole("button", { name: /Variant B/ }))
+    expect(images.onAnswer).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole("button", { name: "Pick this" }))
     expect(images.onAnswer).toHaveBeenCalledWith("variant-b")
     images.unmount()
 
     const clips = renderSheet(situation("video"))
     await userEvent.click(screen.getByRole("button", { name: /Fast cut/ }))
+    await userEvent.click(screen.getByRole("button", { name: "Pick this" }))
     expect(clips.onAnswer).toHaveBeenCalledWith("cut-fast")
   })
 
