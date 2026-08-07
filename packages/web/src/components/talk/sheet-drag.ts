@@ -11,6 +11,13 @@ export const DISMISS_DISTANCE = 96
 /** px per ms. A flick this fast dismisses without covering the distance. */
 export const DISMISS_VELOCITY = 0.5
 
+/**
+ * How long a finger may rest before the speed it arrived at stops describing it.
+ * A surface held still and then let go was put down, not thrown, however fast it
+ * was moving on the way.
+ */
+export const STILL_MS = 100
+
 /** How much of the drag survives once it is past the point of no return. */
 const RESISTANCE = 0.35
 
@@ -19,6 +26,8 @@ export interface DragRelease {
   offsetY: number
   /** Its speed at release, in px per ms. Down is positive. */
   velocityY: number
+  /** How long ago that speed was measured. */
+  idleMs: number
 }
 
 export type DragOutcome = "dismiss" | "snap-back"
@@ -35,9 +44,14 @@ export function rubberBand(offsetY: number): number {
   return DISMISS_DISTANCE + (offsetY - DISMISS_DISTANCE) * RESISTANCE
 }
 
-/** What releasing here means. Distance decides first; speed is the shortcut. */
-export function dragOutcome({ offsetY, velocityY }: DragRelease): DragOutcome {
+/**
+ * What releasing here means. Distance decides first; speed is the shortcut, and
+ * only speed the finger still had — a sample it has since sat on describes where
+ * the drag has been, not what letting go of it means.
+ */
+export function dragOutcome({ offsetY, velocityY, idleMs }: DragRelease): DragOutcome {
   if (offsetY <= 0) return "snap-back"
   if (offsetY >= DISMISS_DISTANCE) return "dismiss"
+  if (idleMs > STILL_MS) return "snap-back"
   return velocityY >= DISMISS_VELOCITY ? "dismiss" : "snap-back"
 }

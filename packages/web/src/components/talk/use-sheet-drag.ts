@@ -49,6 +49,14 @@ function startDrag(event: ReactPointerEvent<HTMLElement>): Drag {
   }
 }
 
+/**
+ * Hands a pointer back to what it is actually over. While this surface holds the
+ * capture, whatever is underneath sees only half of a two-finger gesture.
+ */
+function handBack(surface: HTMLElement, pointerId: number): void {
+  if (surface.hasPointerCapture?.(pointerId)) surface.releasePointerCapture(pointerId)
+}
+
 function sampleVelocity(drag: Drag, clientY: number): void {
   const now = performance.now()
   const elapsed = now - drag.lastAt
@@ -78,7 +86,17 @@ function pointerHandlers({ dragRef, setOffsetY, setDragging, onDismiss, enabled 
 
   return {
     onPointerDown(event) {
-      if (!enabled || dragRef.current) return
+      const running = dragRef.current
+      if (running) {
+        // A second finger means the operator is pinching, not throwing the
+        // surface away, so the drag it looked like at one finger is called off.
+        if (running.pointerId !== event.pointerId) {
+          handBack(event.currentTarget, running.pointerId)
+          release()
+        }
+        return
+      }
+      if (!enabled) return
       dragRef.current = startDrag(event)
       setDragging(true)
     },
@@ -94,6 +112,7 @@ function pointerHandlers({ dragRef, setOffsetY, setDragging, onDismiss, enabled 
       const outcome = dragOutcome({
         offsetY: event.clientY - drag.startY,
         velocityY: drag.velocityY,
+        idleMs: performance.now() - drag.lastAt,
       })
       release()
       if (outcome === "dismiss") onDismiss()

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { closePreview } from "../media-preview-store"
+import { DISMISS_DISTANCE } from "../sheet-drag"
 import { SituationSheet } from "../situation-sheet"
 import type { Situation, SituationPayload } from "../situation-payload"
 import { PAYLOADS } from "./situation-fixtures"
@@ -151,6 +152,47 @@ describe("stepping across the set", () => {
     expect(shownId()).toBe("variant-c")
 
     expect(preview()).toBe(mounted)
+  })
+})
+
+describe("gestures the preview must not read as a dismissal", () => {
+  /** Far enough that a drag read from it would take the preview down. */
+  const THROWN = DISMISS_DISTANCE + 100
+
+  const image = () => document.querySelector<HTMLElement>('[data-preview-media="image"]')!
+  const clip = () => document.querySelector<HTMLElement>('[data-preview-media="video"]')!
+
+  /** Settled first: an entrance still wearing its FLIP hides any drag under it. */
+  async function openedAt(name: RegExp) {
+    await userEvent.click(screen.getByRole("button", { name }))
+    await waitFor(() => expect(stage().style.transform).toBe(""))
+  }
+
+  it("keeps a pinch at fit out of the drag that closes the preview", async () => {
+    renderSheet(IMAGES)
+    await openedAt(/Variant A/)
+    const pinched = image()
+
+    fireEvent.pointerDown(pinched, { pointerId: 1, pointerType: "touch", clientX: 300, clientY: 300 })
+    fireEvent.pointerDown(pinched, { pointerId: 2, pointerType: "touch", clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(pinched, { pointerId: 1, pointerType: "touch", clientX: 300, clientY: 300 + THROWN })
+    fireEvent.pointerUp(pinched, { pointerId: 1, pointerType: "touch", clientX: 300, clientY: 300 + THROWN })
+
+    expect(preview()).not.toBeNull()
+    expect(stage().style.transform).toBe("")
+    expect(Number(image().dataset.previewZoom)).toBeGreaterThan(1)
+  })
+
+  it("leaves a clip's own pointers with the clip, so scrubbing is not a dismissal", async () => {
+    renderSheet(PAYLOADS.video)
+    await openedAt(/Slow cut/)
+
+    fireEvent.pointerDown(clip(), { pointerId: 5, clientY: 300 })
+    fireEvent.pointerMove(clip(), { pointerId: 5, clientY: 300 + THROWN })
+    fireEvent.pointerUp(clip(), { pointerId: 5, clientY: 300 + THROWN })
+
+    expect(preview()).not.toBeNull()
+    expect(stage().style.transform).toBe("")
   })
 })
 

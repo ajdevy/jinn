@@ -107,6 +107,23 @@ describe("dragging the sheet", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
+  it("snaps back a flick the finger sat on before letting go", async () => {
+    const { onDismiss, grabber } = await renderSheet()
+    // The one thing jsdom cannot produce on its own: elapsed time between the
+    // sample and the release, which is the whole of what this decides on.
+    const clock = vi.spyOn(performance, "now")
+
+    clock.mockReturnValue(0)
+    fireEvent.pointerDown(grabber(), { pointerId: 7, clientY: 300 })
+    clock.mockReturnValue(60)
+    fireEvent.pointerMove(grabber(), { pointerId: 7, clientY: 300 + UNDER_THRESHOLD + 20 })
+    clock.mockReturnValue(560)
+    fireEvent.pointerUp(grabber(), { pointerId: 7, clientY: 300 + UNDER_THRESHOLD + 20 })
+    clock.mockRestore()
+
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
   it("damps an upward drag and never dismisses on one", async () => {
     const { onDismiss, grabber, panel } = await renderSheet()
 

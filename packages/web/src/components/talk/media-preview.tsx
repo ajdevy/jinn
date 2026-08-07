@@ -32,6 +32,8 @@ function PreviewMedia({ item, zoomPan }: { item: PreviewItem; zoomPan: ZoomPan }
     return (
       // Controls, sound and all: the point of a full preview is that the clip
       // can actually be scrubbed, paused and replayed rather than just watched.
+      // Those controls are pointer gestures of their own, so the clip keeps its
+      // pointers instead of the stage taking them for drag-to-close.
       <video
         data-preview-media="video"
         src={item.src}
@@ -39,6 +41,7 @@ function PreviewMedia({ item, zoomPan }: { item: PreviewItem; zoomPan: ZoomPan }
         controls
         playsInline
         preload="metadata"
+        onPointerDown={(event) => event.stopPropagation()}
         aria-label={item.label}
         className={cn(MEDIA_BOX, "rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)]")}
       />

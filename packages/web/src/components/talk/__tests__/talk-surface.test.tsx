@@ -80,6 +80,19 @@ function escape() {
   fireEvent.keyDown(document, { key: "Escape" })
 }
 
+/** The three ways out of a preview, none of which may reach the sheet. */
+const CLOSERS = {
+  Escape: escape,
+  "a scrim tap": () => fireEvent.click(document.querySelector("[data-media-preview] [role='dialog']")!),
+  "a drag past the threshold": () => {
+    const stage = document.querySelector("[data-preview-stage]")!
+    const thrown = 200 + DISMISS_DISTANCE + 40
+    fireEvent.pointerDown(stage, { pointerId: 3, clientY: 200 })
+    fireEvent.pointerMove(stage, { pointerId: 3, clientY: thrown })
+    fireEvent.pointerUp(stage, { pointerId: 3, clientY: thrown })
+  },
+}
+
 /** `closing` still has a sheet in the DOM, so presence alone proves nothing. */
 const sheetPhase = () =>
   document.querySelector("[data-situation-phase]")?.getAttribute("data-situation-phase")
@@ -191,33 +204,35 @@ describe("a preview over the sheet", () => {
     await raise(MEDIA_SITUATION)
 
     fireEvent.click(tile("variant-a"))
-    fireEvent.click(document.querySelector("[data-media-preview] [role='dialog']")!)
+    CLOSERS["a scrim tap"]()
     expect(preview()).toBeNull()
     expect(sheetPhase()).toBe("open")
 
     fireEvent.click(tile("variant-b"))
-    const stage = document.querySelector("[data-preview-stage]")!
-    fireEvent.pointerDown(stage, { pointerId: 3, clientY: 200 })
-    fireEvent.pointerMove(stage, { pointerId: 3, clientY: 200 + DISMISS_DISTANCE + 40 })
-    fireEvent.pointerUp(stage, { pointerId: 3, clientY: 200 + DISMISS_DISTANCE + 40 })
+    CLOSERS["a drag past the threshold"]()
 
     expect(preview()).toBeNull()
     expect(sheetPhase()).toBe("open")
   })
 
-  it("hands the sheet back the same one it left: same node, same situation", async () => {
+  it("hands the sheet back the same one it left, whichever way the preview goes", async () => {
     await raise(MEDIA_SITUATION)
     const panel = sheet()
     const scrolled = scroller()
 
-    fireEvent.click(tile("variant-b"))
-    escape()
+    for (const [how, close] of Object.entries(CLOSERS)) {
+      fireEvent.click(tile("variant-b"))
+      expect(preview(), how).not.toBeNull()
 
-    // The same nodes, never rebuilt — so nothing they hold, scroll offset
-    // included, was thrown away and put back.
-    expect(sheet()).toBe(panel)
-    expect(scroller()).toBe(scrolled)
-    expect(panel?.getAttribute("data-situation-sheet")).toBe(MEDIA_SITUATION.id)
+      close()
+
+      // The same nodes, never rebuilt — so nothing they hold, scroll offset
+      // and selection included, was thrown away and put back.
+      expect(preview(), how).toBeNull()
+      expect(sheet(), how).toBe(panel)
+      expect(scroller(), how).toBe(scrolled)
+      expect(panel?.getAttribute("data-situation-sheet"), how).toBe(MEDIA_SITUATION.id)
+    }
   })
 })
 
