@@ -312,11 +312,7 @@ import {
   PAIRING_CHALLENGE_TTL_MS,
 } from "./pairing-challenge.js";
 import { markTranscriptSyncedThrough, scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
-import {
-  streamTtsSentences,
-  ttsStatus,
-  validateTtsText,
-} from "../talk/tts-stream.js";
+import { handleTalkApi } from "./talk-api.js";
 import { onboardingNeeded, applyEngineChoice } from "./onboarding-policy.js";
 import {
   CONTAINER_RESTART_UNSUPPORTED_MESSAGE,
@@ -2347,6 +2343,14 @@ export async function handleApiRequest(
     }
     if (context.workflowService && await handleWorkflowApi(req, res, { service: context.workflowService,
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok })) return;
+    if (await handleTalkApi(req, res, {
+      getConfig: context.getConfig,
+      authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok,
+      runHandoff: (session, prompt) => {
+        const engine = context.sessionManager.getEngine(session.engine);
+        if (engine) dispatchWebSessionRun(session, prompt, engine, context.getConfig(), context);
+      },
+    })) return;
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
 
     if (method === "GET" && pathname === "/api/features") {
@@ -6691,60 +6695,6 @@ export async function handleApiRequest(
         const msg = err instanceof Error ? err.message : String(err);
         return serverError(res, `Failed to update STT config: ${msg}`);
       }
-    }
-
-    // ── TTS (per-message read-aloud) ──────────────────────────
-    // GET /api/tts — engine readiness so the client can pick Kokoro vs the
-    // browser Web Speech fallback WITHOUT a failed POST. Reuses the shared Kokoro
-    // engine; gated on weights + venv present.
-    if (method === "GET" && pathname === "/api/tts") {
-      const { available, voice } = ttsStatus(context.getConfig().talk?.kokoro);
-      return json(res, { available, voice });
-    }
-
-    // POST /api/tts {text} — STREAM one length-prefixed WAV frame per sentence as
-    // each is synthesized, so the client plays sentence 1 while 2..N are still
-    // synthesizing (time-to-first-audio ≈ one sentence, not the whole message).
-    // Frame = 4-byte big-endian length + WAV bytes. 503 {available:false} when
-    // Kokoro can't run (client then falls back to browser Web Speech).
-    if (method === "POST" && pathname === "/api/tts") {
-      const kokoroOpts = context.getConfig().talk?.kokoro;
-      if (!ttsStatus(kokoroOpts).available) {
-        return json(res, { available: false }, 503);
-      }
-      const parsed = await readJsonBody(req, res);
-      if (!parsed.ok) return;
-      const valid = validateTtsText((parsed.body as { text?: unknown } | null)?.text);
-      if (!valid.ok) return badRequest(res, valid.error);
-
-      res.writeHead(200, {
-        "Content-Type": "application/octet-stream",
-        "Cache-Control": "no-store",
-        "X-Accel-Buffering": "no", // don't let a proxy buffer the stream
-      });
-      // A client abort (pause / navigate) closes the request → stop synthesizing
-      // the rest of the message instead of wasting Kokoro on audio nobody hears.
-      let cancelled = false;
-      req.on("close", () => {
-        cancelled = true;
-      });
-      try {
-        await streamTtsSentences(
-          valid.text,
-          kokoroOpts,
-          (wav) => {
-            const header = Buffer.allocUnsafe(4);
-            header.writeUInt32BE(wav.length, 0);
-            res.write(header);
-            res.write(wav);
-          },
-          () => cancelled || res.writableEnded,
-        );
-      } catch (err) {
-        logger.warn(`TTS stream failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (!res.writableEnded) res.end();
-      return;
     }
 
     // /api/files — file upload/download/management
