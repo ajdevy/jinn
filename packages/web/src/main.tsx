@@ -2,6 +2,7 @@ import { Component, Suspense, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
+import { registerTalkNavigator } from './components/talk/tools/router-handle'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
@@ -141,6 +142,10 @@ const router = createBrowserRouter([
     ],
   },
 ])
+
+// The Talk tool surface is driven by a voice transport rather than a render, so
+// it navigates through the router directly instead of a hook.
+registerTalkNavigator((path) => void router.navigate(path))
 
 function App() {
   return (

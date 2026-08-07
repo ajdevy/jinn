@@ -1,0 +1,168 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { queryClient } from "@/lib/query-client"
+import { queryKeys } from "@/lib/query-keys"
+import { clearToolTimings, lastToolTiming, TOOL_BUDGET_MS } from "../budget"
+import { alwaysOnDefinitions, TOOL_EXPOSURE, toolsWithExposure } from "../exposure"
+import { clearTalkNavigator, registerTalkNavigator } from "../router-handle"
+import { executeToolCall, findTool, TALK_TOOLS, toolDefinitions } from "../registry"
+
+vi.mock("@/lib/api", () => ({ api: {} }))
+
+const visited: string[] = []
+
+beforeEach(() => {
+  visited.length = 0
+  clearToolTimings()
+  registerTalkNavigator((path) => visited.push(path))
+  queryClient.setQueryData(queryKeys.onboarding, { todoPrefix: "ABC" })
+})
+
+afterEach(() => {
+  clearTalkNavigator()
+  queryClient.clear()
+})
+
+describe("the registered set", () => {
+  it("has no duplicate names", () => {
+    const names = TALK_TOOLS.map((tool) => tool.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it("tags every tool with an exposure", () => {
+    for (const tool of TALK_TOOLS) {
+      expect(TOOL_EXPOSURE[tool.name], tool.name).toMatch(/^(always|on-intent)$/)
+    }
+    expect(Object.keys(TOOL_EXPOSURE)).toHaveLength(TALK_TOOLS.length)
+  })
+
+  it("keeps the always-on set small enough to name", () => {
+    expect(toolsWithExposure("always").map((tool) => tool.name).sort()).toEqual([
+      "focus_element",
+      "open_chats",
+      "open_todo",
+      "open_todos",
+      "read_todo",
+    ])
+    expect(alwaysOnDefinitions()).toHaveLength(5)
+  })
+
+  it("covers all six domains with a navigate tool and the four read shapes", () => {
+    const names = new Set(TALK_TOOLS.map((tool) => tool.name))
+    for (const name of [
+      "open_todos", "open_todo", "open_workflows", "open_experiments", "open_chats", "open_org", "open_cron",
+      "read_todo", "read_session", "read_workflow_runs", "read_experiment",
+    ]) {
+      expect(names.has(name), name).toBe(true)
+    }
+  })
+
+  it("emits definitions a realtime provider can take unchanged", () => {
+    // Structurally `RealtimeTool` from packages/jinn/src/shared/types.ts: the web
+    // package cannot import it, so the shape is pinned here instead.
+    for (const definition of toolDefinitions()) {
+      expect(Object.keys(definition).sort()).toEqual(["description", "name", "parameters"])
+      expect(typeof definition.name).toBe("string")
+      expect(definition.description.length).toBeGreaterThan(10)
+      expect(definition.parameters.type).toBe("object")
+      expect(definition.parameters.additionalProperties).toBe(false)
+      for (const property of Object.values(definition.parameters.properties)) {
+        expect(property.description.length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it("declares every required argument as a real property", () => {
+    for (const tool of TALK_TOOLS) {
+      for (const key of tool.parameters.required ?? []) {
+        expect(tool.parameters.properties[key], `${tool.name}.${key}`).toBeDefined()
+      }
+    }
+  })
+})
+
+describe("the two done-when calls", () => {
+  it('lands "executing todos I started" on the operator-scoped board', async () => {
+    const result = await executeToolCall("open_todos", '{"board":"my","status":"executing"}')
+    expect(result).toEqual({ ok: true, data: { path: "/todos/b/my?status=executing" } })
+    expect(visited).toEqual(["/todos/b/my?status=executing"])
+  })
+
+  it('opens "Todo 59" from a bare number or a prefixed id', async () => {
+    await executeToolCall("open_todo", '{"id":"59"}')
+    await executeToolCall("open_todo", '{"id":"ABC-59"}')
+    expect(visited).toEqual(["/todos/ABC-59", "/todos/ABC-59"])
+  })
+
+  it("navigates before the executor's promise settles", async () => {
+    // This is what lets the transport fire on partial intent rather than waiting
+    // for the model to finish speaking.
+    const settling = executeToolCall("open_todos", '{"status":"executing"}')
+    expect(visited).toEqual(["/todos/b/my?status=executing"])
+    await settling
+  })
+
+  it("records both calls inside the budget", async () => {
+    for (const [name, args] of [["open_todos", '{"status":"executing"}'], ["open_todo", '{"id":"59"}']] as const) {
+      clearToolTimings()
+      await executeToolCall(name, args)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      const timing = lastToolTiming()
+      expect(timing?.tool).toBe(name)
+      expect(timing?.ms).toBeLessThan(TOOL_BUDGET_MS)
+    }
+  })
+
+  it("reports honestly when the app has not mounted", async () => {
+    clearTalkNavigator()
+    const result = await executeToolCall("open_todos", "{}")
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("not mounted") })
+  })
+
+  it("asks for a prefix rather than guessing one", async () => {
+    queryClient.setQueryData(queryKeys.onboarding, { todoPrefix: null })
+    const result = await executeToolCall("open_todo", '{"id":"59"}')
+    expect(result.ok).toBe(false)
+    expect(visited).toEqual([])
+  })
+})
+
+describe("bad input fails honestly, never fatally", () => {
+  it("names the unknown tool and lists what does exist", async () => {
+    const result = await executeToolCall("open_the_pod_bay_doors", "{}")
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("open_todos") })
+  })
+
+  it("reports malformed JSON arguments", async () => {
+    const result = await executeToolCall("open_todo", "{id: 59")
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("valid JSON") })
+  })
+
+  it("reports schema-violating arguments", async () => {
+    const result = await executeToolCall("open_todos", '{"status":"almost-done"}')
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("must be one of") })
+    expect(visited).toEqual([])
+  })
+
+  it("turns a throwing executor into a result instead of taking the session down", async () => {
+    const tool = findTool("focus_element")!
+    const original = tool.execute
+    tool.execute = () => { throw new Error("boom") }
+    try {
+      await expect(executeToolCall("focus_element", '{"target":"x"}')).resolves.toEqual({
+        ok: false,
+        error: expect.stringContaining("boom"),
+      })
+    } finally {
+      tool.execute = original
+    }
+  })
+})
+
+describe("the catch-all", () => {
+  it("is declared but refuses to act, and says which child enables it", async () => {
+    expect(findTool("jinn_action")).toBeDefined()
+    const result = await executeToolCall("jinn_action", '{"intent":"comment on Todo 59"}')
+    expect(result.ok).toBe(false)
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("ICI-757") })
+  })
+})

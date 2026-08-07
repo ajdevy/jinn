@@ -5,6 +5,7 @@ import { presentSituation } from "@/components/talk/talk-situation-store"
 import { TalkSurface } from "@/components/talk/talk-surface"
 import { cn } from "@/lib/utils"
 import { SITUATION_KINDS, situationFixture } from "./situation-fixtures"
+import { ToolBench } from "./tool-bench"
 
 /**
  * DEV-only bench for the Talk orb: every state on demand, a synthetic amplitude
@@ -96,6 +97,9 @@ export default function TalkOrbHarnessPage() {
     <div className="h-dvh overflow-y-auto bg-[var(--bg)] px-[var(--space-5)] py-[var(--space-6)]">
       <StatePicker state={state} onPick={setState} />
       <SituationPicker onPick={(kind) => presentSituation(situationFixture(kind))} />
+      <div className="mt-[var(--space-5)]">
+        <ToolBench />
+      </div>
       <ScrollBed />
       <TalkSurface state={state} levelRef={levelRef} />
     </div>

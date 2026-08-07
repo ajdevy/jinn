@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState, useRef, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import type { Employee, OrgData, OrgHierarchy } from "@/lib/api";
 import { EmployeeDetail } from "@/components/org/employee-detail";
@@ -22,7 +23,30 @@ export default function OrgPage() {
   const [hierarchy, setHierarchy] = useState<OrgHierarchy | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Employee | null>(null);
+  // The open employee lives in the URL so the panel is linkable and the Talk
+  // orb can open one by name. The whole Employee is still what the panel wants,
+  // so the name resolves against the loaded list.
+  const [params, setParams] = useSearchParams();
+  const selectedName = params.get("employee");
+  const selected = useMemo(
+    () => employees.find((e) => e.name === selectedName) ?? null,
+    [employees, selectedName],
+  );
+  const setSelected = useCallback(
+    (emp: Employee | null) => {
+      // Replace, not push: selecting a node never made a history entry before.
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (emp) next.set("employee", emp.name);
+          else next.delete("employee");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
   const closeRef = useRef<HTMLButtonElement>(null);
   const { settings } = useSettings();
 
@@ -68,20 +92,21 @@ export default function OrgPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selected]);
+  }, [selected, setSelected]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {
     setSelected(emp);
-  }, []);
+  }, [setSelected]);
 
   // After an inline edit: reload the org (so the map re-parents / re-layouts on
   // a reportsTo change) and refresh the open panel with the saved employee.
   const handleEmployeeUpdated = useCallback(
     (emp: Employee) => {
+      setEmployees((current) => current.map((e) => (e.name === emp.name ? emp : e)));
       loadData();
       setSelected(emp);
     },
-    [loadData],
+    [loadData, setSelected],
   );
 
   if (error) {

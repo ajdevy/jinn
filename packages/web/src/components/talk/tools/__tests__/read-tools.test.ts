@@ -1,0 +1,151 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { queryClient } from "@/lib/query-client"
+import { queryKeys } from "@/lib/query-keys"
+import { api } from "@/lib/api"
+import { executeToolCall } from "../registry"
+import { clip, trimSession, trimWorkflowRuns } from "../read-shapes"
+
+vi.mock("@/lib/api", () => ({
+  api: {
+    getWorkItem: vi.fn(),
+    getSession: vi.fn(),
+    listWorkflowRunsV2: vi.fn(),
+    getExperiment: vi.fn(),
+  },
+}))
+
+const mocked = vi.mocked(api)
+
+const TODO = {
+  workItem: {
+    id: "ABC-59", title: "Ship the orb", status: "executing", assignee: "a-lead",
+    department: "platform", parentId: null, dueAt: null, updatedAt: "2026-01-02T03:04:05Z",
+    approvalState: null, body: "  The   body.  ",
+  },
+  labels: [{ id: "l1", name: "build" }],
+  comments: { total: 7, comments: Array.from({ length: 7 }, (_, i) => ({
+    id: `c${i}`, author: `author-${i}`, createdAt: "2026-01-02T00:00:00Z", body: `comment ${i}`,
+  })) },
+}
+
+beforeEach(() => {
+  queryClient.clear()
+  vi.clearAllMocks()
+})
+
+afterEach(() => queryClient.clear())
+
+/** Seeded as the app leaves it after the operator has been sitting on a page for
+ *  a while: present, and past its staleTime. A refetch here would stall a voice
+ *  turn on the network to re-learn what the screen is already showing. */
+function warm(key: unknown[], data: unknown) {
+  queryClient.setQueryData(key, data, { updatedAt: 0 })
+}
+
+describe("a warm cache answers without touching the network", () => {
+  it("reads a Todo from the entry its own page fills", async () => {
+    warm(["work-item", "ABC-59"], TODO)
+
+    const result = await executeToolCall("read_todo", '{"id":"ABC-59"}')
+
+    expect(mocked.getWorkItem).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.data.title).toBe("Ship the orb")
+    expect(result.data.labels).toEqual(["build"])
+    expect(result.data.body).toBe("The body.")
+    // Trimmed for a voice model: the count is honest, the payload is the tail.
+    expect(result.data.commentCount).toBe(7)
+    expect(result.data.comments).toHaveLength(5)
+  })
+
+  it("reads a session, a workflow's runs, and an experiment the same way", async () => {
+    warm([...queryKeys.sessions.detail("s1")], {
+      id: "s1", title: "Orb work", employee: "a-lead", status: "running",
+      messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }],
+    })
+    warm([...queryKeys.workflows.runs("build")], {
+      items: [{
+        id: "run_1", workflowId: "build", workflowTitle: "Build", definitionRevision: 1,
+        status: "running", trigger: { nodeId: "t", kind: "manual" },
+        startedAt: "2026-01-01T00:00:00Z", endedAt: null,
+        currentOrFailingNode: { nodeId: "n", label: "Implement", employeeId: null, state: "current" },
+      }],
+      nextCursor: null,
+    })
+    warm(["experiments", "exp_1"], {
+      experiment: {
+        id: "exp_1", name: "Orb latency", hypothesis: "Faster than clicking", status: "running",
+        startedAt: "2026-01-01T00:00:00Z", horizonDays: 14, baseline: { ms: 900 },
+        metrics: [{ name: "ms", unit: "ms", howToMeasure: "instrumented" }],
+        readings: [{ id: "r1", experimentId: "exp_1", at: "2026-01-02T00:00:00Z", metric: "ms", value: 120 }],
+      },
+    })
+
+    const session = await executeToolCall("read_session", '{"id":"s1"}')
+    const runs = await executeToolCall("read_workflow_runs", '{"id":"build"}')
+    const experiment = await executeToolCall("read_experiment", '{"id":"exp_1"}')
+
+    expect(mocked.getSession).not.toHaveBeenCalled()
+    expect(mocked.listWorkflowRunsV2).not.toHaveBeenCalled()
+    expect(mocked.getExperiment).not.toHaveBeenCalled()
+    expect(session.ok && session.data.status).toBe("running")
+    expect(session.ok && session.data.messages).toEqual([
+      { role: "user", text: "hi" },
+      { role: "assistant", text: "hello" },
+    ])
+    expect(runs.ok && runs.data.runs).toEqual([{
+      runId: "run_1", status: "running", trigger: "manual",
+      startedAt: "2026-01-01T00:00:00Z", endedAt: null, node: "Implement (current)",
+    }])
+    expect(experiment.ok && experiment.data.readings).toEqual([
+      { at: "2026-01-02T00:00:00Z", metric: "ms", value: 120 },
+    ])
+  })
+})
+
+describe("a cold miss falls through and fills the cache", () => {
+  it("fetches once, then serves the second call from the cache it populated", async () => {
+    mocked.getWorkItem.mockResolvedValue(TODO as never)
+
+    const first = await executeToolCall("read_todo", '{"id":"ABC-59","comments":false}')
+    const second = await executeToolCall("read_todo", '{"id":"ABC-59"}')
+
+    expect(mocked.getWorkItem).toHaveBeenCalledTimes(1)
+    expect(first.ok && first.data.comments).toBeUndefined()
+    expect(second.ok && second.data.comments).toHaveLength(5)
+  })
+
+  it("reports a failed read rather than throwing into the caller", async () => {
+    mocked.getExperiment.mockRejectedValue(new Error("gateway is down"))
+    await expect(executeToolCall("read_experiment", '{"id":"exp_x"}')).resolves.toEqual({
+      ok: false,
+      error: expect.stringContaining("gateway is down"),
+    })
+  })
+})
+
+describe("the trimmed shapes", () => {
+  it("marks a truncation instead of hiding it", () => {
+    expect(clip("a".repeat(12), 8)).toBe(`${"a".repeat(8)}… (truncated)`)
+    expect(clip("short", 8)).toBe("short")
+    expect(clip(undefined, 8)).toBe("")
+  })
+
+  it("reads an untyped session record defensively", () => {
+    expect(trimSession({}, "s9")).toEqual({
+      id: "s9", title: null, employee: null, status: null, lastActivity: null,
+      messageCount: 0, messages: [],
+    })
+    // Older sessions carry their rows under `history` instead of `messages`.
+    expect(trimSession({ history: [{ role: "user", content: "x" }] }, "s9").messageCount).toBe(1)
+  })
+
+  it("caps a run list at the asked-for length", () => {
+    const run = {
+      id: "r", workflowId: "w", workflowTitle: "W", definitionRevision: 1, status: "completed" as const,
+      trigger: { nodeId: "t", kind: "manual" as const }, startedAt: "x", endedAt: "y", currentOrFailingNode: null,
+    }
+    expect(trimWorkflowRuns([run, run, run], 2)).toHaveLength(2)
+  })
+})
