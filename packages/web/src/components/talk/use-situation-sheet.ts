@@ -87,15 +87,21 @@ function useFocusHandover(open: boolean, panelRef: RefObject<HTMLElement | null>
   }, [open, panelRef])
 }
 
+/**
+ * `keyboardActive` is how the sheet stands down for a surface stacked over it:
+ * the page stays deactivated and focus stays handed over, but Escape and Tab
+ * belong to whatever is on top for as long as it is there.
+ */
 function useModality(
   active: boolean,
+  keyboardActive: boolean,
   panelRef: RefObject<HTMLElement | null>,
   onDismiss: () => void,
 ): void {
   usePageInert(active)
   useFocusHandover(active, panelRef)
   useEffect(() => {
-    if (!active) return
+    if (!active || !keyboardActive) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault()
@@ -106,7 +112,7 @@ function useModality(
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
-  }, [active, panelRef, onDismiss])
+  }, [active, keyboardActive, panelRef, onDismiss])
 }
 
 /**
@@ -202,6 +208,7 @@ interface SheetState {
 export function useSituationSheet(
   situation: Situation | null,
   reduce: boolean,
+  keyboardActive: boolean,
   onDismiss: () => void,
   onLayout?: (rect: SheetRect | null) => void,
 ): SheetState {
@@ -211,7 +218,7 @@ export function useSituationSheet(
   layoutRef.current = onLayout
 
   const { shown, phase } = useRetainedSituation(situation, reduce, panelRef, layoutRef)
-  useModality(shown !== null, panelRef, onDismiss)
+  useModality(shown !== null, keyboardActive, panelRef, onDismiss)
 
   return { shown, phase, panelRef }
 }

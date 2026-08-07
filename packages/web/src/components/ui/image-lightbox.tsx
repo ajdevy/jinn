@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, X, ZoomIn } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  MIN_ZOOM,
+  clampZoom,
+  midpoint,
+  panAroundPoint,
+  pointDistance,
+  type Point,
+} from "@/lib/zoom-pan"
 
 export interface ImageLightboxItem {
   id: string
   url: string
   name: string
-}
-
-interface Point {
-  x: number
-  y: number
 }
 
 type Gesture =
@@ -25,44 +28,7 @@ type Gesture =
       imageCenter: Point
     }
 
-const MIN_ZOOM = 1
-const MAX_ZOOM = 4
 const SWIPE_THRESHOLD = 88
-
-function pointDistance(first: Point, second: Point): number {
-  return Math.hypot(second.x - first.x, second.y - first.y)
-}
-
-function midpoint(first: Point, second: Point): Point {
-  return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
-}
-
-function clampZoom(zoom: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
-}
-
-function panAroundPoint({
-  startPan,
-  startZoom,
-  nextZoom,
-  startPoint,
-  nextPoint,
-  imageCenter,
-}: {
-  startPan: Point
-  startZoom: number
-  nextZoom: number
-  startPoint: Point
-  nextPoint: Point
-  imageCenter: Point
-}): Point {
-  if (nextZoom === MIN_ZOOM) return { x: 0, y: 0 }
-  const ratio = nextZoom / startZoom
-  return {
-    x: nextPoint.x - imageCenter.x - (startPoint.x - imageCenter.x - startPan.x) * ratio,
-    y: nextPoint.y - imageCenter.y - (startPoint.y - imageCenter.y - startPan.y) * ratio,
-  }
-}
 
 export function ImageLightbox({
   image,

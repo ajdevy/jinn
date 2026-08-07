@@ -1,4 +1,5 @@
 import type { Situation, SituationPayload } from "@/components/talk/situation-payload"
+import { SAMPLE_CLIP } from "./sample-clip"
 
 /**
  * One fixture per payload kind, so the bench can raise every situation the sheet
@@ -6,12 +7,14 @@ import type { Situation, SituationPayload } from "@/components/talk/situation-pa
  * network, and nothing here is anybody's real content.
  */
 
-/** A flat swatch, so an image card has something to show without a fetch. */
+/** A flat swatch, so an image card has something to show without a fetch. Big
+ *  enough to fill a full-screen preview: at thumbnail size the bench would never
+ *  show what comparing variants at full size actually looks like. */
 function swatch(label: string, fill: string): string {
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">` +
-    `<rect width="320" height="320" fill="${fill}"/>` +
-    `<text x="160" y="176" font-family="sans-serif" font-size="72" fill="#ffffff" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">` +
+    `<rect width="1024" height="1024" fill="${fill}"/>` +
+    `<text x="512" y="563" font-family="sans-serif" font-size="230" fill="#ffffff" ` +
     `text-anchor="middle" opacity="0.85">${label}</text></svg>`
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
@@ -42,8 +45,8 @@ const PAYLOADS: Record<SituationPayload["kind"], SituationPayload> = {
   video: {
     kind: "video",
     clips: [
-      { id: "cut-slow", src: "", poster: swatch("1", "#6a4a3d"), label: "Slow cut" },
-      { id: "cut-fast", src: "", poster: swatch("2", "#3d4a6a"), label: "Fast cut" },
+      { id: "cut-slow", src: SAMPLE_CLIP, poster: swatch("1", "#6a4a3d"), label: "Slow cut" },
+      { id: "cut-fast", src: SAMPLE_CLIP, poster: swatch("2", "#3d4a6a"), label: "Fast cut" },
     ],
   },
   object: {

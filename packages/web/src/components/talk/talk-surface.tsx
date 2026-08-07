@@ -1,11 +1,12 @@
-import { useCallback, useMemo, useState, type RefObject } from "react"
+import { useCallback, useEffect, useMemo, useState, type RefObject } from "react"
 import { createPortal } from "react-dom"
+import { closePreview } from "./media-preview-store"
 import type { OrbState } from "./orb-motion"
 import { readPark, type Point } from "./orb-park"
 import { breakpointOf, dockPoint, type SheetRect } from "./situation-choreography"
 import { SituationSheet } from "./situation-sheet"
 import { TalkOrb } from "./talk-orb"
-import { dismissSituation, useSituation } from "./talk-situation-store"
+import { dismissSituation, resolveSituation, useSituation } from "./talk-situation-store"
 
 /**
  * Orb plus sheet, as one surface. It is portalled to `document.body` on purpose:
@@ -24,13 +25,20 @@ export function TalkSurface({ state = "idle", levelRef, onAnswer }: TalkSurfaceP
   const situation = useSituation()
   const [sheetRect, setSheetRect] = useState<SheetRect | null>(null)
 
+  // Answering resolves rather than dismisses: a decision that was made leaves
+  // nothing behind to raise again.
   const answer = useCallback(
     (choiceId: string) => {
       if (situation) onAnswer?.(situation.id, choiceId)
-      dismissSituation()
+      resolveSituation()
     },
     [situation, onAnswer],
   )
+
+  // A preview belongs to the situation that raised it, so it goes when that does.
+  useEffect(() => {
+    if (!situation) closePreview()
+  }, [situation])
 
   // The sheet is up but unmeasured for exactly one frame; until then the orb has
   // nowhere to fly to, so it stays parked rather than guessing at a dock point.
