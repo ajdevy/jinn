@@ -401,10 +401,10 @@ export function ActivitySection({
   const qc = useQueryClient()
   const id = detail.workItem.id
   const head = commentHeadRequest(detail.comments)
+  // Unseeded: skipToken means a short thread never refetches, so a seed would freeze at first paint and outlive a delete.
   const commentsQuery = useQuery({
     queryKey: ["work-item-comments", id],
     queryFn: head ? () => api.listWorkItemComments(id, head) : skipToken,
-    initialData: head ? undefined : detail.comments,
     staleTime: 10_000,
   })
   const attachmentsQuery = useQuery({
