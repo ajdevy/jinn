@@ -15,7 +15,9 @@ interface SituationCardProps {
 /**
  * The one answering control. Every payload renderer builds its cards from this,
  * so answering is a single tap or keypress everywhere and no kind grows its own
- * confirm step. No border at rest: the fill and the hover carry the affordance.
+ * confirm step — a consent sheet's "do it" is a card like any other, not an
+ * extra step on top of one. No border at rest: the fill and the hover carry the
+ * affordance.
  */
 export function SituationCard({
   choiceId,

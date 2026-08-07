@@ -5,8 +5,10 @@
  * minted at open carries a small always-on set and the client asks for a named
  * group once it hears the matching intent.
  *
- * ICI-756 owns the full catalog and extends the groups below. What ships here is
- * the mechanism plus a read-only seed; write actions are ICI-757's.
+ * ICI-756 owns the full catalog and extends the groups below. The catalog here
+ * stays read-only: ICI-757's write tools are declared client-side in
+ * `packages/web`, and the gateway's half of them is the action log on
+ * `POST /api/talk/sessions/:id/actions`, not a declaration in this file.
  */
 import type { JsonObject, RealtimeTool } from "../../shared/types.js";
 

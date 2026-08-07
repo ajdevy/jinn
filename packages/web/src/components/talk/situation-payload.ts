@@ -41,7 +41,8 @@ export type SituationPayload =
   | { kind: "video"; clips: SituationClip[] }
   | { kind: "object"; object: JinnObjectRef }
 
-/** The envelope the sheet draws. Text lives here and nowhere else in the surface. */
+/** The envelope the sheet draws. Text lives here and in the undo strip, and
+ *  nowhere else in the surface. */
 export interface Situation {
   id: string
   title: string

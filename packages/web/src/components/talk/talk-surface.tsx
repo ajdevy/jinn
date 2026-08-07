@@ -5,18 +5,22 @@ import { readPark, type Point } from "./orb-park"
 import { breakpointOf, dockPoint, type SheetRect } from "./situation-choreography"
 import { SituationSheet } from "./situation-sheet"
 import { TalkOrb } from "./talk-orb"
-import { dismissSituation, useSituation } from "./talk-situation-store"
+import { answerSituation, dismissSituation, useSituation } from "./talk-situation-store"
+import { UndoStrip } from "./undo-strip"
 
 /**
- * Orb plus sheet, as one surface. It is portalled to `document.body` on purpose:
- * the sheet deactivates `#root` while it is open, and the orb has to stay live
- * and draggable through the whole decision, which it cannot do from inside it.
+ * Orb, sheet, and undo strip, as one surface. It is portalled to `document.body`
+ * on purpose: the sheet deactivates `#root` while it is open, and the orb has to
+ * stay live and draggable through the whole decision, which it cannot do from
+ * inside it.
  */
 
 interface TalkSurfaceProps {
   state?: OrbState
   levelRef?: RefObject<number>
-  /** What the operator picked. The situation comes down either way. */
+  /** Observes what the operator picked. The answer itself goes back through the
+   *  store, which is what settles an awaited situation — a consent gate is
+   *  reached from a tool executor, and there is no prop path from here to one. */
   onAnswer?: (situationId: string, choiceId: string) => void
 }
 
@@ -27,7 +31,7 @@ export function TalkSurface({ state = "idle", levelRef, onAnswer }: TalkSurfaceP
   const answer = useCallback(
     (choiceId: string) => {
       if (situation) onAnswer?.(situation.id, choiceId)
-      dismissSituation()
+      answerSituation(choiceId)
     },
     [situation, onAnswer],
   )
@@ -49,6 +53,7 @@ export function TalkSurface({ state = "idle", levelRef, onAnswer }: TalkSurfaceP
         onDismiss={dismissSituation}
         onLayout={setSheetRect}
       />
+      <UndoStrip />
       <TalkOrb state={state} levelRef={levelRef} dock={dock} />
     </>,
     document.body,

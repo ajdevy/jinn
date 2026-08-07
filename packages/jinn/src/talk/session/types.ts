@@ -19,6 +19,28 @@ export interface TalkTurnRecord {
   estimatedTokens: number;
 }
 
+/**
+ * One attempted write, logged whether or not it wrote anything: a write the
+ * operator waved off is the decision the audit most needs to show. The log is
+ * append-only, so "was this undone" is answered by a later entry's `undoOf`
+ * rather than by editing this one — a record you can retroactively amend is not
+ * a record.
+ */
+export interface TalkActionRecord {
+  id: string;
+  at: number;
+  /** The tool that attempted the write. */
+  tool: string;
+  /** What it acted on, as an app-visible id. Null when the tool has no subject. */
+  subject: string | null;
+  lane: "fast" | "consent";
+  /** `not-required` is the fast lane's undo-backed default; the consent lane
+   *  records the operator's actual answer. */
+  consent: "not-required" | "granted" | "refused";
+  /** Set when this entry IS the reversal of an earlier one, naming its id. */
+  undoOf?: string;
+}
+
 export interface TalkSession {
   id: string;
   /** The `sessions` row this talk session bills through, so its spend shows up
@@ -40,4 +62,6 @@ export interface TalkSession {
   exposedTools: string[];
   /** Intents already expanded, so asking twice adds nothing a second time. */
   expandedIntents: string[];
+  /** Every write this session attempted, oldest first. */
+  actions: TalkActionRecord[];
 }

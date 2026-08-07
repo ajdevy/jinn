@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
+import type { WriteOrigin } from './origin.js';
 import { appendWorkItemEvent } from './store.js';
 
 /**
@@ -39,6 +40,8 @@ export interface AddCommentInput {
   author: string;
   authorKind: WorkItemComment['authorKind'];
   parentCommentId?: string | null;
+  /** The surface the write was issued from, when the request declared one. */
+  origin?: WriteOrigin;
 }
 
 /** Who is attempting an edit/tombstone: the derived author identity (string AND
@@ -156,7 +159,7 @@ export function addComment(input: AddCommentInput): WorkItemComment {
       workItemId,
       kind: 'comment_added',
       actor: input.author,
-      detail: { commentId: comment.id },
+      detail: { commentId: comment.id, ...(input.origin ? { origin: input.origin } : {}) },
       versionEffect: 'state', // new discussion resorts activity-ordered lists
     });
     return comment;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
+import type { WriteOrigin } from './origin.js';
 import { appendWorkItemEvent } from './store.js';
 
 /**
@@ -128,7 +129,7 @@ function resolveLabel(db: ReturnType<typeof initDb>, ref: string): Label | undef
  * resulting names, only when the set actually changes. Returns the new set
  * ordered by name.
  */
-export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor: string): Label[] {
+export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor: string, origin?: WriteOrigin): Label[] {
   const db = initDb();
   const id = parseTodoId(workItemId);
   const txn = db.transaction((): Label[] => {
@@ -159,7 +160,7 @@ export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor
       workItemId: id,
       kind: 'label_changed',
       actor,
-      detail: { labels: next.map((label) => label.name) },
+      detail: { labels: next.map((label) => label.name), ...(origin ? { origin } : {}) },
       versionEffect: 'state', // re-tagging resorts activity-ordered lists
     });
     return next;

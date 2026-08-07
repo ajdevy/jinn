@@ -1,6 +1,7 @@
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { initDb } from '../shared/db.js';
 import { notifyTodoChanged } from './live-events.js';
+import type { WriteOrigin } from './origin.js';
 import {
   appendWorkItemEvent,
   effectiveMaxRounds,
@@ -280,6 +281,7 @@ export function assignWorkItem(
   assignee: string,
   department: string | null,
   actor?: string | null,
+  origin?: WriteOrigin,
 ): WorkItem | undefined {
   const db = initDb();
   const txn = db.transaction((): TransitionResult | undefined => {
@@ -309,11 +311,8 @@ export function assignWorkItem(
       detail: {
         assignee,
         department,
-        todoProvenance: todoProvenanceSnapshot({
-          source: item.source,
-          department,
-          assignee,
-        }),
+        ...(origin ? { origin } : {}),
+        todoProvenance: todoProvenanceSnapshot({ source: item.source, department, assignee }),
       },
       versionEffect: 'companion',
     });

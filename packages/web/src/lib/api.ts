@@ -5,8 +5,14 @@ import type {
   NotesListResponse,
   UpdateNoteInput,
 } from "@/routes/notes/types"
-import type { ExperimentResponse, ExperimentsResponse } from "@/routes/experiments/types"
+import type { ExperimentReading, ExperimentResponse, ExperimentsResponse } from "@/routes/experiments/types"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
+import {
+  isPositiveTodoVersion,
+  requireWorkItemEditResult,
+  type WorkItemEditRequest,
+  type WorkItemEditResultWire,
+} from "@/lib/work-item-edit-wire"
 
 export interface TranscriptContentBlock {
   type: 'text' | 'tool_use' | 'tool_result' | 'thinking'
@@ -142,11 +148,6 @@ export class TodoApiError extends ApiError {
   }
 }
 
-/** A Todo revision is authoritative only when it is a positive safe integer. */
-export function isPositiveTodoVersion(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-}
-
 async function responseError(res: Response): Promise<ApiError> {
   let message = `API error: ${res.status}`
   let code: string | undefined
@@ -173,10 +174,23 @@ async function get<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+/**
+ * The surface a write came from, when it is not this UI. The gateway allowlists
+ * the values and drops anything else, so declaring one is audit colour and never
+ * authority — it buys the caller a label on their own write, nothing more.
+ */
+export type WriteOriginWire = "talk"
+
+function writeHeaders(origin?: WriteOriginWire): Record<string, string> {
+  return origin
+    ? { "Content-Type": "application/json", "X-Jinn-Origin": origin }
+    : { "Content-Type": "application/json" };
+}
+
+async function post<T>(path: string, body?: unknown, origin?: WriteOriginWire): Promise<T> {
   const res = await authFetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: writeHeaders(origin),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw await responseError(res);
@@ -189,10 +203,10 @@ async function del<T>(path: string): Promise<T> {
   return res.json();
 }
 
-async function put<T>(path: string, body: unknown): Promise<T> {
+async function put<T>(path: string, body: unknown, origin?: WriteOriginWire): Promise<T> {
   const res = await authFetch(path, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: writeHeaders(origin),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await responseError(res);
@@ -684,53 +698,10 @@ export interface WorkItemFullWire {
   closedAt: string | null
 }
 
-export interface WorkItemEditPatch {
-  title?: string
-  body?: string
-  assignee?: string | null
-  department?: string | null
-  priority?: number
-  rank?: number
-  /** Todos v2 slice 4 (optional: older gateways reject unknown fields). */
-  acceptance?: string | null
-  dueAt?: string | null
-  /** Todos v2 slice 6 — the rail's verify picker (operator-only; null clears
-   *  to the provenance default). Older gateways reject the field. */
-  verifyPolicy?: VerifyPolicyWire | null
-}
-
-export interface WorkItemEditRequest {
-  patch: WorkItemEditPatch
-  expectedVersion: number
-  idempotencyKey: string
-}
-
-export interface VersionedWorkItemFullWire extends WorkItemFullWire {
-  version: number
-}
-
-export interface WorkItemEditResultWire {
-  workItem: VersionedWorkItemFullWire
-  replayed: boolean
-}
-
-function requireWorkItemEditResult(value: unknown): WorkItemEditResultWire {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !("workItem" in value)
-    || typeof value.workItem !== "object"
-    || value.workItem === null
-    || !("version" in value.workItem)
-    || !isPositiveTodoVersion(value.workItem.version)
-  ) {
-    throw new Error("Todo edit response has an invalid authoritative version")
-  }
-  if (!("replayed" in value) || typeof value.replayed !== "boolean") {
-    throw new Error("Todo edit response has invalid replay metadata")
-  }
-  return value as WorkItemEditResultWire
-}
+/** The version-fenced edit lane's shapes and version rule live in
+ *  work-item-edit-wire.ts; re-exported so the client surface stays one import. */
+export { isPositiveTodoVersion } from "./work-item-edit-wire"
+export type { VersionedWorkItemFullWire, WorkItemEditPatch, WorkItemEditRequest, WorkItemEditResultWire } from "./work-item-edit-wire"
 
 export interface WorkItemEventWire {
   id: string
@@ -886,6 +857,10 @@ export const api = {
     get<ExperimentsResponse>(`/api/experiments${status ? `?status=${status}` : ""}`),
   getExperiment: (id: string) =>
     get<ExperimentResponse>(`/api/experiments/${encodeURIComponent(id)}`),
+  /** Append one measurement. There is no delete route: a reading is a permanent
+   *  point on a series, which is why nothing offers to take one back. */
+  recordExperimentReading: (id: string, input: { at: string; metric: string; value: number; note?: string }) =>
+    post<{ reading: ExperimentReading }>(`/api/experiments/${encodeURIComponent(id)}/readings`, input),
   getFeatures: () => get<{ notesEnabled: boolean; staleChat: StaleChatPolicy }>("/api/features"),
   getStatus: () => get<Record<string, unknown>>("/api/status"),
   listWorkflowDefinitionsV2: () =>
@@ -1159,10 +1134,11 @@ export const api = {
     }
   },
   /** Guarded status transition (legal edges only — the gateway owns legality). */
-  setWorkItemStatus: (id: string, status: WorkItemStatusWire, note?: string) =>
+  setWorkItemStatus: (id: string, status: WorkItemStatusWire, note?: string, origin?: WriteOriginWire) =>
     put<{ workItem: WorkItemFullWire; escalated: boolean }>(
       `/api/work-items/${encodeURIComponent(id)}/status`,
       note ? { status, note } : { status },
+      origin,
     ),
   /** GRS-021c: create a Todo (the "+ New Todo" affordance). The operator caller
    *  mints a `human`-source item; approvals structurally cannot be attached here. */
@@ -1177,11 +1153,14 @@ export const api = {
     dueAt?: string
     acceptance?: string
     labels?: string[]
-  }) =>
-    post<{ workItem: WorkItemFullWire }>("/api/work-items", input),
+  }, origin?: WriteOriginWire) =>
+    post<{ workItem: WorkItemFullWire }>("/api/work-items", input, origin),
   /** Todos v2 slice 6: roster-validated assignment (backlog → assigned). */
-  assignWorkItem: (id: string, assignee: string) =>
-    post<{ workItem: WorkItemFullWire }>(`/api/work-items/${encodeURIComponent(id)}/assign`, { assignee }),
+  assignWorkItem: (id: string, assignee: string, origin?: WriteOriginWire) =>
+    post<{ workItem: WorkItemFullWire }>(`/api/work-items/${encodeURIComponent(id)}/assign`, { assignee }, origin),
+  /** Non-deleting archive: the row and its audit survive as `cancelled`. */
+  archiveWorkItem: (id: string) =>
+    post<{ workItem: WorkItemFullWire }>(`/api/work-items/${encodeURIComponent(id)}/archive`, {}),
   /** Todos v2 slice 6: the board's lazy tree expansion (roll-ups + spend). */
   getWorkItemTree: (id: string, signal?: AbortSignal) =>
     get<{ tree: WorkItemTreeWire }>(`/api/work-items/${encodeURIComponent(id)}/tree`, signal ? { signal } : undefined),
@@ -1234,10 +1213,11 @@ export const api = {
   },
   /** Add a comment (or a single-level reply via parentCommentId). Author
    *  identity is stamped server-side from the operator surface. */
-  addWorkItemComment: (id: string, body: string, parentCommentId?: string) =>
+  addWorkItemComment: (id: string, body: string, parentCommentId?: string, origin?: WriteOriginWire) =>
     post<{ comment: WorkItemCommentWire }>(
       `/api/work-items/${encodeURIComponent(id)}/comments`,
       parentCommentId ? { body, parentCommentId } : { body },
+      origin,
     ),
   editWorkItemComment: (id: string, commentId: string, body: string) =>
     patch<{ comment: WorkItemCommentWire }>(
@@ -1281,8 +1261,8 @@ export const api = {
     return res.json()
   },
   /** Replace a Todo's label set (ids or names; nothing created implicitly). */
-  setWorkItemLabels: (id: string, labels: string[]) =>
-    put<{ labels: WorkItemLabelWire[] }>(`/api/work-items/${encodeURIComponent(id)}/labels`, { labels }),
+  setWorkItemLabels: (id: string, labels: string[], origin?: WriteOriginWire) =>
+    put<{ labels: WorkItemLabelWire[] }>(`/api/work-items/${encodeURIComponent(id)}/labels`, { labels }, origin),
   uploadFile: async (file: File, sessionId?: string): Promise<UploadedFile> => {
     const form = new FormData()
     form.append('file', file)
