@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 /** One inspected thing. Only Todos exist today; carrying the kind is what lets
  *  an employee or file mention join the same stack later without a rebuild. */
@@ -24,15 +24,27 @@ const PeekStackContext = createContext<PeekStack | null>(null)
 export function PeekProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<PeekEntry[]>([])
   const openerRef = useRef<HTMLElement | null>(null)
+  const restoreRef = useRef<HTMLElement | null>(null)
 
   const close = useCallback(() => {
-    setEntries([])
-    const opener = openerRef.current
+    restoreRef.current = openerRef.current
     openerRef.current = null
+    setEntries([])
+  }, [])
+
+  // Focus cannot land inside an inert subtree, and the sheet inerts the app root
+  // for as long as it is open. Restoring here rather than inside close() puts the
+  // focus call in the commit after the panel unmounted: React runs every effect
+  // cleanup before any effect body, so the panel has already lifted the inert by
+  // the time this provider — its parent — runs.
+  useEffect(() => {
+    if (entries.length > 0) return
+    const opener = restoreRef.current
+    restoreRef.current = null
     // preventScroll: the mention sits mid-transcript, and the thread has to look
     // exactly as it did before the panel opened.
     if (opener?.isConnected) opener.focus({ preventScroll: true })
-  }, [])
+  }, [entries.length])
 
   const open = useCallback((entry: PeekEntry, opener: HTMLElement | null) => {
     if (entries.length === 0) openerRef.current = opener

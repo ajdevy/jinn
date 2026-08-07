@@ -154,12 +154,13 @@ export function PeekPanel() {
 
   return createPortal(
     <div className="fixed inset-0 z-[100]">
-      <button
-        type="button"
-        aria-label="Close preview"
-        tabIndex={-1}
+      {/* Tap-outside is a pointer shortcut for the header's Close button, not a
+        * second control: naming it would put two "Close preview" buttons in the
+        * tree, and the keyboard already has Escape and that button. */}
+      <div
+        aria-hidden
         data-testid="peek-scrim"
-        className="absolute inset-0 cursor-default border-none bg-[var(--scrim)] p-0"
+        className="absolute inset-0 bg-[var(--scrim)]"
         onClick={stack.close}
       />
       <aside ref={setPanel} role="dialog" aria-modal="true" aria-label={`Preview of ${entry.id}`} data-testid="peek-sheet" className={SHEET}>

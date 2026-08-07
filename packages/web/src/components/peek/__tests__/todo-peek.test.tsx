@@ -3,12 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GatewayEvent, GatewayEventListener } from "@jinn/gateway-events"
-import type { WorkItemDetailWire, WorkItemEventWire } from "@/lib/api"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { TodoMention } from "@/components/todo-mention"
 import { useQueryInvalidation } from "@/hooks/use-query-invalidation"
 import { PeekPanel } from "../peek-panel"
 import { PeekProvider } from "../peek-stack"
+import { BODY, detailOf } from "./peek-fixtures"
 
 const getWorkItem = vi.fn()
 const getWorkItems = vi.fn()
@@ -39,63 +39,9 @@ vi.mock("@/hooks/use-gateway", () => ({
   }),
 }))
 
-/** Five distinct whispers, oldest first — the order the gateway sends. */
-const EVENTS: WorkItemEventWire[] = [
-  ["created", "created this todo"],
-  ["label_changed", "changed the labels"],
-  ["relation_added", "linked a related todo"],
-  ["session_linked", "linked a session"],
-  ["attachment_removed", "removed an attachment"],
-].map(([kind], index) => ({
-  id: `e${index + 1}`,
-  workItemId: "ICI-1",
-  kind,
-  fromStatus: null,
-  toStatus: null,
-  actor: "a-lead",
-  detail: null,
-  createdAt: `2026-08-0${index + 1}T00:00:00.000Z`,
-}))
-
-const BODY = "A body long enough to want clamping across three lines."
-
-function detailOf(id: string, overrides: Partial<WorkItemDetailWire["workItem"]> = {}): WorkItemDetailWire {
-  return {
-    workItem: {
-      id,
-      title: `Title of ${id}`,
-      body: BODY,
-      status: "executing",
-      department: null,
-      assignee: "a-lead",
-      priority: 3,
-      rank: null,
-      source: "human",
-      sourceRef: null,
-      acceptance: null,
-      verifyPolicy: null,
-      rounds: 0,
-      budgetUsd: null,
-      approvalState: null,
-      approvalRequest: null,
-      approvalRef: null,
-      approvalTarget: null,
-      approvalEscalatedAt: null,
-      approvalDecidedBy: null,
-      approvalDecidedAt: null,
-      // Only ICI-1 has a parent, so following it does not loop back on itself.
-      parentId: id === "ICI-1" ? "ICI-9" : null,
-      createdAt: "2026-08-01T00:00:00.000Z",
-      updatedAt: "2026-08-05T00:00:00.000Z",
-      closedAt: null,
-      ...overrides,
-    },
-    spendUsd: 0,
-    events: EVENTS,
-  }
-}
-
-function renderChat() {
+/** `intoAppRoot` mounts under the #root the sheet inerts, which is the only way
+ *  the inert-versus-focus ordering is observable from a test. */
+function renderChat({ intoAppRoot = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   function Harness() {
     useQueryInvalidation()
@@ -106,6 +52,12 @@ function renderChat() {
       </PeekProvider>
     )
   }
+  let container: HTMLElement | undefined
+  if (intoAppRoot) {
+    container = document.createElement("div")
+    container.id = "root"
+    document.body.appendChild(container)
+  }
   return render(
     <MemoryRouter initialEntries={["/chat"]}>
       <QueryClientProvider client={client}>
@@ -114,7 +66,15 @@ function renderChat() {
         </TodoPrefixContext.Provider>
       </QueryClientProvider>
     </MemoryRouter>,
+    container ? { container } : undefined,
   )
+}
+
+function atSheetBreakpoint() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn(() => ({ matches: true, media: "", addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  })
 }
 
 /** Click the mention the way a person does, then let the detail query land. */
@@ -138,6 +98,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   Object.defineProperty(window, "matchMedia", { configurable: true, value: realMatchMedia })
+  document.getElementById("root")?.remove()
 })
 
 describe("peek panel contents", () => {
@@ -276,20 +237,50 @@ describe("peek panel container", () => {
   })
 
   it("mounts the sheet and its scrim alone below 640px", async () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: true, media: "", addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    })
+    atSheetBreakpoint()
     renderChat()
     await openPanel()
 
     expect(screen.getByTestId("peek-sheet")).toBeTruthy()
     expect(screen.queryByTestId("peek-rail")).toBeNull()
-    // The scrim carries the same accessible name, so the sheet has exactly the
-    // one visible close control plus its tap-outside surface.
-    expect(screen.getAllByRole("button", { name: "Close preview" })).toHaveLength(2)
+    // The scrim is an unnamed tap-outside surface, so the sheet exposes exactly
+    // one control called "Close preview" — the same count the rail exposes.
+    expect(screen.getAllByRole("button", { name: "Close preview" })).toHaveLength(1)
 
     fireEvent.click(screen.getByTestId("peek-scrim"))
     await waitFor(() => expect(screen.queryByTestId("peek-todo")).toBeNull())
+  })
+})
+
+describe("peek sheet focus restoration", () => {
+  /** jsdom does not enforce inert, so asserting activeElement here would pass
+   *  either way. What is observable — and what the browser actually punishes —
+   *  is the ordering: the opener must not be focused while #root is still inert. */
+  async function inertAtFocusTime(dismiss: () => void): Promise<boolean> {
+    atSheetBreakpoint()
+    renderChat({ intoAppRoot: true })
+    const mention = screen.getByRole("link", { name: "ICI-1" })
+    await openPanel()
+
+    let inertWhenFocused: boolean | undefined
+    const realFocus = mention.focus.bind(mention)
+    mention.focus = (options?: FocusOptions) => {
+      inertWhenFocused = Boolean(document.getElementById("root")?.inert)
+      realFocus(options)
+    }
+
+    dismiss()
+    await waitFor(() => expect(screen.queryByTestId("peek-todo")).toBeNull())
+    expect(inertWhenFocused, "the opener was never focused at all").toBeDefined()
+    expect(document.activeElement).toBe(mention)
+    return inertWhenFocused as boolean
+  }
+
+  it("lifts the inert app root before Escape hands focus back", async () => {
+    expect(await inertAtFocusTime(() => fireEvent.keyDown(document, { key: "Escape" }))).toBe(false)
+  })
+
+  it("lifts the inert app root before a scrim tap hands focus back", async () => {
+    expect(await inertAtFocusTime(() => fireEvent.click(screen.getByTestId("peek-scrim")))).toBe(false)
   })
 })
