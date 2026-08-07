@@ -1,16 +1,20 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ApiError, type WorkItemStatusWire } from "@/lib/api"
+import { ApiError } from "@/lib/api"
 import { legalTargets } from "@/lib/legal-targets"
 import { STATUS_LABEL } from "@/lib/todos"
 import { TODO_WRITE_KEY } from "@/lib/query-keys"
-import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
-import { TodoMention } from "@/components/todo-mention"
-import { PeekPanel } from "../peek-panel"
-import { PeekProvider } from "../peek-stack"
 import { detailOf } from "./peek-fixtures"
+import {
+  assigneeRowText,
+  atSheetBreakpoint,
+  openPanel,
+  openPicker,
+  renderChat,
+  restoreBreakpoint,
+  statusRowText,
+  treeOf,
+} from "./peek-actions-harness"
 
 /* ICI-743 — the peek rail's quick actions. The pickers are the task page's, so
  * what is proved here is the wiring: one write per choice, the row moving before
@@ -23,7 +27,6 @@ const getWorkItemTree = vi.fn()
 const setWorkItemStatus = vi.fn()
 const assignWorkItem = vi.fn()
 const updateWorkItem = vi.fn()
-const realMatchMedia = window.matchMedia
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
@@ -53,71 +56,6 @@ vi.mock("@/hooks/use-gateway", () => ({
   useGateway: () => ({ connectionSeq: 1, subscribe: () => () => {} }),
 }))
 
-let client: QueryClient
-
-function renderChat() {
-  client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-  return render(
-    <MemoryRouter initialEntries={["/chat"]}>
-      <QueryClientProvider client={client}>
-        <TodoPrefixContext.Provider value={new Set(["ICI"])}>
-          <PeekProvider>
-            <TodoMention id="ICI-1" />
-            <PeekPanel />
-          </PeekProvider>
-        </TodoPrefixContext.Provider>
-      </QueryClientProvider>
-    </MemoryRouter>,
-  )
-}
-
-function atSheetBreakpoint() {
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn(() => ({ matches: true, media: "", addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-  })
-}
-
-async function openPanel() {
-  fireEvent.click(screen.getByRole("link", { name: "ICI-1" }))
-  await screen.findByTestId("peek-todo")
-}
-
-/** Open a property's picker and wait for its rows to be there to click. */
-async function openPicker(property: "status" | "assignee") {
-  fireEvent.click(screen.getByTestId(`peek-row-${property}`))
-  await screen.findByTestId(
-    property === "status" ? "status-option-done" : "assignee-option-unassign",
-  )
-}
-
-function statusRowText(): string {
-  return screen.getByTestId("peek-prop-status").textContent ?? ""
-}
-
-function assigneeRowText(): string {
-  return screen.getByTestId("peek-prop-assignee").textContent ?? ""
-}
-
-/** The tree behind the close gate: `openKids` children still in flight. */
-function treeOf(openKids: number) {
-  return {
-    tree: {
-      root: {
-        ...detailOf("ICI-1").workItem,
-        children: [
-          ...Array.from({ length: openKids }, (_, i) => ({ ...detailOf(`ICI-2${i}`).workItem, children: [] })),
-          { ...detailOf("ICI-30").workItem, status: "done" as WorkItemStatusWire, children: [] },
-        ],
-      },
-      totals: {},
-      spendUsd: 0,
-    },
-  }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   getWorkItem.mockImplementation((id: string) => Promise.resolve(detailOf(id)))
@@ -129,9 +67,7 @@ beforeEach(() => {
   updateWorkItem.mockResolvedValue({ workItem: { ...detailOf("ICI-1").workItem, version: 5, assignee: null }, replayed: false })
 })
 
-afterEach(() => {
-  Object.defineProperty(window, "matchMedia", { configurable: true, value: realMatchMedia })
-})
+afterEach(restoreBreakpoint)
 
 describe("peek status quick action", () => {
   it("writes the chosen transition once and moves the row before the gateway answers", async () => {
@@ -161,14 +97,12 @@ describe("peek status quick action", () => {
 
     const offered = legalTargets("in_review", { openChildren: 0 })
       .filter((target) => target.status !== "in_review")
-      .map((target) => target.status)
-    for (const status of offered) {
-      expect(screen.getByTestId(`status-option-${status}`)).toBeTruthy()
-    }
-    // Everything else is absent — the current value's own row aside, which is
-    // the checked "you are here" row rather than a target.
+      .map((target) => `status-option-${target.status}`)
     const rendered = screen.getAllByRole("menuitem").map((row) => row.getAttribute("data-testid"))
-    expect(rendered.sort()).toEqual(["status-option-in_review", ...offered.map((s) => `status-option-${s}`)].sort())
+    expect(rendered.sort()).toEqual([...offered].sort())
+    // Including the current value: the rail's menu is moves, and staying put is
+    // not one of them.
+    expect(screen.queryByTestId("status-option-in_review")).toBeNull()
   })
 
   it("keeps a close-gated target visible but disabled, with the gateway's reason", async () => {
@@ -183,6 +117,18 @@ describe("peek status quick action", () => {
 
     fireEvent.click(done)
     expect(setWorkItemStatus).not.toHaveBeenCalled()
+  })
+
+  it("says the sub-task read failed rather than counting the children as none", async () => {
+    getWorkItemTree.mockRejectedValue(new ApiError(503, "the tree is unavailable"))
+    renderChat()
+    await openPanel()
+    fireEvent.click(screen.getByTestId("peek-row-status"))
+
+    expect(await screen.findByText(/sub-tasks could not be read/)).toBeTruthy()
+    // Not even the ungated moves: a close the gateway would refuse must not be
+    // offered as though the check had come back clean.
+    expect(screen.queryByTestId("status-option-done")).toBeNull()
   })
 
   it("returns the row to its previous status and says why the gateway refused", async () => {
@@ -205,7 +151,7 @@ describe("peek assignee quick action", () => {
   it("assigns through the roster-validated route and shows the new name at once", async () => {
     let resolveWrite!: (value: unknown) => void
     assignWorkItem.mockImplementation(() => new Promise((resolve) => { resolveWrite = resolve }))
-    renderChat()
+    const client = renderChat()
     await openPanel()
     await openPicker("assignee")
 
@@ -224,7 +170,7 @@ describe("peek assignee quick action", () => {
   it("unassigns through the conditional edit lane, carrying the item's version", async () => {
     let resolveWrite!: (value: unknown) => void
     updateWorkItem.mockImplementation(() => new Promise((resolve) => { resolveWrite = resolve }))
-    renderChat()
+    const client = renderChat()
     await openPanel()
     await openPicker("assignee")
 
@@ -269,7 +215,9 @@ describe("peek pickers on the phone", () => {
     expect(peekLayer?.className).toContain("z-[100]")
     expect(picker.parentElement?.className).toContain("z-[120]")
 
-    fireEvent.keyDown(picker, { key: "Escape" })
+    // From outside the picker's own subtree, which is where the key actually
+    // arrives: the sheet pulls no focus, so nothing inside it is the target.
+    fireEvent.keyDown(document.body, { key: "Escape" })
 
     await waitFor(() => expect(screen.queryByTestId("peek-picker-sheet-status")).toBeNull())
     expect(screen.getByTestId("peek-sheet")).toBeTruthy()

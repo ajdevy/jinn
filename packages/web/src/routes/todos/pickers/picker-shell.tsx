@@ -25,16 +25,26 @@ const ROW_H = 36
  *  Enter, which each row enforces via aria-disabled); Esc closes and returns
  *  focus to the anchor row. */
 function usePickerKeyboard(containerRef: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
+  // Esc is heard on the document, in capture, rather than on the picker: the
+  // sheet shell takes no focus of its own, so on the phone the key never enters
+  // the picker's subtree and a container listener never fires. Capture also puts
+  // the picker ahead of whatever surface it was opened from, so the innermost
+  // thing on screen is the one Escape closes.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    document.addEventListener("keydown", onKey, true)
+    return () => document.removeEventListener("keydown", onKey, true)
+  }, [onClose])
+
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-        return
-      }
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
       const rows = [...container.querySelectorAll<HTMLElement>("[data-picker-row]")]
       if (rows.length === 0) return

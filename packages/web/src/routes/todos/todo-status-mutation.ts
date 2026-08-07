@@ -3,6 +3,7 @@ import { api, type WorkItemStatusWire } from "@/lib/api"
 import { TODO_WRITE_KEY } from "@/lib/query-keys"
 import { TODO_CACHE_ROOTS, refetchTodoPreview } from "@/lib/todo-caches"
 import { isPositiveTodoVersion } from "@/lib/todos"
+import { mergeTodoIntoCaches } from "./todo-edit-request"
 
 type UnknownRecord = Record<string, unknown>
 
@@ -106,6 +107,8 @@ export interface TodoStatusMutationArgs {
 
 type TodoStatusMutationFn = (variables: TodoStatusMutationArgs) => ReturnType<typeof api.setWorkItemStatus>
 
+type TodoStatusMutationResult = Awaited<ReturnType<TodoStatusMutationFn>>
+
 function snapshotTodoCaches(queryClient: QueryClient, id: string): TodoCacheSnapshot {
   const entries: TodoCacheSnapshot["entries"] = []
   for (const root of TODO_CACHE_ROOTS) {
@@ -151,6 +154,13 @@ export function todoStatusMutationOptions(queryClient: QueryClient, mutationFn: 
       const snapshot = snapshotTodoCaches(queryClient, id)
       patchTodoStatusIntoCaches(queryClient, id, status)
       return snapshot
+    },
+    onSuccess: (data: TodoStatusMutationResult) => {
+      // Bank the confirmed revision. Without it a second write of the same move
+      // leaves the caches on the pre-write version, and the version fence in
+      // rollbackTodoStatus has nothing to weigh the first write's stale snapshot
+      // against when that one later fails.
+      mergeTodoIntoCaches(queryClient, data.workItem)
     },
     onError: (_error: unknown, variables: TodoStatusMutationArgs, snapshot: TodoCacheSnapshot | undefined) => {
       if (snapshot) restoreTodoCaches(queryClient, snapshot, variables.id, variables.status)

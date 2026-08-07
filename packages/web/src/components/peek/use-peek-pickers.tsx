@@ -11,7 +11,8 @@ import {
 import { TODO_WRITE_KEY } from '@/lib/query-keys'
 import { operatorSafeTodoError } from '@/lib/todos'
 import { PickerNote, PickerPopover, PickerSheet } from '@/routes/todos/pickers/picker-shell'
-import { AssigneePickerContent, StatusPickerContent } from '@/routes/todos/pickers/picker-contents'
+import { AssigneePickerContent } from '@/routes/todos/pickers/picker-contents'
+import { StatusPickerContent } from '@/routes/todos/pickers/status-picker-content'
 import {
   invalidateTodoCaches,
   mergeTodoIntoCaches,
@@ -21,11 +22,12 @@ import {
 import { useSetWorkItemStatus } from '@/routes/todos/use-todos'
 
 /* The peek rail's two quick actions. The shells and the picker contents are the
- * task page's, unchanged — one picker grammar for the whole app. What lives here
- * is only what the peek does differently: one picker at a time out of two rather
- * than seven, no live region to announce into (the panel shows the refusal
- * inline), and the child count the close gate needs fetched on demand, because
- * the peek's detail payload does not carry one. */
+ * task page's — one picker grammar for the whole app. What lives here is only
+ * what the peek does differently: one picker at a time out of two rather than
+ * seven, no live region to announce into (the panel shows the refusal inline),
+ * a status menu of moves only because this popover covers no anchor row to
+ * superimpose, and the child count the close gate needs fetched on demand,
+ * because the peek's detail payload does not carry one. */
 
 export type PeekPickerKey = 'status' | 'assignee'
 
@@ -55,7 +57,10 @@ function useRefusal() {
 type Refusal = ReturnType<typeof useRefusal>
 
 /** The close gate's pre-check: legalTargets() needs the open-child count or it
- *  offers a Done the gateway will refuse. Asked for only while it is needed. */
+ *  offers a Done the gateway will refuse. Asked for only while it is needed, and
+ *  a failed read is reported rather than counted as zero — defaulting to zero
+ *  would enable a close the gateway is about to refuse and blame the write for
+ *  a read that never landed. */
 function useOpenChildren(id: string | undefined, active: boolean) {
   const tree = useQuery({
     queryKey: ['work-item-tree', id ?? ''],
@@ -65,7 +70,7 @@ function useOpenChildren(id: string | undefined, active: boolean) {
   })
   const count = (tree.data?.tree.root.children ?? [])
     .filter((child) => child.status !== 'done' && child.status !== 'cancelled').length
-  return { count, pending: tree.isPending }
+  return { count, pending: tree.isPending, failed: tree.isError }
 }
 
 function useStatusLane(id: string | undefined, refusal: Refusal) {
@@ -149,7 +154,7 @@ function usePickerContent({ detail, employees, close, children, transitionTo, co
   detail: WorkItemDetailWire | undefined
   employees: Employee[]
   close: () => void
-  children: { count: number; pending: boolean }
+  children: { count: number; pending: boolean; failed: boolean }
   transitionTo: (status: WorkItemStatusWire) => void
   commitAssignee: (assignee: string | null) => void
 }) {
@@ -159,10 +164,20 @@ function usePickerContent({ detail, employees, close, children, transitionTo, co
     if (key === 'assignee') {
       return <AssigneePickerContent {...shared} employees={employees} commit={commitAssignee} />
     }
+    if (children.failed) {
+      return (
+        <PickerNote>
+          This Todo's sub-tasks could not be read, so its moves cannot be checked against the close
+          gate. Close the picker to try again, or open the Todo full to move it.
+        </PickerNote>
+      )
+    }
     // Rows wait for the count rather than offering a Done that may not be legal.
     if (children.pending) return <PickerNote>Checking sub-tasks…</PickerNote>
-    return <StatusPickerContent {...shared} openChildren={children.count} commit={transitionTo} />
-  }, [detail, close, employees, commitAssignee, children.pending, children.count, transitionTo])
+    return (
+      <StatusPickerContent {...shared} openChildren={children.count} commit={transitionTo} showCurrent={false} />
+    )
+  }, [detail, close, employees, commitAssignee, children.pending, children.failed, children.count, transitionTo])
 }
 
 export function usePeekPickers({ detail, employees, sheet, onOpenChange }: {

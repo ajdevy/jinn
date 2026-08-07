@@ -107,10 +107,11 @@ describe("Todo status mutation caches", () => {
   })
 
   /** Two rapid writes of the same move — a re-fired commit. The second one is
-   *  confirmed (the gateway's company:changed merges the row at version 5) while
-   *  the first is still in flight; when the first then fails, its rollback is
-   *  holding a version-4 snapshot of a value the Todo has genuinely left behind.
-   *  Only the version fence in rollbackTodoStatus keeps the confirmed value. */
+   *  confirmed at version 5 while the first is still in flight; when the first
+   *  then fails, its rollback is holding a version-4 snapshot of a value the
+   *  Todo has genuinely left behind. Banking the second response is what gives
+   *  the version fence in rollbackTodoStatus something to weigh, and the fence
+   *  is what keeps the confirmed value. Nothing here is staged by hand. */
   it("does not resurrect the pre-write status when a re-fired write is confirmed first", async () => {
     let rejectFirst!: (error: Error) => void
     setWorkItemStatus
@@ -121,7 +122,7 @@ describe("Todo status mutation caches", () => {
     act(() => mutation.current.mutate({ id: "PLA-3", status: "in_review" }))
     act(() => mutation.current.mutate({ id: "PLA-3", status: "in_review" }))
     await waitFor(() => expect(setWorkItemStatus).toHaveBeenCalledTimes(2))
-    act(() => mergeTodoIntoCaches(client, { id: "PLA-3", version: 5, status: "in_review" }))
+    await waitFor(() => expect(detailVersion(client)).toBe(5))
 
     act(() => rejectFirst(new Error("conflict")))
     await waitFor(() => expect(mutation.current.isSuccess).toBe(true))
