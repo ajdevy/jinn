@@ -57,14 +57,17 @@ function clampX(x: number, viewport: Viewport): number {
 }
 
 /**
- * The centre the orb flies to. On desktop it sits just outside the sheet's near
- * edge — the side it was parked on, so the sheet rises next to the orb instead
- * of dragging it across the screen — at the sheet's vertical centre. A phone has
- * no room beside a full-width sheet, so the orb straddles the top edge on the
- * right, inside the gutter the header reserves for it.
+ * The centre the orb flies to. On desktop it sits just outside the sheet's right
+ * edge at the sheet's vertical centre — the same shoulder whichever corner the
+ * orb was parked in, which is also the corner the sheet scales out of. A phone
+ * has no room beside a full-width sheet, so the orb straddles the top edge on
+ * the right, inside the gutter the header reserves for it.
+ *
+ * `_corner` is where the orb flies from rather than a term in the answer: the
+ * dock is the sheet's, so every park corner resolves to the same point.
  */
 export function dockPoint(
-  corner: ParkCorner,
+  _corner: ParkCorner,
   sheet: SheetRect,
   viewport: Viewport,
   breakpoint: Breakpoint,
@@ -73,11 +76,10 @@ export function dockPoint(
   if (breakpoint === "mobile") {
     return { x: clampX(right - ORB_EDGE_GAP - ORB_SIZE / 2, viewport), y: sheet.top }
   }
-  const parkedLeft = corner === "top-left" || corner === "bottom-left"
-  const beside = parkedLeft
-    ? sheet.left - ORB_EDGE_GAP - ORB_SIZE / 2
-    : right + ORB_EDGE_GAP + ORB_SIZE / 2
-  return { x: clampX(beside, viewport), y: sheet.top + sheet.height / 2 }
+  return {
+    x: clampX(right + ORB_EDGE_GAP + ORB_SIZE / 2, viewport),
+    y: sheet.top + sheet.height / 2,
+  }
 }
 
 /** The same two points either way round, so closing retraces opening. */

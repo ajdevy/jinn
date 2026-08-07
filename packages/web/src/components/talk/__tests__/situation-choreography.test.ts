@@ -4,6 +4,7 @@ import {
   DOCK_EASE,
   MOBILE_TITLE_GUTTER,
   OPEN_MS,
+  ORB_EDGE_GAP,
   ORB_SIZE,
   breakpointOf,
   dockPath,
@@ -35,19 +36,11 @@ describe("breakpointOf", () => {
 })
 
 describe("dockPoint", () => {
-  it("docks to the sheet's right edge at its vertical centre on desktop", () => {
-    for (const corner of ["top-right", "bottom-right"] as ParkCorner[]) {
+  it("docks to the sheet's right edge at its vertical centre on desktop, from every corner", () => {
+    for (const corner of CORNERS) {
       const dock = dockPoint(corner, DESKTOP_SHEET, DESKTOP_VIEWPORT, "desktop")
       expect(dock.y).toBe(DESKTOP_SHEET.top + DESKTOP_SHEET.height / 2)
-      expect(dock.x).toBeGreaterThan(DESKTOP_SHEET.left + DESKTOP_SHEET.width)
-    }
-  })
-
-  it("mirrors to the sheet's left edge when the orb is parked on the left", () => {
-    for (const corner of ["top-left", "bottom-left"] as ParkCorner[]) {
-      const dock = dockPoint(corner, DESKTOP_SHEET, DESKTOP_VIEWPORT, "desktop")
-      expect(dock.y).toBe(DESKTOP_SHEET.top + DESKTOP_SHEET.height / 2)
-      expect(dock.x).toBeLessThan(DESKTOP_SHEET.left)
+      expect(dock.x).toBe(DESKTOP_SHEET.left + DESKTOP_SHEET.width + ORB_EDGE_GAP + ORB_SIZE / 2)
     }
   })
 

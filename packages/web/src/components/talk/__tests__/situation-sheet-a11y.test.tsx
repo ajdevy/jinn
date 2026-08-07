@@ -79,6 +79,18 @@ describe("modality", () => {
     }
   })
 
+  it("wraps backwards from the dialog it opens on, instead of stepping onto the page", async () => {
+    const pageButton = mountPage()
+    renderSheet(SITUATION)
+    const cards = screen.getAllByRole("button").filter((b) => b.hasAttribute("data-situation-card"))
+    expect(document.activeElement).toBe(screen.getByRole("dialog"))
+
+    await userEvent.tab({ shift: true })
+
+    expect(document.activeElement).not.toBe(pageButton)
+    expect(document.activeElement).toBe(cards[cards.length - 1])
+  })
+
   it("wraps backwards from the first card to the last", async () => {
     mountPage()
     renderSheet(SITUATION)

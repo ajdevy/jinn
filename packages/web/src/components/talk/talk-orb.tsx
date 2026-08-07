@@ -167,6 +167,11 @@ function sphereStyle(drag: Point | null, flight: Flight | null, reduce: boolean)
 /**
  * The floating sphere. Its overlay covers the viewport so the orb can sit in any
  * corner, and takes no pointer events itself — only the sphere's own circle does.
+ *
+ * It stacks above the situation sheet (`z-[90]`) and the app's other overlays,
+ * because the sheet's scrim also covers the viewport: below it, hit testing would
+ * hand every tap meant for the sphere to the scrim and the orb would go dead for
+ * exactly as long as a decision is on screen.
  */
 export function TalkOrb({ state = "idle", levelRef, dock }: TalkOrbProps) {
   const silent = useRef(0)
@@ -176,7 +181,7 @@ export function TalkOrb({ state = "idle", levelRef, dock }: TalkOrbProps) {
   const reduce = usePrefersReducedMotion()
 
   return (
-    <div data-talk-orb-overlay className="pointer-events-none fixed inset-0 z-50">
+    <div data-talk-orb-overlay className="pointer-events-none fixed inset-0 z-[110]">
       <div
         ref={sphereRef}
         data-talk-orb

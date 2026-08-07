@@ -14,6 +14,9 @@ const SITUATION = { id: "s-1", title: "A decision", payload: PAYLOADS.options }
 const SHEET_BOX = { left: 312, top: 520, width: 816, height: 360, right: 1128, bottom: 880 }
 
 const orb = () => document.querySelector<HTMLElement>("[data-talk-orb]")!
+/** jsdom runs no cascade, so the Tailwind class is the only handle on the layer. */
+const layerOf = (selector: string) =>
+  Number(/z-\[(\d+)\]/.exec(document.querySelector<HTMLElement>(selector)!.className)?.[1])
 const canvas = () => document.querySelector<HTMLCanvasElement>("[data-talk-orb] canvas")!
 const offset = () => /translate3d\((-?[\d.]+)px, (-?[\d.]+)px/.exec(orb().style.transform)
 
@@ -66,6 +69,13 @@ describe("TalkSurface", () => {
     fireEvent.pointerUp(orb(), { pointerId: 1, clientX: 40, clientY: 30 })
   })
 
+  it("stacks the orb above the sheet, so hit testing cannot hand its taps to the scrim", () => {
+    mount()
+    act(() => presentSituation(SITUATION))
+
+    expect(layerOf("[data-talk-orb-overlay]")).toBeGreaterThan(layerOf("[data-situation-phase]"))
+  })
+
   it("flies the orb to the dock point and home again without remounting it", () => {
     mount()
     const sphere = canvas()
@@ -106,11 +116,11 @@ describe("TalkSurface", () => {
     expect(localStorage.getItem(PARK_STORAGE_KEY)).toBe("top-left")
   })
 
-  it("mirrors the dock to the sheet's left edge for a left-parked orb", () => {
+  it("docks a left-parked orb to the same right edge, across the sheet", () => {
     localStorage.setItem(PARK_STORAGE_KEY, "top-left")
     mount()
     act(() => presentSituation(SITUATION))
 
-    expect(Number(offset()![1])).toBe(SHEET_BOX.left - ORB_EDGE_GAP - ORB_SIZE / 2)
+    expect(Number(offset()![1])).toBe(SHEET_BOX.right + ORB_EDGE_GAP + ORB_SIZE / 2)
   })
 })

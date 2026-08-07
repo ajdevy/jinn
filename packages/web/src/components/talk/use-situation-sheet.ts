@@ -39,11 +39,16 @@ function cycleTab(panel: HTMLElement, event: KeyboardEvent): void {
     panel.focus()
     return
   }
-  const edge = event.shiftKey ? focusable[0] : focusable[focusable.length - 1]
-  const wrapTo = event.shiftKey ? focusable[focusable.length - 1] : focusable[0]
-  if (document.activeElement === edge || !panel.contains(document.activeElement)) {
+  // The panel itself holds focus from the moment it opens, and it sits ahead of
+  // everything inside it — so backwards from there leads out of the sheet, the
+  // same as backwards from the first card.
+  const active = document.activeElement
+  const atEdge = event.shiftKey
+    ? active === focusable[0] || active === panel
+    : active === focusable[focusable.length - 1]
+  if (atEdge || !panel.contains(active)) {
     event.preventDefault()
-    wrapTo.focus()
+    ;(event.shiftKey ? focusable[focusable.length - 1] : focusable[0]).focus()
   }
 }
 
