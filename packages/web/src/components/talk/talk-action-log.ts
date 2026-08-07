@@ -9,10 +9,13 @@ import { authFetch } from "@/lib/auth"
  * which by definition leaves no trace on the thing it did not touch. This is the
  * log that does.
  *
- * It is kept here as well as posted because the talk session that owns the
- * durable copy may not exist yet: the tools are driven from the harness bench
- * until the realtime transport lands, and an audit that only works with a
- * microphone attached is not one you can test.
+ * The entries live here, and this is not a cache in front of something sturdier.
+ * The gateway's copy is a list on an in-memory talk session, so it lasts exactly
+ * as long as that session does and no longer — and in production there is no
+ * session to post to at all until the browser realtime transport lands, so today
+ * every entry lives in page memory alone. What IS persisted of a talk write is
+ * `origin: "talk"` on the work-item event the gateway appends; the consent
+ * decisions and refusals recorded here have no such row behind them.
  */
 
 export type ActionLane = "fast" | "consent"
@@ -37,8 +40,9 @@ const KEPT = 200
 const entries: TalkActionEntry[] = []
 let sessionId: string | null = null
 
-/** Bind the talk session the durable half of the log belongs to. Null while
- *  there is no session, which is when the bench drives the tools. */
+/** Bind the talk session the gateway's copy of the log belongs to. Null while
+ *  there is no session — which, until the browser transport exists, is always
+ *  outside the harness bench. */
 export function bindTalkActionLog(id: string | null): void {
   sessionId = id
 }

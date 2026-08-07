@@ -82,6 +82,26 @@ function DismissButton({ onDismiss }: { onDismiss: () => void }) {
   )
 }
 
+/** The strip's one line of text: what just happened, or why the way back was
+ *  not taken. */
+function StripLine({ failure, performed }: { failure: string | null; performed: string | undefined }) {
+  return (
+    <p
+      role="status"
+      className={cn(
+        "min-w-0 flex-1 text-[length:var(--text-footnote)] text-[var(--text-secondary)]",
+        // A performed line is one short sentence whose shape the operator
+        // already knows, so it clips rather than growing the strip. A failure
+        // is the gateway's reason and the only account of it there is: at 390px
+        // clipping would show none of it, so it wraps instead.
+        failure ? "break-words" : "truncate",
+      )}
+    >
+      {failure ?? performed}
+    </p>
+  )
+}
+
 export function UndoStrip() {
   const offer = useUndoOffer()
   const reduce = usePrefersReducedMotion()
@@ -124,9 +144,7 @@ export function UndoStrip() {
         "shadow-[var(--shadow-overlay)] backdrop-blur-2xl",
       )}
     >
-      <p role="status" className="min-w-0 flex-1 truncate text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
-        {failure ?? offer?.performed}
-      </p>
+      <StripLine failure={failure} performed={offer?.performed} />
       {offer && <UndoButton secondsLeft={left} onUndo={() => void undo()} />}
       {failure && <DismissButton onDismiss={() => setFailure(null)} />}
     </div>

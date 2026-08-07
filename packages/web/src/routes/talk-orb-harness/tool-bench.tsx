@@ -28,9 +28,17 @@ const CALLS: Array<{ label: string; tool: string; args: string }> = [
  *  always-on tool list: a fat thumb on a read is a wasted call, and a fat thumb
  *  on a write is a write. The offer button raises a strip with a reversal that
  *  only reports itself, so the surface can be driven without a live gateway. */
-const OFFERS: Array<{ label: string; performed: string }> = [
+const OFFERS: Array<{ label: string; performed: string; refuses?: string }> = [
   { label: "offer an undo", performed: "Commented on ABC-59." },
   { label: "offer a long undo", performed: "Labelled ABC-59: needs-review, blocked-on-design, platform." },
+  // The refusal is the one state a working gateway will not show you, and it is
+  // the state that has to stay readable: it carries the only account of why the
+  // change is still there.
+  {
+    label: "offer an undo that refuses",
+    performed: "Assigned ABC-59 to b-lead.",
+    refuses: "Todo ABC-59 changed since it was loaded",
+  },
 ]
 
 function Timings({ timings }: { timings: readonly ToolTiming[] }) {
@@ -81,7 +89,10 @@ function UndoButtons() {
       {OFFERS.map((offer) => (
         <button
           key={offer.label}
-          onClick={() => offerUndo(offer.performed, async () => { console.log(`[talk-bench] reversed: ${offer.performed}`) })}
+          onClick={() => offerUndo(offer.performed, async () => {
+            if (offer.refuses) throw new Error(offer.refuses)
+            console.log(`[talk-bench] reversed: ${offer.performed}`)
+          })}
           className="h-[38px] cursor-pointer rounded-full border-none bg-[var(--fill-tertiary)] px-4 text-[length:var(--text-subheadline)] text-[var(--text-secondary)]"
         >
           {offer.label}

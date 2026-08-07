@@ -20,8 +20,9 @@ interface TalkSurfaceProps {
   state?: OrbState
   levelRef?: RefObject<number>
   /** The open talk session, when there is one. It is what the action log posts
-   *  its durable half to, and this surface is where a session and the tools that
-   *  write under it are both in scope. */
+   *  the gateway's copy to, and this surface is where a session and the tools
+   *  that write under it are both in scope. Null in production until a browser
+   *  transport opens one. */
   sessionId?: string | null
   /** Observes what the operator picked. The answer itself goes back through the
    *  store, which is what settles an awaited situation — a consent gate is

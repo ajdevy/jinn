@@ -29,7 +29,7 @@ const mocked = vi.mocked(api)
 // `assigned` because the fast lane is per-edge: from `executing` the board has
 // no way back to anywhere, so every status move off it asks.
 const TODO = {
-  workItem: { id: "ABC-59", title: "Ship the orb", status: "assigned", assignee: "a-lead", version: 4 },
+  workItem: { id: "ABC-59", title: "Ship the orb", status: "assigned", assignee: "a-lead", department: "platform", version: 4 },
   labels: [{ id: "l1", name: "build" }],
   comments: { total: 1, comments: [{ id: "c1", author: "operator", createdAt: "2026-01-02T00:00:00Z", body: "first" }] },
 }
@@ -133,27 +133,55 @@ describe("the fast lane's one rule", () => {
     },
   )
 
-  it("puts a backlog Todo back where it was, name and status both — assigning one out of the backlog moves it too", async () => {
-    mocked.getWorkItem.mockResolvedValue({ ...TODO, workItem: { ...TODO.workItem, assignee: null, status: "backlog" } } as never)
+  it("puts a backlog Todo back where it was — nobody assigned, no department, and back in the backlog", async () => {
+    // Assigning writes the new employee's department onto the Todo as well as
+    // their name, so clearing only the name leaves theirs behind on a Todo
+    // nobody is assigned to.
+    mocked.getWorkItem
+      .mockResolvedValueOnce({ ...TODO, workItem: { ...TODO.workItem, assignee: null, department: null, status: "backlog" } } as never)
+      .mockResolvedValueOnce({ ...TODO, workItem: { ...TODO.workItem, assignee: "b-lead", department: "growth", version: 5 } } as never)
     await executeToolCall("talk_assign_todo", FAST_CALLS.talk_assign_todo)
 
     await takeUndo()
 
-    // The assign route requires a name, so clearing one is the edit lane's job.
+    // The assign route takes the department from the employee it names, so it
+    // cannot put an arbitrary one back: all of it goes through the edit lane.
     expect(mocked.updateWorkItem).toHaveBeenCalledWith("ABC-59", expect.objectContaining({
-      patch: { assignee: null },
+      patch: { assignee: null, department: null },
       expectedVersion: 5,
     }))
     expect(mocked.setWorkItemStatus).toHaveBeenCalledWith("ABC-59", "backlog", undefined, "talk")
   })
 
-  it("leaves the status alone when assigning did not move the Todo", async () => {
+  it("restores the department the Todo held, not the one its new assignee brought, and moves nothing already assigned", async () => {
+    mocked.getWorkItem
+      .mockResolvedValueOnce(TODO as never)
+      .mockResolvedValueOnce({ ...TODO, workItem: { ...TODO.workItem, assignee: "b-lead", department: "growth", version: 5 } } as never)
     await executeToolCall("talk_assign_todo", FAST_CALLS.talk_assign_todo)
 
     await takeUndo()
 
-    expect(mocked.assignWorkItem).toHaveBeenLastCalledWith("ABC-59", "a-lead", "talk")
+    expect(mocked.updateWorkItem).toHaveBeenCalledWith("ABC-59", expect.objectContaining({
+      patch: { assignee: "a-lead", department: "platform" },
+      expectedVersion: 5,
+    }))
     expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
+  })
+
+  it("fences the reversal on the revision it reads back, not the one it saw before the assign", async () => {
+    mocked.getWorkItem
+      .mockResolvedValueOnce({ ...TODO, workItem: { ...TODO.workItem, assignee: null, department: null, status: "backlog" } } as never)
+      .mockResolvedValueOnce({ ...TODO, workItem: { ...TODO.workItem, assignee: "b-lead", department: "growth", version: 9 } } as never)
+    mocked.updateWorkItem.mockImplementation(async (_id, request) => {
+      if (request.expectedVersion !== 9) throw new Error("Todo changed since it was loaded.")
+      return { workItem: { ...TODO.workItem, version: 10 }, replayed: false } as never
+    })
+
+    await executeToolCall("talk_assign_todo", FAST_CALLS.talk_assign_todo)
+
+    // The assign bumps the revision the tool read a moment earlier, and anything
+    // else may have bumped it since; a reversal fenced on either would 409.
+    expect(await takeUndo()).toMatchObject({ ok: true })
   })
 
   it("reports a write the gateway refused as a failure, offers nothing to undo, and still logs the attempt", async () => {

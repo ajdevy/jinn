@@ -114,6 +114,10 @@ describe("a reversal that fails", () => {
 
     const failure = await screen.findByText(/the gateway refused/)
     expect(failure.textContent).toContain("The change is still in place.")
+    // jsdom runs no cascade, so the class is the only handle on it: the
+    // gateway's reason is the whole account of what went wrong, and at 390px a
+    // truncated line shows none of it.
+    expect(failure.className).not.toContain("truncate")
     expect(screen.queryByRole("button", { name: /Undo/ })).toBeNull()
 
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }))

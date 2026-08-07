@@ -362,3 +362,21 @@ name and date its own entry can forge one over an earlier one. The list is cappe
 at `TALK_ACTION_LOG_LIMIT` (500) and drops oldest first — a bound on a runaway
 client, not on the audit, since no spoken conversation comes near it. `GET
 /api/talk/sessions/:id` returns the log alongside `turns`.
+
+**How long it lasts, stated plainly, because the word "audit" invites the wrong
+assumption.** The log is a list on a `TalkSession`, and a `TalkSession` is an
+entry in an in-memory `Map` — so the log lives exactly as long as the session
+does: it goes when the session is closed or reaped, and it goes with the gateway
+process. Nothing writes it to disk. **And in production nothing writes it at
+all yet:** the only route that opens a talk session is `POST
+/api/talk/sessions`, which mints a paid provider credential, and no browser code
+calls it — the client transport is unbuilt. `TalkOrbOverlay` therefore mounts
+the surface with a `null` session id (`talk-session-store.ts` is the seam it
+reads, and nothing sets it), so today every entry the orb records stays in page
+memory in `talk-action-log.ts` and reaches no gateway. **ICI-764 owns the browser
+transport and the session lifecycle**, and is what makes this half real.
+
+What survives independently of any of this is the write itself: a talk-issued
+work-item mutation carries `origin: "talk"` in the persisted work-item event log
+(`X-Jinn-Origin`, above). The action log adds the things that log cannot hold —
+consent decisions, and refusals, which by definition touch nothing.

@@ -1,4 +1,4 @@
-import { api, type WorkItemStatusWire } from "@/lib/api"
+import { api, isPositiveTodoVersion, type WorkItemStatusWire } from "@/lib/api"
 import { canDropOn } from "@/lib/legal-targets"
 import { newTodoEditRequest } from "@/routes/todos/todo-edit-request"
 import { pendingUndo, takeUndo } from "../talk-undo-store"
@@ -163,6 +163,7 @@ const assignTodo: TalkTool = {
     try {
       const before = await api.getWorkItem(id)
       const wasAssignee = before.workItem.assignee
+      const wasDepartment = before.workItem.department
       const wasStatus = before.workItem.status
       const { workItem } = await api.assignWorkItem(id, assignee, TALK)
       return fastWrite({
@@ -171,12 +172,20 @@ const assignTodo: TalkTool = {
         performed: `Assigned ${id} to ${assignee}.`,
         data: { from: wasAssignee, assignee },
         reverse: async () => {
-          // The assign route requires a name, so putting an unassigned Todo back
-          // has to go through the version-fenced edit lane instead.
-          if (wasAssignee) await api.assignWorkItem(id, wasAssignee, TALK)
-          else await api.updateWorkItem(id, newTodoEditRequest({ assignee: null }, workItem.version ?? 1))
+          // One assign writes three fields: the name, the department it takes
+          // from the named employee's record, and — out of the backlog — the
+          // status. The assign route can only ever put back a department that
+          // employee still has, so all of the ownership goes back through the
+          // version-fenced edit lane, which can name both.
+          const current = (await api.getWorkItem(id)).workItem
+          if (!isPositiveTodoVersion(current.version)) {
+            throw new Error(`${id} came back without a revision to fence the reversal against`)
+          }
+          // Read now rather than remembered from before: the assign bumped the
+          // revision itself, so reusing what it saw would be a certain 409.
+          await api.updateWorkItem(id, newTodoEditRequest({ assignee: wasAssignee, department: wasDepartment }, current.version))
           // Assigning a Todo out of the backlog also moves it, so restoring the
-          // name is only half the reversal — the other half is where it sat.
+          // ownership is only half the reversal — the other half is where it sat.
           if (workItem.status !== wasStatus) await api.setWorkItemStatus(id, wasStatus, undefined, TALK)
         },
       })
