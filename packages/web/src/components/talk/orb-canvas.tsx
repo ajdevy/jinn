@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
 import { lobeCentres, orbParams, type Lobe, type OrbParams, type OrbState } from "./orb-motion"
+import { usePrefersReducedMotion } from "./use-reduced-motion"
 
 /**
  * Three blurred lobes drifting inside a sphere with no outline. A 2D canvas
@@ -97,23 +98,6 @@ function paintOrb(ctx: CanvasRenderingContext2D, frame: Frame): void {
     paintLobe(ctx, frame, lobe, colors[index])
   })
   maskRim(ctx, frame.size)
-}
-
-const REDUCED_MOTION = "(prefers-reduced-motion: reduce)"
-
-/** Live `prefers-reduced-motion` flag. Read on the first render, not in an effect,
- *  so the animation loop never starts for a frame before being cancelled. */
-function usePrefersReducedMotion(): boolean {
-  const [reduce, setReduce] = useState(() => window.matchMedia?.(REDUCED_MOTION).matches === true)
-  useEffect(() => {
-    const mq = window.matchMedia?.(REDUCED_MOTION)
-    if (!mq) return
-    const on = () => setReduce(mq.matches)
-    on()
-    mq.addEventListener("change", on)
-    return () => mq.removeEventListener("change", on)
-  }, [])
-  return reduce
 }
 
 /**
