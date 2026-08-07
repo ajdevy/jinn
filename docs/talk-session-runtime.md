@@ -255,11 +255,17 @@ input counts rather than beside them, and splits it by modality, so `priceTurn`
 deducts each modality's cached count before the full rate applies and charges it at
 that modality's own cached rate — billing both buckets would charge the cached
 prefix twice, at roughly eighty times its real cost. When a `response.done` carries
-a cached total but no modality breakdown, the adapter attributes the remainder to
-whichever cached rate is higher, because an over-report shows up in the cost line
-and an under-report does not. Rolling truncation therefore trades cache hits for
-a bounded context, which is the right trade only because the budget is generous
-enough that most sessions never truncate at all.
+a cached total but no modality breakdown, the adapter charges the remainder to
+whichever modality bills it highest, because an over-report shows up in the cost
+line and an under-report does not. That is not the dearer cached rate, which is the
+comparison it looks like: a cached token also cancels the full input rate it would
+otherwise have been charged at. On `gpt-realtime-2.1-mini` cached audio is $0.30
+against text's $0.06, yet charging the remainder to audio bills *less*, because it
+discounts a $10 input token where text discounts a $0.60 one. The remainder fills
+its modality's own input count first and spills to the other, so the cached counts
+stay the subsets everything downstream reads them as. Rolling truncation therefore
+trades cache hits for a bounded context, which is the right trade only because the
+budget is generous enough that most sessions never truncate at all.
 
 ---
 

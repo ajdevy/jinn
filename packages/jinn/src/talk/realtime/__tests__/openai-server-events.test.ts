@@ -14,6 +14,7 @@ vi.mock("ws", async () => ({ default: (await import("./helpers/fake-realtime-soc
 const { connected, lastSocket, receive, resetSocket, sentTypes } = await import(
   "./helpers/fake-realtime-socket.js"
 );
+const { priceTurn } = await import("../../session/pricing.js");
 
 beforeEach(() => {
   resetSocket();
@@ -111,9 +112,12 @@ describe("OpenAI realtime server events", () => {
     expect(events.at(-1)).toEqual({ type: "turn_done", usage: provider.usage() });
   });
 
-  it("charges cached tokens the server did not split to the dearer modality", async () => {
-    // On the mini model cached audio costs $0.30 against text's $0.06, so an
-    // unattributed count lands on audio and over-reports rather than hides spend.
+  it("bills cached tokens the server did not split at the rate that cannot under-report", async () => {
+    // On the mini model cached audio costs $0.30 against text's $0.06, but a
+    // cached audio token also cancels a $10 input token where a cached text one
+    // cancels $0.60. So text is the higher bill, not audio: 60 audio at $10 plus
+    // 15 fresh text at $0.60 plus 25 cached text at $0.06 is $0.0006105 per 1M,
+    // against the $0.0003815 that charging audio would have reported.
     const { provider } = await connected({ model: "gpt-realtime-2.1-mini" });
 
     receive({
@@ -124,7 +128,24 @@ describe("OpenAI realtime server events", () => {
       },
     });
 
-    expect(provider.usage()).toMatchObject({ cachedInputAudioTokens: 25, cachedInputTextTokens: 0 });
+    expect(provider.usage()).toMatchObject({ cachedInputAudioTokens: 0, cachedInputTextTokens: 25 });
+    expect(priceTurn("gpt-realtime-2.1-mini", provider.usage()).costUsd).toBeCloseTo(0.0006105, 9);
+  });
+
+  it("spills an unattributed cached count past the input count it cannot fit in", async () => {
+    // Only 10 text tokens were sent, so at most 10 of the 25 can be cached text;
+    // the other 15 have to be audio for the cached counts to stay subsets.
+    const { provider } = await connected({ model: "gpt-realtime-2.1-mini" });
+
+    receive({
+      type: "response.done",
+      response: {
+        status: "completed",
+        usage: { input_token_details: { text_tokens: 10, audio_tokens: 60, cached_tokens: 25 } },
+      },
+    });
+
+    expect(provider.usage()).toMatchObject({ cachedInputAudioTokens: 15, cachedInputTextTokens: 10 });
   });
 
   it("attributes an unrequested cancellation to barge-in", async () => {

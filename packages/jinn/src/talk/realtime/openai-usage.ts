@@ -6,7 +6,7 @@
  * protocol one.
  */
 import type { RealtimeUsage } from "../../shared/types.js";
-import { dearerCachedModality } from "../session/pricing.js";
+import { costliestCachedModality } from "../session/pricing.js";
 
 /** `cached_tokens` counts the whole cached prefix and `cached_tokens_details`
  *  breaks it down by modality; both are subsets of the counts beside them. */
@@ -38,16 +38,22 @@ export function emptyUsage(): RealtimeUsage {
  * Split one response's cached prefix across the two priced modalities.
  *
  * `cached_tokens` is always reported; the breakdown is a refinement the server
- * may omit. Whatever the breakdown leaves unattributed goes to the dearer cached
- * rate, because an over-report shows up in the cost line and an under-report is
- * the kind of wrong nobody notices.
+ * may omit. Whatever the breakdown leaves unattributed goes to the modality that
+ * bills it highest, because an over-report shows up in the cost line and an
+ * under-report is the kind of wrong nobody notices. It only goes as far as that
+ * modality's own input count allows and the rest spills to the other, so the
+ * cached counts stay the subsets the rest of the runtime reads them as.
  */
 function cachedByModality(input: OpenAiInputTokens, model: string): { audio: number; text: number } {
   const audio = input.cached_tokens_details?.audio_tokens ?? 0;
   const text = input.cached_tokens_details?.text_tokens ?? 0;
   const unattributed = Math.max(0, (input.cached_tokens ?? 0) - audio - text);
-  if (dearerCachedModality(model) === "text") return { audio, text: text + unattributed };
-  return { audio: audio + unattributed, text };
+  if (costliestCachedModality(model) === "text") {
+    const toText = Math.min(unattributed, Math.max(0, (input.text_tokens ?? 0) - text));
+    return { audio: audio + unattributed - toText, text: text + toText };
+  }
+  const toAudio = Math.min(unattributed, Math.max(0, (input.audio_tokens ?? 0) - audio));
+  return { audio: audio + toAudio, text: text + unattributed - toAudio };
 }
 
 /** Add one response's counts to a session's running total. `model` decides only

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeUsage } from "../../../shared/types.js";
-import { dearerCachedModality, isPricingKnown, priceTurn } from "../pricing.js";
+import { costliestCachedModality, isPricingKnown, priceTurn } from "../pricing.js";
 
 const PRICED_MODELS = ["gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
 
@@ -87,18 +87,23 @@ describe("priceTurn", () => {
   });
 });
 
-describe("dearerCachedModality", () => {
+describe("costliestCachedModality", () => {
   it("names the modality an unattributed cached count cannot under-report", () => {
     for (const model of PRICED_MODELS) {
+      // One turn holding both modalities, with the same cached count moved from
+      // one to the other. Comparing the two cached rates alone gets this wrong:
+      // the cached rate a modality charges is offset by the input rate it stops
+      // charging, and audio input dwarfs text input on both models.
+      const both = { inputAudioTokens: 1_000_000, inputTextTokens: 1_000_000 };
       const cost = {
-        audio: priceTurn(model, usage({ inputAudioTokens: 1_000_000, cachedInputAudioTokens: 1_000_000 })).costUsd,
-        text: priceTurn(model, usage({ inputTextTokens: 1_000_000, cachedInputTextTokens: 1_000_000 })).costUsd,
+        audio: priceTurn(model, usage({ ...both, cachedInputAudioTokens: 1_000_000 })).costUsd,
+        text: priceTurn(model, usage({ ...both, cachedInputTextTokens: 1_000_000 })).costUsd,
       };
-      expect(cost[dearerCachedModality(model)]).toBe(Math.max(cost.audio, cost.text));
+      expect(cost[costliestCachedModality(model)]).toBe(Math.max(cost.audio, cost.text));
     }
   });
 
   it("falls back to audio for a model it cannot price", () => {
-    expect(dearerCachedModality("gpt-realtime")).toBe("audio");
+    expect(costliestCachedModality("gpt-realtime")).toBe("audio");
   });
 });

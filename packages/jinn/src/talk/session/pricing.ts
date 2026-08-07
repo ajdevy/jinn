@@ -65,13 +65,19 @@ export function priceTurn(model: string, usage: RealtimeUsage): TurnPrice {
   return { costUsd, pricingKnown: true };
 }
 
-/** Which cached modality costs more on this model. An adapter handed a cached
- *  count the provider did not split bills it here, so the unattributed part
- *  over-reports rather than hides spend. An unpriced model costs $0 whatever the
- *  answer, so it gets the same default as a model whose two rates are equal. */
-export function dearerCachedModality(model: string): "audio" | "text" {
+/** Which modality bills an unattributed cached token highest on this model. Not
+ *  the dearer of the two cached rates: a cached token also cancels the full input
+ *  rate it would otherwise have been charged at, so what a modality bills for it
+ *  is the cached rate less that discount. On `gpt-realtime-2.1-mini` cached audio
+ *  costs $0.30 against text's $0.06, yet audio is the cheaper place to put one,
+ *  because it discounts a $10 input token where text discounts a $0.60 one. An
+ *  adapter handed a cached count the provider did not split bills it here, so the
+ *  unattributed part over-reports rather than hides spend. An unpriced model costs
+ *  $0 whichever answer it gets, so it keeps the audio default. */
+export function costliestCachedModality(model: string): "audio" | "text" {
   const rate = RATES[model];
-  return rate && rate.cachedInputText > rate.cachedInputAudio ? "text" : "audio";
+  if (!rate) return "audio";
+  return rate.inputText - rate.cachedInputText < rate.inputAudio - rate.cachedInputAudio ? "text" : "audio";
 }
 
 /** Whether this session's model can be priced at all, for the status response. */
