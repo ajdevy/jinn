@@ -149,6 +149,41 @@ describe("Experiments HTTP routes", () => {
     expect((await request("PATCH", `/api/experiments/${id}`, { horizonDays: 60 })).status).toBe(409);
   });
 
+  it("bounds the list limit instead of passing the caller's value to SQL", async () => {
+    for (let index = 0; index < 3; index += 1) await create();
+
+    const limited = await request("GET", "/api/experiments?limit=2");
+    expect(limited.status).toBe(200);
+    expect(limited.body.experiments).toHaveLength(2);
+
+    const unlimited = await request("GET", "/api/experiments");
+    expect(unlimited.body.experiments.length).toBeLessThanOrEqual(100);
+
+    const huge = await request("GET", "/api/experiments?limit=99999");
+    expect(huge.status).toBe(200);
+    expect(huge.body.experiments.length).toBeLessThanOrEqual(500);
+
+    const nonsense = await request("GET", "/api/experiments?limit=abc");
+    expect(nonsense.status).toBe(200);
+    expect(nonsense.body.experiments.length).toBeLessThanOrEqual(100);
+  });
+
+  it("carries a baseline for a metric added through PATCH and refreshes the check-in", async () => {
+    const created = await create({ schedule: "0 9 * * 1" });
+    const id = created.body.experiment.id;
+
+    const patched = await request("PATCH", `/api/experiments/${id}`, {
+      metrics: [...metrics, { name: "referrals", howToMeasure: "Count referral signups." }],
+      baseline: { referrals: 7 },
+    });
+
+    expect(patched).toMatchObject({ status: 200, body: { experiment: { baseline: { referrals: 7 } } } });
+    expect(loadJobs()[0].prompt).toContain("Count referral signups.");
+    expect((await request("PATCH", `/api/experiments/${id}`, {
+      metrics: [...metrics, { name: "churn", howToMeasure: "Count cancellations." }],
+    })).status).toBe(400);
+  });
+
   it("rejects a broken schedule without leaving an experiment or cron job", async () => {
     expect((await create({ schedule: "broken" })).status).toBe(400);
     expect((await request("GET", "/api/experiments")).body.experiments).toEqual([]);

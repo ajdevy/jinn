@@ -2,6 +2,7 @@ import { ArrowLeft, CalendarDays } from "lucide-react"
 import { Link, useParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { OverduePill } from "./overdue-pill"
 import { formatMetricValue, ReadingChart } from "./reading-chart"
 import { useExperiment } from "./use-experiments"
 import type { Experiment, ExperimentMetric } from "./types"
@@ -77,6 +78,7 @@ export default function ExperimentDetailPage() {
                 <div className="flex items-center gap-2 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                   <span className="size-2 rounded-full" style={{ background: experiment.status === "running" ? "var(--system-blue)" : "var(--system-green)" }} aria-hidden />
                   {experiment.status === "running" ? "Running" : "Concluded"}
+                  {experiment.overdue && <OverduePill id={experiment.id} />}
                 </div>
                 <h1 className="mt-2 font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
                   {experiment.name}

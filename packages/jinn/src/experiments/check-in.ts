@@ -2,13 +2,17 @@ import crypto from "node:crypto";
 import { canonicalCronJobId, loadJobs, saveJobs } from "../cron/jobs.js";
 import { validateCronSchedule } from "../cron/validation.js";
 import type { CronJob, Experiment, ExperimentStoreResult } from "../shared/types.js";
+import { experimentHorizonEndsAt } from "./hydrate.js";
 import {
   concludeExperiment,
   createExperiment,
   getExperiment,
+  updateExperiment,
   type ConcludeExperimentInput,
   type CreateExperimentInput,
+  type UpdateExperimentInput,
 } from "./store.js";
+import { normalizeHorizon } from "./validation.js";
 
 export interface ExperimentCheckInInput {
   schedule: string;
@@ -26,7 +30,9 @@ function generatedExperimentId(): string {
   return `exp_${crypto.randomBytes(6).toString("hex")}`;
 }
 
-function checkInPrompt(experiment: Pick<Experiment, "id" | "name" | "metrics">): string {
+type CheckInSubject = Pick<Experiment, "id" | "name" | "metrics" | "horizonEndsAt">;
+
+function checkInPrompt(experiment: CheckInSubject): string {
   const instructions = experiment.metrics
     .map((metric) => `- ${metric.name}${metric.unit ? ` (${metric.unit})` : ""}: ${metric.howToMeasure}`)
     .join("\n");
@@ -35,7 +41,15 @@ function checkInPrompt(experiment: Pick<Experiment, "id" | "name" | "metrics">):
     "Measure every declared metric using these instructions:",
     instructions,
     `Append each result with record_reading using id "${experiment.id}".`,
+    // Static text rather than a computed "overdue" flag: the prompt is written
+    // once per edit and read on every fire, so the deadline has to be a date the
+    // reader can compare against, not a snapshot of how things stood.
+    `This experiment's horizon ends ${experiment.horizonEndsAt.slice(0, 10)}. Once that date has passed, call conclude_experiment with a verdict instead of only recording another reading.`,
   ].join("\n\n");
+}
+
+function checkInJobName(experimentName: string): string {
+  return `Experiment check-in: ${experimentName}`;
 }
 
 function validateCheckIn(input: ExperimentCheckInInput): Failure | null {
@@ -48,7 +62,7 @@ function validateCheckIn(input: ExperimentCheckInInput): Failure | null {
 }
 
 export function registerExperimentCheckIn(
-  experiment: Pick<Experiment, "id" | "name" | "metrics">,
+  experiment: CheckInSubject,
   input: ExperimentCheckInInput,
   jobId = `experiment-check-in-${experiment.id}`,
 ): ExperimentStoreResult<CronJob> {
@@ -61,7 +75,7 @@ export function registerExperimentCheckIn(
   }
   const job: CronJob = {
     id: jobId,
-    name: `Experiment check-in: ${experiment.name}`,
+    name: checkInJobName(experiment.name),
     enabled: true,
     schedule: input.schedule.trim(),
     ...(input.timezone ? { timezone: input.timezone.trim() } : {}),
@@ -95,18 +109,50 @@ export function createExperimentWithCheckIn(
   const invalid = validateCheckIn(checkIn);
   if (invalid) return invalid;
 
+  // The job is written before the experiment so a rejected schedule cannot leave
+  // an orphan row behind, which means the prompt's horizon has to be derived
+  // here. startedAt is threaded into the insert so both agree to the millisecond.
+  const horizonDays = normalizeHorizon(input.horizonDays);
+  if (typeof horizonDays !== "number") return horizonDays;
   const id = generatedExperimentId();
   const jobId = `experiment-check-in-${id}`;
-  const registered = registerExperimentCheckIn({ id, name: input.name, metrics: input.metrics }, checkIn, jobId);
+  const startedAt = new Date().toISOString();
+  const registered = registerExperimentCheckIn(
+    { id, name: input.name, metrics: input.metrics, horizonEndsAt: experimentHorizonEndsAt(startedAt, horizonDays) },
+    checkIn,
+    jobId,
+  );
   if (!registered.ok) return registered;
   try {
-    const created = createExperiment(input, { id, checkInCronJobId: jobId });
+    const created = createExperiment(input, { id, checkInCronJobId: jobId, startedAt });
     if (!created.ok) removeExperimentCheckIn(jobId);
     return created;
   } catch (error) {
     removeExperimentCheckIn(jobId);
     throw error;
   }
+}
+
+/** Rewrites the registered job from the experiment as it now stands. No-op when
+ * the experiment has no check-in, or when its job has since been removed. */
+export function updateExperimentCheckIn(experiment: Experiment): void {
+  if (!experiment.checkInCronJobId) return;
+  const jobs = loadJobs();
+  const canonicalId = canonicalCronJobId(experiment.checkInCronJobId);
+  const index = jobs.findIndex((job) => canonicalCronJobId(job.id) === canonicalId);
+  if (index < 0) return;
+  const next = [...jobs];
+  next[index] = { ...next[index], name: checkInJobName(experiment.name), prompt: checkInPrompt(experiment) };
+  saveJobs(next);
+}
+
+export function updateExperimentAndRefreshCheckIn(
+  id: string,
+  input: UpdateExperimentInput,
+): ExperimentStoreResult<Experiment> {
+  const updated = updateExperiment(id, input);
+  if (updated.ok) updateExperimentCheckIn(updated.value);
+  return updated;
 }
 
 export function concludeExperimentAndDisableCheckIn(

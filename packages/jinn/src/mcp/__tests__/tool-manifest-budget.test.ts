@@ -3,11 +3,11 @@ import crypto from "node:crypto";
 import { buildTools } from "../server.js";
 import { projectPiToolManifest } from "../../engines/pi-mcp.js";
 
-// Fixed provider budget. Rebased for Todos v2 slice 5 (attach_to_work_item,
-// list_work_item_attachments, list_departments) with the same ~zero headroom
-// discipline as before: new tool prose must stay concise rather than growing
-// into this ceiling.
-const MAX_MANIFEST_TOKENS = 5477;
+// Fixed provider budget, rebased only when a capability genuinely cannot fit
+// under it. The discipline is unchanged: tool prose stays concise rather than
+// growing into this ceiling, and a rebase has to say what it bought. Latest:
+// `baseline` on update_experiment — see the Experiments note below.
+const MAX_MANIFEST_TOKENS = 5496;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -52,12 +52,12 @@ const ATTESTED = {
   // tokens; shortening its redundant description from an enumeration of the
   // same scopes to "by scope" bought those back plus four,
   // leaving Pi five under the unchanged ceiling.
-  // Rebased for the six-tool Experiments ledger. This is a new public company
-  // block rather than prose growth on an existing tool; Pi remains five tokens
-  // under the fixed ceiling.
-  rpc: { tokens: 4996, sha256: "102e4ff8a759966f01829dfc45f1774e0ac76b520e380317b2c55f572eef1acc" },
-  pi: { tokens: 5472, sha256: "4abbd834ffeec3de76c63a264dd51e512df7808d3a78dd207f030db5bde15dba" },
-  openai: { tokens: 5189, sha256: "1720a40e57b42776e78f9196684efefa17ed57f6e150ff92980b0339dd8f665a" },
+  // Rebased for the six-tool Experiments ledger, then again for `baseline` and
+  // `limit`. `baseline` is load-bearing, not prose: without it update_experiment
+  // rejects any added metric. The block paid 23 back; the residual 19 is above.
+  rpc: { tokens: 5020, sha256: "5e592e3f2df1aa5ca57d8d3bc54de1154390d168dcd1a1f7ad76646870afa2ef" },
+  pi: { tokens: 5496, sha256: "ab5cfff529825c05ab548096e016814a2385f9845350cca04f8630d3da88679a" },
+  openai: { tokens: 5213, sha256: "86d98a92bfb49bb8c2432887c4809f24db96e18a6ee6d277b7faed2304a3c611" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

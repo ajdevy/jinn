@@ -7,6 +7,19 @@ import type {
   ExperimentStoreResult,
   ExperimentVerdict,
 } from "../shared/types.js";
+import { hydrateExperiments, readMetrics, readReadings, rowToExperiment } from "./hydrate.js";
+import {
+  failure,
+  isFailure,
+  normalizeBaseline,
+  normalizeHorizon,
+  normalizeMetrics,
+  requiredText,
+  HYPOTHESIS_MAX,
+  METRIC_NAME_MAX,
+  NAME_MAX,
+  NOTE_MAX,
+} from "./validation.js";
 
 export type { Experiment, ExperimentMetric, ExperimentReading, ExperimentStoreResult, ExperimentVerdict } from "../shared/types.js";
 
@@ -22,6 +35,7 @@ export interface UpdateExperimentInput {
   name?: string;
   hypothesis?: string;
   metrics?: ExperimentMetric[];
+  baseline?: Record<string, number>;
   horizonDays?: number;
 }
 
@@ -40,80 +54,11 @@ export interface ConcludeExperimentInput {
 interface CreateExperimentInternal {
   id?: string;
   checkInCronJobId?: string;
+  startedAt?: string;
 }
 
-type Failure = Extract<ExperimentStoreResult<never>, { ok: false }>;
-
-const NAME_MAX = 240;
-const HYPOTHESIS_MAX = 8_000;
-const METRIC_NAME_MAX = 120;
-const UNIT_MAX = 64;
-const MEASUREMENT_MAX = 4_000;
-const NOTE_MAX = 8_000;
-
-function failure(reason: Failure["reason"], detail: string): Failure {
-  return { ok: false, reason, detail };
-}
-
-function isFailure<T>(value: T | Failure): value is Failure {
-  return typeof value === "object" && value !== null && "ok" in value && value.ok === false;
-}
-
-function requiredText(value: unknown, field: string, max: number): string | Failure {
-  if (typeof value !== "string" || !value.trim()) return failure("invalid", `${field} is required and must be a non-empty string`);
-  const normalized = value.trim();
-  if (normalized.length > max) return failure("invalid", `${field} is too long (${normalized.length} chars, max ${max})`);
-  return normalized;
-}
-
-function normalizeMetrics(value: unknown): ExperimentMetric[] | Failure {
-  if (!Array.isArray(value) || value.length === 0) return failure("invalid", "metrics must contain at least one metric");
-  const metrics: ExperimentMetric[] = [];
-  const names = new Set<string>();
-  for (const raw of value) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return failure("invalid", "each metric must be an object");
-    const record = raw as Record<string, unknown>;
-    const name = requiredText(record.name, "metric name", METRIC_NAME_MAX);
-    if (typeof name !== "string") return name;
-    if (names.has(name)) return failure("invalid", `metric names must be unique; "${name}" appears more than once`);
-    const howToMeasure = requiredText(record.howToMeasure, `howToMeasure for ${name}`, MEASUREMENT_MAX);
-    if (typeof howToMeasure !== "string") return howToMeasure;
-    let unit: string | undefined;
-    if (record.unit !== undefined) {
-      const normalizedUnit = requiredText(record.unit, `unit for ${name}`, UNIT_MAX);
-      if (typeof normalizedUnit !== "string") return normalizedUnit;
-      unit = normalizedUnit;
-    }
-    names.add(name);
-    metrics.push({ name, ...(unit ? { unit } : {}), howToMeasure });
-  }
-  return metrics;
-}
-
-function normalizeHorizon(value: unknown): number | Failure {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > 36_500) {
-    return failure("invalid", "horizonDays must be a positive integer no greater than 36500");
-  }
-  return value;
-}
-
-function normalizeBaseline(value: unknown, metrics: ExperimentMetric[]): Record<string, number> | Failure {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return failure("invalid", "baseline must be an object of finite metric values");
-  const baseline = value as Record<string, unknown>;
-  const names = new Set(metrics.map((metric) => metric.name));
-  for (const name of names) {
-    if (typeof baseline[name] !== "number" || !Number.isFinite(baseline[name])) {
-      return failure("invalid", `baseline must include a finite number for metric "${name}"`);
-    }
-  }
-  for (const [name, metricValue] of Object.entries(baseline)) {
-    if (!names.has(name)) return failure("invalid", `baseline metric "${name}" is not declared in metrics`);
-    if (typeof metricValue !== "number" || !Number.isFinite(metricValue)) {
-      return failure("invalid", `baseline value for "${name}" must be finite`);
-    }
-  }
-  return Object.fromEntries(Object.entries(baseline).map(([name, metricValue]) => [name, metricValue as number]));
-}
+export const LIST_LIMIT_DEFAULT = 100;
+export const LIST_LIMIT_MAX = 500;
 
 function experimentId(): string {
   return `exp_${crypto.randomBytes(6).toString("hex")}`;
@@ -123,70 +68,26 @@ function readingId(): string {
   return `rd_${crypto.randomBytes(6).toString("hex")}`;
 }
 
-function readMetrics(id: string): ExperimentMetric[] {
-  const rows = initDb().prepare(
-    `SELECT name, unit, how_to_measure
-       FROM experiment_metrics
-      WHERE experiment_id = ?
-      ORDER BY ordinal, name`,
-  ).all(id) as Array<{ name: string; unit: string | null; how_to_measure: string }>;
-  return rows.map((row) => ({
-    name: row.name,
-    ...(row.unit ? { unit: row.unit } : {}),
-    howToMeasure: row.how_to_measure,
-  }));
-}
-
-function readReadings(id: string): ExperimentReading[] {
-  const rows = initDb().prepare(
-    `SELECT id, experiment_id, at, metric, value, note
-       FROM experiment_readings
-      WHERE experiment_id = ?
-      ORDER BY at, id`,
-  ).all(id) as Array<{ id: string; experiment_id: string; at: string; metric: string; value: number; note: string | null }>;
-  return rows.map((row) => ({
-    id: row.id,
-    experimentId: row.experiment_id,
-    at: row.at,
-    metric: row.metric,
-    value: row.value,
-    ...(row.note ? { note: row.note } : {}),
-  }));
-}
-
-function rowToExperiment(row: Record<string, unknown>): Experiment {
-  const outcome = row.verdict_outcome as ExperimentVerdict["outcome"] | null;
-  const concludedAt = row.concluded_at as string | null;
-  const verdictNote = row.verdict_note as string | null;
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    hypothesis: row.hypothesis as string,
-    status: row.status as Experiment["status"],
-    startedAt: row.started_at as string,
-    horizonDays: row.horizon_days as number,
-    baseline: JSON.parse(row.baseline_json as string) as Record<string, number>,
-    metrics: readMetrics(row.id as string),
-    readings: readReadings(row.id as string),
-    ...(outcome && concludedAt && verdictNote !== null
-      ? { verdict: { outcome, note: verdictNote, concludedAt } }
-      : {}),
-    ...(typeof row.check_in_cron_job_id === "string" && row.check_in_cron_job_id
-      ? { checkInCronJobId: row.check_in_cron_job_id }
-      : {}),
-  };
+// A caller-supplied limit is clamped rather than rejected: the list is a view,
+// and a nonsense value should still return a page instead of an error.
+function boundedLimit(limit: number | undefined): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1) return LIST_LIMIT_DEFAULT;
+  return Math.min(Math.floor(limit), LIST_LIMIT_MAX);
 }
 
 export function getExperiment(id: string): ExperimentStoreResult<Experiment> {
   const row = initDb().prepare("SELECT * FROM experiments WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-  return row ? { ok: true, value: rowToExperiment(row) } : failure("not-found", `experiment "${id}" was not found`);
+  return row
+    ? { ok: true, value: rowToExperiment(row, readMetrics(id), readReadings(id)) }
+    : failure("not-found", `experiment "${id}" was not found`);
 }
 
-export function listExperiments(status?: Experiment["status"]): Experiment[] {
+export function listExperiments(status?: Experiment["status"], limit?: number): Experiment[] {
+  const bounded = boundedLimit(limit);
   const rows = (status
-    ? initDb().prepare("SELECT * FROM experiments WHERE status = ? ORDER BY started_at DESC, id").all(status)
-    : initDb().prepare("SELECT * FROM experiments ORDER BY started_at DESC, id").all()) as Record<string, unknown>[];
-  return rows.map(rowToExperiment);
+    ? initDb().prepare("SELECT * FROM experiments WHERE status = ? ORDER BY started_at DESC, id LIMIT ?").all(status, bounded)
+    : initDb().prepare("SELECT * FROM experiments ORDER BY started_at DESC, id LIMIT ?").all(bounded)) as Record<string, unknown>[];
+  return hydrateExperiments(rows);
 }
 
 export function createExperiment(
@@ -205,7 +106,7 @@ export function createExperiment(
   if (isFailure(baseline)) return baseline;
 
   const id = internal.id ?? experimentId();
-  const startedAt = new Date().toISOString();
+  const startedAt = internal.startedAt ?? new Date().toISOString();
   const db = initDb();
   const insert = db.transaction(() => {
     db.prepare(
@@ -256,11 +157,28 @@ export function recordReading(id: string, input: RecordReadingInput): Experiment
   return { ok: true, value: reading };
 }
 
+// The baseline follows the metric set: entries for removed metrics are dropped,
+// and a newly declared metric needs its own baseline value, supplied here or
+// already stored. normalizeBaseline names the metric when one is missing.
+function nextBaseline(
+  stored: Record<string, number>,
+  supplied: Record<string, number> | undefined,
+  metrics: ExperimentMetric[],
+): Record<string, number> | ReturnType<typeof failure> {
+  const declared = new Set(metrics.map((metric) => metric.name));
+  for (const name of Object.keys(supplied ?? {})) {
+    if (!declared.has(name)) return failure("invalid", `baseline metric "${name}" is not declared in metrics`);
+  }
+  const kept = Object.entries(stored).filter(([name]) => declared.has(name));
+  return normalizeBaseline({ ...Object.fromEntries(kept), ...(supplied ?? {}) }, metrics);
+}
+
 export function updateExperiment(id: string, input: UpdateExperimentInput): ExperimentStoreResult<Experiment> {
   const existing = getExperiment(id);
   if (!existing.ok) return existing;
   if (existing.value.status !== "running") return failure("conflict", "concluded experiments cannot be edited");
-  if (input.name === undefined && input.hypothesis === undefined && input.horizonDays === undefined && input.metrics === undefined) {
+  if (input.name === undefined && input.hypothesis === undefined && input.horizonDays === undefined
+    && input.metrics === undefined && input.baseline === undefined) {
     return failure("invalid", "at least one editable field is required");
   }
   const name = input.name === undefined ? existing.value.name : requiredText(input.name, "name", NAME_MAX);
@@ -273,6 +191,8 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
   if (typeof horizonDays !== "number") return horizonDays;
   const metrics = input.metrics === undefined ? existing.value.metrics : normalizeMetrics(input.metrics);
   if (!Array.isArray(metrics)) return metrics;
+  const baseline = nextBaseline(existing.value.baseline, input.baseline, metrics);
+  if (isFailure(baseline)) return baseline;
 
   if (input.metrics !== undefined) {
     const nextNames = new Set(metrics.map((metric) => metric.name));
@@ -288,8 +208,8 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
 
   const db = initDb();
   db.transaction(() => {
-    db.prepare("UPDATE experiments SET name = ?, hypothesis = ?, horizon_days = ? WHERE id = ?")
-      .run(name, hypothesis, horizonDays, id);
+    db.prepare("UPDATE experiments SET name = ?, hypothesis = ?, horizon_days = ?, baseline_json = ? WHERE id = ?")
+      .run(name, hypothesis, horizonDays, JSON.stringify(baseline), id);
     if (input.metrics !== undefined) {
       const nextNames = new Set(metrics.map((metric) => metric.name));
       for (const metric of existing.value.metrics) {

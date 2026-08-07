@@ -268,13 +268,13 @@ import {
   getExperiment,
   listExperiments,
   recordReading,
-  updateExperiment,
   type CreateExperimentInput,
   type ExperimentStoreResult,
 } from "../experiments/store.js";
 import {
   concludeExperimentAndDisableCheckIn,
   createExperimentWithCheckIn,
+  updateExperimentAndRefreshCheckIn,
   type ExperimentCheckInInput,
 } from "../experiments/check-in.js";
 import { loadInstances, saveInstances, type Instance, type InstanceInput } from "../instances/directory.js";
@@ -2999,7 +2999,10 @@ export async function handleApiRequest(
       if (status !== null && status !== "running" && status !== "concluded") {
         return badRequest(res, "status must be running or concluded");
       }
-      return json(res, { experiments: listExperiments(status ?? undefined) });
+      const limit = url.searchParams.get("limit");
+      // A malformed limit becomes NaN and the store clamps it to the default;
+      // nothing but a bounded integer reaches SQL.
+      return json(res, { experiments: listExperiments(status ?? undefined, limit === null ? undefined : Number(limit)) });
     }
 
     if (method === "POST" && pathname === "/api/experiments") {
@@ -3050,11 +3053,15 @@ export async function handleApiRequest(
       }
       if (body.horizonDays !== undefined && typeof body.horizonDays !== "number") return badRequest(res, "horizonDays must be a number");
       if (body.metrics !== undefined && !Array.isArray(body.metrics)) return badRequest(res, "metrics must be an array");
-      const result = updateExperiment(experimentParams.id, {
+      if (body.baseline !== undefined && (!body.baseline || typeof body.baseline !== "object" || Array.isArray(body.baseline))) {
+        return badRequest(res, "baseline must be an object");
+      }
+      const result = updateExperimentAndRefreshCheckIn(experimentParams.id, {
         ...(typeof body.name === "string" ? { name: body.name } : {}),
         ...(typeof body.hypothesis === "string" ? { hypothesis: body.hypothesis } : {}),
         ...(typeof body.horizonDays === "number" ? { horizonDays: body.horizonDays } : {}),
         ...(Array.isArray(body.metrics) ? { metrics: body.metrics as CreateExperimentInput["metrics"] } : {}),
+        ...(body.baseline !== undefined ? { baseline: body.baseline as Record<string, number> } : {}),
       });
       if (!result.ok) return experimentStoreFailureResponse(res, result);
       context.emit("experiments:changed", { id: result.value.id, action: "updated" });

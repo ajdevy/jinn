@@ -199,6 +199,11 @@ export function initDb(): Database.Database {
   // discover the same fresh or upgraded home concurrently; initialization is
   // serialized by SQLite instead of surfacing a transient SQLITE_BUSY.
   database.pragma('busy_timeout = 10000');
+  // better-sqlite3 is built with SQLITE_DEFAULT_FOREIGN_KEYS, so this is already
+  // on; state it anyway so the ON DELETE CASCADEs below do not silently become
+  // decorative under a build without that flag. Must precede the transaction —
+  // the pragma is a no-op inside one.
+  database.pragma('foreign_keys = ON');
   runSqliteBusyRetry(() => database.pragma('journal_mode = WAL'));
   const initialize = database.transaction(() => {
     database.exec(CREATE_TABLE);

@@ -94,19 +94,27 @@ export function buildExperimentTools(): JinnMcpTool[] {
       description: "List experiments, optionally by status.",
       inputSchema: {
         type: "object",
-        properties: { status: { type: "string", enum: ["running", "concluded"] } },
+        properties: {
+          status: { type: "string", enum: ["running", "concluded"] },
+          limit: { type: "number" },
+        },
         required: [],
       },
       handler: async (args, ctx) => {
         assertBoundCaller(ctx);
         const status = args.status;
         if (status !== undefined && status !== "running" && status !== "concluded") throw new JinnMcpToolError("status must be running or concluded");
-        return checkedRequest(ctx, "GET", status ? `/api/experiments?status=${status}` : "/api/experiments", "listing experiments");
+        if (args.limit !== undefined && typeof args.limit !== "number") throw new JinnMcpToolError("limit must be a number");
+        const query = new URLSearchParams();
+        if (status) query.set("status", status);
+        if (typeof args.limit === "number") query.set("limit", String(args.limit));
+        const search = query.toString();
+        return checkedRequest(ctx, "GET", search ? `/api/experiments?${search}` : "/api/experiments", "listing experiments");
       },
     },
     {
       name: "get_experiment",
-      description: "Get one experiment with metrics and readings.",
+      description: "Get one experiment.",
       inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
       handler: async (args, ctx) => {
         assertBoundCaller(ctx);
@@ -161,7 +169,7 @@ export function buildExperimentTools(): JinnMcpTool[] {
     },
     {
       name: "update_experiment",
-      description: "Edit a running experiment's definition.",
+      description: "Edit a running experiment's definition. A new metric needs its baseline here.",
       inputSchema: {
         type: "object",
         properties: {
@@ -169,6 +177,7 @@ export function buildExperimentTools(): JinnMcpTool[] {
           name: { type: "string" },
           hypothesis: { type: "string" },
           metrics: metricsSchema,
+          baseline: baselineSchema,
           horizonDays: { type: "number" },
         },
         required: ["id"],

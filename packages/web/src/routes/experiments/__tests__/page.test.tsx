@@ -36,9 +36,25 @@ const running = {
   status: "running" as const,
   startedAt: "2026-08-01T09:00:00.000Z",
   horizonDays: 30,
+  horizonEndsAt: "2026-08-31T09:00:00.000Z",
+  overdue: false,
   baseline: { activation: 21 },
   metrics: [{ name: "activation", unit: "%", howToMeasure: "Read the dashboard." }],
   readings: [],
+}
+
+const overdue = {
+  ...running,
+  id: "exp_333333333333",
+  name: "Long-running bet",
+  startedAt: "2026-01-01T09:00:00.000Z",
+  horizonEndsAt: "2026-01-31T09:00:00.000Z",
+  overdue: true,
+  baseline: { activation: 21, referrals: 7 },
+  metrics: [
+    { name: "activation", unit: "%", howToMeasure: "Read the dashboard." },
+    { name: "referrals", howToMeasure: "Count referral signups." },
+  ],
 }
 
 const concluded = {
@@ -48,6 +64,8 @@ const concluded = {
   status: "concluded" as const,
   startedAt: "2026-07-01T09:00:00.000Z",
   horizonDays: 21,
+  horizonEndsAt: "2026-07-22T09:00:00.000Z",
+  overdue: false,
   baseline: { completion: 31, support: 5 },
   metrics: [
     { name: "completion", unit: "%", howToMeasure: "Read the completed-session report." },
@@ -88,6 +106,21 @@ describe("Experiments list", () => {
     expect(screen.getByTestId("experiment-readings-empty-exp_111111111111").textContent).toMatch(/no readings yet/i)
     expect(screen.getByText("Concluded")).toBeTruthy()
   })
+
+  it("marks a running experiment past its horizon and leaves the others unmarked", async () => {
+    mocks.listExperiments.mockResolvedValue({ experiments: [running, overdue, concluded] })
+    render(
+      <QueryClientProvider client={client()}>
+        <MemoryRouter>
+          <ExperimentsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByTestId("experiment-overdue-exp_333333333333")).toBeTruthy()
+    expect(screen.queryByTestId("experiment-overdue-exp_111111111111")).toBeNull()
+    expect(screen.queryByTestId("experiment-overdue-exp_222222222222")).toBeNull()
+  })
 })
 
 describe("Experiment detail", () => {
@@ -124,5 +157,23 @@ describe("Experiment detail", () => {
 
     expect(await screen.findByTestId("experiment-detail-readings-empty")).toBeTruthy()
     expect(screen.queryByRole("img", { name: /readings over time/i })).toBeNull()
+  })
+
+  it("renders the baseline of a later-added metric as a number and flags the overdue horizon", async () => {
+    mocks.getExperiment.mockResolvedValue({ experiment: overdue })
+    render(
+      <QueryClientProvider client={client()}>
+        <MemoryRouter initialEntries={["/experiments/exp_333333333333"]}>
+          <Routes>
+            <Route path="/experiments/:id" element={<ExperimentDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByTestId("experiment-overdue-exp_333333333333")).toBeTruthy()
+    const baseline = screen.getByTestId("metric-baseline-referrals").textContent ?? ""
+    expect(baseline).toContain("7")
+    expect(baseline).not.toContain("—")
   })
 })

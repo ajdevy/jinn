@@ -65,6 +65,48 @@ describe("experiment check-in scheduling", () => {
     expect(job.prompt).not.toContain("experimentId");
   });
 
+  it("states the horizon deadline and what to do once it passes", () => {
+    const created = checkIn.createExperimentWithCheckIn(input, { schedule: "0 9 * * 1" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const [job] = jobs.loadJobs();
+    expect(job.prompt).toContain(created.value.horizonEndsAt.slice(0, 10));
+    expect(job.prompt).toContain("conclude_experiment");
+  });
+
+  it("rewrites the job's prompt and name when the experiment is edited", () => {
+    const created = checkIn.createExperimentWithCheckIn(input, { schedule: "0 9 * * 1" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const updated = checkIn.updateExperimentAndRefreshCheckIn(created.value.id, {
+      name: "Renamed activation check",
+      metrics: [
+        { name: "activation", unit: "%", howToMeasure: "Read the activation dashboard." },
+        { name: "referrals", howToMeasure: "Count referral signups." },
+      ],
+      baseline: { referrals: 3 },
+    });
+
+    expect(updated).toMatchObject({ ok: true, value: { name: "Renamed activation check" } });
+    const [job] = jobs.loadJobs();
+    expect(job.name).toContain("Renamed activation check");
+    expect(job.prompt).toContain("Renamed activation check");
+    expect(job.prompt).toContain("Count referral signups.");
+    expect(job.prompt).not.toContain("Read the completed-session report.");
+    expect(job.prompt).not.toContain("completion");
+  });
+
+  it("neither creates nor demands a job when the experiment has no check-in", () => {
+    const created = checkIn.createExperimentWithCheckIn(input);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    expect(() => checkIn.updateExperimentAndRefreshCheckIn(created.value.id, { horizonDays: 42 })).not.toThrow();
+    expect(jobs.loadJobs()).toEqual([]);
+  });
+
   it("rejects an invalid cron expression before persisting the experiment", () => {
     const before = store.listExperiments().map((experiment) => experiment.id);
 

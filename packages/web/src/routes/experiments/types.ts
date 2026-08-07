@@ -26,6 +26,8 @@ export interface Experiment {
   status: "running" | "concluded"
   startedAt: string
   horizonDays: number
+  horizonEndsAt: string
+  overdue: boolean
   baseline: Record<string, number>
   metrics: ExperimentMetric[]
   readings: ExperimentReading[]

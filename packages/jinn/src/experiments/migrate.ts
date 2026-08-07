@@ -1,6 +1,17 @@
 import type Database from "better-sqlite3";
 
-const EXPERIMENTS_DDL = `
+const READINGS_COLUMNS = `
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  metric TEXT NOT NULL,
+  value REAL NOT NULL,
+  note TEXT,
+  FOREIGN KEY (experiment_id, metric)
+    REFERENCES experiment_metrics(experiment_id, name) ON DELETE CASCADE
+`;
+
+const EXPERIMENTS_TABLES_DDL = `
 CREATE TABLE IF NOT EXISTS experiments (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -24,17 +35,10 @@ CREATE TABLE IF NOT EXISTS experiment_metrics (
   PRIMARY KEY (experiment_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS experiment_readings (
-  id TEXT PRIMARY KEY,
-  experiment_id TEXT NOT NULL,
-  at TEXT NOT NULL,
-  metric TEXT NOT NULL,
-  value REAL NOT NULL,
-  note TEXT,
-  FOREIGN KEY (experiment_id, metric)
-    REFERENCES experiment_metrics(experiment_id, name)
-);
+CREATE TABLE IF NOT EXISTS experiment_readings (${READINGS_COLUMNS});
+`;
 
+const EXPERIMENTS_INDEXES_DDL = `
 CREATE INDEX IF NOT EXISTS idx_experiments_status_started
   ON experiments(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_experiment_metrics_order
@@ -43,6 +47,29 @@ CREATE INDEX IF NOT EXISTS idx_experiment_readings_order
   ON experiment_readings(experiment_id, at, id);
 `;
 
+// experiment_readings first shipped with no ON DELETE action on its composite
+// foreign key, which made deleting an experiment fail outright: the readings
+// held their metrics in place and blocked the experiments → metrics cascade.
+// CREATE TABLE IF NOT EXISTS cannot change that, so an existing table carrying
+// the old shape is rebuilt. Readings are copied after their parents already
+// exist, so the copy satisfies the foreign key it is being given.
+function rebuildReadingsWithCascade(db: Database.Database): void {
+  const existing = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'experiment_readings'",
+  ).pluck().get() as string | undefined;
+  if (!existing || /ON DELETE CASCADE/i.test(existing)) return;
+  db.exec(`
+    CREATE TABLE experiment_readings_rebuilt (${READINGS_COLUMNS});
+    INSERT INTO experiment_readings_rebuilt (id, experiment_id, at, metric, value, note)
+      SELECT id, experiment_id, at, metric, value, note FROM experiment_readings;
+    DROP TABLE experiment_readings;
+    ALTER TABLE experiment_readings_rebuilt RENAME TO experiment_readings;
+  `);
+}
+
 export function migrateExperimentsSchema(db: Database.Database): void {
-  db.exec(EXPERIMENTS_DDL);
+  db.exec(EXPERIMENTS_TABLES_DDL);
+  // Before the indexes: the rebuild drops the table they cover with it.
+  rebuildReadingsWithCascade(db);
+  db.exec(EXPERIMENTS_INDEXES_DDL);
 }

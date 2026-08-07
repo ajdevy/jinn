@@ -2,6 +2,7 @@ import { Beaker, ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { OverduePill } from "./overdue-pill"
 import { useExperiments } from "./use-experiments"
 import type { Experiment } from "./types"
 
@@ -18,8 +19,11 @@ function ExperimentRow({ experiment }: { experiment: Experiment }) {
         aria-hidden
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
-          {experiment.name}
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 truncate text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
+            {experiment.name}
+          </span>
+          {experiment.overdue && <OverduePill id={experiment.id} />}
         </span>
         <span className="mt-0.5 block truncate text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
           {experiment.hypothesis}
