@@ -5712,11 +5712,9 @@ export async function handleApiRequest(
         incomingMessageId = acceptance.delivery.messageId!;
       } else {
         const claim = claimIncomingTurn({
-          sessionId: session.id, sessionKey, prompt, isNotification, role: messageRole,
+          sessionId: session.id, sessionKey, prompt, isNotification, role: messageRole, dedupeKey: lateralDedupeKey,
           content: isNotification ? displayMessage : prompt, media: userMedia, meta: notificationMeta,
-          dedupeKey: lateralDedupeKey,
         });
-        // A replayed tool call reuses the winner's row: no second message, no second turn.
         if (claim.deduplicated) return json(res, { status: "duplicate", sessionId: session.id, queueItemId: claim.queueItemId });
         queueItemId = claim.queueItemId;
         incomingMessageId = claim.messageId;
