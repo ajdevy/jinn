@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
 import TodoBoardPage from "../board/board-page"
-import { isColumnInStatusFilter } from "../board/use-board"
+import { isColumnInStatusFilter } from "../board/status-scope"
 import { clearBoardScrollCache } from "../board/board-route"
 
 /* A board URL that names one status is a board of that one column. This is the
@@ -68,11 +68,14 @@ function tree(id: string): WorkItemTreeWire {
   }
 }
 
-/** One operator Todo in backlog and one executing — the pair that tells an
- *  honestly-scoped board apart from one that just draws every column. */
+/** One operator Todo per interesting status: backlog and executing tell an
+ *  honestly-scoped board apart from one that just draws every column, and the
+ *  closed pair tells it apart from one that treats "in scope" as "still open". */
 const ROWS: Partial<Record<WorkItemStatusWire, WorkItemCompactWire[]>> = {
   backlog: [compact("PLA-1", "backlog")],
   executing: [compact("PLA-2", "executing")],
+  done: [compact("PLA-3", "done")],
+  cancelled: [compact("PLA-4", "cancelled")],
 }
 
 function listResponse(params: { status?: WorkItemStatusWire }): WorkItemListWire {
@@ -104,6 +107,20 @@ function renderBoard(path: string) {
     </QueryClientProvider>,
   )
 }
+
+/** The board picks its container from a media query rather than a width, so
+ *  the phone layout is reachable in jsdom only by answering that query. */
+function renderMobileBoard(path: string) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(max-width: 700px)",
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }))
+  return renderBoard(path)
+}
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe("isColumnInStatusFilter", () => {
   it("keeps every column on the default open board, closed ones included", () => {
@@ -145,5 +162,59 @@ describe("/todos/b/my?status=executing", () => {
     expect(screen.getByTestId("board-column-executing")).toBeTruthy()
     expect(screen.getAllByText("Item PLA-1").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Item PLA-2").length).toBeGreaterThan(0)
+  })
+})
+
+/* A closed status is a scope like any other. The board loaded the row all
+ * along; it was the empty-state gate, counting only open columns, that told the
+ * operator "No todos match." about a Todo sitting one element further down. */
+describe("/todos/b/my?status=done", () => {
+  it("shows the done Todo in the list instead of the filtered-empty card", async () => {
+    renderBoard("/todos/b/my?status=done")
+
+    const list = screen.getByTestId("todo-list-scroll")
+    await waitFor(() => expect(within(list).getByTestId("todo-list-group-closed")).toBeTruthy())
+    expect(within(list).getAllByText("Item PLA-3").length).toBeGreaterThan(0)
+    expect(screen.queryByTestId("todo-list-filtered-empty")).toBeNull()
+    expect(within(list).queryAllByText("Item PLA-1")).toEqual([])
+  })
+
+  it("arrives on the desktop board with the closed column already expanded", async () => {
+    renderBoard("/todos/b/my?status=done")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-closed-column")).toBeTruthy())
+    expect(within(board).getAllByText("Item PLA-3").length).toBeGreaterThan(0)
+    // Cancelled was never asked for, so it is absent rather than drawn as a zero.
+    expect(within(board).queryByTestId("board-closed-group-cancelled")).toBeNull()
+    expect(within(board).queryByTestId("board-closed-rail")).toBeNull()
+
+    const asked = listWorkItems.mock.calls.map(([params]) => params).filter((params) => params?.status)
+    expect(asked.map((params) => params.status)).toEqual(["done"])
+  })
+
+  it("arrives on the mobile Closed segment with the Todo visible, untapped", async () => {
+    renderMobileBoard("/todos/b/my?status=done")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getAllByText("Item PLA-3").length).toBeGreaterThan(0))
+  })
+
+  it("shows the cancelled Todo the same way", async () => {
+    renderBoard("/todos/b/my?status=cancelled")
+
+    const board = screen.getByTestId("todo-board-scroll")
+    await waitFor(() => expect(within(board).getByTestId("board-closed-group-cancelled")).toBeTruthy())
+    expect(within(board).getAllByText("Item PLA-4").length).toBeGreaterThan(0)
+    expect(within(board).queryByTestId("board-closed-group-done")).toBeNull()
+  })
+
+  it("still offers the way back when the filter genuinely matches nothing", async () => {
+    listWorkItems.mockImplementation(() =>
+      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
+    )
+    renderBoard("/todos/b/my?status=done&q=zzzz")
+
+    await waitFor(() => expect(screen.getByTestId("todo-list-filtered-empty")).toBeTruthy())
   })
 })

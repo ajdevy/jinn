@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { Employee, WorkItemCompactWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
 import type { BoardColumnData } from "../board/use-board"
 import { groupTodoListItems } from "./group-items"
@@ -26,6 +26,7 @@ export function TodoList({
   onOpen,
   onQuickAdd,
   statusInScope,
+  closedInitiallyOpen = false,
 }: {
   columns: Record<WorkItemStatusWire, BoardColumnData>
   needsAttention: WorkItemCompactWire[]
@@ -36,9 +37,13 @@ export function TodoList({
   onQuickAdd: (askAssignee: boolean) => void
   /** Which statuses this view was asked for — see `groupTodoListItems`. */
   statusInScope?: (status: WorkItemStatusWire) => boolean
+  /** A URL that named a closed status arrives with the group already open —
+   *  Closed is folded because it is usually noise, and here it is the answer. */
+  closedInitiallyOpen?: boolean
 }) {
   const groups = useMemo(() => groupTodoListItems(columns, needsAttention, statusInScope), [columns, needsAttention, statusInScope])
-  const [closedOpen, setClosedOpen] = useState(false)
+  const [closedOpen, setClosedOpen] = useState(closedInitiallyOpen)
+  useEffect(() => setClosedOpen(closedInitiallyOpen), [closedInitiallyOpen])
 
   return (
     <div className="flex flex-col gap-[18px] px-3 pb-24 pt-5 md:px-10 md:pb-10">

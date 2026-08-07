@@ -133,6 +133,28 @@ describe("a cold miss falls through and fills the cache", () => {
     expect(result.ok && result.data.messages).toEqual([{ role: "user", text: "where are we" }])
   })
 
+  it("refetches around a messages:false request that is still in flight", async () => {
+    // The settled entry is only half the hazard: react-query deduplicates by
+    // key, so a partial request the sessions page still has open would answer
+    // this one with its own half of the object.
+    const key = [...queryKeys.sessions.detail("s3")]
+    let landPartial: (session: unknown) => void = () => {}
+    const partialBody = new Promise((resolve) => { landPartial = resolve })
+    const partial = queryClient.fetchQuery({ queryKey: key, queryFn: () => partialBody })
+    await vi.waitFor(() => expect(queryClient.getQueryState(key)?.fetchStatus).toBe("fetching"))
+    mocked.getSession.mockResolvedValue({
+      id: "s3", title: "Orb work", status: "running",
+      messages: [{ role: "user", content: "still here" }],
+    } as never)
+
+    const reading = executeToolCall("read_session", '{"id":"s3"}')
+    landPartial({ id: "s3", title: "Orb work", status: "running" })
+    const result = await reading
+
+    expect(result.ok && result.data.messages).toEqual([{ role: "user", text: "still here" }])
+    await partial
+  })
+
   it("reports a failed read rather than throwing into the caller", async () => {
     mocked.getExperiment.mockRejectedValue(new Error("gateway is down"))
     await expect(executeToolCall("read_experiment", '{"id":"exp_x"}')).resolves.toEqual({

@@ -10,6 +10,15 @@ vi.mock("@/lib/api", () => ({ api: {} }))
 
 const visited: string[] = []
 
+/** One drained paint, in the two-frame shape `afterNextPaint` records timings
+ *  in. rAF runs callbacks in registration order, so a paint callback scheduled
+ *  before this one has always fired by the time it resolves. */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => { resolve() }))
+  })
+}
+
 beforeEach(() => {
   visited.length = 0
   clearToolTimings()
@@ -114,10 +123,10 @@ describe("the two done-when calls", () => {
       visited.push(path)
       return new Promise<void>((resolve) => { land = resolve })
     })
-    // An earlier case's paint callback may still be in flight — two rAFs is ~32ms
-    // under jsdom — so drain before clearing. The timings read below then belong
-    // unambiguously to this call.
-    await new Promise((resolve) => setTimeout(resolve, 80))
+    // An earlier case's paint callback may still be in flight, so drain it
+    // before clearing. The timings read below then belong unambiguously to
+    // this call.
+    await nextPaint()
     clearToolTimings()
 
     const settling = executeToolCall("open_todos", '{"status":"executing"}')
@@ -125,21 +134,23 @@ describe("the two done-when calls", () => {
 
     let settled = false
     void settling.then(() => { settled = true })
+    // Real wall-clock time, not a paint wait: the clock has to accumulate
+    // something for the lower bound below to mean anything, and that it is
+    // still unsettled after it is the point of the case.
     await new Promise((resolve) => setTimeout(resolve, 30))
     expect(settled).toBe(false)
     expect(lastToolTiming()).toBeUndefined()
 
     land()
     expect(await settling).toEqual({ ok: true, data: { path: "/todos/b/my?status=executing" } })
-    await new Promise((resolve) => setTimeout(resolve, 80))
-    expect(lastToolTiming()?.ms).toBeGreaterThanOrEqual(25)
+    await vi.waitFor(() => { expect(lastToolTiming()?.ms).toBeGreaterThanOrEqual(25) })
   })
 
   it("records both calls inside the budget", async () => {
     for (const [name, args] of [["open_todos", '{"status":"executing"}'], ["open_todo", '{"id":"59"}']] as const) {
       clearToolTimings()
       await executeToolCall(name, args)
-      await new Promise((resolve) => setTimeout(resolve, 40))
+      await vi.waitFor(() => { expect(lastToolTiming()?.tool).toBe(name) })
       const timing = lastToolTiming()
       expect(timing?.tool).toBe(name)
       expect(timing?.ms).toBeLessThan(TOOL_BUDGET_MS)

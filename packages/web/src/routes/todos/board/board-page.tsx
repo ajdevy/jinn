@@ -38,17 +38,15 @@ import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail
 import { BoardSwitcher, departmentTitle } from "./board-switcher"
 import {
   boardDetailIds,
-  BOARD_STATUS_ORDER,
-  CLOSED_STATUSES,
-  EXCEPTION_STATUSES,
-  isColumnInStatusFilter,
-  PIPELINE_STATUSES,
   useBoardData,
   useBoardRank,
   useBoardTransition,
   useBoardTrees,
   useCreateSubTask,
 } from "./use-board"
+import {
+  BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
+} from "./status-scope"
 import { useBoardDrag } from "./use-board-drag"
 import {
   boardKey,
@@ -400,18 +398,20 @@ export default function TodoBoardPage() {
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)
-  const [closedOpen, setClosedOpen] = useState(false)
-  const [segment, setSegment] = useState<MobileSegment>("active")
+  // A URL naming a closed status asked for closed work — never one tap short.
+  const closedFilter = CLOSED_STATUSES.some((status) => status === filters.status)
+  const [closedOpen, setClosedOpen] = useState(closedFilter)
+  const [segment, setSegment] = useState<MobileSegment>(closedFilter ? "closed" : "active")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const chooseView = useCallback((next: TodoView) => {
     setView(next)
     saveTodoViewPreference(next)
   }, [])
   useEffect(() => {
-    setClosedOpen(false)
-    setSegment("active")
+    setClosedOpen(closedFilter)
+    setSegment(closedFilter ? "closed" : "active")
     setMobileFilterOpen(false)
-  }, [key])
+  }, [key, closedFilter])
 
   const setFilters = useCallback(
     (next: TodoFilters) => {
@@ -505,12 +505,8 @@ export default function TodoBoardPage() {
   // Filtered-empty (states mock §6): zero visible items with filters/search
   // set always offers the way back. An unfiltered empty board celebrates
   // quietly — the columns and their quick-adds ARE the empty state.
-  const visibleOpenCount = useMemo(
-    () => visibleStatuses.reduce((sum, status) => sum + (itemsByStatus[status]?.length ?? 0), 0),
-    [visibleStatuses, itemsByStatus],
-  )
   const filterCount = activeFilterCount(filters) + (filters.q ? 1 : 0)
-  const filteredEmpty = !data.isLoading && visibleOpenCount === 0 && filterCount > 0
+  const filteredEmpty = !data.isLoading && filterCount > 0 && visibleItemCount(filters.status, itemsByStatus) === 0
   const listStatusInScope = useCallback((s: WorkItemStatusWire) => isColumnInStatusFilter(filters.status, s), [filters.status])
   const listColumns = useMemo(() => {
     const columns = {} as typeof data.columns
@@ -759,6 +755,7 @@ export default function TodoBoardPage() {
               <TodoList
                 columns={listColumns}
                 statusInScope={listStatusInScope}
+                closedInitiallyOpen={closedFilter}
                 needsAttention={needsYou}
                 byName={byName}
                 trees={trees.data}
@@ -792,7 +789,7 @@ export default function TodoBoardPage() {
               {CLOSED_STATUSES.some(listStatusInScope) && (closedOpen ? (
                 <section className="flex w-[262px] min-w-[238px] flex-none flex-col gap-3" data-testid="board-closed-column">
                   <ClosedColumnHeader count={closedTotal} onCollapse={() => setClosedOpen(false)} />
-                  {CLOSED_STATUSES.map((status) => (
+                  {CLOSED_STATUSES.filter(listStatusInScope).map((status) => (
                     <ClosedColumnGroup
                       key={status}
                       status={status as "done" | "cancelled"}

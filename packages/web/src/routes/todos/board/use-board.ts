@@ -7,11 +7,12 @@ import {
   type WorkItemStatusWire,
   type WorkItemTreeWire,
 } from "@/lib/api"
-import { dateBounds, type StatusFilter, type TodoFilters } from "@/lib/todos"
+import { dateBounds, type TodoFilters } from "@/lib/todos"
 import { TODO_QUERY_FRESHNESS, TODO_WRITE_KEY } from "@/lib/query-keys"
 import { todoStatusMutationOptions } from "../todo-status-mutation"
 import type { BoardId } from "./board-route"
 import { boardKey } from "./board-route"
+import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES } from "./status-scope"
 
 /* Todos v2 slice 6 — the board data layer (design-doc §11 queries).
  * One infinite query per status column, scoped per board:
@@ -21,21 +22,9 @@ import { boardKey } from "./board-route"
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 
-export const PIPELINE_STATUSES: readonly WorkItemStatusWire[] = ["backlog", "assigned", "executing", "in_review"]
-export const EXCEPTION_STATUSES: readonly WorkItemStatusWire[] = ["blocked", "escalated"]
-export const CLOSED_STATUSES: readonly WorkItemStatusWire[] = ["done", "cancelled"]
-const BOARD_STATUSES: readonly WorkItemStatusWire[] = [...PIPELINE_STATUSES, ...EXCEPTION_STATUSES, ...CLOSED_STATUSES]
 const OPEN_STATUSES: readonly WorkItemStatusWire[] = [...PIPELINE_STATUSES, ...EXCEPTION_STATUSES]
 
 export const BOARD_PAGE_SIZE = 20
-
-/** Whether a column belongs on a board carrying this status filter (pure —
- *  unit-tested). A URL that names one status (`?status=executing`, which is what
- *  the Talk orb's open_todos writes) is a board of that one column; `open` and
- *  `all` keep every column, closed ones included, for the rail to page. */
-export function isColumnInStatusFilter(filter: StatusFilter, status: WorkItemStatusWire): boolean {
-  return filter === "open" || filter === "all" || filter === status
-}
 
 /** Server params for a board scope (pure — unit-tested). Boards show roots
  *  only (§4): children live in the in-place tree tray, not as cards. */
@@ -119,7 +108,7 @@ function boardColumns(
   inScope: readonly boolean[],
 ): Record<WorkItemStatusWire, BoardColumnData> {
   const columns = {} as Record<WorkItemStatusWire, BoardColumnData>
-  BOARD_STATUSES.forEach((status, i) => {
+  BOARD_STATUS_ORDER.forEach((status, i) => {
     const q = queries[i]
     const pages = inScope[i] ? q.data?.pages ?? [] : []
     columns[status] = {
@@ -163,7 +152,7 @@ export function useBoardData(board: BoardId, filters: TodoFilters, now: number, 
   const queries = [backlog, assigned, executing, inReview, blocked, escalated, done, cancelled]
 
   return useMemo((): BoardData => {
-    const inScope = BOARD_STATUSES.map((status) => isColumnInStatusFilter(filters.status, status))
+    const inScope = BOARD_STATUS_ORDER.map((status) => isColumnInStatusFilter(filters.status, status))
     const columns = boardColumns(queries, inScope)
     const openTotal = PIPELINE_STATUSES.reduce((sum, s) => sum + columns[s].total, 0)
     const closedTotal = CLOSED_STATUSES.reduce((sum, s) => sum + columns[s].total, 0)
@@ -284,7 +273,7 @@ export function useCreateSubTask() {
  *  open-details pattern the ledger already pays for; bounded for calm. */
 export function boardDetailIds(columns: Record<WorkItemStatusWire, BoardColumnData>, cap = 60): string[] {
   const ids: string[] = []
-  for (const status of BOARD_STATUSES) {
+  for (const status of BOARD_STATUS_ORDER) {
     for (const item of columns[status]?.items ?? []) {
       ids.push(item.id)
       if (ids.length >= cap) return ids
@@ -292,5 +281,3 @@ export function boardDetailIds(columns: Record<WorkItemStatusWire, BoardColumnDa
   }
   return ids
 }
-
-export const BOARD_STATUS_ORDER = BOARD_STATUSES
