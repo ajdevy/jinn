@@ -41,9 +41,19 @@ export function baseConfig(): JinnConfig {
   } as unknown as JinnConfig;
 }
 
-/** Stand in for OpenAI's client-secrets endpoint. Each mint expires later than
- *  the last, which is what a re-mint after a park has to be able to show. */
-export function stubMintingFetch(): { calls: Array<{ url: string; authorization: string; body: unknown }> } {
+/**
+ * Stand in for OpenAI's client-secrets endpoint, carrying its expiry semantics
+ * rather than a convenient version of them: a whole second, anchored at the mint,
+ * exactly as `expires_after: { anchor: "created_at" }` yields. Nothing here
+ * manufactures monotonicity, so two mints inside one second really do collide and
+ * the gateway has to earn a later expiry.
+ *
+ * `fixedExpiry` pins the value instead, standing in for a provider that never
+ * extends at all.
+ */
+export function stubMintingFetch(
+  fixedExpiry?: number,
+): { calls: Array<{ url: string; authorization: string; body: unknown }> } {
   const calls: Array<{ url: string; authorization: string; body: unknown }> = [];
   let issued = 0;
   vi.stubGlobal("fetch", async (url: string, init: { headers: Record<string, string>; body: string }) => {
@@ -57,7 +67,7 @@ export function stubMintingFetch(): { calls: Array<{ url: string; authorization:
       ok: true,
       json: async () => ({
         value: `ephemeral-secret-${issued}`,
-        expires_at: Math.floor(Date.now() / 1000) + 600 + issued,
+        expires_at: fixedExpiry ?? Math.floor(Date.now() / 1000) + 600,
       }),
     };
   });

@@ -45,11 +45,16 @@ const PER_MILLION = 1_000_000;
 export function priceTurn(model: string, usage: RealtimeUsage): TurnPrice {
   const rate = RATES[model];
   if (!rate) return { costUsd: 0, pricingKnown: false };
+  // Cached tokens are a subset of the input counts, not a bucket alongside them:
+  // billing both charges the cached prefix twice. Deduct audio first, because a
+  // voice turn's cached prefix is the conversation audio being re-sent.
+  const cachedAudioTokens = Math.min(usage.inputAudioTokens, usage.cachedInputTokens);
+  const cachedTextTokens = Math.min(usage.inputTextTokens, usage.cachedInputTokens - cachedAudioTokens);
   const costUsd =
-    (usage.inputAudioTokens * rate.inputAudio +
-      usage.outputAudioTokens * rate.outputAudio +
+    ((usage.inputAudioTokens - cachedAudioTokens) * rate.inputAudio +
+      (usage.inputTextTokens - cachedTextTokens) * rate.inputText +
       usage.cachedInputTokens * rate.cachedInput +
-      usage.inputTextTokens * rate.inputText +
+      usage.outputAudioTokens * rate.outputAudio +
       usage.outputTextTokens * rate.outputText) /
     PER_MILLION;
   return { costUsd, pricingKnown: true };

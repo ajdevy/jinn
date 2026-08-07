@@ -108,6 +108,21 @@ describe("park and resume", () => {
     expect(resumed.body.expiresAt as number).toBeGreaterThan(opened.expiresAt as number);
   });
 
+  it("refuses a re-mint that does not outlive the credential it replaces", async () => {
+    // A provider pinned to one absolute expiry: no amount of waiting makes the
+    // successor longer-lived, and returning it would claim a freshness it does
+    // not have.
+    minting = stubMintingFetch(2_000_000_000);
+    const opened = await open();
+    const id = opened.id as string;
+    await call(config, "POST", `/api/talk/sessions/${id}/park`);
+
+    const resumed = await call(config, "POST", `/api/talk/sessions/${id}/resume`);
+    expect(resumed.status).toBe(502);
+    expect(String(resumed.body.error)).toMatch(/no later than the one it replaced/);
+    expect(minting.calls.length).toBeGreaterThan(2); // it did try again after waiting
+  });
+
   it("rejects park on a parked session and resume on a live one with 409", async () => {
     const id = (await open()).id as string;
 

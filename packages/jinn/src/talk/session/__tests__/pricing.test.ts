@@ -28,6 +28,23 @@ describe("priceTurn", () => {
     expect(cached.costUsd).toBeLessThan(fresh.costUsd);
   });
 
+  it("treats cached tokens as a subset of the input count rather than an extra charge", () => {
+    // The provider reports the cached prefix inside inputAudioTokens, so a fully
+    // cached turn costs the cached rate alone: 1M at $0.40, not $32.00 + $0.40.
+    const allCached = priceTurn(
+      "gpt-realtime-2.1",
+      usage({ inputAudioTokens: 1_000_000, cachedInputTokens: 1_000_000 }),
+    );
+    expect(allCached.costUsd).toBeCloseTo(0.4, 6);
+
+    // 750k fresh audio at $32.00 plus 250k cached at $0.40.
+    const partlyCached = priceTurn(
+      "gpt-realtime-2.1",
+      usage({ inputAudioTokens: 1_000_000, cachedInputTokens: 250_000 }),
+    );
+    expect(partlyCached.costUsd).toBeCloseTo(24.1, 6);
+  });
+
   it("prices the mini model below the full one for identical usage", () => {
     const load = usage({ inputAudioTokens: 36_000, outputAudioTokens: 12_000 });
     expect(priceTurn("gpt-realtime-2.1-mini", load).costUsd)

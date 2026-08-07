@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig, RealtimeTool, Session } from "../shared/types.js";
 import { createSession, getSessionSpend } from "../sessions/registry.js";
@@ -128,17 +129,44 @@ async function openRoute(res: ServerResponse, config: JinnConfig, method: string
     sourceRef: `talk:${randomUUID()}`,
     connector: "talk",
   });
-  const session = talkSessions.open({ sessionId: row.id, model: pinnedModel(config) });
+  const session = talkSessions.open({
+    sessionId: row.id,
+    model: pinnedModel(config),
+    tokenExpiresAt: token.expiresAt,
+  });
   send(res, 201, { ...statusOf(session), token: token.value, expiresAt: token.expiresAt, tools });
   return true;
+}
+
+/**
+ * Mint a credential that outlives the one the session already holds.
+ *
+ * Provider expiries are whole seconds anchored at the moment of minting, so two
+ * mints inside one second expire together and a resumed client cannot tell its
+ * new credential from the one it replaced. Waiting out the second is what makes
+ * the successor genuinely longer-lived; a provider that still will not extend
+ * has handed back a credential that dies with its predecessor, which is a
+ * provider fault rather than something to pass on to the client.
+ */
+async function mintSuccessor(res: ServerResponse, config: JinnConfig, session: TalkSession, tools: RealtimeTool[]) {
+  const token = await mint(res, config, tools);
+  if (!token || token.expiresAt > session.tokenExpiresAt) return token;
+  await delay(1000 - (Date.now() % 1000));
+  const retried = await mint(res, config, tools);
+  if (!retried || retried.expiresAt > session.tokenExpiresAt) return retried;
+  send(res, 502, {
+    error: "The realtime provider reissued a session credential that expires no later than the one it replaced.",
+  });
+  return null;
 }
 
 /** Re-mint for an expiring credential or a resume, scoped to whatever the
  *  session has been granted so far rather than to the always-on set. */
 async function reissueToken(res: ServerResponse, config: JinnConfig, session: TalkSession): Promise<void> {
   const tools = toolsByName(session.exposedTools);
-  const token = await mint(res, config, tools);
+  const token = await mintSuccessor(res, config, session, tools);
   if (!token) return;
+  talkSessions.recordToken(session.id, token.expiresAt);
   send(res, 200, { ...statusOf(session), token: token.value, expiresAt: token.expiresAt, tools });
 }
 

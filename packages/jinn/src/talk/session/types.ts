@@ -32,6 +32,10 @@ export interface TalkSession {
   turns: TalkTurnRecord[];
   /** How many turns truncation has dropped over this session's life. */
   truncatedTurns: number;
+  /** Expiry of the credential last handed to the client, in provider seconds.
+   *  Every credential after it has to outlive it, or the client cannot tell a
+   *  re-mint from a replay of the one it already holds. */
+  tokenExpiresAt: number;
   /** Tool names already in the provider's session, always-on set included. */
   exposedTools: string[];
   /** Intents already expanded, so asking twice adds nothing a second time. */

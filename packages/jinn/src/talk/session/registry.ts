@@ -39,6 +39,8 @@ export interface OpenTalkSessionOptions {
   /** The `sessions` row this talk session bills through. */
   sessionId: string;
   model: string;
+  /** Expiry of the credential minted for this open, in provider seconds. */
+  tokenExpiresAt: number;
 }
 
 export interface TalkTurnResult {
@@ -67,6 +69,7 @@ export class TalkSessionRegistry {
       lastSeenAt: at,
       turns: [],
       truncatedTurns: 0,
+      tokenExpiresAt: options.tokenExpiresAt,
       exposedTools: alwaysOnTools().map((tool) => tool.name),
       expandedIntents: [],
     };
@@ -96,6 +99,12 @@ export class TalkSessionRegistry {
     session.state = "live";
     session.lastSeenAt = this.now();
     return session;
+  }
+
+  /** Remember the credential just handed out, so the next one can be required to
+   *  outlive it. */
+  recordToken(id: string, expiresAt: number): void {
+    this.require(id).tokenExpiresAt = expiresAt;
   }
 
   heartbeat(id: string): TalkSession {

@@ -9,7 +9,7 @@ function clockAt(start = 1_000_000): { now: () => number; advance: (ms: number) 
 }
 
 function openOne(registry: TalkSessionRegistry) {
-  return registry.open({ sessionId: "row-1", model: "gpt-realtime-2.1" });
+  return registry.open({ sessionId: "row-1", model: "gpt-realtime-2.1", tokenExpiresAt: 1_700_000_600 });
 }
 
 describe("TalkSessionRegistry lifecycle", () => {
@@ -78,8 +78,8 @@ describe("TalkSessionRegistry reaper", () => {
   it("closes a session that stopped heartbeating and spares one that did not", () => {
     const clock = clockAt();
     const registry = new TalkSessionRegistry(clock.now);
-    const abandoned = registry.open({ sessionId: "row-abandoned", model: "gpt-realtime-2.1" });
-    const alive = registry.open({ sessionId: "row-alive", model: "gpt-realtime-2.1" });
+    const abandoned = registry.open({ sessionId: "row-abandoned", model: "gpt-realtime-2.1", tokenExpiresAt: 1_700_000_600 });
+    const alive = registry.open({ sessionId: "row-alive", model: "gpt-realtime-2.1", tokenExpiresAt: 1_700_000_600 });
 
     clock.advance(TALK_SESSION_TTL_MS / 2);
     registry.heartbeat(alive.id);

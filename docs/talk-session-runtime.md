@@ -4,10 +4,14 @@ This subsystem is what the gateway does for a voice conversation, and the short
 version is: as little as possible. It mints a short-lived provider credential,
 keeps one in-memory record per open talk session, and prices each turn into the
 existing session ledger. It is a credential minter and an accounting authority.
-**It never carries audio.** No microphone bytes, no speech-to-text hop, no
-server-side text-to-speech, no WebSocket audio fan-out. The browser holds the
-provider connection; the gateway holds the credential policy, the tool set, the
-context budget, and the bill.
+**No conversation audio passes through it.** The browser holds the provider
+connection and carries the microphone and speaker bytes both ways; the gateway
+holds the credential policy, the tool set, the context budget, and the bill. The
+gateway does still serve two audio routes — `POST /api/stt/transcribe` for the
+chat composer's dictation and `GET/POST /api/tts` for reading a chat message
+aloud — but both belong to the text chat surface and neither is called on a voice
+turn. `/api/tts` is reached through this router only because it was moved here
+verbatim; see the endpoint table below.
 
 The code lives in `packages/jinn/src/talk/session/`:
 
@@ -70,21 +74,32 @@ of PLA-59.
 Each of these names a concrete mechanism on both sides, so each is checkable
 against code rather than a claim about quality.
 
-### 1. The gateway stopped being the audio pipe
+### 1. The gateway stopped being the audio pipe for a conversation
 
-**Before.** Audio made a full round trip through the gateway: microphone capture
-to `POST /api/stt/transcribe`, then `POST /api/talk/turn`, then a server-side
-model call, then whole-turn Kokoro text-to-speech, then a `talk:say` / `talk:audio`
-broadcast over the WebSocket to every connected client. Time to first audio was
-measured in seconds, and the deployment needed a Python virtualenv sidecar to
-run Kokoro.
+**Before.** Every voice turn made a full round trip through the gateway:
+microphone capture to `POST /api/stt/transcribe`, then `POST /api/talk/turn`,
+then a server-side model call, then whole-turn Kokoro text-to-speech, then a
+`talk:say` / `talk:audio` broadcast over the WebSocket to every connected client.
+Time to first audio was measured in seconds, and a voice conversation could not
+happen at all without the Python virtualenv sidecar that runs Kokoro.
 
 **Now.** The gateway mints an ephemeral provider token with a TTL of at most 600
 seconds and returns it to the browser, which opens its own connection directly to
-the provider. There is no transcription endpoint, no server-side speech
-synthesis, no sidecar process, and no broadcast: audio never enters the gateway
-process in either direction. The account key stays server-side and never appears
-in a response body.
+the provider and carries the audio both ways. A voice turn makes no gateway call
+that touches audio: no transcription hop, no server-side model call, no
+synthesis, no broadcast, and no dependency on the sidecar. The account key stays
+server-side and never appears in a response body.
+
+Two audio routes do survive in the gateway, and the realtime session calls
+neither: `POST /api/stt/transcribe` (`gateway/api.ts`) still transcribes a
+recording for the chat composer's dictation, and `GET/POST /api/tts`
+(`gateway/talk-tts-api.ts`) still synthesizes Kokoro WAV frames to read a chat
+message aloud. Both are text-chat features that outlived the orchestrator, which
+is why `template/migrations/0.29.1/MIGRATION.md` promises read-aloud and
+push-to-talk dictation are unaffected. `talk-api.ts` hands `/api/tts` to
+`talk-tts-api.ts` before matching its own routes — that is the move, not a
+coupling — and no `/api/talk/sessions/*` path reaches either route. Nothing under
+`talk/session/` mentions them at all.
 
 ### 2. Behaviour moved from a prompt-injected persona to typed tool declarations
 
@@ -231,7 +246,11 @@ Two cost facts from `docs/realtime-providers.md` shape what this subsystem is ev
 for. Realtime input tokens grow with conversation length because the whole
 conversation is re-sent on every response, and prompt caching offsets that only
 while the history is left alone: changing or removing content busts the cache from
-the point of the change onward. Rolling truncation therefore trades cache hits for
+the point of the change onward. The provider reports the cached share *inside* the
+input counts rather than beside them, so `priceTurn` deducts it before the full
+rate applies and charges it once at the cached rate — billing both buckets would
+charge the cached prefix twice, at roughly eighty times its real cost. Rolling
+truncation therefore trades cache hits for
 a bounded context, which is the right trade only because the budget is generous
 enough that most sessions never truncate at all.
 
