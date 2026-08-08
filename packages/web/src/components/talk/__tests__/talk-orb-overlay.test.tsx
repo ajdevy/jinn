@@ -45,7 +45,12 @@ describe("TalkOrbOverlay", () => {
 
     render(<TalkOrbOverlay />)
 
-    await waitFor(() => expect(document.querySelector("[data-talk-orb]")).not.toBeNull())
+    // waitFor's one-second default is a budget for a render, and this waits on a
+    // cold dynamic import instead: transforming the talk-surface module graph
+    // costs ~520ms on an idle machine, so a loaded one times out.
+    await waitFor(() => expect(document.querySelector("[data-talk-orb]")).not.toBeNull(), {
+      timeout: 15_000,
+    })
     expect(orb.loads).toBe(1)
   })
 })
