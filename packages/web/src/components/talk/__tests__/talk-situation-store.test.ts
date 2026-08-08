@@ -101,6 +101,19 @@ describe("asking a situation", () => {
     expect(deferred.result.current).toBeNull()
   })
 
+  it("clears what an earlier dismissal deferred when an asked situation is dismissed", async () => {
+    const deferred = renderHook(() => useDeferredSituation())
+
+    act(() => presentSituation(SECOND))
+    act(() => dismissSituation())
+    const answer = askSituation(FIRST)
+
+    act(() => dismissSituation())
+
+    await expect(answer).resolves.toBeNull()
+    expect(deferred.result.current).toBeNull()
+  })
+
   it("clears what an earlier dismissal deferred when an asked situation is answered", async () => {
     const deferred = renderHook(() => useDeferredSituation())
 

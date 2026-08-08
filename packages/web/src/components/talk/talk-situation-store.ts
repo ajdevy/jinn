@@ -82,10 +82,13 @@ export function answerSituation(choiceId: string): void {
  * blocked waiting on its answer, so putting it down has to mean "no" and settle
  * that waiter now. There would be nothing coherent to come back to — the write
  * has already been told it was refused — and the operator can simply ask again.
+ * Like an answer, it empties the slot rather than leaving an older situation
+ * there: the refusal is the last thing that happened, so the surface has nothing
+ * to offer back.
  */
 export function dismissSituation(): void {
   if (!current) return
-  if (!pending) deferred = current
+  deferred = pending ? null : current
   current = null
   settle(null)
   emit()
