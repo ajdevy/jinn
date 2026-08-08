@@ -1,75 +1,22 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
-import { EventEmitter } from "node:events";
-import { AddressInfo } from "node:net";
 import { SsePtyProxy, type SsePtyProxyOpts } from "../sse-pty-proxy.js";
-import { MAX_UPSTREAM_ATTEMPTS } from "../upstream-pool.js";
+import {
+  callProxy,
+  fakeUpstreamRequest,
+  fakeUpstreamResponse,
+  startUpstream,
+  wait,
+  withDeadline,
+  type Upstream,
+} from "./helpers/sse-pty-upstream.js";
 
-// Regression tests for PLA-76: a `bad record mac` on one upstream connection took
-// the whole engine stream down, and every session drew from ONE module-scope
-// socket pool. Two things are covered here that no other suite touches — the
-// POOLED first-attempt path (every other suite passes `primaryAgent: false`, so
-// production's actual path had zero coverage), and cross-proxy isolation.
+// Regression tests for PLA-76: one stream's death took every other stream with
+// it. Two blast radii are covered here — the socket pool (it was module scope,
+// so every session drew from one 64-socket bucket) and the in-flight upstream
+// handle a finished stream used to keep pointing at.
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-interface Upstream {
-  port: number;
-  attempts: () => number;
-  /** Client-side port per attempt, so a test can tell socket reuse from a new one. */
-  sockets: () => number[];
-  close: () => Promise<void>;
-}
-
-function startUpstream(
-  onAttempt: (n: number, req: http.IncomingMessage, res: http.ServerResponse) => void,
-): Promise<Upstream> {
-  let n = 0;
-  const sockets: number[] = [];
-  const server = http.createServer((req, res) => {
-    n += 1;
-    sockets.push(req.socket.remotePort ?? -1);
-    req.resume();
-    onAttempt(n, req, res);
-  });
-  return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => {
-      resolve({
-        port: (server.address() as AddressInfo).port,
-        attempts: () => n,
-        sockets: () => sockets,
-        close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }),
-      });
-    });
-  });
-}
-
-function callProxy(
-  port: number,
-  opts: { agent?: http.Agent | false; headers?: Record<string, string> } = {},
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1", port, path: "/v1/messages", method: "POST",
-        agent: opts.agent ?? false, headers: opts.headers,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => resolve({ status: res.statusCode || 0, body: Buffer.concat(chunks).toString("utf-8") }));
-      },
-    );
-    req.on("error", reject);
-    req.end("{}");
-  });
-}
-
-const STARVED = { status: -1, body: "STARVED" };
-const withDeadline = (p: Promise<{ status: number; body: string }>, ms: number) =>
-  Promise.race([p, wait(ms).then(() => STARVED)]);
-
-describe("SsePtyProxy cross-stream isolation and pooled recovery", () => {
+describe("SsePtyProxy cross-stream isolation", () => {
   const proxies: SsePtyProxy[] = [];
   const upstreams: Upstream[] = [];
   const agents: http.Agent[] = [];
@@ -134,160 +81,100 @@ describe("SsePtyProxy cross-stream isolation and pooled recovery", () => {
     expect(outB.body).toBe("B-COMPLETE-BODY");
   }, 20000);
 
-  it("a stream aborted mid-flight leaves a sibling proxy's stream intact", async () => {
-    let siblingResponse: http.ServerResponse | undefined;
+  it("a mid-flight abort on a SHARED pool leaves the sibling stream whole", async () => {
+    // Both proxies draw from ONE pool holding a single socket, so B is genuinely
+    // queued behind A rather than merely concurrent with it. A's client hangs up
+    // before a single response byte: the abandoned stream has to hand the socket
+    // back AND stop consuming upstream capacity. On main it does neither cleanly —
+    // the abort-destroyed request reports `socket hang up`, still satisfies the
+    // retry condition, and issues a ghost upstream turn for a client that left.
     const upstream = await startUpstream((_n, req, res) => {
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write("data: {}\n\n");
-      if (req.headers["x-wedge"]) heldUpstreamResponses.push(res);
-      else siblingResponse = res;
-    });
-    upstreams.push(upstream);
-
-    const portA = await newProxy(upstream).start();
-    const portB = await newProxy(upstream).start();
-
-    const reqA = http.request(
-      { hostname: "127.0.0.1", port: portA, path: "/v1/messages", method: "POST", agent: false, headers: { "x-wedge": "1" } },
-      (res) => res.resume(),
-    );
-    reqA.on("error", () => { /* we abort it below */ });
-    reqA.end("{}");
-
-    const bDone = callProxy(portB);
-    for (let i = 0; i < 100 && !siblingResponse; i++) await wait(20);
-    reqA.destroy(); // stream A's client goes away mid-flight
-    await wait(200);
-
-    siblingResponse?.write('data: {"type":"done"}\n\n');
-    siblingResponse?.end();
-
-    const outB = await withDeadline(bDone, 3000);
-    expect(outB.status).toBe(200);
-    expect(outB.body).toBe('data: {}\n\ndata: {"type":"done"}\n\n');
-  }, 20000);
-
-  it("recovers over a POOLED agent when the first attempt dies pre-response", async () => {
-    const upstream = await startUpstream((n, _req, res) => {
-      if (n === 1) { res.socket?.destroy(); return; }
+      if (req.headers["x-wedge"]) { heldUpstreamResponses.push(res); return; } // never answers
       res.writeHead(200, { "content-type": "application/json" });
-      res.end("recovered");
-    });
-    upstreams.push(upstream);
-    const port = await newProxy(upstream).start();
-
-    const out = await callProxy(port);
-
-    expect(out.status).toBe(200);
-    expect(out.body).toBe("recovered");
-    expect(upstream.attempts()).toBe(2);
-  });
-
-  it("recovers when the fault outlives the first retry, instead of 502-ing", async () => {
-    // The production trace: attempt 0 hit `bad record mac`, the fresh-socket retry
-    // hit `socket hang up` one second later, and the CLI got a bare 502.
-    const upstream = await startUpstream((n, _req, res) => {
-      if (n <= 2) { res.socket?.destroy(); return; }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end("recovered");
-    });
-    upstreams.push(upstream);
-    const port = await newProxy(upstream).start();
-
-    const out = await callProxy(port);
-
-    expect(out.status).toBe(200);
-    expect(out.body).toBe("recovered");
-    expect(upstream.attempts()).toBe(3);
-  });
-
-  it("stops at the attempt budget — a dead upstream 502s without looping", async () => {
-    const upstream = await startUpstream((_n, _req, res) => { res.socket?.destroy(); });
-    upstreams.push(upstream);
-    const port = await newProxy(upstream).start();
-
-    const out = await callProxy(port);
-    await wait(500); // any unbounded retry would keep firing past the 502
-
-    expect(out.status).toBe(502);
-    expect(upstream.attempts()).toBe(MAX_UPSTREAM_ATTEMPTS);
-  });
-
-  it("a superseded attempt that errors again does not fire an extra request", async () => {
-    // A retried-past ClientRequest keeps its 'error' listener. Before the fix its
-    // closure still satisfied the retry condition, so a second error re-entered
-    // the retry branch and issued an upstream request nobody was waiting for.
-    let calls = 0;
-    const requestFn: SsePtyProxyOpts["requestFn"] = ((_o: unknown, cb: (r: http.IncomingMessage) => void) => {
-      calls += 1;
-      const attemptNo = calls;
-      const request = new EventEmitter() as EventEmitter & Record<string, unknown>;
-      request.write = () => true;
-      request.destroy = () => {};
-      request.setTimeout = () => request;
-      request.end = () => {
-        if (attemptNo === 1) {
-          const fail = () => request.emit("error", new Error("socket hang up"));
-          setImmediate(fail);
-          setImmediate(fail); // the same dead socket reports twice
-          return;
-        }
-        setImmediate(() => {
-          const response = new EventEmitter() as unknown as http.IncomingMessage;
-          Object.assign(response, { statusCode: 200, headers: {}, pause: () => {}, resume: () => {} });
-          cb(response);
-          setImmediate(() => { response.emit("data", Buffer.from("ok")); response.emit("end"); });
-        });
-      };
-      return request as unknown as http.ClientRequest;
-    }) as SsePtyProxyOpts["requestFn"];
-
-    const proxy = new SsePtyProxy("test", () => {}, { requestFn, primaryAgent: false });
-    proxies.push(proxy);
-    const port = await proxy.start();
-
-    const out = await callProxy(port);
-    await wait(500);
-
-    expect(out.status).toBe(200);
-    expect(calls).toBe(2);
-  });
-
-  it("a completed stream's late client abort spares the recycled pooled socket", async () => {
-    // Direct guard for the stale-handle hazard: stream A finishes, the pool hands
-    // its keep-alive socket to stream B, and only then does A's client hang up.
-    let siblingResponse: http.ServerResponse | undefined;
-    const upstream = await startUpstream((n, _req, res) => {
-      if (n === 1) {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end("A-OK");
-        return;
-      }
-      siblingResponse = res;
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write("data: {}\n\n");
+      res.end("B-COMPLETE-BODY");
     });
     upstreams.push(upstream);
 
-    // ONE shared pool with a single socket, so B provably inherits A's connection.
     const sharedPool = new http.Agent({ keepAlive: true, maxSockets: 1 });
     agents.push(sharedPool);
     const portA = await newProxy(upstream, { primaryAgent: sharedPool }).start();
     const portB = await newProxy(upstream, { primaryAgent: sharedPool }).start();
 
-    const clientPool = new http.Agent({ keepAlive: true });
-    agents.push(clientPool);
-    expect((await callProxy(portA, { agent: clientPool })).body).toBe("A-OK");
+    const reqA = http.request(
+      { hostname: "127.0.0.1", port: portA, path: "/v1/messages", method: "POST", agent: false, headers: { "x-wedge": "1" } },
+      (res) => res.resume(),
+    );
+    reqA.on("error", () => { /* aborted below */ });
+    reqA.end("{}");
+    for (let i = 0; i < 100 && upstream.attempts() < 1; i++) await wait(20);
 
-    const bDone = callProxy(portB);
-    for (let i = 0; i < 100 && !siblingResponse; i++) await wait(20);
-    const [socketA, socketB] = upstream.sockets();
-    expect(socketB).toBe(socketA); // B really is on A's recycled socket
+    const bDone = callProxy(portB); // queued on the shared pool's only socket
+    await wait(100);
+    reqA.destroy(); // stream A's client goes away before any response
 
-    clientPool.destroy(); // A's client connection goes away after A completed
+    const outB = await withDeadline(bDone, 3000);
+    await wait(300); // a ghost turn for the dead client would have landed by now
+
+    expect(outB.status).toBe(200);
+    expect(outB.body).toBe("B-COMPLETE-BODY");
+    expect(upstream.attempts()).toBe(2); // A's turn, then B's — nothing for the client that left
+  }, 20000);
+
+  it("a completed stream's late hang-up spares the socket now serving another stream", async () => {
+    // A finishes upstream with 8 MB still queued to a client that never reads, so
+    // its response is provably unflushed (writableFinished false) when the client
+    // hangs up — the nearest the stack gets to a stale in-flight destroy. By then
+    // keep-alive has handed A's socket to B, and destroying a request takes the
+    // socket under it down. `pooledSocket` is that socket; the fake upstream is
+    // what puts both streams provably on it.
+    //
+    // The second arm of the guard holds this up too: node marks a response
+    // finished before it emits 'close', even on an RST mid-flush, so the destroy
+    // is unreachable once a turn has ended. Clearing the handle on every terminal
+    // path is what makes that an invariant of this proxy rather than a property
+    // of node's event ordering.
+    const pooledSocket = { destroyed: false };
+    let liveResponse: http.IncomingMessage | undefined;
+    const respond: ((r: http.IncomingMessage) => void)[] = [];
+    const requestFn = ((_o: unknown, cb: (r: http.IncomingMessage) => void) =>
+      fakeUpstreamRequest({
+        onEnd: () => respond.push(cb),
+        onDestroy: () => {
+          pooledSocket.destroyed = true;
+          liveResponse?.emit("error", new Error("pooled socket destroyed under a live stream"));
+        },
+      })) as SsePtyProxyOpts["requestFn"];
+
+    const proxy = new SsePtyProxy("test", () => {}, { requestFn, primaryAgent: false });
+    proxies.push(proxy);
+    const port = await proxy.start();
+
+    const reqA = http.request(
+      { hostname: "127.0.0.1", port, path: "/v1/messages", method: "POST", agent: false },
+      () => { /* never read, so A's body stays queued and A's response unfinished */ },
+    );
+    reqA.on("error", () => { /* hung up below */ });
+    reqA.end("{}");
+    for (let i = 0; i < 100 && respond.length < 1; i++) await wait(20);
+
+    const aResponse = fakeUpstreamResponse({ "content-type": "application/json" });
+    respond[0](aResponse);
+    aResponse.emit("data", Buffer.alloc(8 * 1024 * 1024, "a"));
+    aResponse.emit("end"); // A's turn is over; its socket goes back to the pool
+
+    const bDone = callProxy(port);
+    for (let i = 0; i < 100 && respond.length < 2; i++) await wait(20);
+    const bResponse = fakeUpstreamResponse({ "content-type": "text/event-stream" });
+    liveResponse = bResponse;
+    respond[1](bResponse);
+    bResponse.emit("data", Buffer.from("data: {}\n\n"));
+
+    reqA.destroy(); // A's client hangs up only now, long after A's turn ended
     await wait(200);
-    siblingResponse?.write('data: {"type":"done"}\n\n');
-    siblingResponse?.end();
+    expect(pooledSocket.destroyed).toBe(false);
+
+    bResponse.emit("data", Buffer.from('data: {"type":"done"}\n\n'));
+    bResponse.emit("end");
 
     const outB = await withDeadline(bDone, 3000);
     expect(outB.status).toBe(200);
