@@ -25,6 +25,27 @@ describe("GET /api/work-items/:id/attachments/:aid (download)", () => {
     expect(got.raw).toEqual(content);
   });
 
+  it("returns 304 when If-None-Match weakly matches the attachment ETag", async () => {
+    const item = store.createWorkItem({ title: "conditional download" });
+    const content = Buffer.from("cache me");
+    const posted = await upload(`/api/work-items/${item.id}/attachments`, { file: { name: "cache.txt", content } }, operatorHeaders);
+    const url = `/api/work-items/${item.id}/attachments/${posted.body.attachment.id}`;
+
+    const initial = await call("GET", url, undefined, operatorHeaders);
+    expect(initial.status).toBe(200);
+    expect(initial.raw).toEqual(content);
+    const etag = String(initial.headers.ETag);
+
+    const stale = await call("GET", url, undefined, { ...operatorHeaders, "if-none-match": '"stale"' });
+    expect(stale.status).toBe(200);
+    expect(stale.raw).toEqual(content);
+
+    const fresh = await call("GET", url, undefined, { ...operatorHeaders, "if-none-match": `W/"stale", W/${etag}` });
+    expect(fresh.status).toBe(304);
+    expect(fresh.headers.ETag).toBe(etag);
+    expect(fresh.raw).toHaveLength(0);
+  });
+
   it("streams an exact byte range and returns 416 when the range cannot be satisfied", async () => {
     const item = store.createWorkItem({ title: "ranged download" });
     const content = Buffer.from("0123456789");
