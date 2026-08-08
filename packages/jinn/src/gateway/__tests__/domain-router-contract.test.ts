@@ -1,39 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
-import { Readable } from "node:stream";
-import type { ServerResponse } from "node:http";
-import type { JinnConfig } from "../../shared/types.js";
 
 /**
- * Contract for the per-domain router seam (`cron-api.ts`, `org-api.ts`). Every moved
- * route is driven through handleApiRequest — the delegation, not the module — and
- * pinned exactly to what it returned while inline. Those assertions are green on the
- * pre-move commit too, by design: byte-identical responses either side of the move is
- * the claim. What is new is the seam, and each of its properties goes red when broken
- * — the operator gate fires before delegating, an adjacent unmatched path falls
- * through, and a throw inside a module still lands in api.ts's 500 envelope.
+ * Contract for the per-domain router seam (`cron-api.ts`, `org-api.ts`,
+ * `experiments-api.ts`). Every moved route is driven through handleApiRequest — the
+ * delegation, not the module — and pinned exactly to what it returned while inline.
+ * Those assertions are green on the pre-move commit too, by design: byte-identical
+ * responses either side of the move is the claim. What is new is the seam, and each
+ * of its properties goes red when broken — the authority gate fires before
+ * delegating, an adjacent unmatched path falls through, and a throw inside a module
+ * still lands in api.ts's 500 envelope.
+ *
+ * This file owns the seam itself plus the `/api/experiments*` payloads. The cron and
+ * org payloads moved to cron-router-contract.test.ts and org-router-contract.test.ts
+ * when the third router pushed this file past the size ratchet; the rig all three
+ * share is domain-router-harness.ts, over the temp home in domain-router-home.ts.
  */
 
-const bootHome = fs.mkdtempSync(path.join(os.tmpdir(), "domain-router-boot-"));
-let tmpHome = bootHome;
-let cronRunsDir = path.join(tmpHome, "cron", "runs");
-let cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
-let orgDir = path.join(tmpHome, "org");
-/** Set by the one test that needs a delegated handler to blow up mid-request. */
+/** Set by the tests that need a delegated handler to blow up mid-request. */
 let cronRunsThrows = false;
+let experimentStoreThrows = false;
 
 vi.mock("../../shared/paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../shared/paths.js")>();
+  const { home } = await import("./domain-router-home.js");
   return {
     ...actual,
     get CRON_RUNS() {
       if (cronRunsThrows) throw new Error("forced cron paths failure");
-      return cronRunsDir;
+      return home.cronRuns;
     },
-    get CRON_JOBS() { return cronJobsFile; },
-    get ORG_DIR() { return orgDir; },
+    get CRON_JOBS() { return home.cronJobs; },
+    get ORG_DIR() { return home.org; },
   };
 });
 
@@ -47,219 +45,145 @@ vi.mock("../../cron/scheduler.js", () => ({ reloadScheduler: vi.fn() }));
 const runCronJob = vi.fn(async () => {});
 vi.mock("../../cron/runner.js", () => ({ runCronJob: (...args: unknown[]) => runCronJob(...(args as [])) }));
 
-import { handleApiRequest } from "../api.js";
-import type { ApiContext } from "../api.js";
-
-const MODELS = [
-  { id: "gpt-5.6-sol", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
-  { id: "gpt-5.5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
-];
-
-const context = {
-  getConfig: () => ({
-    gateway: {},
-    engines: { default: "codex", codex: { bin: "codex", model: "gpt-5.6-sol" } },
-    models: { codex: { default: "gpt-5.6-sol", models: MODELS } },
-    connectors: {},
-    mcp: {},
-  } as unknown as JinnConfig),
-  connectors: new Map(),
-  startTime: Date.now(),
-  gatewayAuthToken: "test-token",
-  emit: () => {},
-  reloadOrg: () => {},
-  sessionManager: {
-    getEngine: () => undefined,
-    getEngines: () => new Map(),
-    getQueue: () => ({ getPendingCount: () => 0, getTransportState: (_k: string, s: string) => s }),
-  },
-} as unknown as ApiContext;
-
-function makeRes() {
-  let status = 200;
-  const chunks: Buffer[] = [];
-  const res = {
-    writeHead(next: number) { status = next; return this; },
-    setHeader() { return this; },
-    end(chunk?: Buffer | string) { if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); },
-  } as unknown as ServerResponse;
+// Experiments live in SQLite rather than on disk, so the forced failure is on the
+// store call instead of on a path. Everything else is the real store against the
+// temp home vitest.global-setup.ts pins JINN_HOME to.
+vi.mock("../../experiments/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../experiments/store.js")>();
   return {
-    res,
-    get status() { return status; },
-    get body(): any {
-      const raw = Buffer.concat(chunks).toString("utf-8");
-      if (!raw) return undefined;
-      try { return JSON.parse(raw); } catch { return raw; }
+    ...actual,
+    listExperiments: (...args: Parameters<typeof actual.listExperiments>) => {
+      if (experimentStoreThrows) throw new Error("forced experiment store failure");
+      return actual.listExperiments(...args);
     },
   };
-}
+});
 
-/** Operator caller by default; pass `{}` for headers to drop operator authority. */
-async function call(method: string, url: string, body?: unknown, headers?: Record<string, string>) {
-  const req = Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]), {
-    method,
-    url,
-    headers: { host: "localhost", "content-type": "application/json", ...(headers ?? { authorization: "Bearer test-token" }) },
-    socket: { remoteAddress: "127.0.0.1" },
-  });
-  const cap = makeRes();
-  await handleApiRequest(req as unknown as Parameters<typeof handleApiRequest>[0], cap.res, context);
-  return { status: cap.status, body: cap.body };
-}
-
-const JOBS = [
-  { id: "nightly", name: "Nightly", enabled: true, schedule: "0 3 * * *", employee: "ops", prompt: "Run." },
-];
-
-// The fixture org, spelled out so every field the org routes return is pinned: the
-// authored employee, its persona and edges, and the system employee every org carries.
-const WORKER = { name: "worker", displayName: "Worker", department: "platform", rank: "employee", engine: "codex", model: "gpt-5.6-sol", alwaysNotify: true };
-const PERSONA = "Does platform work.";
-const EDGES = { parentName: null, directReports: [], depth: 0, chain: ["worker"] };
-const DISPATCHER = { name: "todo-dispatcher", displayName: "Todo Dispatcher", department: "system", rank: "senior", emoji: "🧭", jinnMcp: true, system: true, engine: "codex", model: "gpt-5.6-sol", alwaysNotify: true, role: "Todo Dispatcher, a system employee that starts tracked Todo work", parentName: null, directReports: [], depth: 0, chain: ["todo-dispatcher"] };
+import { JOBS, home, seedHome } from "./domain-router-home.js";
+import { RUN, call, createExperiment, runningExperiment } from "./domain-router-harness.js";
 
 beforeEach(() => {
   cronRunsThrows = false;
+  experimentStoreThrows = false;
   runCronJob.mockClear();
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "domain-router-"));
-  cronRunsDir = path.join(tmpHome, "cron", "runs");
-  cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
-  orgDir = path.join(tmpHome, "org");
-  fs.mkdirSync(cronRunsDir, { recursive: true });
-  fs.mkdirSync(path.join(orgDir, "platform"), { recursive: true });
-  fs.writeFileSync(cronJobsFile, JSON.stringify(JOBS));
-  fs.writeFileSync(
-    path.join(cronRunsDir, "nightly.jsonl"),
-    JSON.stringify({ timestamp: "2026-08-01T03:00:00.000Z", status: "success", result: "ok" }) + "\n",
-  );
-  fs.writeFileSync(
-    path.join(orgDir, "platform", "worker.yaml"),
-    `name: ${WORKER.name}\ndisplayName: ${WORKER.displayName}\ndepartment: ${WORKER.department}\nrank: ${WORKER.rank}\nengine: ${WORKER.engine}\nmodel: ${WORKER.model}\npersona: ${PERSONA}\n`,
-  );
-  fs.writeFileSync(path.join(orgDir, "platform", "board.json"), JSON.stringify({ todo: ["ship it"] }));
+  seedHome();
 });
 
-describe("cron routes still answer identically through handleCronApi", () => {
-  it("GET /api/cron returns the enriched summary list", async () => {
-    const r = await call("GET", "/api/cron");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual([
-      {
-        id: "nightly",
-        name: "Nightly",
-        schedule: "0 3 * * *",
-        enabled: true,
-        employee: "ops",
-        engine: null,
-        timezone: null,
-        lastRun: { timestamp: "2026-08-01T03:00:00.000Z", status: "success" },
-      },
-    ]);
-  });
+describe("experiment routes still answer identically through handleExperimentsApi", () => {
+  it("POST /api/experiments returns the created experiment (201) and 400s a missing field", async () => {
+    const experiment = await createExperiment();
+    expect(experiment.id).toMatch(/^exp_[0-9a-f]{12}$/);
+    expect(Number.isNaN(Date.parse(experiment.startedAt))).toBe(false);
+    expect(experiment).toEqual(runningExperiment(experiment.id, experiment.startedAt));
 
-  it("GET /api/cron/:id/runs returns the summarized run tail", async () => {
-    const r = await call("GET", "/api/cron/nightly/runs?limit=10");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual([{ timestamp: "2026-08-01T03:00:00.000Z", status: "success" }]);
-  });
-
-  it("POST /api/cron creates a job (201) and rejects a duplicate id (400)", async () => {
-    const created = await call("POST", "/api/cron", { id: "weekly", name: "Weekly", schedule: "0 4 * * 1" });
-    expect(created.status).toBe(201);
-    expect(created.body).toEqual({ id: "weekly", name: "Weekly", enabled: true, schedule: "0 4 * * 1", prompt: "" });
-
-    const dupe = await call("POST", "/api/cron", { id: "weekly", name: "Weekly again", schedule: "0 5 * * 1" });
-    expect(dupe.status).toBe(400);
-    expect(dupe.body).toEqual({ error: 'a cron job with id "weekly" already exists' });
-  });
-
-  it("PUT /api/cron/:id merges the update, and 404s an unknown id", async () => {
-    const r = await call("PUT", "/api/cron/nightly", { enabled: false });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ...JOBS[0], enabled: false });
-
-    const missing = await call("PUT", "/api/cron/ghost", { enabled: false });
-    expect(missing.status).toBe(404);
-    expect(missing.body).toEqual({ error: "Not found" });
-  });
-
-  it("DELETE /api/cron/:id removes the job, and 404s an unknown id", async () => {
-    const r = await call("DELETE", "/api/cron/nightly");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ deleted: "nightly", name: "Nightly" });
-    expect((await call("DELETE", "/api/cron/nightly")).status).toBe(404);
-  });
-
-  it("POST /api/cron/:id/trigger fires the job in the background and 404s an unknown id", async () => {
-    const r = await call("POST", "/api/cron/nightly/trigger", {});
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({
-      triggered: true,
-      jobId: "nightly",
-      name: "Nightly",
-      employee: "ops",
-      message: 'Cron job "Nightly" triggered manually',
-    });
-    expect(runCronJob).toHaveBeenCalledTimes(1);
-
-    expect((await call("POST", "/api/cron/ghost/trigger", {})).status).toBe(404);
-  });
-});
-
-describe("org routes still answer identically through handleOrgApi", () => {
-  it("GET /api/org returns departments, employees and hierarchy", async () => {
-    const r = await call("GET", "/api/org");
-    expect(r.status).toBe(200);
-    // persona is replaced by the compact role on this surface; the exact match proves it.
-    expect(r.body).toEqual({
-      departments: ["platform"],
-      employees: [{ ...WORKER, role: "Does platform work", ...EDGES }, DISPATCHER],
-      hierarchy: { root: null, sorted: ["worker", "todo-dispatcher"], warnings: [] },
-    });
-  });
-
-  it("GET /api/org/employees/:name returns the employee with its hierarchy edges, 404 for unknown", async () => {
-    const r = await call("GET", "/api/org/employees/worker");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ...WORKER, persona: PERSONA, ...EDGES });
-
-    const missing = await call("GET", "/api/org/employees/ghost");
-    expect(missing.status).toBe(404);
-    expect(missing.body).toEqual({ error: "Not found" });
-  });
-
-  it("PATCH /api/org/employees/:name persists a valid field and 400s an invalid one", async () => {
-    const ok = await call("PATCH", "/api/org/employees/worker", { model: "gpt-5.5" });
-    expect(ok.status).toBe(200);
-    // The persisted employee comes back whole; the compact role is list-only.
-    expect(ok.body).toEqual({ status: "ok", employee: { ...WORKER, model: "gpt-5.5", persona: PERSONA } });
-
-    const bad = await call("PATCH", "/api/org/employees/worker", { rank: "boss" });
+    const bad = await call("POST", "/api/experiments", { ...RUN, hypothesis: undefined });
     expect(bad.status).toBe(400);
-    expect(bad.body).toEqual({ error: 'invalid rank "boss" (valid: executive, manager, senior, employee)' });
+    expect(bad.body).toEqual({ error: "hypothesis is required and must be a string" });
+  });
 
-    const missing = await call("PATCH", "/api/org/employees/ghost", { model: "gpt-5.5" });
+  it("GET /api/experiments lists the created experiment and filters by status", async () => {
+    const experiment = await createExperiment();
+    const listed = await call("GET", "/api/experiments");
+    expect(listed.status).toBe(200);
+    expect(listed.body.experiments.find((row: any) => row.id === experiment.id))
+      .toEqual(runningExperiment(experiment.id, experiment.startedAt));
+
+    const concluded = await call("GET", "/api/experiments?status=concluded");
+    expect(concluded.status).toBe(200);
+    expect(concluded.body.experiments.map((row: any) => row.id)).not.toContain(experiment.id);
+
+    const bogus = await call("GET", "/api/experiments?status=maybe");
+    expect(bogus.status).toBe(400);
+    expect(bogus.body).toEqual({ error: "status must be running or concluded" });
+  });
+
+  it("GET /api/experiments/:id returns the one experiment, and 404s an unknown id", async () => {
+    const experiment = await createExperiment();
+    const found = await call("GET", `/api/experiments/${experiment.id}`);
+    expect(found.status).toBe(200);
+    expect(found.body).toEqual({ experiment: runningExperiment(experiment.id, experiment.startedAt) });
+
+    const missing = await call("GET", "/api/experiments/exp_000000000000");
     expect(missing.status).toBe(404);
-    expect(missing.body).toEqual({ error: "Not found" });
+    expect(missing.body).toEqual({ error: 'experiment "exp_000000000000" was not found' });
   });
 
-  it("GET /api/org/departments/:name/board returns the board, 404 when absent", async () => {
-    const r = await call("GET", "/api/org/departments/platform/board");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ todo: ["ship it"] });
+  it("PATCH /api/experiments/:id applies the edit, and 400s a metric without a baseline", async () => {
+    const experiment = await createExperiment();
+    const metrics = [...RUN.metrics, { name: "retention", unit: "%", howToMeasure: "Read the day-seven cohort." }];
 
-    expect((await call("GET", "/api/org/departments/ghost/board")).status).toBe(404);
-  });
-
-  it("PUT /api/org/departments/:name/board writes the board, 404 for an unknown department", async () => {
-    const r = await call("PUT", "/api/org/departments/platform/board", { todo: ["rewritten"] });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ status: "ok" });
-    expect(JSON.parse(fs.readFileSync(path.join(orgDir, "platform", "board.json"), "utf-8"))).toEqual({
-      todo: ["rewritten"],
+    const updated = await call("PATCH", `/api/experiments/${experiment.id}`, {
+      name: "Even shorter onboarding",
+      metrics,
+      baseline: { retention: 22 },
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual({
+      experiment: runningExperiment(experiment.id, experiment.startedAt, {
+        name: "Even shorter onboarding",
+        metrics,
+        baseline: { activation: 40, retention: 22 },
+      }),
     });
 
-    expect((await call("PUT", "/api/org/departments/ghost/board", { todo: [] })).status).toBe(404);
+    const unbacked = await call("PATCH", `/api/experiments/${experiment.id}`, {
+      metrics: [...metrics, { name: "referrals", howToMeasure: "Count invites sent." }],
+    });
+    expect(unbacked.status).toBe(400);
+    expect(unbacked.body).toEqual({ error: 'baseline must include a finite number for metric "referrals"' });
+  });
+
+  it("POST /api/experiments/:id/readings appends a reading (201), and 400s an undeclared metric", async () => {
+    const experiment = await createExperiment();
+    const recorded = await call("POST", `/api/experiments/${experiment.id}/readings`, {
+      at: "2026-08-08T09:00:00.000Z",
+      metric: "activation",
+      value: 46,
+      note: "First week.",
+    });
+    expect(recorded.status).toBe(201);
+    expect(recorded.body).toEqual({
+      reading: {
+        id: recorded.body.reading.id,
+        experimentId: experiment.id,
+        at: "2026-08-08T09:00:00.000Z",
+        metric: "activation",
+        value: 46,
+        note: "First week.",
+      },
+    });
+    expect(recorded.body.reading.id).toMatch(/^rd_[0-9a-f]{12}$/);
+
+    const undeclared = await call("POST", `/api/experiments/${experiment.id}/readings`, {
+      at: "2026-08-08T09:00:00.000Z",
+      metric: "churn",
+      value: 1,
+    });
+    expect(undeclared.status).toBe(400);
+    expect(undeclared.body).toEqual({ error: 'metric "churn" is not declared on this experiment' });
+  });
+
+  it("POST /api/experiments/:id/conclude records the verdict, and 409s a second attempt", async () => {
+    const experiment = await createExperiment();
+    const concluded = await call("POST", `/api/experiments/${experiment.id}/conclude`, {
+      outcome: "win",
+      note: "Activation rose six points.",
+    });
+    expect(concluded.status).toBe(200);
+    expect(concluded.body).toEqual({
+      experiment: runningExperiment(experiment.id, experiment.startedAt, {
+        status: "concluded",
+        verdict: {
+          outcome: "win",
+          note: "Activation rose six points.",
+          concludedAt: concluded.body.experiment.verdict.concludedAt,
+        },
+      }),
+    });
+
+    const again = await call("POST", `/api/experiments/${experiment.id}/conclude`, { outcome: "loss", note: "Again." });
+    expect(again.status).toBe(409);
+    expect(again.body).toEqual({ error: "experiment is already concluded" });
   });
 });
 
@@ -279,7 +203,18 @@ describe("the seam itself", () => {
     }
     // The gate ran instead of the handler: nothing was scheduled, nothing fired.
     expect(runCronJob).not.toHaveBeenCalled();
-    expect(JSON.parse(fs.readFileSync(cronJobsFile, "utf-8"))).toEqual(JOBS);
+    expect(JSON.parse(fs.readFileSync(home.cronJobs, "utf-8"))).toEqual(JOBS);
+  });
+
+  it("refuses an unidentified experiment write before delegating, though it is not operator-only", async () => {
+    // Experiments are deliberately absent from the operator-only table — any
+    // identified caller may run one. What has to survive the move is the order:
+    // the caller-identity gate answers first, so the module never sees the write.
+    const refused = await call("POST", "/api/experiments", { ...RUN, name: "Unidentified caller" }, {});
+    expect(refused.status).toBe(403);
+
+    const names = (await call("GET", "/api/experiments")).body.experiments.map((row: any) => row.name);
+    expect(names).not.toContain("Unidentified caller");
   });
 
   it("falls through on an adjacent unmatched path instead of swallowing it", async () => {
@@ -289,6 +224,9 @@ describe("the seam itself", () => {
 
     const orgish = await call("GET", "/api/orgx");
     expect(orgish.status).toBe(404);
+
+    const experimental = await call("GET", "/api/experimentsx");
+    expect(experimental.status).toBe(404);
   });
 
   it("lets a throw inside a delegated module reach api.ts's 500 envelope", async () => {
@@ -296,5 +234,10 @@ describe("the seam itself", () => {
     const r = await call("GET", "/api/cron");
     expect(r.status).toBe(500);
     expect(r.body).toEqual({ error: "forced cron paths failure" });
+
+    experimentStoreThrows = true;
+    const experimental = await call("GET", "/api/experiments");
+    expect(experimental.status).toBe(500);
+    expect(experimental.body).toEqual({ error: "forced experiment store failure" });
   });
 });

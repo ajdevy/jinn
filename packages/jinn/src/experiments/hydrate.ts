@@ -3,6 +3,17 @@ import type { Experiment, ExperimentMetric, ExperimentReading, ExperimentVerdict
 
 const DAY_MS = 86_400_000;
 
+/**
+ * A stored experiment with the two horizon facts computed from it. They are read
+ * off `startedAt` and `horizonDays` on every hydration rather than written to a
+ * column, so they belong to this module and not to the stored shape in
+ * shared/types.ts. Every store read returns this; the wire payload carries both.
+ */
+export interface HydratedExperiment extends Experiment {
+  horizonEndsAt: string;
+  overdue: boolean;
+}
+
 interface MetricRow {
   experiment_id: string;
   name: string;
@@ -62,7 +73,7 @@ export function rowToExperiment(
   row: Record<string, unknown>,
   metrics: ExperimentMetric[],
   readings: ExperimentReading[],
-): Experiment {
+): HydratedExperiment {
   const outcome = row.verdict_outcome as ExperimentVerdict["outcome"] | null;
   const concludedAt = row.concluded_at as string | null;
   const verdictNote = row.verdict_note as string | null;
@@ -107,7 +118,7 @@ function groupByExperiment<Row extends { experiment_id: string }, Value>(
 // Two queries for the whole page rather than two per row. The per-experiment
 // ordering matches readMetrics/readReadings exactly — the detail chart reads
 // readings in insertion order and would draw a different line otherwise.
-export function hydrateExperiments(rows: Record<string, unknown>[]): Experiment[] {
+export function hydrateExperiments(rows: Record<string, unknown>[]): HydratedExperiment[] {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id as string);
   const placeholders = ids.map(() => "?").join(", ");

@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { canonicalCronJobId, loadJobs, saveJobs } from "../cron/jobs.js";
 import { validateCronSchedule } from "../cron/validation.js";
-import type { CronJob, Experiment, ExperimentStoreResult } from "../shared/types.js";
-import { experimentHorizonEndsAt } from "./hydrate.js";
+import type { CronJob, ExperimentStoreResult } from "../shared/types.js";
+import { experimentHorizonEndsAt, type HydratedExperiment } from "./hydrate.js";
 import {
   concludeExperiment,
   createExperiment,
@@ -30,7 +30,7 @@ function generatedExperimentId(): string {
   return `exp_${crypto.randomBytes(6).toString("hex")}`;
 }
 
-type CheckInSubject = Pick<Experiment, "id" | "name" | "metrics" | "horizonEndsAt">;
+type CheckInSubject = Pick<HydratedExperiment, "id" | "name" | "metrics" | "horizonEndsAt">;
 
 function checkInPrompt(experiment: CheckInSubject): string {
   const instructions = experiment.metrics
@@ -104,7 +104,7 @@ export function removeExperimentCheckIn(jobId: string): void {
 export function createExperimentWithCheckIn(
   input: CreateExperimentInput,
   checkIn?: ExperimentCheckInInput,
-): ExperimentStoreResult<Experiment> {
+): ExperimentStoreResult<HydratedExperiment> {
   if (!checkIn) return createExperiment(input);
   const invalid = validateCheckIn(checkIn);
   if (invalid) return invalid;
@@ -135,7 +135,7 @@ export function createExperimentWithCheckIn(
 
 /** Rewrites the registered job from the experiment as it now stands. No-op when
  * the experiment has no check-in, or when its job has since been removed. */
-export function updateExperimentCheckIn(experiment: Experiment): void {
+export function updateExperimentCheckIn(experiment: HydratedExperiment): void {
   if (!experiment.checkInCronJobId) return;
   const jobs = loadJobs();
   const canonicalId = canonicalCronJobId(experiment.checkInCronJobId);
@@ -149,7 +149,7 @@ export function updateExperimentCheckIn(experiment: Experiment): void {
 export function updateExperimentAndRefreshCheckIn(
   id: string,
   input: UpdateExperimentInput,
-): ExperimentStoreResult<Experiment> {
+): ExperimentStoreResult<HydratedExperiment> {
   const updated = updateExperiment(id, input);
   if (updated.ok) updateExperimentCheckIn(updated.value);
   return updated;
@@ -158,7 +158,7 @@ export function updateExperimentAndRefreshCheckIn(
 export function concludeExperimentAndDisableCheckIn(
   id: string,
   input: ConcludeExperimentInput,
-): ExperimentStoreResult<Experiment> {
+): ExperimentStoreResult<HydratedExperiment> {
   const existing = getExperiment(id);
   if (!existing.ok) return existing;
   if (existing.value.status !== "running") return failure("conflict", "experiment is already concluded");

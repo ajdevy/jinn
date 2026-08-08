@@ -515,10 +515,6 @@ export interface Experiment {
   status: "running" | "concluded";
   startedAt: string;
   horizonDays: number;
-  /** Derived: startedAt + horizonDays. Not stored. */
-  horizonEndsAt: string;
-  /** Derived: still running past horizonEndsAt. Not stored. */
-  overdue: boolean;
   baseline: Record<string, number>;
   metrics: ExperimentMetric[];
   readings: ExperimentReading[];

@@ -288,7 +288,6 @@
       ]
     },
     "packages/jinn/src/experiments/store.ts": {
-      "lines": 331,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -352,7 +351,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 7370,
+      "lines": 7242,
       "exempt": [
         "complexity",
         "max-depth",
@@ -540,9 +539,6 @@
     },
     "packages/jinn/src/mcp/__tests__/session-tools.test.ts": {
       "lines": 838
-    },
-    "packages/jinn/src/mcp/__tests__/tool-manifest-budget.test.ts": {
-      "lines": 309
     },
     "packages/jinn/src/mcp/__tests__/work-item-tools.test.ts": {
       "lines": 1253

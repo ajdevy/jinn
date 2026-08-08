@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
 import { buildTools } from "../server.js";
 import { projectPiToolManifest } from "../../engines/pi-mcp.js";
+import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-manifest-expectations.js";
 
-// Fixed provider budget. Rebased for the heartbeats group with the same ~zero
-// headroom discipline as before: new tool prose must stay concise rather than
-// growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5652;
+// Fixed provider budget. Rebased for the Experiments audit fixes with the same
+// ~zero headroom discipline as before: new tool prose must stay concise rather
+// than growing into this ceiling.
+const MAX_MANIFEST_TOKENS = 5669;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -49,9 +50,17 @@ const ATTESTED = {
   // left to buy it back with: its own descriptions were tightened first (19
   // tokens), and the remaining 175 are the group's honest cost. Pi stays five
   // under the ceiling, so the next addition still has to pay its own way.
-  rpc: { tokens: 5149, sha256: "42a77ae3d9103fb9f1ff2a460f4938bccae8af2454b4e24f03cb75a9a014ec2d" },
-  pi: { tokens: 5647, sha256: "e92f7ba9dce616ecbbce8d39aa6ae17426e2e61125e09ab30c76cf1f4a468c43" },
-  openai: { tokens: 5351, sha256: "48ee292b9785d149461373d0e3016557bebd69f835f0751b6630b5a5da484ec4" },
+  // Rebased for the Experiments audit fixes: `limit` on list_experiments and
+  // `baseline` plus the one line teaching that a new metric needs one on
+  // update_experiment — the client halves of the bounded list and the
+  // baseline-on-update fix, without which an agent editing metrics just gets
+  // `invalid`. Two redundant clauses bought 7 of the 24 back: "optionally by
+  // status" on list_experiments, whose property carries its own enum and now
+  // sits beside `limit`, and "'s definition"/"here" on update_experiment. The
+  // remaining 17 are the fixes' honest cost. Pi stays five under the ceiling.
+  rpc: { tokens: 5166, sha256: "2d83d158e633d430bda233a77774f143fe5db1ae083c9b235fe7c6bcaf83d4cb" },
+  pi: { tokens: 5664, sha256: "709a6e96469873cb6b89e8b14c7dd135e0609981b4507d5d75bac6a30dbafc31" },
+  openai: { tokens: 5368, sha256: "db754caad64a95843462ce50cd05c373e5d913cf19c56530f04021f761e00bdb" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;
@@ -70,182 +79,6 @@ async function exactOrAttested(name: keyof typeof ATTESTED, payload: string, loa
     return ATTESTED[name].tokens;
   }
 }
-
-const EXPECTED_TOOL_NAMES = [
-  "archive_work_item",
-  "arm_heartbeat",
-  "assign_work_item",
-  "attach_to_work_item",
-  "cancel_workflow_run",
-  "comment_work_item",
-  "conclude_experiment",
-  "cost_report",
-  "create_experiment",
-  "create_label",
-  "create_note",
-  "create_work_item",
-  "create_workflow",
-  "decide_workflow_approval",
-  "decide_work_item_approval",
-  "delegate_task",
-  "disable_workflow",
-  "duplicate_workflow",
-  "edit_work_item",
-  "enable_workflow",
-  "escalate_work_item_approval",
-  "find_employees",
-  "fire_workflow_event",
-  "get_cron_run_history",
-  "get_employee",
-  "get_experiment",
-  "get_message_context",
-  "get_work_item",
-  "get_work_item_tree",
-  "get_workflow",
-  "get_workflow_run",
-  "label_work_item",
-  "link_work_items",
-  "list_cron_jobs",
-  "list_departments",
-  "list_employees",
-  "list_experiments",
-  "list_files",
-  "list_heartbeats",
-  "list_labels",
-  "list_notes",
-  "list_sessions",
-  "list_work_item_attachments",
-  "list_work_item_comments",
-  "list_work_items",
-  "list_workflow_runs",
-  "list_workflows",
-  "publish_attachment",
-  "record_reading",
-  "read_file",
-  "read_knowledge",
-  "read_note",
-  "read_session",
-  "request_work_item_approval",
-  "retire_workflow",
-  "rerun_workflow_run",
-  "retry_workflow_node",
-  "search_knowledge",
-  "search_messages",
-  "search_sessions",
-  "search_work_items",
-  "send_to_session",
-  "send_connector_message",
-  "spawn_session",
-  "start_workflow_run",
-  "stop_heartbeat",
-  "stop_session",
-  "unlink_work_items",
-  "update_experiment",
-  "update_note",
-  "update_work_item",
-  "update_workflow",
-] as const;
-
-const EXPECTED_REQUIRED = {
-  archive_work_item: ["id"],
-  arm_heartbeat: ["message", "everySeconds"],
-  assign_work_item: ["id", "assignee"],
-  attach_to_work_item: ["id", "path"],
-  cancel_workflow_run: ["workflowId", "runId"],
-  comment_work_item: ["id", "body"],
-  conclude_experiment: ["id", "outcome", "note"],
-  cost_report: [],
-  create_experiment: ["name", "hypothesis", "baseline", "metrics", "horizonDays"],
-  create_label: ["name"],
-  create_note: ["title"],
-  create_work_item: ["title"],
-  create_workflow: ["id", "title"],
-  decide_workflow_approval: ["workflowId", "runId", "nodeId", "decision", "expectedRevision"],
-  decide_work_item_approval: ["id", "decision"],
-  delegate_task: ["task"],
-  disable_workflow: ["workflowId", "expectedRevision"],
-  duplicate_workflow: ["sourceId", "id", "title"],
-  edit_work_item: ["id"],
-  enable_workflow: ["workflowId", "expectedRevision"],
-  escalate_work_item_approval: ["id"],
-  find_employees: [],
-  fire_workflow_event: ["eventName", "fireId", "payload"],
-  get_cron_run_history: ["id"],
-  get_employee: ["name"],
-  get_experiment: ["id"],
-  get_message_context: ["sessionId", "messageId"],
-  get_work_item: ["id"],
-  get_work_item_tree: ["id"],
-  get_workflow: ["workflowId"],
-  get_workflow_run: ["workflowId", "runId"],
-  label_work_item: ["id", "labels"],
-  link_work_items: ["srcId", "dstId", "kind"],
-  list_cron_jobs: [],
-  list_departments: [],
-  list_employees: [],
-  list_experiments: [],
-  list_files: [],
-  list_heartbeats: [],
-  list_labels: [],
-  list_notes: [],
-  list_sessions: [],
-  list_work_item_attachments: ["id"],
-  list_work_item_comments: ["id"],
-  list_work_items: [],
-  list_workflow_runs: ["workflowId"],
-  list_workflows: [],
-  publish_attachment: ["path"],
-  record_reading: ["id", "at", "metric", "value"],
-  read_file: ["path"],
-  read_knowledge: ["path"],
-  read_note: ["path"],
-  read_session: ["sessionId"],
-  request_work_item_approval: ["id", "request"],
-  retire_workflow: ["workflowId", "expectedRevision"],
-  rerun_workflow_run: ["workflowId", "runId", "definition", "idempotencyKey"],
-  retry_workflow_node: ["workflowId", "runId", "nodeId", "idempotencyKey"],
-  search_knowledge: ["query"],
-  search_messages: ["query"],
-  search_sessions: [],
-  search_work_items: [],
-  send_to_session: ["sessionId", "message"],
-  send_connector_message: ["connector", "channel", "text"],
-  spawn_session: ["prompt"],
-  start_workflow_run: ["workflowId"],
-  stop_heartbeat: ["id"],
-  stop_session: ["sessionId"],
-  unlink_work_items: ["srcId", "dstId", "kind"],
-  update_experiment: ["id"],
-  update_note: ["path", "expectedRevision"],
-  update_work_item: ["id", "status"],
-  update_workflow: ["workflowId", "definition", "expectedRevision"],
-} as const;
-
-const EXPECTED_ENUMS = {
-  conclude_experiment: [["properties.outcome", ["win", "loss", "inconclusive"]]],
-  cost_report: [["properties.groupBy", ["employee", "day"]]],
-  create_work_item: [["properties.priority", [0, 1, 2, 3]]],
-  decide_workflow_approval: [["properties.decision", ["approve", "reject"]]],
-  decide_work_item_approval: [["properties.decision", ["approve", "reject"]]],
-  edit_work_item: [["properties.priority", [0, 1, 2, 3]]],
-  get_workflow_run: [["properties.view", ["full"]]],
-  link_work_items: [["properties.kind", ["blocks", "relates", "duplicates"]]],
-  list_sessions: [["properties.scope", ["children", "employee", "recent", "pinned"]]],
-  list_experiments: [["properties.status", ["running", "concluded"]]],
-  list_work_items: [
-    ["properties.status", ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"]],
-    ["properties.source", ["human", "delegation", "cron", "workflow", "session", "connector", "goal"]],
-  ],
-  search_messages: [["properties.role", ["user", "assistant"]]],
-  search_sessions: [["properties.status", ["idle", "running", "error", "waiting", "interrupted"]]],
-  rerun_workflow_run: [["properties.definition", ["original", "current"]]],
-  search_work_items: [
-    ["properties.status", ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"]],
-    ["properties.source", ["human", "delegation", "cron", "workflow", "session", "connector", "goal"]],
-  ],
-  unlink_work_items: [["properties.kind", ["blocks", "relates", "duplicates"]]],
-  update_work_item: [["properties.status", ["backlog", "assigned", "executing", "in_review", "blocked", "escalated", "done"]]],
-} as const;
 
 function collectEnums(value: unknown, path: string[] = []): Array<[string, string[]]> {
   if (!value || typeof value !== "object") return [];

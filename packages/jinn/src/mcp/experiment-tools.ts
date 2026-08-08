@@ -91,7 +91,7 @@ export function buildExperimentTools(): JinnMcpTool[] {
     },
     {
       name: "list_experiments",
-      description: "List experiments, optionally by status.",
+      description: "List experiments.",
       inputSchema: {
         type: "object",
         properties: {
@@ -169,7 +169,7 @@ export function buildExperimentTools(): JinnMcpTool[] {
     },
     {
       name: "update_experiment",
-      description: "Edit a running experiment's definition. A new metric needs its baseline here.",
+      description: "Edit a running experiment. A new metric needs its baseline.",
       inputSchema: {
         type: "object",
         properties: {

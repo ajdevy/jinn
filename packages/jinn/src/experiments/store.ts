@@ -7,7 +7,7 @@ import type {
   ExperimentStoreResult,
   ExperimentVerdict,
 } from "../shared/types.js";
-import { hydrateExperiments, readMetrics, readReadings, rowToExperiment } from "./hydrate.js";
+import { hydrateExperiments, readMetrics, readReadings, rowToExperiment, type HydratedExperiment } from "./hydrate.js";
 import {
   failure,
   isFailure,
@@ -22,6 +22,7 @@ import {
 } from "./validation.js";
 
 export type { Experiment, ExperimentMetric, ExperimentReading, ExperimentStoreResult, ExperimentVerdict } from "../shared/types.js";
+export type { HydratedExperiment } from "./hydrate.js";
 
 export interface CreateExperimentInput {
   name: string;
@@ -75,14 +76,14 @@ function boundedLimit(limit: number | undefined): number {
   return Math.min(Math.floor(limit), LIST_LIMIT_MAX);
 }
 
-export function getExperiment(id: string): ExperimentStoreResult<Experiment> {
+export function getExperiment(id: string): ExperimentStoreResult<HydratedExperiment> {
   const row = initDb().prepare("SELECT * FROM experiments WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   return row
     ? { ok: true, value: rowToExperiment(row, readMetrics(id), readReadings(id)) }
     : failure("not-found", `experiment "${id}" was not found`);
 }
 
-export function listExperiments(status?: Experiment["status"], limit?: number): Experiment[] {
+export function listExperiments(status?: Experiment["status"], limit?: number): HydratedExperiment[] {
   const bounded = boundedLimit(limit);
   const rows = (status
     ? initDb().prepare("SELECT * FROM experiments WHERE status = ? ORDER BY started_at DESC, id LIMIT ?").all(status, bounded)
@@ -93,7 +94,7 @@ export function listExperiments(status?: Experiment["status"], limit?: number): 
 export function createExperiment(
   input: CreateExperimentInput,
   internal: CreateExperimentInternal = {},
-): ExperimentStoreResult<Experiment> {
+): ExperimentStoreResult<HydratedExperiment> {
   const name = requiredText(input.name, "name", NAME_MAX);
   if (typeof name !== "string") return name;
   const hypothesis = requiredText(input.hypothesis, "hypothesis", HYPOTHESIS_MAX);
@@ -173,7 +174,7 @@ function nextBaseline(
   return normalizeBaseline({ ...Object.fromEntries(kept), ...(supplied ?? {}) }, metrics);
 }
 
-export function updateExperiment(id: string, input: UpdateExperimentInput): ExperimentStoreResult<Experiment> {
+export function updateExperiment(id: string, input: UpdateExperimentInput): ExperimentStoreResult<HydratedExperiment> {
   const existing = getExperiment(id);
   if (!existing.ok) return existing;
   if (existing.value.status !== "running") return failure("conflict", "concluded experiments cannot be edited");
@@ -231,7 +232,7 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
   return getExperiment(id);
 }
 
-export function concludeExperiment(id: string, input: ConcludeExperimentInput): ExperimentStoreResult<Experiment> {
+export function concludeExperiment(id: string, input: ConcludeExperimentInput): ExperimentStoreResult<HydratedExperiment> {
   const existing = getExperiment(id);
   if (!existing.ok) return existing;
   if (existing.value.status !== "running") return failure("conflict", "experiment is already concluded");
