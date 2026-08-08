@@ -1,10 +1,10 @@
 import { fireEvent, render } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PARK_STORAGE_KEY } from "../orb-park"
 import { TalkOrb } from "../talk-orb"
 
-function mountOrb() {
-  const { container, unmount } = render(<TalkOrb />)
+function mountOrb(props: Partial<Parameters<typeof TalkOrb>[0]> = {}) {
+  const { container, unmount } = render(<TalkOrb {...props} />)
   const overlay = container.querySelector<HTMLElement>("[data-talk-orb-overlay]")!
   const sphere = container.querySelector<HTMLElement>("[data-talk-orb]")!
   return { container, overlay, sphere, unmount }
@@ -13,10 +13,12 @@ function mountOrb() {
 /** jsdom's viewport. Half of it is where `nearestCorner` flips. */
 const VIEWPORT = { width: 1024, height: 768 }
 
+/** A pointer sequence, ending in the click the browser fires after every one. */
 function drag(sphere: HTMLElement, from: { x: number; y: number }, to: { x: number; y: number }) {
   fireEvent.pointerDown(sphere, { pointerId: 1, button: 0, clientX: from.x, clientY: from.y })
   fireEvent.pointerMove(sphere, { pointerId: 1, clientX: to.x, clientY: to.y })
   fireEvent.pointerUp(sphere, { pointerId: 1, clientX: to.x, clientY: to.y })
+  fireEvent.click(sphere)
 }
 
 let originalGetContext: HTMLCanvasElement["getContext"]
@@ -74,8 +76,66 @@ describe("TalkOrb carries no text", () => {
   it("names itself for screen readers only", () => {
     const { sphere } = mountOrb()
 
-    expect(sphere.getAttribute("aria-label")).toBe("Talk")
+    expect(sphere.getAttribute("aria-label")).toBe("Start voice session")
     expect(sphere.querySelector("canvas")?.getAttribute("aria-hidden")).toBe("true")
+  })
+})
+
+describe("TalkOrb as the voice control", () => {
+  it("is a real button, so it is reachable and operable by keyboard", () => {
+    const { sphere } = mountOrb()
+
+    expect(sphere.tagName).toBe("BUTTON")
+    expect(sphere.getAttribute("type")).toBe("button")
+    // No tabindex of its own: a button is already in the tab order, and pinning
+    // one is how an element quietly leaves it.
+    expect(sphere.hasAttribute("tabindex")).toBe(false)
+  })
+
+  it("says whether a session is open, in words and in state", () => {
+    expect(mountOrb().sphere.getAttribute("aria-pressed")).toBe("false")
+
+    const live = render(<TalkOrb active onToggle={() => {}} />)
+    const sphere = live.container.querySelector<HTMLElement>("[data-talk-orb]")!
+    expect(sphere.getAttribute("aria-pressed")).toBe("true")
+    expect(sphere.getAttribute("aria-label")).toBe("End voice session")
+  })
+
+  it("starts a session when it is pressed", () => {
+    const toggle = vi.fn()
+    const { sphere } = mountOrb({ onToggle: toggle })
+
+    fireEvent.click(sphere)
+
+    expect(toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it("does NOT start one when it was dragged — moving the orb is not asking to talk", () => {
+    const toggle = vi.fn()
+    const { sphere } = mountOrb({ onToggle: toggle })
+
+    drag(sphere, { x: 100, y: 100 }, { x: 900, y: 700 })
+
+    expect(toggle).not.toHaveBeenCalled()
+  })
+
+  it("still counts a press that wobbled a pixel as a press", () => {
+    const toggle = vi.fn()
+    const { sphere } = mountOrb({ onToggle: toggle })
+
+    drag(sphere, { x: 100, y: 100 }, { x: 102, y: 101 })
+
+    expect(toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not swallow the press after the drag it swallowed", () => {
+    const toggle = vi.fn()
+    const { sphere } = mountOrb({ onToggle: toggle })
+
+    drag(sphere, { x: 100, y: 100 }, { x: 900, y: 700 })
+    fireEvent.click(sphere)
+
+    expect(toggle).toHaveBeenCalledTimes(1)
   })
 })
 

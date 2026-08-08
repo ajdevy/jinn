@@ -28,16 +28,41 @@ interface TalkSurfaceProps {
   levelRef?: RefObject<number>
   /** The open talk session, when there is one. It is what the action log posts
    *  the gateway's copy to, and this surface is where a session and the tools
-   *  that write under it are both in scope. Null in production until a browser
-   *  transport opens one. */
+   *  that write under it are both in scope. `talk-live-surface.tsx` opens one
+   *  and the store hands it back down; null on a bench driving the orb by hand. */
   sessionId?: string | null
+  /** Whether a voice session is open, and the control that starts or ends one.
+   *  Absent on a bench, where the orb is driven by hand and starts nothing. */
+  active?: boolean
+  onToggle?: () => void
   /** Observes what the operator picked. The answer itself goes back through the
    *  store, which is what settles an awaited situation — a consent gate is
    *  reached from a tool executor, and there is no prop path from here to one. */
   onAnswer?: (situationId: string, choiceId: string) => void
 }
 
-export function TalkSurface({ state = "idle", levelRef, sessionId = null, onAnswer }: TalkSurfaceProps) {
+/**
+ * Where the orb should fly to while a situation is open. The sheet is up but
+ * unmeasured for exactly one frame; until then the orb has nowhere to go, so it
+ * stays parked rather than guessing at a dock point. Memoised because a fresh
+ * point every render would restart the flight.
+ */
+function useDock(situation: unknown, sheetRect: SheetRect | null): Point | null {
+  return useMemo<Point | null>(() => {
+    if (!situation || !sheetRect) return null
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    return dockPoint(readPark(), sheetRect, viewport, breakpointOf(viewport))
+  }, [situation, sheetRect])
+}
+
+export function TalkSurface({
+  state = "idle",
+  levelRef,
+  sessionId = null,
+  active = false,
+  onToggle,
+  onAnswer,
+}: TalkSurfaceProps) {
   const situation = useSituation()
   const [sheetRect, setSheetRect] = useState<SheetRect | null>(null)
 
@@ -63,14 +88,7 @@ export function TalkSurface({ state = "idle", levelRef, sessionId = null, onAnsw
     if (!situation) closePreview()
   }, [situation])
 
-  // The sheet is up but unmeasured for exactly one frame; until then the orb has
-  // nowhere to fly to, so it stays parked rather than guessing at a dock point.
-  // Memoised because a fresh point every render would restart the flight.
-  const dock = useMemo<Point | null>(() => {
-    if (!situation || !sheetRect) return null
-    const viewport = { width: window.innerWidth, height: window.innerHeight }
-    return dockPoint(readPark(), sheetRect, viewport, breakpointOf(viewport))
-  }, [situation, sheetRect])
+  const dock = useDock(situation, sheetRect)
 
   return createPortal(
     <>
@@ -81,7 +99,7 @@ export function TalkSurface({ state = "idle", levelRef, sessionId = null, onAnsw
         onLayout={setSheetRect}
       />
       {!situation && !sheetRect && <UndoStrip />}
-      <TalkOrb state={state} levelRef={levelRef} dock={dock} />
+      <TalkOrb state={state} levelRef={levelRef} dock={dock} active={active} onToggle={onToggle} />
     </>,
     document.body,
   )

@@ -151,8 +151,9 @@ persona file, the card reference, and a live roster of attached threads. The
 per-turn cost grew with the roster and could not be bounded from the client.
 
 **Now.** The token minted at open carries only the always-on tool set;
-`POST /api/talk/sessions/:id/tools` adds a named group when the client hears the
-matching intent, and returns an empty array if that group is already exposed.
+`POST /api/talk/sessions/:id/tools` adds a named group and returns an empty array
+if that group is already exposed. The browser transport does not yet call it —
+see "The browser half" below for why the tool list it declares is its own.
 Turn history is truncated against `TALK_CONTEXT_BUDGET_TOKENS` by dropping oldest
 turns. Both numbers are reported back:
 `GET /api/talk/sessions/:id` returns `contextTokens` and `exposedTools`, and
@@ -186,13 +187,68 @@ gateway keeps the turn history and the exposed-tool set. `resume` mints a fresh
 token because the old one expires within 600 seconds. `park` on an
 already-parked session and `resume` on a live one are 409, not silent no-ops.
 
-Liveness is a heartbeat, never a socket binding. The client keeps the talk-session
-id in `sessionStorage` (per tab, cleared on tab close) and re-attaches after each
-route change, so a navigation costs nothing. A closed tab stops heartbeating, and
-the reaper closes any session whose `lastSeenAt` is older than
-`TALK_SESSION_TTL_MS` (90 seconds, three missed 30-second heartbeats). Talk
-sessions do not survive a gateway restart, which is the same death by a blunter
-instrument.
+Liveness is a heartbeat, never a socket binding. A navigation costs nothing
+because nothing tears the session down: `TalkOrbOverlay` is mounted once above
+the router, so a route change never unmounts the transport and there is nothing
+to re-attach to. Nothing is kept in `sessionStorage` either, and deliberately —
+a reload has already lost the peer connection, and re-opening one on load would
+put a live microphone and a paid credential behind a page load rather than
+behind an operator's gesture. A reload starts a new session. A closed tab stops
+heartbeating, and the reaper closes any session whose `lastSeenAt` is older than
+`TALK_SESSION_TTL_MS` (90 seconds, three missed 30-second heartbeats) — though
+the client sends a `DELETE` on `pagehide` rather than leaving a credential to be
+collected ninety seconds later. Talk sessions do not survive a gateway restart,
+which is the same death by a blunter instrument.
+
+A parked session keeps heartbeating. Park drops the provider connection, not the
+session: the reaper does not read state, so a parked session that stopped beating
+would be collected like any other and the history park exists to preserve would
+go with it.
+
+---
+
+## The browser half
+
+`packages/web/src/components/talk/transport/` is the client this runtime was
+built for. Split so the parts with a rule in them can be tested without a peer
+connection:
+
+| File | Owns |
+|---|---|
+| `session-client.ts` | the HTTP lifecycle: open, 30s heartbeat, park, resume, close, post turn |
+| `usage-delta.ts` | running session total to per-turn delta |
+| `realtime-events.ts` | one `oai-events` frame to the narrow union the orb acts on |
+| `session-driver.ts` | the conversation loop: declare tools, run tool calls, price turns, report orb state |
+| `webrtc-connection.ts` | `RTCPeerConnection`, microphone, remote audio, and the orb's level meter |
+| `use-talk-session.ts` | the React lifecycle: activate, park on hide, resume on show, close on unload |
+
+**Nothing opens on mount.** `POST /api/talk/sessions` mints a paid credential, so
+it happens on the operator activating the orb and on nothing else. The orb's
+sphere is the control: a `button` with `aria-pressed`, so it is reachable by
+keyboard, and a press that travelled more than a few pixels is a drag rather than
+an activation. An open that fails leaves nothing behind — the orb stays idle, the
+store stays `null`, and a session that opened but never connected is closed
+rather than left for the reaper.
+
+**The SDP exchange goes straight to the provider** at
+`https://api.openai.com/v1/realtime/calls`, carrying the ephemeral credential and
+no model parameter: the model, voice, and tool scope are bound to the credential
+when the gateway mints it, and a browser that could name its own model could name
+a dearer one.
+
+**The tool list the transport declares is the web catalog, not this one.** On the
+data channel opening it sends one `session.update` carrying
+`toolDefinitions()` from `components/talk/tools/registry.ts`. The two catalogs
+share no name at all — the gateway's always-on set is
+`{search_knowledge, hand_off_to_chat}` and the browser's is
+`{focus_element, open_chats, open_todo, open_todos, read_todo}` — and only the
+browser's have an executor on the page, so a session configured from the
+gateway's list could emit nothing this client can run. Progressive exposure is
+therefore not wired on the browser side: the web registry carries a binary
+`always` / `on-intent` flag and no named intent groups to progress through, and
+`POST /api/talk/sessions/:id/tools` speaks in groups. Unifying the two catalogs —
+including the `read_session` name that exists in both with incompatible schemas —
+is its own piece of work and is not this one.
 
 ---
 
@@ -299,13 +355,18 @@ clothes, and the client offers a text session instead of answering it out loud.
 ### Progressive tool exposure
 
 `tools.ts` splits the catalog into an always-on set and named on-intent groups.
-The token minted at open carries only the always-on set. When the client hears a
-matching intent it posts to `POST /api/talk/sessions/:id/tools`, and
+The token minted at open carries only the always-on set. A client that hears a
+matching intent posts to `POST /api/talk/sessions/:id/tools`, and
 `toolsForIntents` returns only the tools not already exposed. Asking twice for the
 same intent returns an empty array rather than a duplicate declaration, because a
 provider session carrying two tools of the same name is rejected. Two invariants
 are tested: the always-on list is a strict subset of the full catalog, and the
 endpoint is idempotent per intent.
+
+No client posts to it yet. The browser transport declares the web catalog in one
+`session.update` on the data channel opening and has no intent detection at all —
+"The browser half" above says why the two catalogs have not been unified. The
+endpoint is the gateway half of a mechanism whose other half is unbuilt.
 
 What ships here is the mechanism plus a small read-only seed. `search_knowledge`
 and `hand_off_to_chat` are always on; `todos`, `sessions`, and `org` are the seed
@@ -367,14 +428,12 @@ client, not on the audit, since no spoken conversation comes near it. `GET
 assumption.** The log is a list on a `TalkSession`, and a `TalkSession` is an
 entry in an in-memory `Map` — so the log lives exactly as long as the session
 does: it goes when the session is closed or reaped, and it goes with the gateway
-process. Nothing writes it to disk. **And in production nothing writes it at
-all yet:** the only route that opens a talk session is `POST
-/api/talk/sessions`, which mints a paid provider credential, and no browser code
-calls it — the client transport is unbuilt. `TalkOrbOverlay` therefore mounts
-the surface with a `null` session id (`talk-session-store.ts` is the seam it
-reads, and nothing sets it), so today every entry the orb records stays in page
-memory in `talk-action-log.ts` and reaches no gateway. **ICI-764 owns the browser
-transport and the session lifecycle**, and is what makes this half real.
+process. Nothing writes it to disk. The browser posts into it for exactly as
+long as a session is open: `transport/use-talk-session.ts` calls
+`setTalkSessionId` when `POST /api/talk/sessions` returns one, the store hands
+that id down to the surface, and the surface binds `talk-action-log.ts` to it.
+Outside a session — on the orb bench, or between sessions — the id is `null` and
+every entry the orb records stays in page memory and reaches no gateway.
 
 What survives independently of any of this is the write itself: a talk-issued
 work-item mutation carries `origin: "talk"` in the persisted work-item event log

@@ -104,6 +104,30 @@ describe("talk action log", () => {
     expect(res.body.at as number).toBeGreaterThanOrEqual(before);
   });
 
+  it("reads a browser write back off the session it was logged against", async () => {
+    const id = await open();
+    // The body the browser actually sends: `talk-action-log.ts` posts exactly
+    // these five fields, under a tool name from the web tool registry.
+    const posted = await postAction(id, {
+      tool: "talk_comment_todo",
+      subject: "ABC-59",
+      lane: "fast",
+      consent: "not-required",
+    });
+    expect(posted.status).toBe(201);
+
+    const logged = await loggedActions(id);
+
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      id: posted.body.id,
+      tool: "talk_comment_todo",
+      subject: "ABC-59",
+      lane: "fast",
+      consent: "not-required",
+    });
+  });
+
   it("refuses an action on an unknown talk session rather than logging into nothing", async () => {
     const res = await postAction("not-a-session", {
       tool: "update_work_item",
