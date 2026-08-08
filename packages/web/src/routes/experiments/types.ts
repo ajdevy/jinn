@@ -1,44 +1,20 @@
-export interface ExperimentMetric {
-  name: string
-  unit?: string
-  howToMeasure: string
-}
+// The experiment shapes are declared once, in the workspace package both the
+// gateway and this app depend on, so the two cannot drift apart. Only the
+// response envelopes — which belong to these routes, not to the domain — are
+// declared here.
+import type { HydratedExperiment } from "@jinn/gateway-events"
 
-export interface ExperimentReading {
-  id: string
-  experimentId: string
-  at: string
-  metric: string
-  value: number
-  note?: string
-}
-
-export interface ExperimentVerdict {
-  outcome: "win" | "loss" | "inconclusive"
-  note: string
-  concludedAt: string
-}
-
-export interface Experiment {
-  id: string
-  name: string
-  hypothesis: string
-  status: "running" | "concluded"
-  startedAt: string
-  horizonDays: number
-  horizonEndsAt: string
-  overdue: boolean
-  baseline: Record<string, number>
-  metrics: ExperimentMetric[]
-  readings: ExperimentReading[]
-  verdict?: ExperimentVerdict
-  checkInCronJobId?: string
-}
+export type {
+  ExperimentMetric,
+  ExperimentReading,
+  ExperimentVerdict,
+  HydratedExperiment as Experiment,
+} from "@jinn/gateway-events"
 
 export interface ExperimentsResponse {
-  experiments: Experiment[]
+  experiments: HydratedExperiment[]
 }
 
 export interface ExperimentResponse {
-  experiment: Experiment
+  experiment: HydratedExperiment
 }

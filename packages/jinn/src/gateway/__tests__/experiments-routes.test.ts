@@ -13,6 +13,7 @@ let api: Api;
 let db: import("better-sqlite3").Database;
 let loadJobs: typeof import("../../cron/jobs.js").loadJobs;
 let saveJobs: typeof import("../../cron/jobs.js").saveJobs;
+let createWorkItem: typeof import("../../work-items/store.js").createWorkItem;
 
 const metrics = [
   { name: "activation", unit: "%", howToMeasure: "Read the activation dashboard." },
@@ -64,7 +65,7 @@ async function request(method: string, target: string, body?: unknown): Promise<
   return { status: capture.status, body: JSON.parse(capture.text) };
 }
 
-async function create(checkIn?: { schedule: string }) {
+async function create(checkIn?: { schedule: string }, extra: Record<string, unknown> = {}) {
   return request("POST", "/api/experiments", {
     name: "Onboarding clarity",
     hypothesis: "A smaller first step will improve activation.",
@@ -72,6 +73,7 @@ async function create(checkIn?: { schedule: string }) {
     metrics,
     horizonDays: 30,
     ...(checkIn ? { checkIn } : {}),
+    ...extra,
   });
 }
 
@@ -80,6 +82,7 @@ beforeAll(async () => {
   const database = await import("../../shared/db.js");
   db = database.initDb();
   ({ loadJobs, saveJobs } = await import("../../cron/jobs.js"));
+  ({ createWorkItem } = await import("../../work-items/store.js"));
 });
 
 beforeEach(() => {
@@ -182,6 +185,31 @@ describe("Experiments HTTP routes", () => {
     expect((await request("PATCH", `/api/experiments/${id}`, {
       metrics: [...metrics, { name: "churn", howToMeasure: "Count cancellations." }],
     })).status).toBe(400);
+  });
+
+  it("round-trips a Todo link and an owner, and clears the link through PATCH", async () => {
+    const todo = createWorkItem({ title: "Owning Todo", createdBy: "operator" });
+    const created = await create(undefined, { todoId: todo.id, owner: "growth-lead" });
+    expect(created).toMatchObject({ status: 201, body: { experiment: { todoId: todo.id, owner: "growth-lead" } } });
+
+    const id = created.body.experiment.id;
+    expect(await request("GET", `/api/experiments/${id}`)).toMatchObject({
+      status: 200,
+      body: { experiment: { todoId: todo.id, owner: "growth-lead" } },
+    });
+
+    const cleared = await request("PATCH", `/api/experiments/${id}`, { todoId: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.experiment.todoId).toBeUndefined();
+    expect(cleared.body.experiment.owner).toBe("growth-lead");
+  });
+
+  it("returns 400 for a Todo id that is malformed or names no row, and creates nothing", async () => {
+    expect((await create(undefined, { todoId: "ZZZ-1" })).status).toBe(400);
+    expect((await create(undefined, { todoId: "nope" })).status).toBe(400);
+    expect((await create(undefined, { todoId: 7 })).status).toBe(400);
+
+    expect((await request("GET", "/api/experiments")).body.experiments).toEqual([]);
   });
 
   it("rejects a broken schedule without leaving an experiment or cron job", async () => {

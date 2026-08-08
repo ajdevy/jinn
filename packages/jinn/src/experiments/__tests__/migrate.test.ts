@@ -60,6 +60,13 @@ function readingsOf(database: import("better-sqlite3").Database) {
   return database.prepare("SELECT id, at, metric, value, note FROM experiment_readings ORDER BY at").all();
 }
 
+function legacyDatabase(): import("better-sqlite3").Database {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jinn-experiments-old-")), "legacy.db");
+  const legacy = new Database(file);
+  legacy.exec(OLD_SCHEMA);
+  return legacy;
+}
+
 function readingsTableSql(database: import("better-sqlite3").Database): string {
   return database.prepare(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'experiment_readings'",
@@ -104,9 +111,7 @@ describe("experiments schema migration", () => {
   });
 
   it("rebuilds an old-shape readings table without losing or duplicating readings", () => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jinn-experiments-old-")), "legacy.db");
-    const legacy = new Database(file);
-    legacy.exec(OLD_SCHEMA);
+    const legacy = legacyDatabase();
     const before = readingsOf(legacy);
     expect(readingsTableSql(legacy)).not.toContain("ON DELETE CASCADE");
 
@@ -122,6 +127,24 @@ describe("experiments schema migration", () => {
 
     expect(() => legacy.prepare("DELETE FROM experiments WHERE id = ?").run("exp_aaaaaaaaaaaa")).not.toThrow();
     expect(readingsOf(legacy)).toEqual([]);
+    legacy.close();
+  });
+
+  it("adds the Todo link and owner columns to a database that predates them", () => {
+    const legacy = legacyDatabase();
+    const columns = () => (legacy.prepare("PRAGMA table_info(experiments)").all() as { name: string }[])
+      .map((column) => column.name);
+    expect(columns()).not.toContain("todo_id");
+
+    migrate.migrateExperimentsSchema(legacy);
+
+    expect(columns()).toEqual(expect.arrayContaining(["todo_id", "owner"]));
+    expect(legacy.prepare("SELECT name, todo_id, owner FROM experiments").all()).toEqual([
+      { name: "Legacy", todo_id: null, owner: null },
+    ]);
+
+    migrate.migrateExperimentsSchema(legacy);
+    expect(columns().filter((name) => name === "todo_id")).toHaveLength(1);
     legacy.close();
   });
 });

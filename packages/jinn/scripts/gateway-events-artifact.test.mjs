@@ -22,6 +22,13 @@ test("package-local CLI build produces the neutral protocol from a missing dist"
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.ok(fs.existsSync(path.join(gatewayEventsDist, "index.js")));
     assert.ok(fs.existsSync(path.join(gatewayEventsDist, "index.d.ts")));
+    // Every module the embedded declaration names has to be embedded beside it,
+    // or the published package's types resolve to nothing.
+    const embedded = path.resolve(packageRoot, "dist", "src", "shared");
+    const declaration = fs.readFileSync(path.join(embedded, "gateway-events.d.ts"), "utf8");
+    for (const [, specifier] of declaration.matchAll(/from "\.\/([^"]+)\.js"/g)) {
+      assert.ok(fs.existsSync(path.join(embedded, `${specifier}.d.ts`)), `missing embedded ${specifier}.d.ts`);
+    }
   } finally {
     fs.rmSync(gatewayEventsDist, { recursive: true, force: true });
     if (hadDist) fs.renameSync(backupDist, gatewayEventsDist);

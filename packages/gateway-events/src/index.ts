@@ -1,20 +1,7 @@
-/** JSON-only gateway → browser wire vocabulary. This package owns no gateway or UI domain code. */
-export type JsonPrimitive = string | number | boolean | null
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
-export interface JsonObject { [key: string]: JsonValue }
-
-export interface MessageMediaWire {
-  type: "image" | "audio" | "video" | "file"
-  url: string
-  name?: string
-  mimeType?: string
-  size?: number
-}
-
-export type CompanyChangedEvent =
-  | { entity: "todo"; action: string; id: string; sessionId?: string; version: number; value?: JsonObject }
-  | { entity: "workflow-definition"; id: string; revision: number }
-  | { entity: "workflow-run"; workflowId: string; runId: string }
+/** The gateway → browser event protocol: the event map, its names, and the runtime that
+ *  decodes a frame. The JSON-only shapes those events carry live in ./payloads.js. */
+import type { CompanyChangedEvent, JsonObject, JsonValue, MessageMediaWire } from "./payloads.js"
+export type * from "./payloads.js"
 
 export interface GatewayEventMap {
   "session:started": { sessionId: string }

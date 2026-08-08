@@ -95,11 +95,45 @@ describe("experiment MCP tools", () => {
       ["PATCH", "/api/experiments/exp_123456789abc"],
     ]);
     expect(calls[0].body).toMatchObject({ baseline: { activation: 20 }, metrics, horizonDays: 14 });
+    expect(calls[0].body).not.toHaveProperty("todoId");
     expect(calls[3].body).toEqual({
       at: "2026-08-03T12:00:00.000Z",
       metric: "activation",
       value: 24,
       note: "Weekly check-in",
     });
+  });
+
+  it("declares the Todo link and owner on create and update, and forwards them", async () => {
+    const { buildExperimentTools } = await import("../experiment-tools.js") as ExperimentTools;
+    const tools = buildExperimentTools();
+    const { calls, ctx } = stub();
+
+    const propertiesOf = (name: string) => (tools.find((tool) => tool.name === name)!.inputSchema as {
+      properties: Record<string, unknown>;
+    }).properties;
+    // Nothing to clear at creation, so only update declares the null.
+    expect(propertiesOf("create_experiment")).toMatchObject({ todoId: { type: "string" }, owner: { type: "string" } });
+    expect(propertiesOf("update_experiment")).toMatchObject({
+      todoId: { type: ["string", "null"] },
+      owner: { type: ["string", "null"] },
+    });
+
+    await tools.find((tool) => tool.name === "create_experiment")!.handler({
+      name: "Clarity",
+      hypothesis: "A smaller step improves activation.",
+      baseline: { activation: 20 },
+      metrics: [{ name: "activation", unit: "%", howToMeasure: "Read the dashboard." }],
+      horizonDays: 14,
+      todoId: "ABC-12",
+      owner: "growth-lead",
+    }, ctx);
+    await tools.find((tool) => tool.name === "update_experiment")!.handler({
+      id: "exp_123456789abc",
+      todoId: null,
+    }, ctx);
+
+    expect(calls[0].body).toMatchObject({ todoId: "ABC-12", owner: "growth-lead" });
+    expect(calls[1].body).toEqual({ todoId: null });
   });
 });

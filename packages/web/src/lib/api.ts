@@ -5,7 +5,7 @@ import type {
   NotesListResponse,
   UpdateNoteInput,
 } from "@/routes/notes/types"
-import type { ExperimentReading, ExperimentResponse, ExperimentsResponse } from "@/routes/experiments/types"
+import { createExperimentsApi } from "@/lib/api-experiments"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
 import {
   isPositiveTodoVersion,
@@ -856,14 +856,7 @@ export const api = {
     post<NoteDocumentResponse>("/api/notes", input),
   updateNote: (input: UpdateNoteInput) =>
     put<NoteDocumentResponse>("/api/notes", input),
-  listExperiments: (status?: "running" | "concluded") =>
-    get<ExperimentsResponse>(`/api/experiments${status ? `?status=${status}` : ""}`),
-  getExperiment: (id: string) =>
-    get<ExperimentResponse>(`/api/experiments/${encodeURIComponent(id)}`),
-  /** Append one measurement. There is no delete route: a reading is a permanent
-   *  point on a series, which is why nothing offers to take one back. */
-  recordExperimentReading: (id: string, input: { at: string; metric: string; value: number; note?: string }) =>
-    post<{ reading: ExperimentReading }>(`/api/experiments/${encodeURIComponent(id)}/readings`, input),
+  ...createExperimentsApi({ get, post }),
   getFeatures: () => get<{ notesEnabled: boolean; staleChat: StaleChatPolicy }>("/api/features"),
   getStatus: () => get<Record<string, unknown>>("/api/status"),
   listWorkflowDefinitionsV2: () =>

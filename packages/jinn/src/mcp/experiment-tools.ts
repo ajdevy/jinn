@@ -20,6 +20,9 @@ const metricSchema = {
 
 const metricsSchema = { type: "array", minItems: 1, items: metricSchema };
 const baselineSchema = { type: "object", additionalProperties: { type: "number" } };
+// Clearable on update only: there is nothing to unlink at creation, and every
+// property on this manifest is paid for out of a fixed token budget.
+const clearableString = { type: ["string", "null"] };
 
 function requiredString(args: Record<string, unknown>, name: string): string {
   const value = args[name];
@@ -66,6 +69,8 @@ export function buildExperimentTools(): JinnMcpTool[] {
           baseline: baselineSchema,
           metrics: metricsSchema,
           horizonDays: { type: "number" },
+          todoId: { type: "string" },
+          owner: { type: "string" },
           checkIn: {
             type: "object",
             additionalProperties: false,
@@ -179,6 +184,8 @@ export function buildExperimentTools(): JinnMcpTool[] {
           metrics: metricsSchema,
           baseline: baselineSchema,
           horizonDays: { type: "number" },
+          todoId: clearableString,
+          owner: clearableString,
         },
         required: ["id"],
       },
