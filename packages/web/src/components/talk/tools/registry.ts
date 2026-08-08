@@ -1,23 +1,28 @@
 import { afterNextPaint, nowMs, recordToolTiming } from "./budget"
+import { CONSENT_TOOLS } from "./consent-tools"
 import { ESCAPE_HATCH_TOOL } from "./escape-hatch"
 import { FOCUS_ELEMENT_TOOL } from "./focus-element"
 import { NAVIGATE_TOOLS } from "./navigate-tools"
 import { READ_TOOLS } from "./read-tools"
 import { toolDefinition, type TalkTool, type ToolDefinition, type ToolResult } from "./tool-spec"
 import { parseToolArgs } from "./validate-args"
+import { WRITE_TOOLS } from "./write-tools"
 
 /**
  * Every tool the Talk orb can execute, and the one entry point that runs them.
  *
  * `executeToolCall` is the seam: the realtime transport hands it a provider's
- * `tool_call` event verbatim, and the write child registers against the same
- * list. It answers with a value in every case, including every kind of bad
- * input — a throw would take a live voice session down with it.
+ * `tool_call` event verbatim. It answers with a value in every case, including
+ * every kind of bad input — a throw would take a live voice session down with
+ * it. Writes are never resident: every one of them is `on-intent`, so a session
+ * that has not talked about changing anything is not carrying the vocabulary to.
  */
 
 export const TALK_TOOLS: readonly TalkTool[] = [
   ...NAVIGATE_TOOLS,
   ...READ_TOOLS,
+  ...WRITE_TOOLS,
+  ...CONSENT_TOOLS,
   FOCUS_ELEMENT_TOOL,
   ESCAPE_HATCH_TOOL,
 ]

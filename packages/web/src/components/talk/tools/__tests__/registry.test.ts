@@ -204,10 +204,10 @@ describe("bad input fails honestly, never fatally", () => {
 })
 
 describe("the catch-all", () => {
-  it("is declared but refuses to act, and says which child enables it", async () => {
+  it("refuses out loud when it has nowhere to record the ask", async () => {
     expect(findTool("jinn_action")).toBeDefined()
     const result = await executeToolCall("jinn_action", '{"intent":"comment on Todo 59"}')
     expect(result.ok).toBe(false)
-    expect(result).toEqual({ ok: false, error: expect.stringContaining("ICI-757") })
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("has no tool for") })
   })
 })

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { toolTimings, TOOL_BUDGET_MS, type ToolTiming } from "@/components/talk/tools/budget"
 import { TALK_TARGET_ATTRIBUTE } from "@/components/talk/tools/focus-element"
 import { executeToolCall } from "@/components/talk/tools/registry"
+import { offerUndo } from "@/components/talk/talk-undo-store"
 import type { ToolResult } from "@/components/talk/tools/tool-spec"
 import { cn } from "@/lib/utils"
 
@@ -20,7 +21,24 @@ const CALLS: Array<{ label: string; tool: string; args: string }> = [
   { label: "open the runs of the build workflow", tool: "open_workflows", args: '{"id":"jinn-build","lens":"runs"}' },
   { label: "show the disabled jobs", tool: "open_cron", args: '{"filter":"disabled"}' },
   { label: "highlight the second row", tool: "focus_element", args: '{"target":"bench-row-2"}' },
-  { label: "something we cannot do yet", tool: "jinn_action", args: '{"intent":"comment on Todo 59"}' },
+  { label: "something we cannot do yet", tool: "jinn_action", args: '{"intent":"reorganise the board"}' },
+]
+
+/** Writes are kept apart on the bench for the same reason they are kept off the
+ *  always-on tool list: a fat thumb on a read is a wasted call, and a fat thumb
+ *  on a write is a write. The offer button raises a strip with a reversal that
+ *  only reports itself, so the surface can be driven without a live gateway. */
+const OFFERS: Array<{ label: string; performed: string; refuses?: string }> = [
+  { label: "offer an undo", performed: "Commented on ABC-59." },
+  { label: "offer a long undo", performed: "Labelled ABC-59: needs-review, blocked-on-design, platform." },
+  // The refusal is the one state a working gateway will not show you, and it is
+  // the state that has to stay readable: it carries the only account of why the
+  // change is still there.
+  {
+    label: "offer an undo that refuses",
+    performed: "Assigned ABC-59 to b-lead.",
+    refuses: "Todo ABC-59 changed since it was loaded",
+  },
 ]
 
 function Timings({ timings }: { timings: readonly ToolTiming[] }) {
@@ -65,6 +83,25 @@ function CallButtons({ onRun }: { onRun: (tool: string, args: string) => void })
   )
 }
 
+function UndoButtons() {
+  return (
+    <div className="flex flex-wrap gap-[var(--space-2)]">
+      {OFFERS.map((offer) => (
+        <button
+          key={offer.label}
+          onClick={() => offerUndo(offer.performed, async () => {
+            if (offer.refuses) throw new Error(offer.refuses)
+            console.log(`[talk-bench] reversed: ${offer.performed}`)
+          })}
+          className="h-[38px] cursor-pointer rounded-full border-none bg-[var(--fill-tertiary)] px-4 text-[length:var(--text-subheadline)] text-[var(--text-secondary)]"
+        >
+          {offer.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function BenchRows() {
   return (
     <div className="flex flex-col gap-[var(--space-2)]">
@@ -96,6 +133,7 @@ export function ToolBench() {
   return (
     <section className="flex flex-col gap-[var(--space-3)]">
       <CallButtons onRun={(tool, args) => void run(tool, args)} />
+      <UndoButtons />
 
       <div className="flex flex-wrap gap-[var(--space-4)]">
         <div className="min-w-[200px] flex-1">

@@ -22,7 +22,7 @@ import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../t
 import { alwaysOnTools, estimateToolTokens, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
-import { expandTools, handOff, recordTurn } from "./talk-turn-api.js";
+import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 
 export interface TalkApiOptions {
   getConfig: () => JinnConfig;
@@ -107,6 +107,7 @@ function statusOf(session: TalkSession) {
     lastSeenAt: session.lastSeenAt,
     turns: session.turns,
     truncatedTurns: session.truncatedTurns,
+    actions: session.actions,
     contextTokens: contextTokens(session.turns),
     contextBudgetTokens: TALK_CONTEXT_BUDGET_TOKENS,
     exposedTools: session.exposedTools,
@@ -215,6 +216,9 @@ async function sessionAction(
       return true;
     case "turn":
       await recordTurn(req, res, talkSessions.heartbeat(id), talkSessions);
+      return true;
+    case "actions":
+      await recordAction(req, res, talkSessions.heartbeat(id), talkSessions);
       return true;
     case "handoff":
       await handOff(req, res, talkSessions.heartbeat(id), options.getConfig(), options.runHandoff);

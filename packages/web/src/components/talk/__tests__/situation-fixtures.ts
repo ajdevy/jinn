@@ -1,4 +1,18 @@
 import type { SituationPayload } from "../situation-payload"
+import {
+  answerSituation,
+  dismissSituation,
+  restoreDeferredSituation,
+} from "../talk-situation-store"
+
+/** Leaves the store empty for the next test. A dismissal is what fills the
+ *  deferred slot, so dismissing alone would hand the next test this one's
+ *  situation: put down whatever is up, raise what that left behind, answer it. */
+export function clearSituations(): void {
+  dismissSituation()
+  restoreDeferredSituation()
+  answerSituation("cleanup")
+}
 
 /** One payload per kind, keyed by kind so a new member of the union cannot be
  *  added without the tests that walk this record gaining a case. */

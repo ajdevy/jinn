@@ -18,10 +18,14 @@ import {
   truncateTurns,
 } from "./context.js";
 import { alwaysOnTools, toolsForIntents } from "./tools.js";
-import type { TalkSession, TalkTurnRecord } from "./types.js";
+import type { TalkActionRecord, TalkSession, TalkTurnRecord } from "./types.js";
 
 /** Three missed 30-second heartbeats. */
 export const TALK_SESSION_TTL_MS = 90_000;
+
+/** Far more writes than a spoken conversation produces. The cap is here so a
+ *  looping client cannot grow the log without bound, not to bound the audit. */
+export const TALK_ACTION_LOG_LIMIT = 500;
 
 /** Carries the HTTP status the router should answer with, so state rules live
  *  here rather than being re-derived at every route. */
@@ -72,6 +76,7 @@ export class TalkSessionRegistry {
       tokenExpiresAt: options.tokenExpiresAt,
       exposedTools: alwaysOnTools().map((tool) => tool.name),
       expandedIntents: [],
+      actions: [],
     };
     this.sessions.set(session.id, session);
     return session;
@@ -126,6 +131,20 @@ export class TalkSessionRegistry {
       truncatedTurns: session.truncatedTurns,
       handoffSuggested: handoffSuggested(turn),
     };
+  }
+
+  /** Log one attempted write. The id and timestamp are the registry's to assign
+   *  so no caller can name or date its own entry. */
+  recordAction(id: string, input: Omit<TalkActionRecord, "id" | "at">): TalkActionRecord {
+    const session = this.require(id);
+    const action: TalkActionRecord = { ...input, id: randomUUID(), at: this.now() };
+    session.actions.push(action);
+    // Oldest first, as with the turn budget: the newest attempt is the one an
+    // operator is about to ask about.
+    if (session.actions.length > TALK_ACTION_LOG_LIMIT) {
+      session.actions.splice(0, session.actions.length - TALK_ACTION_LOG_LIMIT);
+    }
+    return action;
   }
 
   /** The tools these intents add on top of what the session already carries. */

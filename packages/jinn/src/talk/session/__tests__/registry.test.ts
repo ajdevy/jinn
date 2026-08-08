@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../registry.js";
+import { TALK_ACTION_LOG_LIMIT, TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../registry.js";
 
 /** An injected clock, so the reaper is tested against elapsed time rather than
  *  against how long the test suite is willing to sleep. */
@@ -144,5 +144,36 @@ describe("TalkSessionRegistry turns and tools", () => {
     registry.close(session.id);
     expect(() => registry.appendTurn(session.id, "hello")).toThrow(TalkSessionError);
     expect(() => registry.exposeTools(session.id, ["todos"])).toThrow(TalkSessionError);
+  });
+});
+
+describe("TalkSessionRegistry action log", () => {
+  function record(registry: TalkSessionRegistry, id: string, subject: string) {
+    return registry.recordAction(id, { tool: "label_work_item", subject, lane: "fast", consent: "not-required" });
+  }
+
+  it("stamps each entry and appends in the order the writes were attempted", () => {
+    const clock = clockAt();
+    const registry = new TalkSessionRegistry(clock.now);
+    const session = openOne(registry);
+
+    const first = record(registry, session.id, "ABC-1");
+    clock.advance(5);
+    const second = record(registry, session.id, "ABC-2");
+
+    expect(first.id).not.toBe(second.id);
+    expect(second.at - first.at).toBe(5);
+    expect(registry.get(session.id)!.actions.map((action) => action.subject)).toEqual(["ABC-1", "ABC-2"]);
+  });
+
+  it("drops the oldest once the log is full, keeping the newest entries", () => {
+    const registry = new TalkSessionRegistry(clockAt().now);
+    const session = openOne(registry);
+    for (let i = 0; i < TALK_ACTION_LOG_LIMIT + 2; i += 1) record(registry, session.id, `ABC-${i}`);
+
+    const kept = registry.get(session.id)!.actions;
+    expect(kept).toHaveLength(TALK_ACTION_LOG_LIMIT);
+    expect(kept[0]!.subject).toBe("ABC-2");
+    expect(kept.at(-1)!.subject).toBe(`ABC-${TALK_ACTION_LOG_LIMIT + 1}`);
   });
 });

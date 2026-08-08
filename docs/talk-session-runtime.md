@@ -17,8 +17,8 @@ The code lives in `packages/jinn/src/talk/session/`:
 
 | File | Owns |
 |---|---|
-| `types.ts` | `TalkSession`, `TalkSessionState`, `TalkTurnRecord` |
-| `registry.ts` | the in-memory `Map<id, TalkSession>`: open, park, resume, heartbeat, turn, close, reap |
+| `types.ts` | `TalkSession`, `TalkSessionState`, `TalkTurnRecord`, `TalkActionRecord` |
+| `registry.ts` | the in-memory `Map<id, TalkSession>`: open, park, resume, heartbeat, turn, action, close, reap |
 | `tools.ts` | the tool catalog: always-on set, on-intent groups, token cost of a tool list |
 | `context.ts` | rolling truncation against a token budget, and the handoff predicate |
 | `pricing.ts` | `RealtimeUsage` to USD, per model, from a rate table |
@@ -173,8 +173,9 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 | `POST /api/talk/sessions/:id/heartbeat` | Refresh `lastSeenAt`. |
 | `POST /api/talk/sessions/:id/tools` | `{ intents: string[] }` returns the additional `RealtimeTool[]` to inject plus the new total token cost. Never returns a tool already exposed. |
 | `POST /api/talk/sessions/:id/turn` | `{ usage: RealtimeUsage, transcript? }` prices the delta, calls `recordTurnAccounting`, appends to history, applies rolling truncation, returns `{ spendUsd, contextTokens, truncatedTurns, handoffSuggested }`. |
+| `POST /api/talk/sessions/:id/actions` | `{ tool, subject, lane, consent, undoOf? }` logs one attempted write, refusals included, and returns the stored record with the id and timestamp the gateway stamped. |
 | `POST /api/talk/sessions/:id/handoff` | `{ prompt }` spawns a normal text Session with the talk session as parent, returns `{ sessionId }`. |
-| `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, spendUsd, contextTokens, exposedTools }`. |
+| `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, actions, spendUsd, contextTokens, exposedTools }`. |
 | `DELETE /api/talk/sessions/:id` | Close. Idempotent. |
 | `GET/POST /api/tts` | Moved verbatim out of `gateway/api.ts`. Behaviour unchanged: `GET` returns `{ available, voice }`, `POST` streams length-prefixed WAV frames, 503s when Kokoro is unavailable, 400s on invalid text. |
 
@@ -309,6 +310,73 @@ endpoint is idempotent per intent.
 What ships here is the mechanism plus a small read-only seed. `search_knowledge`
 and `hand_off_to_chat` are always on; `todos`, `sessions`, and `org` are the seed
 groups. **ICI-756 owns the full catalog** and extends `tools.ts`; the seed here is
-not a proposal for what that catalog should contain. **ICI-757 owns write actions**
-along with their consent and undo lanes, so every tool in this file is read-only
-by construction.
+not a proposal for what that catalog should contain. ICI-757's write tools are
+declared client-side in `packages/web`, so `tools.ts` stays read-only; what the
+gateway owns of a write is the action log below.
+
+### The consent policy
+
+Voice is a lossy consent channel: a transcription error and a spoken sentence are
+the same bytes by the time a tool call arrives. So every write tool sits in one
+of two lanes, and the line between them is that **the fast lane requires a
+reversal that actually exists and costs nothing to take.** Where an action is
+usually reversible but this instance of it has no reversal, it falls back to the
+consent lane rather than shipping an undo that lies.
+
+| Tool | Lane | Why | Reversal |
+|---|---|---|---|
+| `talk_comment_todo` | fast | Internal, cheap, fully reversible. | Tombstone the comment. |
+| `talk_create_todo` | fast | Creates a draft nobody has acted on yet. | Archive it — the row and its audit survive. |
+| `talk_set_todo_status` | fast **only when the board can move it back** | A status move is a board gesture, but the edge map is one-way in places: nothing returns from `done` except to `backlog`, and `executing`/`in_review` have no edge back to where work started. `cancelled` asks whatever the edges say — closing work is not a gesture, and agents have no cancel tool server-side. | Re-`PUT` the previous status. When `canDropOn(to, from)` is false the move takes the consent lane and gets no undo, which is why it asks. |
+| `talk_assign_todo` | fast | Internal, idempotent, reversible. | Re-assign (or clear the assignee through the version-fenced edit lane), then put the status back — assigning out of `backlog` moves the item too. |
+| `talk_label_todo` | fast | Full-set replace, idempotent by construction. | `PUT` the previous set. |
+| `talk_start_workflow_run` | consent | Spends money and wakes agents the moment it starts. Cancelling later un-bills nothing. | None. |
+| `talk_record_reading` | consent | No delete route and no way to edit: a wrong reading corrupts a measurement series permanently. | None — which is exactly why it cannot be fast. |
+| `talk_send_to_session` | consent | Outward-facing. Whoever is on the session may act on the world before any window could close. | None. |
+| `jinn_action` | consent, always | The least predictable surface: the model reaches it when it has stopped matching a request to anything the app can do. | None. |
+
+A dismissal is a refusal, not a failure — it reports `{ ok: false, error }` so a
+model cannot read "the operator said no" as a transport error and retry it. The
+fast lane's window is `UNDO_WINDOW_MS` (15 seconds), and letting it lapse commits
+the write silently.
+
+### The action log
+
+`POST /api/talk/sessions/:id/actions` records one entry per *attempted* write,
+and the word attempted is the whole point. A write the operator waved off in the
+consent sheet changes nothing and reaches the gateway through no other route, so
+without this entry the refusal would be the one decision the audit could not
+show. Each record carries the tool, the subject it acted on (`null` for a tool
+with no single subject), its `lane` (`fast` or `consent`), and its `consent`
+(`not-required` for the fast lane's undo-backed default, or the operator's actual
+`granted` / `refused`).
+
+The log is append-only. A reversal is a new entry whose `undoOf` names the id of
+the entry it undoes, rather than a flag set on the original, because a record
+that can be amended after the fact is not a record. `undoOf` must name an entry
+this session already logged; an undo of nothing is a client bug and answers 400.
+
+`id` and `at` are stamped by the registry and a body carrying either is ignored,
+for the same reason comment authorship is stamped server-side: a caller that can
+name and date its own entry can forge one over an earlier one. The list is capped
+at `TALK_ACTION_LOG_LIMIT` (500) and drops oldest first — a bound on a runaway
+client, not on the audit, since no spoken conversation comes near it. `GET
+/api/talk/sessions/:id` returns the log alongside `turns`.
+
+**How long it lasts, stated plainly, because the word "audit" invites the wrong
+assumption.** The log is a list on a `TalkSession`, and a `TalkSession` is an
+entry in an in-memory `Map` — so the log lives exactly as long as the session
+does: it goes when the session is closed or reaped, and it goes with the gateway
+process. Nothing writes it to disk. **And in production nothing writes it at
+all yet:** the only route that opens a talk session is `POST
+/api/talk/sessions`, which mints a paid provider credential, and no browser code
+calls it — the client transport is unbuilt. `TalkOrbOverlay` therefore mounts
+the surface with a `null` session id (`talk-session-store.ts` is the seam it
+reads, and nothing sets it), so today every entry the orb records stays in page
+memory in `talk-action-log.ts` and reaches no gateway. **ICI-764 owns the browser
+transport and the session lifecycle**, and is what makes this half real.
+
+What survives independently of any of this is the write itself: a talk-issued
+work-item mutation carries `origin: "talk"` in the persisted work-item event log
+(`X-Jinn-Origin`, above). The action log adds the things that log cannot hold —
+consent decisions, and refusals, which by definition touch nothing.

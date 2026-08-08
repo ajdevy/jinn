@@ -5,15 +5,17 @@ import { DISMISS_DISTANCE } from "../sheet-drag"
 import { ORB_EDGE_GAP, ORB_SIZE } from "../situation-choreography"
 import { PARK_STORAGE_KEY } from "../orb-park"
 import { TalkSurface } from "../talk-surface"
-import {
-  dismissSituation,
-  presentSituation,
-  resolveSituation,
-  restoreDeferredSituation,
-} from "../talk-situation-store"
-import { PAYLOADS } from "./situation-fixtures"
+import { dismissSituation, presentSituation, restoreDeferredSituation } from "../talk-situation-store"
+import { forgetUndo, offerUndo } from "../talk-undo-store"
+import { PAYLOADS, clearSituations } from "./situation-fixtures"
 
 vi.mock("@/lib/api", () => ({ api: {} }))
+
+const bindTalkActionLog = vi.fn()
+vi.mock("../talk-action-log", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../talk-action-log")>()),
+  bindTalkActionLog: (id: string | null) => bindTalkActionLog(id),
+}))
 
 const SITUATION = { id: "s-1", title: "A decision", payload: PAYLOADS.options }
 const MEDIA_SITUATION = { id: "s-2", title: "Which cover?", payload: PAYLOADS.images }
@@ -30,12 +32,14 @@ const offset = () => /translate3d\((-?[\d.]+)px, (-?[\d.]+)px/.exec(orb().style.
 const overlay = () => document.querySelector<HTMLElement>("[data-talk-orb-overlay]")
 const sheet = () => document.querySelector<HTMLElement>("[data-situation-sheet]")
 const preview = () => document.querySelector<HTMLElement>("[data-media-preview]")
+const undoStrip = () => document.querySelector<HTMLElement>("[data-talk-undo-strip]")
 const scroller = () => document.querySelector<HTMLElement>("[data-situation-sheet] .overflow-y-auto")
 const tile = (id: string) => document.querySelector<HTMLElement>(`[data-situation-tile="${id}"]`)!
 
 const measure = Element.prototype.getBoundingClientRect
 
 beforeEach(() => {
+  bindTalkActionLog.mockClear()
   localStorage.clear()
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
@@ -58,7 +62,8 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => closePreview())
-  act(() => resolveSituation())
+  act(() => clearSituations())
+  act(() => forgetUndo())
   Element.prototype.getBoundingClientRect = measure
   document.getElementById("root")?.remove()
 })
@@ -160,6 +165,15 @@ describe("TalkSurface", () => {
     expect(localStorage.getItem(PARK_STORAGE_KEY)).toBe("top-left")
   })
 
+  it("binds the action log to the session it is mounted for, and lets it go on the way out", () => {
+    const mounted = render(<TalkSurface sessionId="talk-1" />, { container: document.getElementById("root")! })
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith("talk-1")
+
+    mounted.unmount()
+
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith(null)
+  })
+
   it("docks a left-parked orb to the same right edge, across the sheet", () => {
     localStorage.setItem(PARK_STORAGE_KEY, "top-left")
     mount()
@@ -215,6 +229,22 @@ describe("a preview over the sheet", () => {
     expect(sheetPhase()).toBe("open")
   })
 
+  // The preview lives inside the sheet, so leaving one open when the situation
+  // goes costs nothing visible — until the next situation is raised and opens
+  // wearing the last one's picture.
+  it("does not outlive its situation and reopen over the next one", async () => {
+    await raise(MEDIA_SITUATION)
+    fireEvent.click(tile("variant-a"))
+    expect(preview()).not.toBeNull()
+
+    act(() => dismissSituation())
+    await waitFor(() => expect(sheet()).toBeNull())
+    act(() => presentSituation(MEDIA_SITUATION))
+
+    await waitFor(() => expect(sheetPhase()).toBe("open"))
+    expect(preview()).toBeNull()
+  })
+
   it("hands the sheet back the same one it left, whichever way the preview goes", async () => {
     await raise(MEDIA_SITUATION)
     const panel = sheet()
@@ -233,6 +263,24 @@ describe("a preview over the sheet", () => {
       expect(scroller(), how).toBe(scrolled)
       expect(panel?.getAttribute("data-situation-sheet"), how).toBe(MEDIA_SITUATION.id)
     }
+  })
+})
+
+describe("the undo strip", () => {
+  // At 390px the sheet owns the whole bottom of the screen, which is where the
+  // strip lives — so a strip left up would be buried under a modal, counting
+  // down somewhere nobody can reach it.
+  it("stands down under a sheet and comes back with the offer still good", async () => {
+    await raise(SITUATION)
+    act(() => {
+      offerUndo("Commented on AAA-1", async () => {})
+    })
+    expect(undoStrip()).toBeNull()
+
+    act(() => dismissSituation())
+    await waitFor(() => expect(sheet()).toBeNull())
+
+    expect(undoStrip()).not.toBeNull()
   })
 })
 

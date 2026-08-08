@@ -5,32 +5,55 @@ import type { OrbState } from "./orb-motion"
 import { readPark, type Point } from "./orb-park"
 import { breakpointOf, dockPoint, type SheetRect } from "./situation-choreography"
 import { SituationSheet } from "./situation-sheet"
+import { bindTalkActionLog } from "./talk-action-log"
 import { TalkOrb } from "./talk-orb"
-import { dismissSituation, resolveSituation, useSituation } from "./talk-situation-store"
+import { answerSituation, dismissSituation, useSituation } from "./talk-situation-store"
+import { UndoStrip } from "./undo-strip"
 
 /**
- * Orb plus sheet, as one surface. It is portalled to `document.body` on purpose:
- * the sheet deactivates `#root` while it is open, and the orb has to stay live
- * and draggable through the whole decision, which it cannot do from inside it.
+ * Orb, sheet, and undo strip, as one surface. It is portalled to `document.body`
+ * on purpose: the sheet deactivates `#root` while it is open, and the orb has to
+ * stay live and draggable through the whole decision, which it cannot do from
+ * inside it.
+ *
+ * The strip stands down while a sheet is on screen. On a phone the sheet owns
+ * the whole bottom, which is where the strip sits, so one left up would be
+ * buried under a modal and counting down where nobody could reach it. A null
+ * layout box is what says the sheet has finished leaving; the offer keeps its
+ * own window, so the strip comes back with whatever is left of it.
  */
 
 interface TalkSurfaceProps {
   state?: OrbState
   levelRef?: RefObject<number>
-  /** What the operator picked. The situation comes down either way. */
+  /** The open talk session, when there is one. It is what the action log posts
+   *  the gateway's copy to, and this surface is where a session and the tools
+   *  that write under it are both in scope. Null in production until a browser
+   *  transport opens one. */
+  sessionId?: string | null
+  /** Observes what the operator picked. The answer itself goes back through the
+   *  store, which is what settles an awaited situation — a consent gate is
+   *  reached from a tool executor, and there is no prop path from here to one. */
   onAnswer?: (situationId: string, choiceId: string) => void
 }
 
-export function TalkSurface({ state = "idle", levelRef, onAnswer }: TalkSurfaceProps) {
+export function TalkSurface({ state = "idle", levelRef, sessionId = null, onAnswer }: TalkSurfaceProps) {
   const situation = useSituation()
   const [sheetRect, setSheetRect] = useState<SheetRect | null>(null)
 
-  // Answering resolves rather than dismisses: a decision that was made leaves
+  // Unbound on the way out as well as in: entries posted against a session this
+  // surface no longer owns would be an audit written under the wrong name.
+  useEffect(() => {
+    bindTalkActionLog(sessionId)
+    return () => bindTalkActionLog(null)
+  }, [sessionId])
+
+  // Answering settles rather than dismisses: a decision that was made leaves
   // nothing behind to raise again.
   const answer = useCallback(
     (choiceId: string) => {
       if (situation) onAnswer?.(situation.id, choiceId)
-      resolveSituation()
+      answerSituation(choiceId)
     },
     [situation, onAnswer],
   )
@@ -57,6 +80,7 @@ export function TalkSurface({ state = "idle", levelRef, onAnswer }: TalkSurfaceP
         onDismiss={dismissSituation}
         onLayout={setSheetRect}
       />
+      {!situation && !sheetRect && <UndoStrip />}
       <TalkOrb state={state} levelRef={levelRef} dock={dock} />
     </>,
     document.body,

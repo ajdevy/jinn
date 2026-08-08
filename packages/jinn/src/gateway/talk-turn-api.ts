@@ -1,7 +1,7 @@
 /**
  * The `/api/talk/sessions/:id/*` operations that carry a request body: recording
- * a turn's usage, widening the exposed tool set, and handing a request off to a
- * normal text session.
+ * a turn's usage, logging an attempted write, widening the exposed tool set, and
+ * handing a request off to a normal text session.
  *
  * Split out of talk-api.ts, which keeps the routing, the credential minting, and
  * the lifecycle transitions. The registry is passed in rather than imported so
@@ -15,7 +15,7 @@ import { createSession, getSessionSpend, insertMessage, recordTurnAccounting } f
 import { priceTurn } from "../talk/session/pricing.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { TALK_TOOL_INTENTS, estimateToolTokens, isKnownIntent, toolsByName } from "../talk/session/tools.js";
-import type { TalkSession } from "../talk/session/types.js";
+import type { TalkActionRecord, TalkSession } from "../talk/session/types.js";
 import { readJsonBody } from "./http-helpers.js";
 
 type JsonRequest = Parameters<typeof readJsonBody>[0];
@@ -80,6 +80,62 @@ export async function recordTurn(
     pricingKnown: priced.pricingKnown,
     spendUsd: getSessionSpend([session.sessionId]),
   });
+}
+
+const ACTION_LANES = ["fast", "consent"] as const;
+const ACTION_CONSENTS = ["not-required", "granted", "refused"] as const;
+
+function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value);
+}
+
+/** The first thing wrong with an action payload, phrased as the fix, or null
+ *  when there is nothing wrong with it. */
+function actionProblem(body: Record<string, unknown>, logged: readonly TalkActionRecord[]): string | null {
+  if (typeof body.tool !== "string" || !body.tool.trim()) {
+    return "tool must be the non-empty name of the tool that attempted the write.";
+  }
+  if (body.subject !== undefined && body.subject !== null && typeof body.subject !== "string") {
+    return "subject must be an id string, or null when the tool acts on no single thing.";
+  }
+  if (!isOneOf(body.lane, ACTION_LANES)) return `lane must be one of: ${ACTION_LANES.join(", ")}.`;
+  if (!isOneOf(body.consent, ACTION_CONSENTS)) return `consent must be one of: ${ACTION_CONSENTS.join(", ")}.`;
+  if (body.undoOf !== undefined && !logged.some((action) => action.id === body.undoOf)) {
+    return "undoOf must name an action this talk session already logged.";
+  }
+  return null;
+}
+
+/**
+ * One log entry per attempted write, refusals included: a write the operator
+ * waved off is the decision the audit most needs to show, and it reaches the
+ * gateway no other way because it performs no write.
+ *
+ * `id` and `at` are stamped by the registry rather than read from the body, for
+ * the same reason comment authorship is: a caller that can name and date its own
+ * entry can forge one over an earlier one.
+ */
+export async function recordAction(
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: TalkSession,
+  registry: TalkSessionRegistry,
+): Promise<void> {
+  const parsed = await readJsonBody(req as JsonRequest, res);
+  if (!parsed.ok) return;
+  const body = (parsed.body ?? {}) as Record<string, unknown>;
+  const problem = actionProblem(body, session.actions);
+  if (problem) {
+    send(res, 400, { error: problem });
+    return;
+  }
+  send(res, 201, registry.recordAction(session.id, {
+    tool: body.tool as string,
+    subject: (body.subject as string | null | undefined) ?? null,
+    lane: body.lane as TalkActionRecord["lane"],
+    consent: body.consent as TalkActionRecord["consent"],
+    undoOf: body.undoOf as string | undefined,
+  }));
 }
 
 export async function expandTools(

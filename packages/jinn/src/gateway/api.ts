@@ -245,6 +245,7 @@ import {
   WorkItemAttachmentError,
   type AttachmentActor,
 } from "../work-items/attachments.js";
+import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER, type WriteOrigin } from "../work-items/origin.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
@@ -1331,9 +1332,8 @@ function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   return false;
 }
 
-type WorkItemCaller =
-  | { kind: 'operator'; session?: undefined; callerId?: undefined }
-  | { kind: 'session'; session: Session; callerId: string };
+type WorkItemCaller = { origin?: WriteOrigin }
+  & ({ kind: 'operator'; session?: undefined; callerId?: undefined } | { kind: 'session'; session: Session; callerId: string });
 
 function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: ApiContext): WorkItemCaller | undefined {
   const identity = resolveScopedWriteCallerIdentity(req, context);
@@ -1341,13 +1341,13 @@ function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: A
     json(res, { error: UNIDENTIFIED_TOOL_CALL_ERROR }, 403);
     return undefined;
   }
-  if (identity.kind === "operator") return { kind: 'operator' };
+  if (identity.kind === "operator") return { kind: 'operator', origin: readWriteOrigin(req.headers[WRITE_ORIGIN_HEADER]) };
   const session = getSession(identity.callerId);
   if (!session) {
     json(res, { error: UNIDENTIFIED_TOOL_CALL_ERROR }, 403);
     return undefined;
   }
-  return { kind: 'session', callerId: identity.callerId, session };
+  return { kind: 'session', callerId: identity.callerId, session, origin: readWriteOrigin(req.headers[WRITE_ORIGIN_HEADER]) };
 }
 
 function resolveNeedsAttentionTarget(req: HttpRequest, res: ServerResponse, requested: string, context: ApiContext): string | undefined {
@@ -3741,6 +3741,7 @@ export async function handleApiRequest(
         // that employee (the comments identity model); `session:<uuid>` remains
         // only for employee-less raw sessions.
         createdBy: workItemCommentAuthor(caller).author,
+        origin: caller.origin,
       };
       try {
         // Tagging runs inside the create transaction: an unknown label must fail
@@ -3750,7 +3751,7 @@ export async function handleApiRequest(
           ? createWorkItem(input)
           : initDb().transaction(() => {
             const created = createWorkItem(input);
-            labels = setWorkItemLabels(created.id, labelRefs, workItemActor(caller));
+            labels = setWorkItemLabels(created.id, labelRefs, workItemActor(caller), caller.origin);
             return created;
           })();
         const activityReceiptId = persistTodoMutationActivity(req, context, item, "created");
@@ -4013,9 +4014,7 @@ export async function handleApiRequest(
         actingAsOperator = permitted.actingAs;
       }
       const actor = body.asOperator === true ? "operator" : workItemActor(caller);
-      const detail = note || actingAsOperator
-        ? { ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }
-        : undefined;
+      const detail = writeDetail({ ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }, caller.origin);
       // The banner's asked-for-after reason (design-doc §5): a same-status
       // operator PUT with a note annotates the CURRENT exception state instead
       // of vanishing in transition()'s same-status no-op. The note event
@@ -4026,7 +4025,7 @@ export async function handleApiRequest(
           kind: "note",
           toStatus: target as WorkItemStatus,
           actor,
-          detail: { note },
+          detail: writeDetail({ note }, caller.origin),
           versionEffect: "state",
         });
         const annotated = getWorkItem(params.id)!;
@@ -4118,7 +4117,7 @@ export async function handleApiRequest(
         if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       }
       try {
-        const item = assignWorkItem(params.id, assignee, employee.department ?? null, workItemActor(caller));
+        const item = assignWorkItem(params.id, assignee, employee.department ?? null, workItemActor(caller), caller.origin);
         if (!item) return notFound(res);
         const activityReceiptId = persistTodoMutationActivity(req, context, item, "assigned", item.version !== current.version);
         return json(res, withActivityReceipt({ workItem: item }, activityReceiptId));
@@ -4355,6 +4354,7 @@ export async function handleApiRequest(
           body: text,
           ...workItemCommentAuthor(caller),
           parentCommentId,
+          origin: caller.origin,
         });
         forwardWorkflowTodoComment(comment);
         emitTodoProjectionEvent(context, params.id, "commented");
@@ -4408,7 +4408,7 @@ export async function handleApiRequest(
         const comment = tombstoneComment(params.cid, {
           ...workItemCommentAuthor(caller),
           operator: caller.kind === "operator",
-        });
+        }, caller.origin);
         emitTodoProjectionEvent(context, params.id, "comment-deleted");
         return json(res, { comment });
       } catch (err) {
@@ -4677,7 +4677,7 @@ export async function handleApiRequest(
         return badRequest(res, `labels accepts at most ${TODO_LABELS_MAX} entries per Todo (got ${body.labels.length})`);
       }
       try {
-        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller));
+        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller), caller.origin);
         emitTodoProjectionEvent(context, params.id, "labels-updated");
         return json(res, { labels });
       } catch (err) {

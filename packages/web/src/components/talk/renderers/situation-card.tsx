@@ -28,7 +28,8 @@ export const SITUATION_SURFACE = cn(
 /**
  * The one answering control. Every payload renderer that answers builds its
  * cards from this, so answering is a single tap or keypress everywhere and no
- * kind grows its own confirm step.
+ * kind grows its own confirm step — a consent sheet's "do it" is a card like any
+ * other, not an extra step on top of one.
  */
 export function SituationCard({
   choiceId,

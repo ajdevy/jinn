@@ -7,6 +7,7 @@ import { parseTodoId, resolveTodoIdPrefix } from './id.js';
 import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
+import { createdEventDetail, type WriteOrigin } from './origin.js';
 
 /**
  * Work-item store — the substrate of the Todos ledger (GRS-002, elevated by
@@ -50,16 +51,6 @@ const CLOSED_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>(['d
  *  these — `done`/`cancelled` are decisions, `escalated` is a deliberate routing
  *  to the operator that session churn must not silently undo. */
 export const STICKY_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>(['done', 'cancelled', 'escalated']);
-
-/** Actor recorded on the reconciler's own derived writes. */
-export const RECONCILER_ACTOR = 'reconciler';
-/** Actor recorded when a Workflow run reflects its own lifecycle onto its bound
- *  Todo. Derived, not declared: a status a phase set on purpose outranks it. */
-export const WORKFLOW_RUN_ACTOR = 'workflow:run';
-
-/** Actors whose status writes are DERIVED — reflections of machine state rather
- *  than a caller's decision about the work. */
-const DERIVED_ACTORS: ReadonlySet<string> = new Set([RECONCILER_ACTOR, WORKFLOW_RUN_ACTOR]);
 
 export interface VerifyPolicy {
   mode: VerifyMode;
@@ -171,6 +162,7 @@ export interface CreateWorkItemInput {
   acceptance?: string | null;
   verifyPolicy?: VerifyPolicy | null;
   budgetUsd?: number | null;
+  origin?: WriteOrigin;
   // Deliberately NO approval fields (design §1.3, anti-bottleneck principle):
   // a fresh Todo's approval is always none; approval is attached only by the
   // 021b decision/mirror machinery where a human decision is genuinely required.
@@ -391,105 +383,17 @@ export function appendWorkItemEvent(input: AppendWorkItemEventInput): WorkItemEv
   return txn();
 }
 
-interface StatusTransitionProvenance {
-  fromStatus: WorkItemStatus | null;
-  actor: string | null;
-  detail: string | null;
-}
-
-/** Read the newest transition into a status without loading the full audit trail. */
-function latestStatusTransition(workItemId: string, toStatus: WorkItemStatus): StatusTransitionProvenance | undefined {
-  const db = initDb();
-  const id = parseTodoId(workItemId);
-  const row = db
-    .prepare(
-      `SELECT from_status, actor, detail FROM work_item_events
-       WHERE work_item_id = ? AND to_status = ?
-       ORDER BY created_at DESC, rowid DESC LIMIT 1`,
-    )
-    .get(id, toStatus) as { from_status: WorkItemStatus | null; actor: string | null; detail: string | null } | undefined;
-  return row
-    ? {
-        fromStatus: row.from_status,
-        actor: row.actor,
-        detail: row.detail,
-      }
-    : undefined;
-}
-
-/**
- * Whether the current block was declared by a caller rather than derived from
- * attempt transport. Historical events without an explicit marker fall back to
- * actor provenance so existing rows retain their intended meaning.
- */
-export function isBlockDeclared(workItemId: string): boolean {
-  const row = latestStatusTransition(workItemId, 'blocked');
-  if (!row) return false;
-  if (row.detail) {
-    try {
-      const detail = JSON.parse(row.detail) as Record<string, unknown>;
-      if (detail.declared === true) return true;
-      if (detail.declared === false) return false;
-    } catch {
-      // Historical malformed detail falls through to actor provenance.
-    }
-  }
-  return row.actor !== null && !DERIVED_ACTORS.has(row.actor);
-}
-
-/**
- * Whether the current execution state was explicitly reopened from review.
- * Inspect the newest transition into `executing` first so an older bounce
- * cannot outlive a later start or unblock.
- */
-export function isReviewBounceDeclared(workItemId: string): boolean {
-  return latestStatusTransition(workItemId, 'executing')?.fromStatus === 'in_review';
-}
-
-function rowToWorkItemEvent(row: Record<string, unknown>): WorkItemEvent {
-  let detail: Record<string, unknown> | null = null;
-  if (typeof row.detail === 'string' && row.detail) {
-    try {
-      detail = JSON.parse(row.detail) as Record<string, unknown>;
-    } catch {
-      detail = null;
-    }
-  }
-  return {
-    id: row.id as string,
-    workItemId: row.work_item_id as string,
-    kind: row.kind as WorkItemEventKind,
-    fromStatus: (row.from_status as WorkItemStatus) ?? null,
-    toStatus: (row.to_status as WorkItemStatus) ?? null,
-    actor: (row.actor as string) ?? null,
-    detail,
-    createdAt: row.created_at as string,
-  };
-}
-
-/** List audit trails for several items with one query, oldest-first within
- * each item. Unknown ids receive an empty entry. */
-export function listWorkItemEventsForItems(workItemIds: readonly string[]): Map<string, WorkItemEvent[]> {
-  const ids = [...new Set(workItemIds.map((id) => parseTodoId(id)))];
-  const eventsById = new Map(ids.map((id) => [id, [] as WorkItemEvent[]]));
-  if (ids.length === 0) return eventsById;
-  const db = initDb();
-  const placeholders = ids.map(() => '?').join(', ');
-  const rows = db
-    .prepare(`SELECT * FROM work_item_events WHERE work_item_id IN (${placeholders}) ORDER BY created_at, rowid`)
-    .all(...ids) as Record<string, unknown>[];
-  for (const row of rows) {
-    const event = rowToWorkItemEvent(row);
-    eventsById.get(event.workItemId)?.push(event);
-  }
-  return eventsById;
-}
-
-/** List an item's audit trail, oldest-first (the story reads top-down). */
-export function listWorkItemEvents(workItemId: string): WorkItemEvent[] {
-  const id = parseTodoId(workItemId);
-  return listWorkItemEventsForItems([id]).get(id) ?? [];
-}
+/** Reading the trail back lives in event-log.ts, along with the actors whose
+ *  writes are derived rather than declared. Re-exported here so the audit
+ *  surface stays one import for every caller. */
+export {
+  RECONCILER_ACTOR,
+  WORKFLOW_RUN_ACTOR,
+  isBlockDeclared,
+  isReviewBounceDeclared,
+  listWorkItemEvents,
+  listWorkItemEventsForItems,
+} from './event-log.js';
 
 /* ── Create / read ──────────────────────────────────────────────────────────── */
 
@@ -590,7 +494,7 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
       }
       throw err;
     }
-    appendWorkItemEvent({ workItemId: id, kind: 'created', toStatus: status, actor: source, detail: sourceRef ? { sourceRef } : null });
+    appendWorkItemEvent({ workItemId: id, kind: 'created', toStatus: status, actor: source, detail: createdEventDetail(sourceRef, input.origin) });
     if (parent) {
       // Re-verify the parent under the write lock before auditing the link.
       const liveParent = db.prepare('SELECT depth FROM work_items WHERE id = ?').get(parent.id) as { depth: number } | undefined;

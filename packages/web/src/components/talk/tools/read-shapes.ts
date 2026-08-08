@@ -28,9 +28,12 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null
 }
 
-/** The tail of the conversation on a Todo, with an honest count of the rest. */
+/** The tail of the conversation on a Todo, with an honest count of the rest.
+ *  Tombstones keep their row so the thread shape survives a deletion; there is
+ *  nothing in one to say out loud, and a model reading an empty comment aloud
+ *  would report a deletion as a message. */
 function trimComments(detail: WorkItemDetailWire): Record<string, unknown> {
-  const all = detail.comments?.comments ?? []
+  const all = (detail.comments?.comments ?? []).filter((comment) => !comment.deletedAt)
   return {
     commentCount: detail.comments?.total ?? all.length,
     comments: all.slice(-RECENT_COMMENTS).map((comment) => ({
