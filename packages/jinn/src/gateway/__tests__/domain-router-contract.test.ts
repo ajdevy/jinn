@@ -23,9 +23,10 @@ let experimentStoreThrows = false;
 
 vi.mock("../../shared/paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../shared/paths.js")>();
-  const { home } = await import("./domain-router-home.js");
+  const { home, SESSIONS_DB } = await import("./domain-router-home.js");
   return {
     ...actual,
+    SESSIONS_DB,
     get CRON_RUNS() {
       if (cronRunsThrows) throw new Error("forced cron paths failure");
       return home.cronRuns;
@@ -46,8 +47,8 @@ const runCronJob = vi.fn(async () => {});
 vi.mock("../../cron/runner.js", () => ({ runCronJob: (...args: unknown[]) => runCronJob(...(args as [])) }));
 
 // Experiments live in SQLite rather than on disk, so the forced failure is on the
-// store call instead of on a path. Everything else is the real store against the
-// temp home vitest.global-setup.ts pins JINN_HOME to.
+// store call instead of on a path. Everything else is the real store, against the
+// private database the paths mock above points it at.
 vi.mock("../../experiments/store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../experiments/store.js")>();
   return {
@@ -59,14 +60,37 @@ vi.mock("../../experiments/store.js", async (importOriginal) => {
   };
 });
 
+import { initDb } from "../../shared/db.js";
 import { JOBS, home, seedHome } from "./domain-router-home.js";
 import { RUN, call, createExperiment, expectWire, runningExperiment } from "./domain-router-harness.js";
+
+/** The store's own page order: newest first, ties broken by id. */
+function inListOrder<T extends { id: string; startedAt: string }>(experiments: T[]): T[] {
+  return [...experiments].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || a.id.localeCompare(b.id));
+}
+
+/** A created experiment, concluded, carrying the verdict the route generated. */
+async function concludedExperiment(outcome: "win" | "loss", note: string): Promise<any> {
+  const experiment = await createExperiment();
+  const concluded = await call("POST", `/api/experiments/${experiment.id}/conclude`, { outcome, note });
+  expect(concluded.status).toBe(200);
+  return { ...experiment, verdict: concluded.body.experiment.verdict };
+}
+
+/** The wire shape the list pins each row to, running or concluded. */
+function listedExperiment(row: any): Record<string, unknown> {
+  return runningExperiment(row.id, row.startedAt, row.verdict ? { status: "concluded", verdict: row.verdict } : {});
+}
 
 beforeEach(() => {
   cronRunsThrows = false;
   experimentStoreThrows = false;
   runCronJob.mockClear();
   seedHome();
+  // Emptying the table is what lets the list responses be pinned to every byte
+  // they wrote: each test then sees exactly the experiments it created. Metrics
+  // and readings follow through the cascade.
+  initDb().prepare("DELETE FROM experiments").run();
 });
 
 describe("experiment routes still answer identically through handleExperimentsApi", () => {
@@ -81,18 +105,18 @@ describe("experiment routes still answer identically through handleExperimentsAp
     expectWire(bad, 400, { error: "hypothesis is required and must be a string" });
   });
 
-  it("GET /api/experiments lists the created experiment and filters by status", async () => {
-    const experiment = await createExperiment();
+  it("GET /api/experiments lists every experiment and filters the page by status", async () => {
+    // Three rows, so both pages below carry the `},{` an array separator is made
+    // of: with a single row the whole page reserializes without the pin noticing.
+    const running = await createExperiment();
+    const won = await concludedExperiment("win", "Activation rose six points.");
+    const lost = await concludedExperiment("loss", "Activation did not move.");
+
     const listed = await call("GET", "/api/experiments");
-    expect(listed.status).toBe(200);
-    // The page carries whatever the other tests in this file left behind, so the
-    // pin is the envelope's own bytes plus this experiment's bytes inside it.
-    expect([listed.raw.slice(0, 16), listed.raw.slice(-2)]).toEqual([`{"experiments":[`, "]}"]);
-    expect(listed.raw).toContain(JSON.stringify(runningExperiment(experiment.id, experiment.startedAt)));
+    expectWire(listed, 200, { experiments: inListOrder([running, won, lost]).map(listedExperiment) });
 
     const concluded = await call("GET", "/api/experiments?status=concluded");
-    expect(concluded.status).toBe(200);
-    expect(concluded.body.experiments.map((row: any) => row.id)).not.toContain(experiment.id);
+    expectWire(concluded, 200, { experiments: inListOrder([won, lost]).map(listedExperiment) });
 
     const bogus = await call("GET", "/api/experiments?status=maybe");
     expectWire(bogus, 400, { error: "status must be running or concluded" });
