@@ -4,15 +4,16 @@ import { listSessions, updateSession } from "../sessions/registry.js";
 import { logger } from "../shared/logger.js";
 
 const DEFAULT_INTERVAL_MS = 15_000;
-/** runWebSession's heartbeat refreshes lastActivity every 5s while a turn is in
- *  flight. A "running" session whose heartbeat is older than this has no live
- *  turn driving it — the completion event was lost.
+/** Every turn arms the same heartbeat (sessions/turn/heartbeat.ts), which
+ *  refreshes lastActivity every 5s while the turn is in flight — connector,
+ *  cron, workflow and web alike. A "running" session whose heartbeat is older
+ *  than this has no live turn driving it: the completion event was lost.
  *
  *  Queued-but-not-started turns are safe: the POST handler sets
- *  status:"running" + lastActivity synchronously at enqueue, and runWebSession
- *  re-sets both when the queued turn actually starts (and the 5s heartbeat
- *  takes over). Worst case a long-delayed queue item gets its spinner cleared
- *  here and re-armed by session:started when the turn begins. */
+ *  status:"running" + lastActivity synchronously at enqueue, and the turn
+ *  re-sets both when it actually starts (and the 5s heartbeat takes over).
+ *  Worst case a long-delayed queue item gets its spinner cleared here and
+ *  re-armed by session:started when the turn begins. */
 const DEFAULT_STALE_MS = 45_000;
 
 export interface StatusReconcilerDeps {

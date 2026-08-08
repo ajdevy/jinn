@@ -95,26 +95,32 @@ describe("recordTurnAccounting", () => {
 
 /**
  * Structural guard. The bug was not a wrong number — it was a MISSING CALL in
- * one of two parallel runners. A unit test on the helper can't catch that, so
- * assert both runners still call it, once per turn-completion site.
+ * one of two parallel runners, each carrying its own copy of the completion
+ * sequence. The runners have since been unified onto settleTurn, so the guard
+ * that matters is no longer "both runners call it" but "only settleTurn does":
+ * a completion site anywhere else is a second copy, and a second copy is how
+ * the accounting hole opened in the first place.
  */
-describe("both session runners record accounting (drift guard)", () => {
+describe("one completion path records accounting (drift guard)", () => {
   const read = (rel: string) =>
     fs.readFileSync(path.join(__dirname, "..", "..", rel), "utf-8");
 
-  it("runWebSession accounts every turn-completion site", () => {
-    const api = read("gateway/api.ts");
-    // main turn + rate-limit retry + engine fallback
-    expect((api.match(/recordTurnAccounting\(/g) ?? []).length).toBe(3);
+  it("settleTurn is the only caller of the accounting helper", () => {
+    const completion = read("sessions/turn/completion.ts");
+    expect((completion.match(/recordTurnAccounting\(/g) ?? []).length).toBe(1);
   });
 
-  it("manager.ts accounts every turn-completion site", () => {
-    const manager = read("sessions/manager.ts");
-    expect((manager.match(/recordTurnAccounting\(/g) ?? []).length).toBe(3);
-  });
-
-  it("neither runner bypasses the helper by calling accumulateSessionCost directly", () => {
+  it("neither runner writes its own terminal receipt", () => {
     for (const rel of ["gateway/api.ts", "sessions/manager.ts"]) {
+      const source = read(rel);
+      expect(source).not.toMatch(/recordTurnAccounting\(/);
+      expect(source).not.toMatch(/completeSessionAttempt\(/);
+      expect(source).not.toMatch(/notifyParentSession\(/);
+    }
+  });
+
+  it("no completion site bypasses the helper by calling accumulateSessionCost directly", () => {
+    for (const rel of ["gateway/api.ts", "sessions/manager.ts", "sessions/turn/completion.ts"]) {
       expect(read(rel)).not.toMatch(/accumulateSessionCost\(/);
     }
   });
