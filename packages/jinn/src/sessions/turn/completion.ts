@@ -1,7 +1,7 @@
 import type { Employee, EngineSessionRef, Session } from "../../shared/types.js";
 import {
   completeSessionAttempt,
-  recordEngineSessionId,
+  nextEngineSessionFields,
   recordTurnAccounting,
   updateSessionForAttempt,
   type UpdateSessionFields,
@@ -26,7 +26,8 @@ export interface SettleTurnInput {
    * a turn. Absent only for aborts that never reached an engine.
    */
   accounting?: { cost?: number; numTurns?: number };
-  /** Native engine-session id filed before the receipt, so a resume finds it. */
+  /** Native engine-session id, filed inside the receipt's own fenced write so a
+   * resume finds it and a losing turn never overwrites a newer turn's. */
   engineSession?: { engine: string; nativeId: string; meta?: Omit<EngineSessionRef, "id"> };
   /** Transport fields folded into the same write as the receipt. */
   fields?: UpdateSessionFields;
@@ -50,8 +51,8 @@ const STATUS_FOR_OUTCOME: Record<TurnOutcome, Session["status"]> = {
 
 /**
  * The single completion path. Every terminal receipt in every runner is written
- * here, in this fixed order: file the engine session, account for the turn,
- * write the receipt, wake the parent, tell the transport.
+ * here, in this fixed order: account for the turn, write the receipt — engine
+ * session included — wake the parent, tell the transport.
  *
  * It exists because two runners each grew their own copy of that sequence and
  * drifted — one of them silently skipped accounting, which disabled employee
@@ -63,10 +64,6 @@ const STATUS_FOR_OUTCOME: Record<TurnOutcome, Session["status"]> = {
  */
 export async function settleTurn(input: SettleTurnInput): Promise<Session | undefined> {
   const settledAt = new Date().toISOString();
-  if (input.engineSession) {
-    const { engine, nativeId, meta } = input.engineSession;
-    recordEngineSessionId(input.sessionId, engine, nativeId, { ...meta, lastSyncedAt: settledAt });
-  }
   if (input.accounting) recordTurnAccounting(input.sessionId, input.accounting);
 
   const settled = writeReceipt(input, settledAt);
@@ -85,15 +82,25 @@ export async function settleTurn(input: SettleTurnInput): Promise<Session | unde
   return settled;
 }
 
-/** The one fenced write that makes a turn terminal. */
+/**
+ * The one fenced write that makes a turn terminal. The engine session merges in
+ * from inside the fence, so a turn that has lost the row to a stop, a reset, or
+ * a newer turn leaves that turn's resume state exactly as it found it.
+ */
 function writeReceipt(input: SettleTurnInput, settledAt: string): Session | undefined {
-  const fields: UpdateSessionFields = {
+  const fields = (current: Session): UpdateSessionFields => ({
     ...input.fields,
+    ...(input.engineSession
+      ? nextEngineSessionFields(current, input.engineSession.engine, input.engineSession.nativeId, {
+        ...input.engineSession.meta,
+        lastSyncedAt: settledAt,
+      })
+      : {}),
     status: STATUS_FOR_OUTCOME[input.outcome],
     attemptOutcome: input.outcome,
     lastActivity: settledAt,
     lastError: input.error ?? (input.outcome === "interrupted" ? "Interrupted" : null),
-  };
+  });
   return input.expectedStatuses
     ? updateSessionForAttempt(input.sessionId, input.attemptToken, fields, input.expectedStatuses)
     : completeSessionAttempt(input.sessionId, input.attemptToken, fields);
