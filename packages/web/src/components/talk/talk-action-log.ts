@@ -11,11 +11,11 @@ import { authFetch } from "@/lib/auth"
  *
  * The entries live here, and this is not a cache in front of something sturdier.
  * The gateway's copy is a list on an in-memory talk session, so it lasts exactly
- * as long as that session does and no longer — and in production there is no
- * session to post to at all until the browser realtime transport lands, so today
- * every entry lives in page memory alone. What IS persisted of a talk write is
- * `origin: "talk"` on the work-item event the gateway appends; the consent
- * decisions and refusals recorded here have no such row behind them.
+ * as long as that session does and no longer; an entry recorded with no session
+ * bound — on the orb bench, or between sessions — lives in page memory alone.
+ * What IS persisted of a talk write is `origin: "talk"` on the work-item event
+ * the gateway appends; the consent decisions and refusals recorded here have no
+ * such row behind them.
  */
 
 export type ActionLane = "fast" | "consent"
@@ -41,8 +41,7 @@ const entries: TalkActionEntry[] = []
 let sessionId: string | null = null
 
 /** Bind the talk session the gateway's copy of the log belongs to. Null while
- *  there is no session — which, until the browser transport exists, is always
- *  outside the harness bench. */
+ *  there is no session, which is every moment the orb is not live. */
 export function bindTalkActionLog(id: string | null): void {
   sessionId = id
 }
