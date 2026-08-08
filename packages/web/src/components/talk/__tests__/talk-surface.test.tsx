@@ -1,10 +1,13 @@
-import { act, fireEvent, render } from "@testing-library/react"
+import { act, fireEvent, render, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { closePreview } from "../media-preview-store"
+import { DISMISS_DISTANCE } from "../sheet-drag"
 import { ORB_EDGE_GAP, ORB_SIZE } from "../situation-choreography"
 import { PARK_STORAGE_KEY } from "../orb-park"
 import { TalkSurface } from "../talk-surface"
-import { dismissSituation, presentSituation } from "../talk-situation-store"
-import { PAYLOADS } from "./situation-fixtures"
+import { dismissSituation, presentSituation, restoreDeferredSituation } from "../talk-situation-store"
+import { forgetUndo, offerUndo } from "../talk-undo-store"
+import { PAYLOADS, clearSituations } from "./situation-fixtures"
 
 vi.mock("@/lib/api", () => ({ api: {} }))
 
@@ -15,6 +18,7 @@ vi.mock("../talk-action-log", async (importOriginal) => ({
 }))
 
 const SITUATION = { id: "s-1", title: "A decision", payload: PAYLOADS.options }
+const MEDIA_SITUATION = { id: "s-2", title: "Which cover?", payload: PAYLOADS.images }
 
 /** A desktop sheet's box: jsdom lays nothing out, so the sheet is given one. */
 const SHEET_BOX = { left: 312, top: 520, width: 816, height: 360, right: 1128, bottom: 880 }
@@ -25,6 +29,12 @@ const layerOf = (selector: string) =>
   Number(/z-\[(\d+)\]/.exec(document.querySelector<HTMLElement>(selector)!.className)?.[1])
 const canvas = () => document.querySelector<HTMLCanvasElement>("[data-talk-orb] canvas")!
 const offset = () => /translate3d\((-?[\d.]+)px, (-?[\d.]+)px/.exec(orb().style.transform)
+const overlay = () => document.querySelector<HTMLElement>("[data-talk-orb-overlay]")
+const sheet = () => document.querySelector<HTMLElement>("[data-situation-sheet]")
+const preview = () => document.querySelector<HTMLElement>("[data-media-preview]")
+const undoStrip = () => document.querySelector<HTMLElement>("[data-talk-undo-strip]")
+const scroller = () => document.querySelector<HTMLElement>("[data-situation-sheet] .overflow-y-auto")
+const tile = (id: string) => document.querySelector<HTMLElement>(`[data-situation-tile="${id}"]`)!
 
 const measure = Element.prototype.getBoundingClientRect
 
@@ -51,7 +61,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  act(() => dismissSituation())
+  act(() => closePreview())
+  act(() => clearSituations())
+  act(() => forgetUndo())
   Element.prototype.getBoundingClientRect = measure
   document.getElementById("root")?.remove()
 })
@@ -59,6 +71,36 @@ afterEach(() => {
 function mount() {
   return render(<TalkSurface />, { container: document.getElementById("root")! })
 }
+
+/** The entrance has to land before a gesture on the settled sheet means anything. */
+async function raise(situation: typeof SITUATION) {
+  mount()
+  act(() => presentSituation(situation))
+  await waitFor(() =>
+    expect(document.querySelector("[data-situation-phase]")?.getAttribute("data-situation-phase")).toBe("open"),
+  )
+}
+
+function escape() {
+  fireEvent.keyDown(document, { key: "Escape" })
+}
+
+/** The three ways out of a preview, none of which may reach the sheet. */
+const CLOSERS = {
+  Escape: escape,
+  "a scrim tap": () => fireEvent.click(document.querySelector("[data-media-preview] [role='dialog']")!),
+  "a drag past the threshold": () => {
+    const stage = document.querySelector("[data-preview-stage]")!
+    const thrown = 200 + DISMISS_DISTANCE + 40
+    fireEvent.pointerDown(stage, { pointerId: 3, clientY: 200 })
+    fireEvent.pointerMove(stage, { pointerId: 3, clientY: thrown })
+    fireEvent.pointerUp(stage, { pointerId: 3, clientY: thrown })
+  },
+}
+
+/** `closing` still has a sheet in the DOM, so presence alone proves nothing. */
+const sheetPhase = () =>
+  document.querySelector("[data-situation-phase]")?.getAttribute("data-situation-phase")
 
 describe("TalkSurface", () => {
   it("keeps the orb outside the page it deactivates, and interactive", () => {
@@ -138,5 +180,114 @@ describe("TalkSurface", () => {
     act(() => presentSituation(SITUATION))
 
     expect(Number(offset()![1])).toBe(SHEET_BOX.right + ORB_EDGE_GAP + ORB_SIZE / 2)
+  })
+})
+
+describe("a preview over the sheet", () => {
+  it("never drops the orb, and stacks between the sheet and it", async () => {
+    await raise(MEDIA_SITUATION)
+    const docked = overlay()
+
+    fireEvent.click(tile("variant-a"))
+    expect(preview()).not.toBeNull()
+    expect(overlay()).toBe(docked)
+    expect(layerOf("[data-situation-phase]")).toBeLessThan(layerOf("[data-media-preview]"))
+    expect(layerOf("[data-media-preview]")).toBeLessThan(layerOf("[data-talk-orb-overlay]"))
+
+    act(() => closePreview())
+
+    expect(preview()).toBeNull()
+    expect(overlay()).toBe(docked)
+    expect(docked?.isConnected).toBe(true)
+  })
+
+  it("takes the preview down on Escape, then the sheet on a second one", async () => {
+    await raise(MEDIA_SITUATION)
+    fireEvent.click(tile("variant-a"))
+
+    escape()
+    expect(preview()).toBeNull()
+    expect(sheetPhase()).toBe("open")
+
+    escape()
+    expect(sheetPhase()).toBe("closing")
+    await waitFor(() => expect(sheet()).toBeNull())
+  })
+
+  it("closes only the preview on a scrim tap and on a drag past the threshold", async () => {
+    await raise(MEDIA_SITUATION)
+
+    fireEvent.click(tile("variant-a"))
+    CLOSERS["a scrim tap"]()
+    expect(preview()).toBeNull()
+    expect(sheetPhase()).toBe("open")
+
+    fireEvent.click(tile("variant-b"))
+    CLOSERS["a drag past the threshold"]()
+
+    expect(preview()).toBeNull()
+    expect(sheetPhase()).toBe("open")
+  })
+
+  // The preview lives inside the sheet, so leaving one open when the situation
+  // goes costs nothing visible — until the next situation is raised and opens
+  // wearing the last one's picture.
+  it("does not outlive its situation and reopen over the next one", async () => {
+    await raise(MEDIA_SITUATION)
+    fireEvent.click(tile("variant-a"))
+    expect(preview()).not.toBeNull()
+
+    act(() => dismissSituation())
+    await waitFor(() => expect(sheet()).toBeNull())
+    act(() => presentSituation(MEDIA_SITUATION))
+
+    await waitFor(() => expect(sheetPhase()).toBe("open"))
+    expect(preview()).toBeNull()
+  })
+
+  it("hands the sheet back the same one it left, whichever way the preview goes", async () => {
+    await raise(MEDIA_SITUATION)
+    const panel = sheet()
+    const scrolled = scroller()
+
+    for (const [how, close] of Object.entries(CLOSERS)) {
+      fireEvent.click(tile("variant-b"))
+      expect(preview(), how).not.toBeNull()
+
+      close()
+
+      // The same nodes, never rebuilt — so nothing they hold, scroll offset
+      // and selection included, was thrown away and put back.
+      expect(preview(), how).toBeNull()
+      expect(sheet(), how).toBe(panel)
+      expect(scroller(), how).toBe(scrolled)
+      expect(panel?.getAttribute("data-situation-sheet"), how).toBe(MEDIA_SITUATION.id)
+    }
+  })
+})
+
+describe("the undo strip", () => {
+  it("rides along with the orb, so the fast lane's way back is on screen with no sheet up", () => {
+    mount()
+    expect(undoStrip()).toBeNull()
+
+    act(() => {
+      offerUndo("Commented on AAA-1", async () => {})
+    })
+
+    expect(undoStrip()).not.toBeNull()
+  })
+})
+
+describe("dismissal", () => {
+  it("defers rather than destroys: Escape puts the same situation back within reach", async () => {
+    await raise(SITUATION)
+
+    escape()
+    await waitFor(() => expect(sheet()).toBeNull())
+
+    act(() => restoreDeferredSituation())
+
+    await waitFor(() => expect(sheet()?.getAttribute("data-situation-sheet")).toBe(SITUATION.id))
   })
 })

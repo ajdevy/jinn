@@ -13,11 +13,23 @@ interface SituationCardProps {
 }
 
 /**
- * The one answering control. Every payload renderer builds its cards from this,
- * so answering is a single tap or keypress everywhere and no kind grows its own
- * confirm step — a consent sheet's "do it" is a card like any other, not an
- * extra step on top of one. No border at rest: the fill and the hover carry the
- * affordance.
+ * The card surface every tappable thing in the sheet wears. No border at rest:
+ * the fill and the hover carry the affordance.
+ */
+export const SITUATION_SURFACE = cn(
+  "w-full cursor-pointer rounded-[var(--radius-lg)] border-none bg-[var(--fill-tertiary)]",
+  "p-[var(--space-3)] text-left text-[length:var(--text-subheadline)] text-[var(--text-primary)]",
+  "transition-[background-color,scale] duration-150 ease-[var(--ease-smooth)]",
+  "hover:bg-[var(--fill-secondary)] active:scale-[0.98]",
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+  "disabled:cursor-default disabled:opacity-60 disabled:active:scale-100",
+)
+
+/**
+ * The one answering control. Every payload renderer that answers builds its
+ * cards from this, so answering is a single tap or keypress everywhere and no
+ * kind grows its own confirm step — a consent sheet's "do it" is a card like any
+ * other, not an extra step on top of one.
  */
 export function SituationCard({
   choiceId,
@@ -34,15 +46,7 @@ export function SituationCard({
       disabled={disabled}
       aria-busy={busy || undefined}
       onClick={() => onAnswer(choiceId)}
-      className={cn(
-        "w-full cursor-pointer rounded-[var(--radius-lg)] border-none bg-[var(--fill-tertiary)]",
-        "p-[var(--space-3)] text-left text-[length:var(--text-subheadline)] text-[var(--text-primary)]",
-        "transition-[background-color,scale] duration-150 ease-[var(--ease-smooth)]",
-        "hover:bg-[var(--fill-secondary)] active:scale-[0.98]",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-        "disabled:cursor-default disabled:opacity-60 disabled:active:scale-100",
-        className,
-      )}
+      className={cn(SITUATION_SURFACE, className)}
     >
       {children}
     </button>

@@ -12,12 +12,24 @@ export class SessionQueue {
   private paused = new Set<string>();
   /** Resolvers for tasks blocked on a paused session key, woken on resume. */
   private pauseWaiters = new Map<string, Array<() => void>>();
+  /** Queue rows this process has already taken responsibility for. */
+  private inFlightItems = new Set<string>();
 
   /**
    * Check if a session is currently running.
    */
   isRunning(sessionKey: string): boolean {
     return this.running.has(sessionKey);
+  }
+
+  /**
+   * Has this process already accepted `queueItemId` for execution? A row only
+   * flips to `running` in the DB when its task actually starts, so one parked
+   * behind a long turn still reads `pending` and is indistinguishable from an
+   * orphan to a recovery sweep. This is what tells the two apart.
+   */
+  hasInFlightItem(queueItemId: string): boolean {
+    return this.inFlightItems.has(queueItemId);
   }
 
   getPendingCount(sessionKey: string): number {
@@ -71,6 +83,7 @@ export class SessionQueue {
    * Enqueue a task for a session. Tasks are serialized per session key.
    */
   async enqueue(sessionKey: string, fn: () => Promise<void>, queueItemId?: string, claimed = false): Promise<void> {
+    if (queueItemId) this.inFlightItems.add(queueItemId);
     this.pending.set(sessionKey, (this.pending.get(sessionKey) || 0) + 1);
     const prev = this.queues.get(sessionKey) || Promise.resolve();
     const runTask = async () => {
@@ -98,7 +111,10 @@ export class SessionQueue {
         // Mark the DB row done in finally so an errored/cancelled task can't
         // leave the item stuck as 'running' (getQueueItems returns 'running'
         // rows, so a stuck row would keep the UI badge from draining).
-        if (queueItemStarted && queueItemId) markQueueItemCompleted(queueItemId);
+        if (queueItemId) {
+          if (queueItemStarted) markQueueItemCompleted(queueItemId);
+          this.inFlightItems.delete(queueItemId);
+        }
         this.running.delete(sessionKey);
         this.decrementPending(sessionKey);
       }

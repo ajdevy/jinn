@@ -95,6 +95,7 @@ import {
   recordTurnAccounting,
   RESTART_ACK_META_KEY,
 } from "../sessions/registry.js";
+import { claimIncomingTurn, lateralSendDedupeKey } from "../sessions/incoming-turn.js";
 import { blockFallbackText, validateBlockEnvelope } from "../shared/blocks.js";
 import {
   createPartialStreamWriter,
@@ -598,6 +599,8 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // turn, so startup replay must finish it regardless of the parent's source.
     const callbackDelivery = getSessionDeliveryByQueueItemId(item.id);
     if (runtimeSessionSource(session.source) !== "web" && !callbackDelivery) continue;
+    // Hot-reload calls this too: a row waiting its turn here is owned, not orphaned.
+    if (context.sessionManager.getQueue().hasInFlightItem(item.id)) continue;
     session = maybeRevertEngineOverride(session);
 
     const config = context.getConfig();
@@ -5496,6 +5499,7 @@ export async function handleApiRequest(
       // unprefixed operator-grade user message.
       const msgCaller = resolveScopedWriteCallerIdentity(req, context);
       let parentFollowUp: { caller: Session; message: string } | undefined;
+      let lateralDedupeKey: string | undefined;
       if (msgCaller.kind === "unidentified-tool") {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: UNIDENTIFIED_TOOL_CALL_ERROR }));
@@ -5521,6 +5525,7 @@ export async function handleApiRequest(
           res.end(JSON.stringify({ error: plan.error }));
           return;
         }
+        lateralDedupeKey = lateralSendDedupeKey(caller.id, params.id, String(rawMessage));
         body.role = "notification";
         body.message = plan.prompt;
         body.displayMessage = plan.displayMessage;
@@ -5706,18 +5711,13 @@ export async function handleApiRequest(
         queueItemId = acceptance.delivery.queueItemId!;
         incomingMessageId = acceptance.delivery.messageId!;
       } else {
-        queueItemId = isNotification
-          ? enqueueQueueItem(session.id, sessionKey, prompt, { internal: true })
-          : undefined;
-        incomingMessageId = insertMessage(
-          session.id,
-          messageRole,
-          isNotification ? displayMessage : prompt,
-          userMedia.length > 0 ? userMedia : undefined,
-          undefined,
-          undefined,
-          notificationMeta,
-        );
+        const claim = claimIncomingTurn({
+          sessionId: session.id, sessionKey, prompt, isNotification, role: messageRole, dedupeKey: lateralDedupeKey,
+          content: isNotification ? displayMessage : prompt, media: userMedia, meta: notificationMeta,
+        });
+        if (claim.deduplicated) return json(res, { status: "duplicate", sessionId: session.id, queueItemId: claim.queueItemId });
+        queueItemId = claim.queueItemId;
+        incomingMessageId = claim.messageId;
       }
       if (parentFollowUp) {
         const preview = clipSessionMessage(parentFollowUp.message, 220);
