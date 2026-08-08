@@ -161,17 +161,17 @@ describe("per-engine jinn-server wiring (GRS-018 seam for GRS-017 default-on)", 
       }
     });
 
-    it("connector and web session launch paths both use the identity-stamping resolver", () => {
-      const launchPaths = [
-        new URL("../../sessions/manager.ts", import.meta.url),
-        new URL("../../gateway/api.ts", import.meta.url),
-      ];
-
-      for (const sourceUrl of launchPaths) {
-        const source = fs.readFileSync(sourceUrl, "utf-8");
-        expect(source).toContain("resolveEngineRunMcp({");
-        expect(source).toMatch(/sessionId:\s*(?:session|currentSession)\.id/);
-        expect(source).toMatch(/engine\.run\(\{[\s\S]*?resolvedMcp,/);
+    it("the one session launch path uses the identity-stamping resolver", () => {
+      // The two runners each launched their own engine and this guarded both
+      // copies; they now share one turn, so it guards that path — and that
+      // neither runner has grown a launch of its own back.
+      const read = (rel: string) => fs.readFileSync(new URL(rel, import.meta.url), "utf-8");
+      const preflight = read("../../sessions/turn/preflight.ts");
+      expect(preflight).toContain("resolveEngineRunMcp({");
+      expect(preflight).toMatch(/sessionId:\s*session\.id/);
+      expect(read("../../sessions/turn/engine-run.ts")).toMatch(/engine\.run\(\{[\s\S]*?resolvedMcp:/);
+      for (const rel of ["../../sessions/manager.ts", "../../gateway/api.ts"]) {
+        expect(read(rel)).not.toMatch(/engine\.run\(/);
       }
     });
 

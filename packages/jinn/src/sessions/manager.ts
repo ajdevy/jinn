@@ -11,53 +11,27 @@ import type {
 import { isInterruptibleEngine } from "../shared/types.js";
 import { removeCodexSessionHome } from "../engines/codex.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
-import { buildPlatformContextRefresh, fingerprintPlatformContext } from "../engines/platform-context.js";
 import {
-  recordTurnAccounting, createSession, getOrCreateWorkflowAttemptSession,
+  createSession, getOrCreateWorkflowAttemptSession,
   deleteSession,
-  clearEngineSessionRefs,
-  getEngineSessionRef,
   getSession,
   getSessionBySessionKey,
   getMessages,
   insertMessage,
-  insertMessageAfter,
-  getPartialMessages,
-  settlePartialMessages,
-  deletePartialMessages,
-  recordEngineSessionId,
   updateSession,
-  beginSessionAttempt, completeSessionAttempt, claimWorkflowAttemptDispatch, cancelWorkflowAttemptDispatch,
+  beginSessionAttempt, claimWorkflowAttemptDispatch, cancelWorkflowAttemptDispatch,
   listPendingWorkflowAttemptDispatches, interruptSessionAttempt,
   listChildSessions,
-  updateSessionForAttempt,
 } from "./registry.js";
-import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel } from "./callbacks.js";
-import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "./context.js";
 import { SessionQueue } from "./queue.js";
-import { JINN_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
-import { resolveEffort } from "../shared/effort.js";
-import { effortLevelsForModel, engineAvailable, isKnownEngine, engineUnavailableMessage } from "../shared/models.js";
-import { detectRateLimit, isDeadSessionError, rateLimitEngineLabel } from "../shared/rateLimit.js";
-import { getClaudeExpectedResetAt, isLikelyNearClaudeUsageLimit } from "../shared/usageAwareness.js";
 import { loadJobs } from "../cron/jobs.js";
 import { setCronJobEnabled, triggerCronJob } from "../cron/scheduler.js";
-import { isBudgetExhausted } from "../gateway/budgets.js";
-import { markTranscriptSyncedThrough } from "../gateway/external-turns.js";
-import { handleRateLimit } from "./rate-limit-handler.js";
-import { resolveEngineRunMcp } from "./engine-run-mcp.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
-import {
-  createPartialStreamWriter,
-  normalizeBlockDeltaForTurn,
-  type PartialStreamWriter,
-} from "./partial-stream.js";
-import { completedStreamedBlockIds } from "../gateway/streamed-blocks.js";
-import {
-  isDurableWorkflowUserMessageInterruption,
-  workflowAttemptInterruptionCause,
-} from "./workflow-interruptions.js";
+import { workflowAttemptInterruptionCause } from "./workflow-interruptions.js";
+import { runTurn } from "./turn/runner.js";
+import { resolveTurnHierarchy } from "./turn/preflight.js";
+import { createConnectorTurnSurface } from "./turn/connector-surface.js";
 import type { GatewayEmit } from "../shared/gateway-events.js";
 
 export interface RouteOptions {
@@ -354,645 +328,62 @@ export class SessionManager {
     }
     session = liveSession;
 
-    const engine = this.engines.get(session.engine);
-    if (!engine) {
-      logger.error(`Engine "${session.engine}" not found for session ${session.id}`);
-      await connector.replyMessage(target, `Error: engine "${session.engine}" not available.`);
-      return;
-    }
-
     insertMessage(session.id, "user", msg.text);
 
-    // Pre-flight: fail fast with an actionable error if the engine's CLI binary
-    // isn't installed. Otherwise the (interactive PTY) engine spawns a missing
-    // command, exits silently, and the turn produces no output and no error.
-    if (isKnownEngine(session.engine) && !engineAvailable(this.config, session.engine)) {
-      const errMsg = engineUnavailableMessage(this.config, session.engine);
-      logger.error(`Session ${session.id} blocked: ${errMsg}`);
-      const erroredSession = updateSession(session.id, {
-        status: "error",
-        lastActivity: new Date().toISOString(),
-        lastError: errMsg,
-      });
-      insertMessage(session.id, "assistant", `⛔ ${errMsg}`);
-      await connector.replyMessage(target, `⛔ ${errMsg}`).catch(() => {});
-      // Wake the parent COO if this was a delegated child session (parity with
-      // the normal error path; no-op for top-level sessions).
-      if (erroredSession) {
-        notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
-      }
-      return;
-    }
+    // Mark running before anything else can fail, so a preflight error settles
+    // the attempt instead of leaving the session looking idle with a live token.
+    const startedAttempt = beginSessionAttempt(session.id, {
+      replyContext: msg.replyContext,
+      messageId: msg.messageId ?? null,
+      transportMeta: mergeTransportMeta(session.transportMeta, msg.transportMeta),
+      lastActivity: new Date().toISOString(),
+    });
+    if (!startedAttempt?.attemptToken) return;
 
-    const capabilities = connector.getCapabilities();
-    const decorateMessages = session.source !== "cron";
+    const surface = createConnectorTurnSurface({
+      connector,
+      target,
+      session: startedAttempt,
+      config: this.config,
+      decorate: session.source !== "cron",
+      emit: this.gatewayEmit,
+    });
 
-    if (decorateMessages && capabilities.reactions) {
-      await connector.addReaction(target, "eyes").catch(() => {});
-    }
-
-    // Set native typing indicator (Slack assistant.threads.setStatus)
-    const threadTs = target.thread || target.messageTs;
-    if (decorateMessages && connector.setTypingStatus) {
-      await connector.setTypingStatus(target.channel, threadTs, "is thinking...").catch(() => {});
-    }
-
-    // Resolve MCP config before try block so it's accessible in catch for cleanup
-    let mcpConfigPath: string | undefined;
-    let resolvedMcp: import("../shared/types.js").ResolvedMcpConfig | undefined;
-    let partialStream: PartialStreamWriter | undefined;
-
-    let hierarchy: import("../shared/types.js").OrgHierarchy | undefined;
     try {
-      const { scanOrg } = await import("../gateway/org.js");
-      const { resolveOrgHierarchy } = await import("../gateway/org-hierarchy.js");
-      hierarchy = resolveOrgHierarchy(scanOrg());
-    } catch { /* fallback to filesystem scan in context builder */ }
-
-    let engineAtTurnStart = session.engine;
-    let attemptToken = "";
-    try {
-      engineAtTurnStart = session.engine;
-      const resumeRefAtTurnStart = getEngineSessionRef(session, engineAtTurnStart);
-      ({ mcpConfigPath, resolvedMcp } = resolveEngineRunMcp({
-        config: this.config,
+      await runTurn({
+        session: startedAttempt,
+        attemptToken: startedAttempt.attemptToken,
+        prompt: msg.text,
+        attachments,
         employee,
-        engine: session.engine,
-        sessionId: session.id,
-        workflowAttempt: session.workflowProvenance?.kind === "phase",
-      }));
-
-      // Per-engine config keyed by engine name; unconfigured optional engines
-      // resolve to {} (engine falls back to dynamic bin/model resolution).
-      const engineConfig =
-        (this.config.engines as unknown as Record<string, { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string } | undefined>)[
-          session.engine
-        ] ?? {};
-
-      const effortLevel = session.workflowProvenance?.kind === "phase" ? session.effortLevel ?? undefined
-        : resolveEffort(engineConfig, session, employee, effortLevelsForModel(this.config, session.engine, session.model ?? undefined));
-      const modelForTurn = session.model ?? engineConfig.model;
-      const runtimeSource = runtimeSessionSource(session.source);
-      const contextOptions: BuildContextOptions = {
-        source: runtimeSource,
+        config: this.config,
+        engines: this.engines,
+        gatewayBootId: this.gatewayBootId,
+        connectorNames: this.connectorNames(),
+        hierarchy: await resolveTurnHierarchy(this.config),
         channel: msg.channel,
         thread: msg.thread,
         user: msg.user,
-        employee,
-        engine: session.engine,
-        connectors: this.connectorNames(),
-        config: this.config,
-        gatewayBootId: this.gatewayBootId,
-        sessionId: session.id,
-        model: modelForTurn,
-        effortLevel,
         channelName: (msg.transportMeta?.channelName as string) || undefined,
-        hierarchy,
-        // The diet keys off the built-in jinn server specifically — custom MCP
-        // servers don't carry the company tools.
-        jinnMcpAttached: Boolean(resolvedMcp?.mcpServers?.["jinn"]),
-      };
-      const platformContext = buildPlatformContextSnapshot(contextOptions);
-      const platformContextFingerprint = fingerprintPlatformContext(platformContext);
-      const platformContextRefresh = resumeRefAtTurnStart.id
-        && resumeRefAtTurnStart.platformContextFingerprint !== platformContextFingerprint
-        ? buildPlatformContextRefresh(platformContext)
-        : undefined;
-      const systemPrompt = buildContext(contextOptions);
-
-      // Mark running only after preflight (system prompt / engine config / effort)
-      // succeeded — and inside the try, so any failure transitions to "error" in the
-      // catch below instead of leaving the session stuck looking "running".
-      const startedAttempt = beginSessionAttempt(session.id, {
-        replyContext: msg.replyContext,
-        messageId: msg.messageId ?? null,
-        transportMeta: mergeTransportMeta(session.transportMeta, msg.transportMeta),
-        lastActivity: new Date().toISOString(),
-      });
-      if (!startedAttempt?.attemptToken) return;
-      session = startedAttempt;
-      attemptToken = startedAttempt.attemptToken;
-
-      // If we previously switched to GPT while Claude was rate-limited, inject a sync transcript
-      // so Claude can resume with full context when it comes back online.
-      const syncMeta = (session.transportMeta || {}) as Record<string, unknown>;
-      const switchSyncTarget = typeof syncMeta.engineSyncTarget === "string" ? syncMeta.engineSyncTarget : null;
-      const switchSyncSinceIso = typeof syncMeta.engineSyncSince === "string" ? syncMeta.engineSyncSince : null;
-      const switchSyncSinceMs = switchSyncSinceIso ? new Date(switchSyncSinceIso).getTime() : NaN;
-      const engineSyncRequested =
-        switchSyncTarget === engineAtTurnStart &&
-        typeof switchSyncSinceIso === "string" &&
-        Number.isFinite(switchSyncSinceMs);
-      const syncSinceIso = typeof syncMeta.claudeSyncSince === "string" ? syncMeta.claudeSyncSince : null;
-      let promptToRun = msg.text;
-      const syncSinceMs = typeof syncSinceIso === "string" ? new Date(syncSinceIso).getTime() : NaN;
-      const claudeSyncRequested = engineAtTurnStart === "claude" && typeof syncSinceIso === "string" && Number.isFinite(syncSinceMs);
-      const syncRequested = engineSyncRequested || claudeSyncRequested;
-      if (syncRequested) {
-        const sinceMs = engineSyncRequested ? switchSyncSinceMs : syncSinceMs;
-        const recentMessages = getMessages(session.id).filter((m) => m.timestamp >= sinceMs);
-        const sinceMessages = recentMessages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
-        const transcript = sinceMessages.slice(-20).join("\n\n");
-        const latestMessage = recentMessages.at(-1);
-        const currentPromptWasIncluded =
-          latestMessage &&
-          (latestMessage.role === "user" || latestMessage.role === "assistant") &&
-          latestMessage.content === msg.text;
-        const currentPrompt = currentPromptWasIncluded || !msg.text.trim()
-          ? ""
-          : `CURRENT MESSAGE:\n${msg.text}`;
-        const intro = engineSyncRequested
-          ? `We switched engines in this Jinn session. Sync your context with this transcript (most recent last), then respond to the current message.`
-          : `We temporarily switched to GPT due to a Claude usage limit. Sync your context with this transcript (most recent last), then respond to the current message.`;
-        promptToRun =
-          [intro, transcript, currentPrompt].filter(Boolean).join("\n\n");
-      }
-
-      // Budget enforcement — check BEFORE engine.run()
-      if (session.employee && isBudgetExhausted(session.employee, this.config.budgets?.employees)) {
-        logger.warn(`Session ${session.id} blocked: employee "${session.employee}" has exceeded their budget`);
-        const pausedMsg = `Budget limit exceeded for employee "${session.employee}". Session blocked.`;
-        completeSessionAttempt(session.id, attemptToken, {
-          status: 'error',
-          lastActivity: new Date().toISOString(),
-          lastError: pausedMsg,
-        });
-        if (decorateMessages && connector.setTypingStatus) {
-          await connector.setTypingStatus(target.channel, threadTs, '').catch(() => {});
-        }
-        await connector.replyMessage(target, `⛔ ${pausedMsg}`).catch(() => {});
-        if (decorateMessages && capabilities.reactions) {
-          await connector.removeReaction(target, 'eyes').catch(() => {});
-        }
-        return;
-      }
-
-      // Heuristic preflight warning: Claude usage limits don't expose a precise "remaining" budget.
-      // If we've hit the limit recently and this looks like a heavy turn, warn before we spend time.
-      if (decorateMessages && session.engine === "claude" && isLikelyNearClaudeUsageLimit()) {
-        const modelName = (session.model ?? engineConfig.model ?? "").toLowerCase();
-        const heavyEffort = ["high", "xhigh", "max"].includes((effortLevel || "").toLowerCase());
-        const heavyModel = modelName.includes("opus");
-        const looksBig = attachments.length > 0 || msg.text.length > 6000;
-        if ((heavyEffort || heavyModel) && looksBig) {
-          const expectedResetAt = getClaudeExpectedResetAt();
-          const resumeText = expectedResetAt
-            ? expectedResetAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-            : null;
-          await connector.replyMessage(
-            target,
-            `⚠️ Heads up: Claude usage limits were hit recently, and this looks like a bigger task. If you're near the limit, it may pause${resumeText ? ` until ~${resumeText}` : ""}.`,
-          ).catch(() => {});
-        }
-      }
-
-      const turnStartedAt = Date.now();
-      let lastStreamHeartbeatAt = 0;
-      partialStream = createPartialStreamWriter(session.id);
-      const result = await engine.run({
-        prompt: promptToRun,
-        resumeSessionId: resumeRefAtTurnStart.id ?? undefined,
-        systemPrompt,
-        platformContextRefresh,
-        cwd: JINN_HOME,
-        bin: engineConfig.bin,
-        model: modelForTurn,
-        effortLevel,
-        cliFlags: employee?.cliFlags,
-        mcpConfigPath,
-        resolvedMcp,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        sessionId: session.id,
-        source: runtimeSource,
-        onStream: (delta) => {
-          if (!getSession(session.id)) return;
-          const normalized = normalizeBlockDeltaForTurn(delta, turnStartedAt);
-          if (!normalized.ok) {
-            logger.warn(`Dropped invalid block delta for session ${session.id}: ${normalized.error}`);
-            return;
-          }
-          const outgoingDelta = normalized.delta;
-          if (outgoingDelta.type === "context") {
-            const contextTokens = Number(outgoingDelta.content);
-            if (Number.isFinite(contextTokens) && contextTokens > 0) {
-              updateSessionForAttempt(session.id, attemptToken, {
-                lastContextTokens: contextTokens,
-              });
-            }
-          }
-          const now = Date.now();
-          if (now - lastStreamHeartbeatAt >= 2000) {
-            lastStreamHeartbeatAt = now;
-            updateSessionForAttempt(session.id, attemptToken, {
-              status: "running",
-              lastActivity: new Date(now).toISOString(),
-            });
-          }
-          try {
-            partialStream?.persist(outgoingDelta);
-          } catch (error) {
-            logger.warn(`Failed to persist partial block for session ${session.id}: ${
-              error instanceof Error ? error.message : String(error)
-            }`);
-          }
-        },
-        onLateRecovery: ({ result: lateText, sessionId: engineSid }) => {
-          const recovered = updateSessionForAttempt(session.id, attemptToken, {
-            status: "idle",
-            attemptOutcome: "succeeded",
-            lastActivity: new Date().toISOString(),
-            lastError: null,
-          }, ["error"]);
-          if (!recovered || recovered.engine !== engineAtTurnStart) return;
-          insertMessage(session.id, "assistant", lateText);
-          if (engineSid.trim()) {
-            recordEngineSessionId(session.id, engineAtTurnStart, engineSid, {
-              model: session.model ?? engineConfig.model,
-              effortLevel,
-              lastSyncedAt: new Date().toISOString(),
-              platformContextFingerprint,
-            });
-          }
-          // The parent/channel already saw this turn fail — label the late answer
-          // so it reads as a supersede, not a fresh unprompted turn.
-          const labelled = `(recovered — this supersedes the earlier reported failure)\n\n${lateText}`;
-          notifyParentSession(recovered, { result: labelled, error: null }, { alwaysNotify: employee?.alwaysNotify });
-          void connector.replyMessage(target, labelled).catch(() => {});
-          logger.info(`Session ${session.id} recovered by late Stop after a failed turn`);
-        },
-      }).finally(() => {
-        partialStream?.finish();
-      });
-
-      const liveAfterRun = getSession(session.id);
-      if (!liveAfterRun) {
-        deletePartialMessages(session.id);
-        logger.warn(`Dropping engine result for deleted session ${session.id}`);
-        return;
-      }
-      if (liveAfterRun.engine !== engineAtTurnStart) {
-        deletePartialMessages(session.id);
-        logger.info(
-          `Dropping stale ${engineAtTurnStart} result for session ${session.id}; session now uses ${liveAfterRun.engine}`,
-        );
-        return;
-      }
-
-      const completionTurn = (liveAfterRun.attemptTurn ?? 0) + 1;
-      const wasInterrupted = isDurableWorkflowUserMessageInterruption(liveAfterRun, completionTurn)
-        || result.error?.startsWith("Interrupted")
-        || liveAfterRun.attemptToken !== attemptToken
-        || liveAfterRun.status !== "running";
-
-      // Dead session detection: if the engine session ID is stale (expired/invalid),
-      // clear cached engine sessions from transportMeta so the next attempt starts fresh.
-      // Also sets a flag so we skip the rate-limit retry loop below (a dead session
-      // error can contain text like "429" that would otherwise match RATE_LIMIT_ERROR_RE).
-      const isDead = !wasInterrupted && isDeadSessionError(result);
-      if (isDead) {
-        logger.warn(`Dead session detected for ${session.id} — clearing stale engine IDs`);
-        const meta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-        delete meta["engineSessions"];
-        delete meta["engineOverride"];
-        clearEngineSessionRefs(session.id, engineAtTurnStart);
-        updateSession(session.id, {
-          transportMeta: meta as any,
-        });
-        // Update local reference so subsequent code doesn't re-read stale IDs
-        session = { ...session, engineSessionId: null, engineSessions: null, transportMeta: meta as any };
-      }
-
-      // Detect rate limit / usage limit errors and auto-retry.
-      // Skip entirely for dead sessions — they are not rate limits.
-      const rateLimit = (!wasInterrupted && !isDead) ? detectRateLimit(result) : { limited: false as const };
-      const streamedBlocks = getPartialMessages(session.id);
-      const preservedMessageIds = completedStreamedBlockIds({
-        quietPreempted: wasInterrupted,
-        rateLimited: rateLimit.limited,
-        result: result.result,
-        error: result.error,
-        streamedBlocks,
-      });
-      settlePartialMessages(session.id, preservedMessageIds);
-      const streamedThrough = streamedBlocks.reduce(
-        (latest, message) => Math.max(latest, message.timestamp),
-        0,
-      );
-      if (rateLimit.limited) {
-        const waitEmoji = "hourglass_flowing_sand";
-
-        const outcome = await handleRateLimit({
-          session,
-          attemptToken,
-          prompt: msg.text,
-          systemPrompt,
-          platformContextRefresh,
-          engineConfig,
-          effortLevel,
-          cliFlags: employee?.cliFlags,
-          mcpConfigPath,
-          resolvedMcp,
-          attachments,
-          config: this.config,
-          engines: this.engines,
-          employee,
-          engine,
-          rateLimit,
-          originalResult: result,
-          hooks: {
-            onFallbackStart: async ({ resumeAt }) => {
-              const resumeText = resumeAt
-                ? resumeAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-                : null;
-
-              notifyOperatorChannel(
-                `⚠️ Claude usage limit reached. Session ${session.id}${session.employee ? ` (${session.employee})` : ""} switching to GPT.`,
-              );
-
-              await connector.replyMessage(
-                target,
-                `⚠️ Claude usage limit reached${resumeText ? `. Resets ${resumeText}` : ""}. Switching to GPT for now.`,
-              ).catch(() => {});
-
-              // Switching away from Claude — drop any warm Claude PTY so it isn't orphaned.
-              const claudeEngine = this.engines.get("claude");
-              if (claudeEngine && isInterruptibleEngine(claudeEngine)) {
-                claudeEngine.kill(session.id, "Interrupted: engine switched");
-              }
-            },
-            onFallbackComplete: async (fallbackResult) => {
-              const fallbackText = fallbackResult.result?.trim()
-                ? fallbackResult.result
-                : fallbackResult.error || "(No response from engine)";
-
-              insertMessage(session.id, "assistant", fallbackText);
-              if (fallbackResult.cost || fallbackResult.numTurns) {
-                recordTurnAccounting(session.id, fallbackResult);
-              }
-
-              if (decorateMessages && connector.setTypingStatus) {
-                await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-              }
-              await connector.replyMessage(target, fallbackText).catch(() => {});
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, "eyes").catch(() => {});
-              }
-
-              const fallbackCompletedAt = new Date().toISOString();
-              if (fallbackResult.sessionId?.trim()) {
-                const fallbackEngineName = getSession(session.id)?.engine ?? session.engine;
-                recordEngineSessionId(session.id, fallbackEngineName, fallbackResult.sessionId, {
-                  model: session.model ?? engineConfig.model,
-                  effortLevel,
-                  lastSyncedAt: fallbackCompletedAt,
-                });
-              }
-              const updated = completeSessionAttempt(session.id, attemptToken, {
-                ...(typeof fallbackResult.contextTokens === "number" ? { lastContextTokens: fallbackResult.contextTokens } : {}),
-                status: fallbackResult.error ? "error" : "idle",
-                attemptOutcome: fallbackResult.error ? "failed" : "succeeded",
-                replyContext: msg.replyContext,
-                messageId: msg.messageId ?? null,
-                transportMeta: mergeTransportMeta(getSessionBySessionKey(msg.sessionKey)?.transportMeta ?? session.transportMeta, msg.transportMeta),
-                lastActivity: fallbackCompletedAt,
-                lastError: fallbackResult.error ?? null,
-              });
-              if (updated) {
-                notifyParentSession(updated, { result: fallbackResult.result, error: fallbackResult.error ?? null, cost: fallbackResult.cost, durationMs: fallbackResult.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-              }
-            },
-            onWaitingStart: async ({ resumeAt }) => {
-              const engineLabel = rateLimitEngineLabel(session.engine);
-              const resumeText = resumeAt
-                ? resumeAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-                : null;
-
-              // Send hardcoded Discord notification — does not depend on LLM
-              notifyOperatorChannel(
-                `⚠️ ${engineLabel} usage limit reached. Session ${session.id}${session.employee ? ` (${session.employee})` : ""} paused${resumeText ? ` until ${resumeText}` : ""}.`,
-              );
-
-              // Clear "thinking" UI and show waiting state
-              if (decorateMessages && connector.setTypingStatus) {
-                await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-              }
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, "eyes").catch(() => {});
-                await connector.addReaction(target, waitEmoji).catch(() => {});
-              }
-
-              const waitingSession = getSessionBySessionKey(msg.sessionKey) ?? session;
-              notifyRateLimited(
-                waitingSession,
-                resumeAt
-                  ? resumeAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-                  : undefined,
-              );
-
-              await connector.replyMessage(
-                target,
-                `⏳ ${engineLabel} usage limit reached${resumeText ? `. Resets ${resumeText}` : ""} — I'll continue automatically.`,
-              ).catch(() => {});
-            },
-            onRetryAttempt: async () => {
-              // Show active processing again
-              if (decorateMessages && connector.setTypingStatus) {
-                await connector.setTypingStatus(target.channel, threadTs, "is thinking...").catch(() => {});
-              }
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, waitEmoji).catch(() => {});
-                await connector.addReaction(target, "eyes").catch(() => {});
-              }
-            },
-            onStillLimited: async () => {
-              // Return to waiting UI state
-              if (decorateMessages && connector.setTypingStatus) {
-                await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-              }
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, "eyes").catch(() => {});
-                await connector.addReaction(target, waitEmoji).catch(() => {});
-              }
-            },
-            onRetrySuccess: async (retryResult) => {
-              const engineLabel = rateLimitEngineLabel(session.engine);
-              // Success or different error — handle normally
-              const retryText = retryResult.result?.trim()
-                ? retryResult.result
-                : retryResult.error || "(No response from engine)";
-
-              insertMessage(session.id, "assistant", retryText);
-              if (retryResult.cost || retryResult.numTurns) {
-                recordTurnAccounting(session.id, retryResult);
-              }
-
-              // Clear typing indicator & reactions
-              if (decorateMessages && connector.setTypingStatus) {
-                await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-              }
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, "eyes").catch(() => {});
-                await connector.removeReaction(target, waitEmoji).catch(() => {});
-              }
-
-              await connector.replyMessage(target, retryText).catch(() => {});
-              const retryCompletedAt = new Date().toISOString();
-              if (!retryResult.error && retryResult.sessionId?.trim()) {
-                recordEngineSessionId(session.id, engineAtTurnStart, retryResult.sessionId, {
-                  model: session.model ?? engineConfig.model,
-                  effortLevel,
-                  lastSyncedAt: retryCompletedAt,
-                  platformContextFingerprint,
-                });
-              }
-              const retryUpdated = completeSessionAttempt(session.id, attemptToken, {
-                ...(typeof retryResult.contextTokens === "number" ? { lastContextTokens: retryResult.contextTokens } : {}),
-                status: retryResult.error ? "error" : "idle",
-                attemptOutcome: retryResult.error ? "failed" : "succeeded",
-                replyContext: msg.replyContext,
-                messageId: msg.messageId ?? null,
-                transportMeta: mergeTransportMeta(getSessionBySessionKey(msg.sessionKey)?.transportMeta ?? session.transportMeta, msg.transportMeta),
-                lastActivity: retryCompletedAt,
-                lastError: retryResult.error ?? null,
-              });
-              if (retryUpdated) {
-                notifyRateLimitResumed(retryUpdated);
-                notifyOperatorChannel(
-                  `✅ ${engineLabel} usage limit cleared. Session ${session.id}${session.employee ? ` (${session.employee})` : ""} resumed.`,
-                );
-                notifyParentSession(retryUpdated, { result: retryResult.result, error: retryResult.error ?? null, cost: retryResult.cost, durationMs: retryResult.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-              }
-            },
-            onTimeout: async () => {
-              const engineLabel = rateLimitEngineLabel(session.engine);
-              const timeoutError = `${engineLabel} usage limit did not clear in time`;
-              notifyOperatorChannel(
-                `❌ ${timeoutError}. Session ${session.id}${session.employee ? ` (${session.employee})` : ""} has been stopped.`,
-              );
-              await connector.replyMessage(target, "Usage limit didn't reset in time. Please try again later.").catch(() => {});
-              updateSessionForAttempt(session.id, attemptToken, {
-                status: "error",
-                lastActivity: new Date().toISOString(),
-                lastError: timeoutError,
-              }, ["waiting", "running"]);
-
-              // Clear reactions on failure
-              if (decorateMessages && capabilities.reactions) {
-                await connector.removeReaction(target, "eyes").catch(() => {});
-                await connector.removeReaction(target, waitEmoji).catch(() => {});
-              }
-            },
-          },
-        });
-
-        void outcome; // outcome handled entirely via hooks
-        return;
-      }
-
-      const responseText = result.result?.trim()
-        ? result.result
-        : result.error || "(No response from engine)";
-
-      if (!wasInterrupted) {
-        insertMessageAfter(session.id, "assistant", responseText, streamedThrough);
-      }
-      if (result.cost || result.numTurns) {
-        recordTurnAccounting(session.id, result);
-      }
-      if (decorateMessages && connector.setTypingStatus) {
-        await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-      }
-      if (!wasInterrupted) {
-        await connector.replyMessage(target, responseText);
-      }
-      if (decorateMessages && capabilities.reactions) {
-        await connector.removeReaction(target, "eyes").catch(() => {});
-      }
-      const completedAt = new Date().toISOString();
-      const acceptedNativeId = result.sessionId?.trim() || resumeRefAtTurnStart.id;
-      if (!wasInterrupted && !result.error && acceptedNativeId) {
-        recordEngineSessionId(session.id, engineAtTurnStart, acceptedNativeId, {
-          model: modelForTurn,
-          effortLevel,
-          lastSyncedAt: completedAt,
-          platformContextFingerprint,
-        });
-      }
-      const updatedSession = completeSessionAttempt(session.id, attemptToken, {
-        ...(typeof result.contextTokens === "number" ? { lastContextTokens: result.contextTokens } : {}),
-        status: wasInterrupted ? "interrupted" : (result.error ? "error" : "idle"),
-        attemptOutcome: wasInterrupted ? "interrupted" : (result.error ? "failed" : "succeeded"),
-        replyContext: msg.replyContext,
-        messageId: msg.messageId ?? null,
-        transportMeta: (() => {
-          const merged = mergeTransportMeta(getSessionBySessionKey(msg.sessionKey)?.transportMeta ?? session.transportMeta, msg.transportMeta) as Record<string, unknown>;
-          if (syncRequested && !rateLimit.limited && !wasInterrupted) {
-            delete merged["claudeSyncSince"];
-            delete merged["engineSyncTarget"];
-            delete merged["engineSyncSince"];
-          }
-          return merged as any;
-        })(),
-        lastActivity: completedAt,
-        lastError: wasInterrupted ? (result.error ?? "Interrupted") : (result.error ?? null),
-      });
-      if (!wasInterrupted && engineAtTurnStart === "claude") {
-        markTranscriptSyncedThrough(session.id, result.sessionId);
-      }
-      if (updatedSession) {
-        notifyParentSession(updatedSession, { result: result.result, error: wasInterrupted ? null : (result.error ?? null), cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-      }
-
-      logger.info(
-        `Session ${session.id} completed in ${result.durationMs ?? 0}ms` +
-        (result.cost ? ` ($${result.cost.toFixed(4)})` : ""),
-      );
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`Session ${session.id} error: ${errMsg}`);
-      deletePartialMessages(session.id);
-
-      const live = getSession(session.id);
-      if (!live) {
-        logger.info(`Skipping error handling for deleted session ${session.id}: ${errMsg}`);
-        return;
-      }
-      if (live.engine !== engineAtTurnStart) {
-        logger.info(
-          `Dropping stale ${engineAtTurnStart} error for session ${session.id}; session now uses ${live.engine}`,
-        );
-        return;
-      }
-
-      const erroredSession = attemptToken ? completeSessionAttempt(session.id, attemptToken, {
-        status: "error",
-        lastActivity: new Date().toISOString(),
-        lastError: errMsg,
-      }) : undefined;
-      if (erroredSession) {
-        notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
-      }
-
-      // Clear typing indicator on error
-      if (decorateMessages && connector.setTypingStatus) {
-        await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-      }
-
-      await connector.replyMessage(target, `Error: ${errMsg}`).catch(() => {});
-
-      if (decorateMessages && capabilities.reactions) {
-        await connector.removeReaction(target, "eyes").catch(() => {});
-        await connector.removeReaction(target, "hourglass_flowing_sand").catch(() => {});
-      }
+        // Re-read at settle time: a connector can move the reply target while
+        // the turn runs, and the receipt must record where it actually landed.
+        terminalFields: () => ({
+          replyContext: msg.replyContext,
+          messageId: msg.messageId ?? null,
+          transportMeta: mergeTransportMeta(
+            getSessionBySessionKey(msg.sessionKey)?.transportMeta ?? startedAttempt.transportMeta,
+            msg.transportMeta,
+          ),
+        }),
+        announceUsageWarnings: session.source !== "cron",
+      }, surface);
     } finally {
-      // Clean up temp attachment files downloaded from Slack
+      // Clean up temp attachment files downloaded from the connector.
       for (const filePath of attachments) {
         try {
           fs.rmSync(filePath, { force: true });
         } catch {
-          // Ignore cleanup errors — best effort
+          // Ignore cleanup errors — best effort.
         }
       }
 

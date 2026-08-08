@@ -5,29 +5,24 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
 import {
   getModelRegistry,
   invalidateModelRegistry,
-  effortLevelsForModel,
   refreshAntigravityModels,
   refreshClaudeModels,
   refreshCodexModels,
   refreshGrokModels,
   refreshHermesModels,
   refreshPiModels,
-  engineAvailable,
-  isKnownEngine,
-  engineUnavailableMessage,
 } from "../shared/models.js";
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
 import type { SessionManager } from "../sessions/manager.js";
-import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "../sessions/context.js";
-import { buildPlatformContextRefresh, fingerprintPlatformContext } from "../engines/platform-context.js";
+import { runtimeSessionSource } from "../sessions/context.js";
 import { stripControlChars, hasControlBytes } from "../shared/sanitize.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
 import { initDb } from "../shared/db.js";
@@ -60,8 +55,6 @@ import {
   archiveSession,
   unarchiveSession,
   beginSessionAttempt,
-  completeSessionAttempt,
-  updateSessionForAttempt,
   recordEngineSessionId,
   switchSessionEngine,
   clearEngineSessionRefs,
@@ -70,12 +63,8 @@ import {
   deleteSessions,
   duplicateSession,
   insertMessage,
-  insertMessageAfter,
   applyBlockEnvelope,
-  deletePartialMessages,
-  settlePartialMessages,
   getMessages,
-  getPartialMessages,
   getMessagePage,
   enqueueQueueItem,
   cancelQueueItem,
@@ -91,24 +80,15 @@ import {
   getFile,
   getSessionBySessionKey,
   recordChildReportedToParent,
-  recordTurnAccounting,
   RESTART_ACK_META_KEY,
 } from "../sessions/registry.js";
 import { claimIncomingTurn, lateralSendDedupeKey } from "../sessions/incoming-turn.js";
 import { blockFallbackText, validateBlockEnvelope } from "../shared/blocks.js";
-import {
-  createPartialStreamWriter,
-  normalizeBlockDeltaForTurn,
-} from "../sessions/partial-stream.js";
-import {
-  isDurableWorkflowUserMessageInterruption,
-  USER_MESSAGE_INTERRUPTION_REASON,
-} from "../sessions/workflow-interruptions.js";
+import { USER_MESSAGE_INTERRUPTION_REASON } from "../sessions/workflow-interruptions.js";
 export {
   foldPartialText,
   normalizeBlockDeltaForTurn,
 } from "../sessions/partial-stream.js";
-import { isBudgetExhausted } from "./budgets.js";
 import { forkEngineSession } from "../sessions/fork.js";
 import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
@@ -134,12 +114,17 @@ import {
 } from "../stt/settings-store.js";
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
-import { resolveEffort } from "../shared/effort.js";
-import { selectClaudeModelFallback } from "../shared/model-fallback.js";
-import { detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { handleRateLimit } from "../sessions/rate-limit-handler.js";
-import { resolveEngineRunMcp } from "../sessions/engine-run-mcp.js";
+import { runTurn } from "../sessions/turn/runner.js";
+import { resolveTurnHierarchy } from "../sessions/turn/preflight.js";
+import { settleTurn } from "../sessions/turn/completion.js";
+import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
+import { createWebTurnSurface } from "./web-turn-surface.js";
+export { deliverConnectorReply } from "./connector-reply.js";
+export {
+  formatEngineErrorAssistantMessage,
+  shouldPersistFinalAssistantMessage,
+} from "../sessions/turn/text.js";
 import { decideJinnAttachment } from "../mcp/attachment.js";
 import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
@@ -157,9 +142,8 @@ import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
-import { completedStreamedBlockIds } from "./streamed-blocks.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
-import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
+import { recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
 import { clearDelegationCompletionContract, DELEGATION_COMPLETION_TRACKED_META_KEY } from "../sessions/delegation-completion-contract.js";
 import { clipSessionMessage, sessionCommGuards, prepareLateralSend, isDescendantOf, resolveCallerIdentity, type CallerIdentity } from "./session-comm-guards.js";
 import {
@@ -295,7 +279,7 @@ import {
   issuePairingChallenge,
   PAIRING_CHALLENGE_TTL_MS,
 } from "./pairing-challenge.js";
-import { markTranscriptSyncedThrough, scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
+import { scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
 import { handleTalkApi } from "./talk-api.js";
 import { onboardingNeeded, applyEngineChoice } from "./onboarding-policy.js";
 import {
@@ -320,7 +304,6 @@ export const TODO_LABELS_MAX = 100;
 const SKILL_CONTENT_BODY_MAX_BYTES = 2 * 1024 * 1024;
 const SESSION_LIST_PER_GROUP = 50;
 const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000;
-const SUPERSEDED_TURN_META_KEY = "supersededRunningTurnAt";
 function headerValue(req: HttpRequest, name: string): string | undefined {
   const value = req.headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -330,18 +313,6 @@ function parseMessageLimit(value: string | null, fallback: number): number {
   const parsed = Number.parseInt(value || "", 10);
   if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return Math.min(500, parsed);
-}
-
-export function shouldPersistFinalAssistantMessage(options: {
-  resultText: string;
-  quietPreempted: boolean;
-}): boolean {
-  if (options.quietPreempted) return false;
-  return options.resultText.trim().length > 0;
-}
-
-export function formatEngineErrorAssistantMessage(error: string): string {
-  return `Error: ${error}`;
 }
 
 export interface ApiContext {
@@ -509,7 +480,7 @@ async function openInstanceMigration(
     try {
       if (context.dispatchInstanceMigration) context.dispatchInstanceMigration(session, prompt);
       else {
-      dispatchWebSessionRun(session, prompt, engine, config, context, { queueItemId });
+      dispatchWebSessionRun(session, prompt, engine, context, { queueItemId });
       }
     } catch (error) {
       cancelQueueItem(queueItemId);
@@ -586,7 +557,6 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     if (context.sessionManager.getQueue().hasInFlightItem(item.id)) continue;
     session = maybeRevertEngineOverride(session);
 
-    const config = context.getConfig();
     const engine = context.sessionManager.getEngine(session.engine);
     if (!engine) {
       const diagnostic = `Engine "${session.engine}" not available`;
@@ -607,7 +577,7 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // Ensure the session is in a runnable state
     updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
-    dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
+    dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id });
     resumed++;
   }
 
@@ -663,7 +633,6 @@ function dispatchWebSessionRun(
   session: Session,
   prompt: string,
   engine: Engine,
-  config: JinnConfig,
   context: ApiContext,
   opts?: { delayMs?: number; queueItemId?: string; attachments?: string[] },
 ): void {
@@ -684,7 +653,7 @@ function dispatchWebSessionRun(
         context.emit("session:started", { sessionId: session.id });
         // Item moved pending → running: refresh the queue panel.
         if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
-        await runWebSession(startedAttempt, prompt, engine, config, context, startedAttempt.attemptToken, opts?.attachments);
+        await runWebSession(startedAttempt, prompt, engine, context, startedAttempt.attemptToken, opts?.attachments);
         if (startedAttempt.workflowProvenance?.kind === "phase") {
           context.sessionManager.emitWorkflowAttemptTurnCompletion(session.id);
         }
@@ -698,25 +667,24 @@ function dispatchWebSessionRun(
   };
 
   const launch = () => {
-    run().catch((err) => {
+    run().catch(async (err) => {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error(`Web session ${session.id} dispatch error: ${errMsg}`);
-      const erroredOnDispatch = dispatchedAttemptToken
-        ? completeSessionAttempt(session.id, dispatchedAttemptToken, {
-            status: "error",
-            lastActivity: new Date().toISOString(),
-            lastError: errMsg,
-          })
-        : undefined;
-      if (erroredOnDispatch) {
-        if (erroredOnDispatch.workflowProvenance?.kind === "phase") {
-          context.sessionManager.emitWorkflowAttemptTurnCompletion(session.id);
-        }
-        context.emit("session:completed", {
+      if (!dispatchedAttemptToken) return;
+      const erroredOnDispatch = await settleTurn({
+        sessionId: session.id,
+        attemptToken: dispatchedAttemptToken,
+        outcome: "failed",
+        error: errMsg,
+        surface: createWebTurnSurface({
           sessionId: session.id,
-          result: null,
-          error: errMsg,
-        });
+          emit: context.emit,
+          connectors: context.connectors,
+          getConfig: context.getConfig,
+        }),
+      });
+      if (erroredOnDispatch?.workflowProvenance?.kind === "phase") {
+        context.sessionManager.emitWorkflowAttemptTurnCompletion(session.id);
       }
     });
   };
@@ -2105,22 +2073,6 @@ function supersedeRunningTurn(session: Session): void {
   });
 }
 
-function clearSupersededTurnMeta(sessionId: string): void {
-  const session = getSession(sessionId);
-  const meta = session?.transportMeta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta) || !(SUPERSEDED_TURN_META_KEY in meta)) return;
-  const next = { ...meta };
-  delete next[SUPERSEDED_TURN_META_KEY];
-  updateSession(sessionId, { transportMeta: next });
-}
-
-function isTurnSuperseded(sessionId: string, turnStartedAt: number): boolean {
-  const marker = getSession(sessionId)?.transportMeta?.[SUPERSEDED_TURN_META_KEY];
-  if (typeof marker !== "string") return false;
-  const markedAt = new Date(marker).getTime();
-  return Number.isFinite(markedAt) && markedAt >= turnStartedAt;
-}
-
 function isSessionLiveRunning(session: Session, context: ApiContext): boolean {
   if (session.status !== "running") return false;
   const engine = context.sessionManager.getEngine(session.engine);
@@ -2248,7 +2200,7 @@ export async function handleApiRequest(
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok,
       runHandoff: (session, prompt) => {
         const engine = context.sessionManager.getEngine(session.engine);
-        if (engine) dispatchWebSessionRun(session, prompt, engine, context.getConfig(), context);
+        if (engine) dispatchWebSessionRun(session, prompt, engine, context);
       },
     })) return;
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
@@ -4064,7 +4016,7 @@ export async function handleApiRequest(
       const queueKey = session.sessionKey || session.sourceRef || session.id;
       const queueItemId = enqueueQueueItem(session.id, queueKey, prompt);
       context.emit("queue:updated", { sessionId: session.id, sessionKey: queueKey });
-      dispatchWebSessionRun(session, prompt, engine, config, context, { queueItemId });
+      dispatchWebSessionRun(session, prompt, engine, context, { queueItemId });
       emitTodoProjectionEvent(context, item.id, "dispatched");
 
       return json(res, {
@@ -5056,7 +5008,7 @@ export async function handleApiRequest(
       const delegationQueueItemId = enqueueQueueItem(session.id, delegationQueueKey, task);
       context.emit("queue:updated", { sessionId: session.id, sessionKey: delegationQueueKey });
       const attachmentPaths = resolveAttachmentPaths(attachments);
-      dispatchWebSessionRun(session, task, engine, config, context, {
+      dispatchWebSessionRun(session, task, engine, context, {
         queueItemId: delegationQueueItemId,
         attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
       });
@@ -5232,7 +5184,7 @@ export async function handleApiRequest(
         prompt,
         speechContextApplies({ speech: body.speech === true, isNotification: false, promptRendered: !!ptyEngine }),
       );
-      dispatchWebSessionRun(session, newSessionEnginePrompt, engine, config, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
+      dispatchWebSessionRun(session, newSessionEnginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, serializeSessionResponse(session, context), 201);
     }
@@ -5631,7 +5583,7 @@ export async function handleApiRequest(
         prompt,
         speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine }),
       );
-      dispatchWebSessionRun(session, enginePrompt, engine, config, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
+      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",
@@ -6441,13 +6393,6 @@ function loadTranscriptMessages(engineSessionId: string): Array<{ role: string; 
 }
 
 /**
- * Sources that are NOT backed by an external chat connector. Anything else
- * (slack, telegram, discord, whatsapp, …) is connector-sourced and its turn
- * results must be relayed back to the originating channel.
- */
-const NON_CONNECTOR_SOURCES = new Set(["web", "talk", "cron"]);
-
-/**
  * Resolve the forwarded SSO identity from request headers, given the configured
  * `gateway.userHeader` (a single header name or a priority-ordered list). Node
  * lowercases incoming header keys, so we look up case-insensitively. Returns the
@@ -6473,41 +6418,11 @@ export function resolveUserHeader(
   return undefined;
 }
 
-/**
- * Relay a completed turn's assistant text back to the connector channel that
- * originated the session. Inbound connector messages reply via `manager.route`,
- * but turns completed through `runWebSession` (parent callbacks, cron
- * follow-ups, rate-limit resumes) otherwise never reach the channel. No-ops for
- * web/talk/cron sources, empty text, or a missing connector/replyContext; errors
- * are logged and swallowed so delivery failure never breaks completion.
- */
-export async function deliverConnectorReply(
-  session: Pick<Session, "source" | "connector" | "replyContext"> & { id?: string },
-  text: string,
-  connectors: Map<string, import("../shared/types.js").Connector>,
-): Promise<void> {
-  if (!text || NON_CONNECTOR_SOURCES.has(session.source)) return;
-  if (!session.connector || !session.replyContext) return;
-  const connector = connectors.get(session.connector);
-  if (!connector) {
-    logger.warn(`Connector reply dropped for session ${session.id ?? "?"}: no connector registered as "${session.connector}"`);
-    return;
-  }
-  try {
-    const target = connector.reconstructTarget(session.replyContext);
-    await connector.replyMessage(target, text);
-  } catch (err) {
-    logger.warn(
-      `Connector reply delivery failed for session ${session.id ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
 
 async function runWebSession(
   session: Session,
   prompt: string,
   engine: Engine,
-  config: JinnConfig,
   context: ApiContext,
   attemptToken: string,
   attachments?: string[],
@@ -6517,726 +6432,38 @@ async function runWebSession(
     logger.info(`Skipping deleted web session ${session.id} before run start`);
     return;
   }
-  const engineAtTurnStart = currentSession.engine;
-  const resumeRefAtTurnStart = getEngineSessionRef(currentSession, engineAtTurnStart);
-  config = context.getConfig();
-  const preferredPtyView = context.ptyViewEngines?.[session.engine] === engine;
-  const runtimeEngine =
-    (preferredPtyView ? context.ptyViewEngines?.[currentSession.engine] : undefined)
-    ?? context.sessionManager.getEngine(currentSession.engine);
-  if (!runtimeEngine) {
-    const errMsg = `Engine "${currentSession.engine}" not available`;
-    logger.error(`Web session ${currentSession.id} blocked: ${errMsg}`);
-    insertMessage(currentSession.id, "assistant", `⛔ ${errMsg}`);
-    const erroredSession = completeSessionAttempt(currentSession.id, attemptToken, {
-      status: "error",
-      lastActivity: new Date().toISOString(),
-      lastError: errMsg,
-    });
-    context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    if (erroredSession) notifyParentSession(erroredSession, { error: errMsg });
-    return;
-  }
-  engine = runtimeEngine;
-  logger.info(`Web session ${currentSession.id} running engine "${engineAtTurnStart}" (model: ${currentSession.model || "default"})`);
 
-  // If this session has an assigned employee, load their persona
+  // CLI-mode sends run against the PTY-backed view of the engine so the user
+  // sees the turn stream into their live xterm; everything else takes the
+  // headless engine from the session manager.
+  const preferredPtyView = context.ptyViewEngines?.[session.engine] === engine;
+  const runtimeEngine = (preferredPtyView ? context.ptyViewEngines?.[currentSession.engine] : undefined)
+    ?? context.sessionManager.getEngine(currentSession.engine);
+
   let employee: import("../shared/types.js").Employee | undefined;
   if (currentSession.employee) {
-    const { findEmployee } = await import("./org.js");
-    const { scanOrg } = await import("./org.js");
-    const registry = scanOrg(config);
-    employee = findEmployee(currentSession.employee, registry);
+    const { findEmployee, scanOrg } = await import("./org.js");
+    employee = findEmployee(currentSession.employee, scanOrg(context.getConfig()));
   }
 
-  // Pre-flight: fail fast with an actionable error if the engine's CLI binary
-  // isn't installed. Otherwise the (interactive PTY) engine spawns a missing
-  // command, exits silently, and the turn produces no output and no error.
-  // We surface it the way runWebSession reports errors and return normally
-  // (throwing here would escape the queue task as an unhandled rejection).
-  if (isKnownEngine(currentSession.engine) && !engineAvailable(config, currentSession.engine)) {
-    const errMsg = engineUnavailableMessage(config, currentSession.engine);
-    logger.error(`Web session ${currentSession.id} blocked: ${errMsg}`);
-    insertMessage(currentSession.id, "assistant", `⛔ ${errMsg}`);
-    const erroredSession = completeSessionAttempt(currentSession.id, attemptToken, {
-      status: "error",
-      lastActivity: new Date().toISOString(),
-      lastError: errMsg,
-    });
-    context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    // Wake the parent COO if this was a delegated child session (parity with
-    // the normal error path; no-op for top-level sessions).
-    if (erroredSession) {
-      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
-    }
-    return;
-  }
-
-  // Budget enforcement — block before the engine runs, mirroring manager.ts's connector path.
-  // Everything else lands here: dashboard chats, delegations, workflow nodes, MCP spawns.
-  if (currentSession.employee && isBudgetExhausted(currentSession.employee, config.budgets?.employees)) {
-    const errMsg = `Budget limit exceeded for employee "${currentSession.employee}". Session blocked.`;
-    logger.warn(`Web session ${currentSession.id} blocked: ${errMsg}`);
-    insertMessage(currentSession.id, "assistant", `⛔ ${errMsg}`);
-    const erroredSession = completeSessionAttempt(currentSession.id, attemptToken, { status: "error", lastActivity: new Date().toISOString(), lastError: errMsg });
-    context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
-    if (erroredSession) notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
-    return;
-  }
-
-  const { scanOrg: scanOrgForHierarchy } = await import("./org.js");
-  const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-  const orgHierarchy = resolveOrgHierarchy(scanOrgForHierarchy(config));
-
-  // Declared in the function scope so the whole turn lifecycle — including any
-  // rate-limit retry/fallback — reuses the same mcpConfigPath (parity with
-  // manager.ts runSession). Deletion is owned by the PTY lifecycle, not this turn.
-  let mcpConfigPath: string | undefined;
-  let runHeartbeat: ReturnType<typeof setInterval> | undefined;
-
-  try {
-
-    let resolvedMcp: import("../shared/types.js").ResolvedMcpConfig | undefined;
-    ({ mcpConfigPath, resolvedMcp } = resolveEngineRunMcp({
-      config,
-      employee,
-      engine: currentSession.engine,
-      sessionId: currentSession.id,
-      workflowAttempt: currentSession.workflowProvenance?.kind === "phase",
-    }));
-
-    // Per-engine config is keyed by engine name; unconfigured optional engines
-    // (antigravity/pi) resolve to {} so the engine falls back to dynamic bin/model
-    // resolution. Adding an engine needs no change here.
-    const engineConfig =
-      (config.engines as unknown as Record<string, { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string } | undefined>)[
-        currentSession.engine
-      ] ?? {};
-    const effortLevel = resolveEffort(
-      engineConfig,
-      currentSession,
-      employee,
-      effortLevelsForModel(config, currentSession.engine, currentSession.model ?? undefined),
-    );
-    let modelForTurn = currentSession.model ?? engineConfig.model;
-    const runtimeSource = runtimeSessionSource(currentSession.source);
-    const baseContextOptions: Omit<BuildContextOptions, "model"> = {
-      source: runtimeSource,
-      channel: currentSession.sourceRef,
-      user: currentSession.userId ?? "web-user",
-      employee,
-      engine: currentSession.engine,
-      connectors: Array.from(context.connectors.keys()),
-      config,
-      gatewayBootId: context.gatewayBootId,
-      sessionId: currentSession.id,
-      effortLevel,
-      hierarchy: orgHierarchy,
-      // The diet keys off the built-in jinn server specifically — custom MCP
-      // servers don't carry the company tools (same rule as manager.ts).
-      jinnMcpAttached: Boolean(resolvedMcp?.mcpServers?.["jinn"]),
-    };
-    const preparePlatformContext = (model: string | undefined) => {
-      const contextOptions: BuildContextOptions = { ...baseContextOptions, model };
-      const snapshot = buildPlatformContextSnapshot(contextOptions);
-      const fingerprint = fingerprintPlatformContext(snapshot);
-      const refresh = resumeRefAtTurnStart.id
-        && resumeRefAtTurnStart.platformContextFingerprint !== fingerprint
-        ? buildPlatformContextRefresh(snapshot)
-        : undefined;
-      return { fingerprint, refresh, systemPrompt: buildContext(contextOptions) };
-    };
-    let platformContextFingerprint = "";
-    let platformContextRefresh: string | undefined;
-    let systemPrompt = "";
-
-    let lastHeartbeatAt = 0;
-    runHeartbeat = setInterval(() => {
-      // If the session was deleted mid-turn, stop heartbeating immediately —
-      // the engine.run promise may still take minutes to resolve, and we don't
-      // want to keep writing status:"running" rows for a session the user
-      // already removed (and risk re-creating registry state in some paths).
-      if (!getSession(currentSession.id)) {
-        if (runHeartbeat) clearInterval(runHeartbeat);
-        runHeartbeat = undefined;
-        return;
-      }
-      updateSessionForAttempt(currentSession.id, attemptToken, {
-        status: "running",
-        lastActivity: new Date().toISOString(),
-      });
-    }, 5000);
-
-    // Mid-turn persistence: mirror the live stream into `partial` DB rows so a
-    // refresh restores in-progress blocks. Coalesced — text grows ONE row
-    // (debounced, never per-token, so SQLite isn't hammered); each tool call is
-    // its own row. All wiped + replaced by the single final message at turn end
-    // (deletePartialMessages below). Only the primary engine stream is mirrored;
-    // the rate-limit fallback stream stays WS-only (rare path).
-    const partialStream = createPartialStreamWriter(currentSession.id);
-
-    const syncMeta = (currentSession.transportMeta || {}) as Record<string, unknown>;
-    const switchSyncTarget = typeof syncMeta.engineSyncTarget === "string" ? syncMeta.engineSyncTarget : null;
-    const switchSyncSinceIso = typeof syncMeta.engineSyncSince === "string" ? syncMeta.engineSyncSince : null;
-    const switchSyncSinceMs = switchSyncSinceIso ? new Date(switchSyncSinceIso).getTime() : NaN;
-    const engineSyncRequested =
-      switchSyncTarget === engineAtTurnStart &&
-      typeof switchSyncSinceIso === "string" &&
-      Number.isFinite(switchSyncSinceMs);
-    const claudeSyncSinceIso = typeof syncMeta.claudeSyncSince === "string" ? syncMeta.claudeSyncSince : null;
-    const claudeSyncSinceMs = claudeSyncSinceIso ? new Date(claudeSyncSinceIso).getTime() : NaN;
-    const claudeSyncRequested =
-      engineAtTurnStart === "claude" &&
-      typeof claudeSyncSinceIso === "string" &&
-      Number.isFinite(claudeSyncSinceMs);
-    const syncRequested = engineSyncRequested || claudeSyncRequested;
-    const promptToRun = syncRequested
-      ? (() => {
-        const sinceMs = engineSyncRequested ? switchSyncSinceMs : claudeSyncSinceMs;
-        const recentMessages = getMessages(currentSession.id).filter((m) => m.timestamp >= sinceMs);
-        const sinceMessages = recentMessages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
-        const transcript = sinceMessages.slice(-20).join("\n\n");
-        const latestMessage = recentMessages.at(-1);
-        const currentPromptWasIncluded =
-          latestMessage &&
-          (latestMessage.role === "user" || latestMessage.role === "assistant") &&
-          latestMessage.content === prompt;
-        const currentPrompt = currentPromptWasIncluded || !prompt.trim()
-          ? ""
-          : `CURRENT MESSAGE:\n${prompt}`;
-        const intro = engineSyncRequested
-          ? `We switched engines in this Jinn session. Sync your context with this transcript (most recent last), then respond to the current message.`
-          : `We temporarily switched to GPT due to a Claude usage limit. Sync your context with this transcript (most recent last), then respond to the current message.`;
-        return [intro, transcript, currentPrompt].filter(Boolean).join("\n\n");
-      })()
-      : prompt;
-
-    const turnStartedAt = Date.now();
-    const runAttempt = (modelForAttempt: string | undefined) => {
-      const prepared = preparePlatformContext(modelForAttempt);
-      platformContextFingerprint = prepared.fingerprint;
-      platformContextRefresh = prepared.refresh;
-      systemPrompt = prepared.systemPrompt;
-      return engine.run({
-      prompt: promptToRun,
-      resumeSessionId: resumeRefAtTurnStart.id ?? undefined,
-      systemPrompt,
-      platformContextRefresh,
-      cwd: JINN_HOME,
-      bin: engineConfig.bin,
-      model: modelForAttempt,
-      effortLevel,
-      cliFlags: employee?.cliFlags,
-      mcpConfigPath,
-      resolvedMcp,
-      attachments: attachments?.length ? attachments : undefined,
-      sessionId: currentSession.id,
-      source: runtimeSource,
-      onStream: (delta) => {
-        // Same guard as runHeartbeat: a delta may arrive after the user
-        // deleted the session; don't resurrect registry state for it.
-        if (!getSession(currentSession.id)) return;
-        const normalized = normalizeBlockDeltaForTurn(delta, turnStartedAt);
-        if (!normalized.ok) {
-          logger.warn(`Dropped invalid block delta for session ${currentSession.id}: ${normalized.error}`);
-          return;
-        }
-        const outgoingDelta = normalized.delta;
-        // Live context-meter: message_start.usage arrives as a `context` delta
-        // (once per assistant message — infrequent). Persist it immediately so the
-        // meter ticks during the turn, not just at completion. The delta also flows
-        // to the FE below for an instant in-pane update.
-        if (outgoingDelta.type === "context") {
-          // Only the MAIN agent's stream reaches here (the proxy suppresses
-          // sub-agent/auxiliary streams), so its usage drives the session meter.
-          const ctx = Number(outgoingDelta.content);
-          if (Number.isFinite(ctx) && ctx > 0) {
-            updateSessionForAttempt(currentSession.id, attemptToken, { lastContextTokens: ctx });
-          }
-        }
-        const now = Date.now();
-        if (now - lastHeartbeatAt >= 2000) {
-          lastHeartbeatAt = now;
-          updateSessionForAttempt(currentSession.id, attemptToken, {
-            status: "running",
-            lastActivity: new Date(now).toISOString(),
-          });
-        }
-        try {
-          context.emit("session:delta", {
-            sessionId: currentSession.id,
-            type: outgoingDelta.type,
-            content: outgoingDelta.content,
-            toolName: outgoingDelta.toolName,
-            toolId: outgoingDelta.toolId,
-            activityReceiptId: outgoingDelta.activityReceiptId,
-            input: outgoingDelta.input,
-            block: outgoingDelta.block,
-          });
-        } catch (err) {
-          logger.warn(`Failed to emit stream delta for session ${currentSession.id}: ${err instanceof Error ? err.message : err}`);
-        }
-        // Mirror the block into a persisted partial row (refresh survival). Guarded
-        // so a DB hiccup never breaks the live stream above.
-        try {
-          partialStream.persist(outgoingDelta);
-        } catch (err) {
-          logger.warn(`Failed to persist partial block for session ${currentSession.id}: ${err instanceof Error ? err.message : err}`);
-        }
-      },
-      // A turn that settled as failed but whose CLI later finished delivers the
-      // recovered text here. Append it and restore a clean idle status — unless
-      // the session is gone or a NEW turn owns it (status back to "running").
-      onLateRecovery: ({ result: lateText, sessionId: engineSid }) => {
-        const recovered = updateSessionForAttempt(currentSession.id, attemptToken, {
-          status: "idle",
-          attemptOutcome: "succeeded",
-          lastActivity: new Date().toISOString(),
-          lastError: null,
-        }, ["error"]);
-        if (!recovered || recovered.engine !== engineAtTurnStart) return;
-        insertMessage(currentSession.id, "assistant", lateText);
-        if (engineSid.trim()) {
-          recordEngineSessionId(currentSession.id, engineAtTurnStart, engineSid, {
-            model: modelForAttempt,
-            effortLevel,
-            lastSyncedAt: new Date().toISOString(),
-            platformContextFingerprint: prepared.fingerprint,
-          });
-        }
-        // The parent/channel already saw this turn fail — label the late answer
-        // so it reads as a supersede, not a fresh unprompted turn.
-        const labelled = `(recovered — this supersedes the earlier reported failure)\n\n${lateText}`;
-        if (recovered) {
-          notifyParentSession(recovered, { result: labelled, error: null }, { alwaysNotify: employee?.alwaysNotify });
-          void deliverConnectorReply(recovered, labelled, context.connectors);
-        }
-        context.emit("session:completed", {
-          sessionId: currentSession.id,
-          employee: currentSession.employee || config.portal?.portalName || "Jinn",
-          title: currentSession.title,
-          result: lateText,
-          error: null,
-        });
-        logger.info(`Web session ${currentSession.id} recovered by late Stop after a failed turn`);
-      },
-      }).finally(() => {
-      // Stop any pending debounced text flush so it can't re-insert a partial row
-      // after the turn-end cleanup below deletes them.
-      partialStream.finish();
-      });
-    };
-    let result = await runAttempt(modelForTurn);
-
-    if (
-      currentSession.engine === "claude"
-      && result.error
-      && !result.result.trim()
-      && getSession(currentSession.id)?.attemptToken === attemptToken
-      && getSession(currentSession.id)?.status === "running"
-    ) {
-      await refreshClaudeModels(config);
-      const refreshedRegistry = getModelRegistry(context.getConfig());
-      const fallbackModel = selectClaudeModelFallback({
-        engine: currentSession.engine,
-        requestedModel: modelForTurn,
-        error: result.error,
-        models: refreshedRegistry.claude?.models ?? [],
-      });
-      if (fallbackModel) {
-        logger.warn(`Claude model "${modelForTurn}" failed availability check; retrying session ${currentSession.id} with "${fallbackModel}"`);
-        deletePartialMessages(currentSession.id);
-        modelForTurn = fallbackModel;
-        updateSession(currentSession.id, { model: fallbackModel, lastError: null });
-        result = await runAttempt(modelForTurn);
-      }
-    }
-
-    if (runHeartbeat) {
-      clearInterval(runHeartbeat);
-      runHeartbeat = undefined;
-    }
-
-    if (!getSession(currentSession.id)) {
-      logger.info(`Skipping completion for deleted web session ${currentSession.id}`);
-      return;
-    }
-
-    const liveAfterRun = getSession(currentSession.id);
-    if (liveAfterRun?.engine !== engineAtTurnStart) {
-      deletePartialMessages(currentSession.id);
-      clearSupersededTurnMeta(currentSession.id);
-      logger.info(
-        `Dropping stale ${engineAtTurnStart} result for session ${currentSession.id}; session now uses ${liveAfterRun?.engine ?? "unknown"}`,
-      );
-      return;
-    }
-
-    const completionTurn = (liveAfterRun?.attemptTurn ?? currentSession.attemptTurn ?? 0) + 1;
-    const wasInterrupted = Boolean(
-      liveAfterRun
-      && isDurableWorkflowUserMessageInterruption(liveAfterRun, completionTurn),
-    ) || result.error?.startsWith("Interrupted");
-    const wasSuperseded = !wasInterrupted && isTurnSuperseded(currentSession.id, turnStartedAt);
-    const attemptStillRunning = liveAfterRun?.attemptToken === attemptToken && liveAfterRun.status === "running";
-    const quietPreempted = wasInterrupted || wasSuperseded || !attemptStillRunning;
-
-    // Turn settled. Preserve the same completed evidence the live React path
-    // keeps: interim prose, tools, media, and delegation/dispatch blocks. Exact
-    // streamed copies of the result and transient task-list blocks are dropped;
-    // the canonical final assistant row is inserted below. Preempted, limited,
-    // and result-less turns keep the old cleanup semantics.
-    const streamedBlocks = getPartialMessages(currentSession.id);
-    const rateLimit = !quietPreempted ? detectRateLimit(result) : { limited: false as const };
-    const preservedMessageIds = completedStreamedBlockIds({
-      quietPreempted,
-      rateLimited: rateLimit.limited,
-      result: result.result,
-      error: result.error,
-      streamedBlocks,
-    });
-    // Durable structured blocks remain on their evidence row. Transient blocks
-    // are deliberately not copied onto the final answer (live completion drops
-    // task-list/progress rows), so the final boundary stays plain and canonical.
-    settlePartialMessages(currentSession.id, preservedMessageIds);
-    const streamedThrough = streamedBlocks.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
-
-    if (rateLimit.limited) {
-      const emitDelta = (delta: StreamDelta) => {
-        const normalized = normalizeBlockDeltaForTurn(delta, turnStartedAt);
-        if (!normalized.ok) {
-          logger.warn(`Dropped invalid rate-limit block delta for session ${currentSession.id}: ${normalized.error}`);
-          return;
-        }
-        const outgoingDelta = normalized.delta;
-        context.emit("session:delta", {
-          sessionId: currentSession.id,
-          type: outgoingDelta.type,
-          content: outgoingDelta.content,
-          toolName: outgoingDelta.toolName,
-          toolId: outgoingDelta.toolId,
-          block: outgoingDelta.block,
-        });
-      };
-
-      const outcome = await handleRateLimit({
-        session: currentSession,
-        attemptToken,
-        prompt,
-        systemPrompt,
-        platformContextRefresh,
-        engineConfig,
-        effortLevel,
-        cliFlags: employee?.cliFlags,
-        // Carry the resolved MCP set into the rate-limit retry/fallback turn so a
-        // web session that hits a usage limit keeps its MCP tools on recovery —
-        // parity with the connector path (manager.ts runSession → handleRateLimit).
-        mcpConfigPath,
-        resolvedMcp,
-        attachments: attachments?.length ? attachments : undefined,
-        config,
-        engines: context.sessionManager.getEngines(),
-        employee,
-        engine,
-        rateLimit,
-        originalResult: result,
-        hooks: {
-          onFallbackStart: ({ resumeAt }) => {
-            const resumeText = resumeAt
-              ? resumeAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-              : null;
-            const notificationText =
-              `⚠️ Claude usage limit reached${resumeText ? `. Resets ${resumeText}` : ""}. Switching to GPT for now.`;
-            insertMessage(currentSession.id, "notification", notificationText);
-
-            notifyOperatorChannel(
-              `⚠️ Claude usage limit reached. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} switching to GPT.`,
-            );
-
-            // Switching away from Claude — drop any warm Claude PTY AND its armed
-            // late-recovery listener so the abandoned claude turn can't double-answer
-            // after the GPT fallback delivers.
-            const claudeEngine = context.sessionManager.getEngines().get("claude");
-            if (claudeEngine && isInterruptibleEngine(claudeEngine)) {
-              claudeEngine.kill(currentSession.id, "Interrupted: engine switched");
-            }
-          },
-          onFallbackStream: emitDelta,
-          onFallbackComplete: (fallbackResult) => {
-            if (fallbackResult.result) {
-              insertMessage(currentSession.id, "assistant", fallbackResult.result);
-            }
-
-            const fallbackCompletedAt = new Date().toISOString();
-            if (fallbackResult.sessionId?.trim()) {
-              const fallbackEngineName = getSession(currentSession.id)?.engine ?? currentSession.engine;
-              recordEngineSessionId(currentSession.id, fallbackEngineName, fallbackResult.sessionId, {
-                model: modelForTurn,
-                effortLevel,
-                lastSyncedAt: fallbackCompletedAt,
-              });
-            }
-            // Same accounting as manager.ts — this runner used to skip it, so
-            // every web/talk session recorded zero turns and zero cost.
-            recordTurnAccounting(currentSession.id, fallbackResult);
-            const completedFallback = completeSessionAttempt(currentSession.id, attemptToken, {
-              status: fallbackResult.error ? "error" : "idle",
-              attemptOutcome: fallbackResult.error ? "failed" : "succeeded",
-              lastActivity: fallbackCompletedAt,
-              lastError: fallbackResult.error ?? null,
-            });
-            if (completedFallback) {
-              notifyParentSession(completedFallback, { result: fallbackResult.result, error: fallbackResult.error ?? null, cost: fallbackResult.cost, durationMs: fallbackResult.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-              // Relay the fallback turn to the originating connector channel (#51).
-              if (fallbackResult.result) void deliverConnectorReply(completedFallback, fallbackResult.result, context.connectors);
-            }
-
-            if (completedFallback) {
-              context.emit("session:completed", {
-                sessionId: currentSession.id,
-                employee: currentSession.employee || config.portal?.portalName || "Jinn",
-                title: currentSession.title,
-                result: fallbackResult.result,
-                error: fallbackResult.error || null,
-                cost: fallbackResult.cost,
-                durationMs: fallbackResult.durationMs,
-              });
-            }
-          },
-          onWaitingStart: ({ resumeAt }) => {
-            const engineLabel = rateLimitEngineLabel(currentSession.engine);
-            const resumeText = resumeAt
-              ? resumeAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-              : null;
-
-            // Send hardcoded Discord notification — does not depend on the LLM
-            notifyOperatorChannel(
-              `⚠️ ${engineLabel} usage limit reached. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} paused${resumeText ? ` until ${resumeText}` : ""}.`,
-            );
-
-            const notificationText =
-              `⏳ ${engineLabel} usage limit reached${resumeText ? `. Resets ${resumeText}` : ""} — I'll continue automatically.`;
-            insertMessage(currentSession.id, "notification", notificationText);
-
-            // Notify parent session about rate limit (fire-and-forget)
-            const waitingSession = getSession(currentSession.id);
-            notifyRateLimited(
-              (waitingSession ?? { ...currentSession, status: "waiting" }) as Session,
-              resumeAt
-                ? resumeAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-                : undefined,
-            );
-
-          },
-          onRetryStream: emitDelta,
-          onRetrySuccess: (retryResult) => {
-            const engineLabel = rateLimitEngineLabel(currentSession.engine);
-            // Usage limit cleared — handle result
-            if (retryResult.result) {
-              insertMessage(currentSession.id, "assistant", retryResult.result);
-            }
-
-            const retryCompletedAt = new Date().toISOString();
-            if (!retryResult.error && retryResult.sessionId?.trim()) {
-              recordEngineSessionId(currentSession.id, engineAtTurnStart, retryResult.sessionId, {
-                model: modelForTurn,
-                effortLevel,
-                lastSyncedAt: retryCompletedAt,
-                platformContextFingerprint,
-              });
-            }
-            recordTurnAccounting(currentSession.id, retryResult);
-            const completedAfterRetry = completeSessionAttempt(currentSession.id, attemptToken, {
-              status: retryResult.error ? "error" : "idle",
-              attemptOutcome: retryResult.error ? "failed" : "succeeded",
-              lastActivity: retryCompletedAt,
-              lastError: retryResult.error ?? null,
-            });
-
-            if (completedAfterRetry) {
-              notifyRateLimitResumed(completedAfterRetry);
-              notifyOperatorChannel(
-                `✅ ${engineLabel} usage limit cleared. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} resumed.`,
-              );
-              notifyParentSession(completedAfterRetry, { result: retryResult.result, error: retryResult.error ?? null, cost: retryResult.cost, durationMs: retryResult.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-              // Relay the resumed (rate-limit-cleared) turn to the originating connector channel (#51).
-              if (retryResult.result) void deliverConnectorReply(completedAfterRetry, retryResult.result, context.connectors);
-            }
-
-            if (completedAfterRetry) {
-              context.emit("session:completed", {
-                sessionId: currentSession.id,
-                employee: currentSession.employee || config.portal?.portalName || "Jinn",
-                title: currentSession.title,
-                result: retryResult.result,
-                error: retryResult.error || null,
-                cost: retryResult.cost,
-                durationMs: retryResult.durationMs,
-              });
-            }
-          },
-          onTimeout: () => {
-            const engineLabel = rateLimitEngineLabel(currentSession.engine);
-            const timeoutError = `${engineLabel} usage limit did not clear in time`;
-            notifyOperatorChannel(
-              `❌ ${timeoutError}. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} has been stopped.`,
-            );
-            const erroredSession = updateSessionForAttempt(currentSession.id, attemptToken, {
-              status: "error",
-              lastActivity: new Date().toISOString(),
-              lastError: timeoutError,
-            }, ["waiting", "running"]);
-            if (erroredSession) {
-              notifyParentSession(erroredSession, { error: timeoutError }, { alwaysNotify: employee?.alwaysNotify });
-            }
-            if (erroredSession) {
-              context.emit("session:completed", {
-                sessionId: currentSession.id,
-                result: null,
-                error: timeoutError,
-              });
-            }
-          },
-        },
-      });
-
-      void outcome; // outcome handled entirely via hooks
-      return;
-    }
-
-    // Persist the assistant response
-    if (shouldPersistFinalAssistantMessage({
-      resultText: result.result,
-      quietPreempted,
-    })) {
-      insertMessageAfter(
-        currentSession.id,
-        "assistant",
-        result.result,
-        streamedThrough,
-      );
-    } else if (!quietPreempted && result.error && !result.result.trim()) {
-      insertMessageAfter(
-        currentSession.id,
-        "assistant",
-        formatEngineErrorAssistantMessage(result.error),
-        streamedThrough,
-      );
-    }
-
-    const completedAt = new Date().toISOString();
-    const acceptedNativeId = result.sessionId?.trim() || resumeRefAtTurnStart.id;
-    if (!quietPreempted && !result.error && acceptedNativeId) {
-      recordEngineSessionId(currentSession.id, engineAtTurnStart, acceptedNativeId, {
-        model: modelForTurn,
-        effortLevel,
-        lastSyncedAt: completedAt,
-        platformContextFingerprint,
-      });
-    }
-    recordTurnAccounting(currentSession.id, result);
-    const completedSession = completeSessionAttempt(currentSession.id, attemptToken, {
-      ...(typeof result.contextTokens === "number" ? { lastContextTokens: result.contextTokens } : {}),
-      // Preserve interruption as an explicit terminal receipt. Conversational
-      // idleness is not proof that an execution attempt succeeded.
-      status: quietPreempted ? "interrupted" : (result.error ? "error" : "idle"),
-      attemptOutcome: quietPreempted ? "interrupted" : (result.error ? "failed" : "succeeded"),
-      lastActivity: completedAt,
-      lastError: quietPreempted ? (result.error ?? "Interrupted") : (result.error ?? null),
-    });
-    if (!quietPreempted && engineAtTurnStart === "claude") {
-      markTranscriptSyncedThrough(currentSession.id, result.sessionId);
-    }
-    if (syncRequested && !rateLimit.limited && !quietPreempted) {
-      const meta = (getSession(currentSession.id)?.transportMeta || currentSession.transportMeta || {}) as Record<string, unknown>;
-      if (meta && typeof meta === "object" && !Array.isArray(meta)) {
-        const nextMeta = { ...meta } as Record<string, unknown>;
-        delete nextMeta["claudeSyncSince"];
-        delete nextMeta["engineSyncTarget"];
-        delete nextMeta["engineSyncSince"];
-        updateSession(currentSession.id, { transportMeta: nextMeta as any });
-      }
-    }
-    clearSupersededTurnMeta(currentSession.id);
-    const reportedError = quietPreempted ? null : (result.error ?? null);
-    if (completedSession && !quietPreempted) {
-      notifyParentSession(completedSession, { result: result.result, error: reportedError, cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: employee?.alwaysNotify });
-    }
-
-    // Relay the turn back to the originating connector channel (#51). Only
-    // connector-sourced sessions reaching this path (parent callbacks, cron
-    // follow-ups) deliver; web/talk/cron + interrupted turns no-op.
-    if (completedSession && !quietPreempted && result.result) {
-      await deliverConnectorReply(completedSession, result.result, context.connectors);
-    }
-
-    if (completedSession) {
-      context.emit("session:completed", {
-        sessionId: currentSession.id,
-        employee: currentSession.employee || config.portal?.portalName || "Jinn",
-        title: currentSession.title,
-        result: quietPreempted ? null : result.result,
-        error: reportedError,
-        cost: result.cost,
-        durationMs: result.durationMs,
-      });
-    }
-
-    logger.info(
-      `Web session ${currentSession.id} completed` +
-      (result.durationMs ? ` in ${result.durationMs}ms` : "") +
-      (result.cost ? ` ($${result.cost.toFixed(4)})` : ""),
-    );
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const live = getSession(currentSession.id);
-    if (!live) {
-      logger.info(`Skipping error handling for deleted web session ${currentSession.id}: ${errMsg}`);
-      return;
-    }
-    if (live.engine !== engineAtTurnStart) {
-      if (runHeartbeat) {
-        clearInterval(runHeartbeat);
-        runHeartbeat = undefined;
-      }
-      deletePartialMessages(currentSession.id);
-      clearSupersededTurnMeta(currentSession.id);
-      logger.info(
-        `Dropping stale ${engineAtTurnStart} error for session ${currentSession.id}; session now uses ${live.engine}`,
-      );
-      return;
-    }
-    // The run threw — drop any orphaned mid-turn partial blocks.
-    deletePartialMessages(currentSession.id);
-    const erroredSession = completeSessionAttempt(currentSession.id, attemptToken, {
-      status: "error",
-      lastActivity: new Date().toISOString(),
-      lastError: errMsg,
-    });
-    if (erroredSession) {
-      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify });
-    }
-    if (erroredSession) {
-      context.emit("session:completed", {
-        sessionId: currentSession.id,
-        result: null,
-        error: errMsg,
-      });
-    }
-    logger.error(`Web session ${currentSession.id} error: ${errMsg}`);
-  } finally {
-    if (runHeartbeat) {
-      clearInterval(runHeartbeat);
-      runHeartbeat = undefined;
-    }
-    // NOTE: the per-session Claude --mcp-config file is deliberately NOT deleted
-    // here. Only the interactive (PTY) engine writes one, and a warm PTY keeps that
-    // path on its command line across turns — a cold respawn (model/effort change)
-    // re-reads it, so deleting it per turn silently strips the jinn MCP server and
-    // every tool call fails with "caller identity unavailable". Its lifetime is owned
-    // by PtyLifecycleManager (onCleanup → cleanupMcpConfigFile), mirroring the
-    // per-session --settings file.
-  }
+  await runTurn({
+    session: currentSession,
+    attemptToken,
+    prompt,
+    attachments: attachments ?? [],
+    employee,
+    config: context.getConfig(),
+    engines: context.sessionManager.getEngines(),
+    engineOverride: runtimeEngine,
+    gatewayBootId: context.gatewayBootId ?? "",
+    connectorNames: Array.from(context.connectors.keys()),
+    hierarchy: await resolveTurnHierarchy(context.getConfig()),
+    channel: currentSession.sourceRef,
+    user: currentSession.userId ?? "web-user",
+  }, createWebTurnSurface({
+    sessionId: currentSession.id,
+    emit: context.emit,
+    connectors: context.connectors,
+    getConfig: context.getConfig,
+  }));
 }

@@ -46,17 +46,6 @@ export type RateLimitOutcome =
 
 export interface RateLimitHandlerHooks {
   /**
-   * Called once, immediately after detection, before any state changes. Used to
-   * Record engine-specific usage awareness. The default implementation records
-   * Claude limits only; other engines currently have no global awareness store.
-   *
-   * The default path calls `recordClaudeRateLimit(rateLimit.resetsAt)` only
-   * when the limited session actually uses Claude. Override only if you need
-   * additional engine-specific bookkeeping.
-   */
-  onDetected?: (rateLimit: RateLimitInfo) => void;
-
-  /**
    * Called when entering the Codex fallback branch (before the fallback engine runs).
    * Use this to: notify the user we're switching engines (UI message, Discord, etc.).
    */
@@ -169,11 +158,8 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
 
   const engineLabel = rateLimitEngineLabel(session.engine);
 
-  if (hooks.onDetected) {
-    hooks.onDetected(rateLimit);
-  } else if (session.engine === "claude") {
-    recordClaudeRateLimit(rateLimit.resetsAt);
-  }
+  // Only Claude has a global usage-awareness store to record limits against.
+  if (session.engine === "claude") recordClaudeRateLimit(rateLimit.resetsAt);
 
   const strategy = config.sessions?.rateLimitStrategy ?? "wait";
 

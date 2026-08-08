@@ -883,11 +883,12 @@ export function beginSessionAttempt(id: string, updates: UpdateSessionFields = {
 }
 
 /** Compare-and-set an update against the active attempt generation and state.
- * Returns undefined when a stop/reset/newer turn has taken ownership. */
+ * Returns undefined when a stop/reset/newer turn has taken ownership. A fields
+ * producer runs inside the fence, so its merge cannot outlive a rejected write. */
 export function updateSessionForAttempt(
   id: string,
   attemptToken: string,
-  updates: UpdateSessionFields,
+  updates: UpdateSessionFields | ((current: Session) => UpdateSessionFields),
   expectedStatuses: readonly Session['status'][] = ['running'],
 ): Session | undefined {
   if (expectedStatuses.length === 0) return undefined;
@@ -896,11 +897,9 @@ export function updateSessionForAttempt(
   if (!before || before.attemptToken !== attemptToken || !expectedStatuses.includes(before.status)) return undefined;
 
   const tx = database.transaction(() => {
-    const current = database
-      .prepare('SELECT status, attempt_token FROM sessions WHERE id = ?')
-      .get(id) as { status: Session['status']; attempt_token: string | null } | undefined;
-    if (!current || current.attempt_token !== attemptToken || !expectedStatuses.includes(current.status)) return undefined;
-    return updateSession(id, updates);
+    const current = getSession(id);
+    if (!current || current.attemptToken !== attemptToken || !expectedStatuses.includes(current.status)) return undefined;
+    return updateSession(id, typeof updates === 'function' ? updates(current) : updates);
   });
   return tx();
 }
@@ -910,7 +909,7 @@ export function updateSessionForAttempt(
 export function completeSessionAttempt(
   id: string,
   attemptToken: string,
-  updates: UpdateSessionFields,
+  updates: UpdateSessionFields | ((current: Session) => UpdateSessionFields),
 ): Session | undefined {
   return updateSessionForAttempt(id, attemptToken, updates, ['running']);
 }
@@ -978,6 +977,22 @@ export function getEngineSessionRef(session: Session, engine = session.engine): 
   return stored;
 }
 
+/** The fields a recorded native id merges into a session, without writing them.
+ * Exposed so a caller that must not race folds the merge into its own fence. */
+export function nextEngineSessionFields(
+  session: Session,
+  engine: string,
+  nativeId: string,
+  meta: Omit<EngineSessionRef, 'id'> = {},
+): UpdateSessionFields {
+  const id = nativeId.trim();
+  if (!engine || !id) return {};
+  const next = cleanEngineSessionRef({ ...getEngineSessionRef(session, engine), ...meta, id });
+  const updates: UpdateSessionFields = { engineSessions: { ...cleanEngineSessionRefs(session.engineSessions), [engine]: next } };
+  if (session.engine === engine) updates.engineSessionId = next.id ?? null;
+  return updates;
+}
+
 export function recordEngineSessionId(
   sessionId: string,
   engine: string,
@@ -985,23 +1000,8 @@ export function recordEngineSessionId(
   meta: Omit<EngineSessionRef, 'id'> = {},
 ): Session | undefined {
   const session = getSession(sessionId);
-  const id = nativeId.trim();
-  if (!session || !engine || !id) return session;
-
-  const refs = cleanEngineSessionRefs(session.engineSessions) ?? {};
-  const existing = getEngineSessionRef(session, engine);
-  const next = cleanEngineSessionRef({
-    ...existing,
-    ...meta,
-    id,
-  });
-  refs[engine] = next;
-
-  const updates: UpdateSessionFields = { engineSessions: refs };
-  if (session.engine === engine) {
-    updates.engineSessionId = next.id ?? null;
-  }
-  return updateSession(sessionId, updates);
+  const updates = session ? nextEngineSessionFields(session, engine, nativeId, meta) : {};
+  return updates.engineSessions ? updateSession(sessionId, updates) : session;
 }
 
 export interface SwitchSessionEngineOptions {
@@ -1548,13 +1548,13 @@ export function getInterruptedSessions(): Session[] {
 /**
  * Record one completed turn's cost and turn count against a session.
  *
- * The single accounting entry point for EVERY turn-completion site, in both
- * manager.ts and the gateway's runWebSession. It exists because those two
- * runners drifted: runWebSession had three structurally identical completion
- * sites and none of them accumulated, so every web- and talk-sourced session
- * recorded total_turns = 0 and total_cost = 0. That silently disabled employee
- * budget caps, which are enforced from SUM(total_cost), since the overwhelming
- * majority of turns are web-sourced.
+ * Called from exactly one place: settleTurn, in sessions/turn/completion.ts.
+ * It exists because two session runners once kept their own copies of the
+ * completion sequence and drifted — the web runner had three completion sites
+ * and none accumulated, so every web- and talk-sourced session recorded
+ * total_turns = 0 and total_cost = 0, silently disabling the employee budget
+ * caps enforced from SUM(total_cost). Both runners now settle through
+ * settleTurn; a caller anywhere else is the second copy that opened the hole.
  *
  * `result.cost` MUST be a per-turn delta, not a session-to-date total — see the
  * note on sumTranscriptUsage in claude-interactive.ts.
