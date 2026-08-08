@@ -8,84 +8,22 @@ import {
   type VerifyModeWire,
   type WorkItemDetailWire,
   type WorkItemLabelWire,
-  type WorkItemStatusWire,
 } from "@/lib/api"
-import { STATUS_LABEL, effectiveMaxRounds, effectiveVerifyMode, priorityLabel } from "@/lib/todos"
-import { legalTargets } from "@/lib/legal-targets"
+import { effectiveMaxRounds, effectiveVerifyMode, priorityLabel } from "@/lib/todos"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
-import { StatusCircle } from "../state-glyph"
 import { RailPriorityBars, VerifyPill } from "../task-page/props-rail"
 import { PickerNote, PickerRow } from "./picker-shell"
 
 /* Todos v2 slice 6 — the picker CONTENTS (design-doc §7.3): one component per
  * property, rendered by either shell (popover desktop / bottom sheet mobile).
- * The status picker consumes the same legalTargets() module as board drag —
- * one legality truth, no client carve-outs. Selection commits optimistically;
- * a server refusal snaps back with the gateway's words (the page's callout). */
+ * Selection commits optimistically; a server refusal snaps back with the
+ * gateway's words (the page's callout). Status is the one property with a
+ * legality rule behind it, and lives in status-picker-content.tsx. */
 
 export interface PickerContentProps {
   detail: WorkItemDetailWire
   sheet?: boolean
   onDone: () => void
-}
-
-const ALL_STATUSES: readonly WorkItemStatusWire[] = [
-  "backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled",
-]
-
-/** The design's presentation order (§7.3 + the popover mock): pipeline first,
- *  then Done, then the exception/closed states — regardless of legalTargets()
- *  enumeration order. Mockup wins (stage-B review F2). */
-const STATUS_DISPLAY_ORDER: readonly WorkItemStatusWire[] = [
-  "backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled",
-]
-
-export function StatusPickerContent({
-  detail,
-  openChildren,
-  commit,
-  sheet,
-  onDone,
-}: PickerContentProps & { openChildren: number; commit: (status: WorkItemStatusWire) => void }) {
-  const from = detail.workItem.status
-  const targets = legalTargets(from, { openChildren })
-    .filter((t) => t.status !== from)
-    .sort((a, b) => STATUS_DISPLAY_ORDER.indexOf(a.status) - STATUS_DISPLAY_ORDER.indexOf(b.status))
-  const offered = new Set<WorkItemStatusWire>([from, ...targets.map((t) => t.status)])
-  const omitted = ALL_STATUSES.filter((s) => !offered.has(s))
-  return (
-    <>
-      <PickerRow
-        sheet={sheet}
-        glyph={<StatusCircle status={from} size={18} />}
-        label={STATUS_LABEL[from]}
-        checked
-        onSelect={onDone}
-        testId={`status-option-${from}`}
-      />
-      {targets.map((target) => (
-        <PickerRow
-          key={target.status}
-          sheet={sheet}
-          glyph={<StatusCircle status={target.status} size={18} />}
-          label={STATUS_LABEL[target.status]}
-          disabled={target.gated}
-          reason={target.reason}
-          onSelect={() => {
-            commit(target.status)
-            onDone()
-          }}
-          testId={`status-option-${target.status}`}
-        />
-      ))}
-      {omitted.length > 0 && (
-        <PickerNote>
-          Only legal moves are listed — {omitted.map((s) => STATUS_LABEL[s]).join(" and ")}{" "}
-          {omitted.length === 1 ? "isn't" : "aren't"} reachable from {STATUS_LABEL[from]}.
-        </PickerNote>
-      )}
-    </>
-  )
 }
 
 const PRIORITIES = [3, 2, 1, 0] as const

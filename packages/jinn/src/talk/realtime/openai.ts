@@ -9,15 +9,16 @@
  * Constructed only through `createRealtimeProvider` in ./index.ts.
  */
 import WebSocket from "ws";
+import type { JsonObject } from "../../shared/types.js";
 import type {
-  JsonObject,
   RealtimeEphemeralToken,
   RealtimeEvent,
   RealtimeProvider,
   RealtimeSessionOptions,
   RealtimeTurnDetection,
   RealtimeUsage,
-} from "../../shared/types.js";
+} from "../../shared/voice.js";
+import { addUsage, emptyUsage, type OpenAiUsage } from "./openai-usage.js";
 
 const REALTIME_WS_URL = "wss://api.openai.com/v1/realtime";
 const CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
@@ -29,16 +30,6 @@ export interface OpenAiRealtimeOptions {
   apiKey: string;
   /** Defaults applied to every session; per-call options override them. */
   session?: RealtimeSessionOptions;
-}
-
-function emptyUsage(): RealtimeUsage {
-  return {
-    inputAudioTokens: 0,
-    outputAudioTokens: 0,
-    inputTextTokens: 0,
-    outputTextTokens: 0,
-    cachedInputTokens: 0,
-  };
 }
 
 /**
@@ -82,22 +73,6 @@ export function buildSessionPayload(options: RealtimeSessionOptions): JsonObject
   };
 }
 
-/** Shape of `response.usage` on a `response.done` event. */
-interface OpenAiUsage {
-  input_token_details?: { text_tokens?: number; audio_tokens?: number; cached_tokens?: number };
-  output_token_details?: { text_tokens?: number; audio_tokens?: number };
-}
-
-function addUsage(total: RealtimeUsage, usage: OpenAiUsage): void {
-  const input = usage.input_token_details ?? {};
-  const output = usage.output_token_details ?? {};
-  total.inputAudioTokens += input.audio_tokens ?? 0;
-  total.inputTextTokens += input.text_tokens ?? 0;
-  total.cachedInputTokens += input.cached_tokens ?? 0;
-  total.outputAudioTokens += output.audio_tokens ?? 0;
-  total.outputTextTokens += output.text_tokens ?? 0;
-}
-
 class OpenAiRealtimeProvider implements RealtimeProvider {
   readonly name = "openai";
 
@@ -106,6 +81,8 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
   private readonly handlers: ((event: RealtimeEvent) => void)[] = [];
   private readonly total = emptyUsage();
   private socket: WebSocket | null = null;
+  /** The model this session actually connected on, which is what its usage prices against. */
+  private model = DEFAULT_MODEL;
   /** Set by `interrupt()` so the next cancellation is attributed to us, not to VAD. */
   private cancelledByClient = false;
   /** Settles the `connect()` promise once the server acknowledges the session. */
@@ -141,7 +118,8 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
   connect(options: RealtimeSessionOptions = {}): Promise<void> {
     if (this.socket) throw new Error("This realtime provider is already connected — construct a second one for a second session");
     const session = { ...this.defaults, ...options };
-    const socket = new WebSocket(`${REALTIME_WS_URL}?model=${encodeURIComponent(session.model ?? DEFAULT_MODEL)}`, {
+    this.model = session.model ?? DEFAULT_MODEL;
+    const socket = new WebSocket(`${REALTIME_WS_URL}?model=${encodeURIComponent(this.model)}`, {
       headers: { Authorization: `Bearer ${this.apiKey}` },
     });
     this.socket = socket;
@@ -279,7 +257,7 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
 
   /** A cancelled response is a barge-in unless we asked for the cancellation. */
   private completeTurn(response: Record<string, unknown> | undefined): RealtimeEvent {
-    if (response?.usage) addUsage(this.total, response.usage as OpenAiUsage);
+    if (response?.usage) addUsage(this.total, response.usage as OpenAiUsage, this.model);
     if (response?.status === "cancelled") {
       const reason = this.cancelledByClient ? "client" : "barge_in";
       this.cancelledByClient = false;

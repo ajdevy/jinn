@@ -5,9 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
-import { compactEmployeeRole } from "../shared/employee-role.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
 import {
@@ -95,6 +94,7 @@ import {
   recordTurnAccounting,
   RESTART_ACK_META_KEY,
 } from "../sessions/registry.js";
+import { claimIncomingTurn, lateralSendDedupeKey } from "../sessions/incoming-turn.js";
 import { blockFallbackText, validateBlockEnvelope } from "../shared/blocks.js";
 import {
   createPartialStreamWriter,
@@ -110,11 +110,10 @@ export {
 } from "../sessions/partial-stream.js";
 import { isBudgetExhausted } from "./budgets.js";
 import { forkEngineSession } from "../sessions/fork.js";
-import { removeCodexSessionHome } from "../engines/codex.js";
+import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
   CONFIG_PATH,
-  CRON_RUNS,
   ORG_DIR,
   SKILLS_DIR,
   LOGS_DIR,
@@ -145,22 +144,18 @@ import { decideJinnAttachment } from "../mcp/attachment.js";
 import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
-import { pickEncoding, compressBuffer, MIN_COMPRESS_BYTES } from "./compress.js";
-import { canonicalCronJobId, loadJobs, saveJobs } from "../cron/jobs.js";
-import { summarizeCronRun } from "../cron/run-summary.js";
-import { reloadScheduler } from "../cron/scheduler.js";
-import { validateCronSchedule } from "../cron/validation.js";
-import { runCronJob } from "../cron/runner.js";
+import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
+export { matchRoute } from "./route-helpers.js";
+import { handleCronApi } from "./cron-api.js";
+import { handleOrgApi } from "./org-api.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
 import { streamFile } from "./byte-range.js";
-import { ensureLowVariant, ensurePoster } from "./video-variants.js";
-import { ensureThumbnail, isThumbnailable } from "./image-variants.js";
+import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
-import { readJsonlTail } from "./jsonl-tail.js";
 import { completedStreamedBlockIds } from "./streamed-blocks.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
@@ -245,6 +240,7 @@ import {
   WorkItemAttachmentError,
   type AttachmentActor,
 } from "../work-items/attachments.js";
+import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER, type WriteOrigin } from "../work-items/origin.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
@@ -312,11 +308,7 @@ import {
   PAIRING_CHALLENGE_TTL_MS,
 } from "./pairing-challenge.js";
 import { markTranscriptSyncedThrough, scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
-import {
-  streamTtsSentences,
-  ttsStatus,
-  validateTtsText,
-} from "../talk/tts-stream.js";
+import { handleTalkApi } from "./talk-api.js";
 import { onboardingNeeded, applyEngineChoice } from "./onboarding-policy.js";
 import {
   CONTAINER_RESTART_UNSUPPORTED_MESSAGE,
@@ -326,6 +318,7 @@ import {
 import { updateSkillContent } from "./skills.js";
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
+import { handleHeartbeatApi } from "./heartbeat-api.js";
 
 /** Max bytes accepted on /api/internal/hook (loopback-only relay payloads are tiny). */
 const HOOK_BODY_MAX_BYTES = 64 * 1024;
@@ -601,6 +594,8 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // turn, so startup replay must finish it regardless of the parent's source.
     const callbackDelivery = getSessionDeliveryByQueueItemId(item.id);
     if (runtimeSessionSource(session.source) !== "web" && !callbackDelivery) continue;
+    // Hot-reload calls this too: a row waiting its turn here is owned, not orphaned.
+    if (context.sessionManager.getQueue().hasInFlightItem(item.id)) continue;
     session = maybeRevertEngineOverride(session);
 
     const config = context.getConfig();
@@ -815,36 +810,6 @@ function findUnresolvedAttachmentIds(fileIds: string[]): string[] {
   });
 }
 
-/** Per-request Accept-Encoding, stashed by handleApiRequest so json() can compress. */
-type ResWithEncoding = ServerResponse & { __acceptEncoding?: string };
-
-function json(res: ServerResponse, data: unknown, status = 200): void {
-  const body = Buffer.from(JSON.stringify(data));
-  const enc =
-    body.length >= MIN_COMPRESS_BYTES
-      ? pickEncoding((res as ResWithEncoding).__acceptEncoding)
-      : null;
-  if (enc) {
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      "Content-Encoding": enc,
-      Vary: "Accept-Encoding",
-    });
-    res.end(compressBuffer(enc, body));
-    return;
-  }
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(body);
-}
-
-function notFound(res: ServerResponse): void {
-  json(res, { error: "Not found" }, 404);
-}
-
-function badRequest(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 400);
-}
-
 function noteStoreFailureResponse(
   res: ServerResponse,
   result: Extract<NoteStoreResult<unknown>, { ok: false }>,
@@ -869,10 +834,6 @@ function experimentStoreFailureResponse(
 ): void {
   const status = { invalid: 400, "not-found": 404, conflict: 409 }[result.reason];
   json(res, { error: result.detail }, status);
-}
-
-function serverError(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 500);
 }
 
 const REDACTED_SECRET = "***";
@@ -945,36 +906,6 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function matchRoute(
-  pattern: string,
-  pathname: string,
-): Record<string, string> | null {
-  const patternParts = pattern.split("/");
-  const pathParts = pathname.split("/");
-  if (patternParts.length !== pathParts.length) return null;
-
-  const params: Record<string, string> = {};
-  for (let i = 0; i < patternParts.length; i++) {
-    if (patternParts[i].startsWith(":")) {
-      const raw = pathParts[i];
-      if (/%2f|%5c/i.test(raw)) return null;
-      let decoded: string;
-      try {
-        decoded = decodeURIComponent(raw);
-      } catch {
-        return null;
-      }
-      if (!decoded || decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\") || decoded.includes("\0")) {
-        return null;
-      }
-      params[patternParts[i].slice(1)] = decoded;
-    } else if (patternParts[i] !== pathParts[i]) {
-      return null;
-    }
-  }
-  return params;
-}
-
 function sessionHasRuntimeActivity(session: Session, context: ApiContext): boolean {
   const activity = context.backgroundActivity?.get(session.id);
   if (!activity) return false;
@@ -1032,19 +963,6 @@ function compactSessionSummary(session: Session): Record<string, unknown> {
     lastActivity: session.lastActivity ?? null,
     parentSessionId: session.parentSessionId ?? null,
     ...(session.workflowProvenance ? { workflowProvenance: session.workflowProvenance } : {}),
-  };
-}
-
-function cronJobSummary(job: Record<string, unknown>, lastRun: unknown): Record<string, unknown> {
-  return {
-    id: job.id,
-    name: job.name,
-    schedule: job.schedule,
-    enabled: job.enabled !== false,
-    employee: job.employee ?? null,
-    engine: job.engine ?? null,
-    timezone: job.timezone ?? null,
-    lastRun: lastRun ? summarizeCronRun(lastRun) : null,
   };
 }
 
@@ -1332,9 +1250,8 @@ function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   return false;
 }
 
-type WorkItemCaller =
-  | { kind: 'operator'; session?: undefined; callerId?: undefined }
-  | { kind: 'session'; session: Session; callerId: string };
+type WorkItemCaller = { origin?: WriteOrigin }
+  & ({ kind: 'operator'; session?: undefined; callerId?: undefined } | { kind: 'session'; session: Session; callerId: string });
 
 function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: ApiContext): WorkItemCaller | undefined {
   const identity = resolveScopedWriteCallerIdentity(req, context);
@@ -1342,13 +1259,13 @@ function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: A
     json(res, { error: UNIDENTIFIED_TOOL_CALL_ERROR }, 403);
     return undefined;
   }
-  if (identity.kind === "operator") return { kind: 'operator' };
+  if (identity.kind === "operator") return { kind: 'operator', origin: readWriteOrigin(req.headers[WRITE_ORIGIN_HEADER]) };
   const session = getSession(identity.callerId);
   if (!session) {
     json(res, { error: UNIDENTIFIED_TOOL_CALL_ERROR }, 403);
     return undefined;
   }
-  return { kind: 'session', callerId: identity.callerId, session };
+  return { kind: 'session', callerId: identity.callerId, session, origin: readWriteOrigin(req.headers[WRITE_ORIGIN_HEADER]) };
 }
 
 function resolveNeedsAttentionTarget(req: HttpRequest, res: ServerResponse, requested: string, context: ApiContext): string | undefined {
@@ -2347,7 +2264,16 @@ export async function handleApiRequest(
     }
     if (context.workflowService && await handleWorkflowApi(req, res, { service: context.workflowService,
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok })) return;
+    if (await handleTalkApi(req, res, {
+      getConfig: context.getConfig,
+      authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok,
+      runHandoff: (session, prompt) => {
+        const engine = context.sessionManager.getEngine(session.engine);
+        if (engine) dispatchWebSessionRun(session, prompt, engine, context.getConfig(), context);
+      },
+    })) return;
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
+    if (await handleHeartbeatApi(req, res, { resolveCaller: () => resolveScopedWriteCallerIdentity(req, context) })) return;
 
     if (method === "GET" && pathname === "/api/features") {
       const config = context.getConfig();
@@ -3356,9 +3282,7 @@ export async function handleApiRequest(
 
       const deleted = deleteSession(params.id);
       if (!deleted) return notFound(res);
-      // Remove any per-session Codex CODEX_HOME overlay (holds a session-scoped
-      // capability in its config.toml). No-op for non-codex sessions. Idempotent.
-      removeCodexSessionHome(params.id);
+      cleanUpDeletedSession(params.id);
       logger.info(`Session deleted: ${params.id}`);
       context.emit("session:deleted", { sessionId: params.id });
       context.emit("pins:changed", {});
@@ -3599,9 +3523,7 @@ export async function handleApiRequest(
       const deletableIds = deletable.map((session) => session.id);
       const count = deleteSessions(deletableIds);
       for (const id of deletableIds) {
-        // Remove any per-session Codex CODEX_HOME overlay for each deleted id
-        // (session-scoped capability on disk). No-op for non-codex sessions.
-        removeCodexSessionHome(id);
+        cleanUpDeletedSession(id);
         context.emit("session:deleted", { sessionId: id });
       }
       if (count > 0) context.emit("pins:changed", {});
@@ -3744,6 +3666,7 @@ export async function handleApiRequest(
         // that employee (the comments identity model); `session:<uuid>` remains
         // only for employee-less raw sessions.
         createdBy: workItemCommentAuthor(caller).author,
+        origin: caller.origin,
       };
       try {
         // Tagging runs inside the create transaction: an unknown label must fail
@@ -3753,7 +3676,7 @@ export async function handleApiRequest(
           ? createWorkItem(input)
           : initDb().transaction(() => {
             const created = createWorkItem(input);
-            labels = setWorkItemLabels(created.id, labelRefs, workItemActor(caller));
+            labels = setWorkItemLabels(created.id, labelRefs, workItemActor(caller), caller.origin);
             return created;
           })();
         const activityReceiptId = persistTodoMutationActivity(req, context, item, "created");
@@ -4016,9 +3939,7 @@ export async function handleApiRequest(
         actingAsOperator = permitted.actingAs;
       }
       const actor = body.asOperator === true ? "operator" : workItemActor(caller);
-      const detail = note || actingAsOperator
-        ? { ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }
-        : undefined;
+      const detail = writeDetail({ ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }, caller.origin);
       // The banner's asked-for-after reason (design-doc §5): a same-status
       // operator PUT with a note annotates the CURRENT exception state instead
       // of vanishing in transition()'s same-status no-op. The note event
@@ -4029,7 +3950,7 @@ export async function handleApiRequest(
           kind: "note",
           toStatus: target as WorkItemStatus,
           actor,
-          detail: { note },
+          detail: writeDetail({ note }, caller.origin),
           versionEffect: "state",
         });
         const annotated = getWorkItem(params.id)!;
@@ -4121,7 +4042,7 @@ export async function handleApiRequest(
         if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       }
       try {
-        const item = assignWorkItem(params.id, assignee, employee.department ?? null, workItemActor(caller));
+        const item = assignWorkItem(params.id, assignee, employee.department ?? null, workItemActor(caller), caller.origin);
         if (!item) return notFound(res);
         const activityReceiptId = persistTodoMutationActivity(req, context, item, "assigned", item.version !== current.version);
         return json(res, withActivityReceipt({ workItem: item }, activityReceiptId));
@@ -4358,6 +4279,7 @@ export async function handleApiRequest(
           body: text,
           ...workItemCommentAuthor(caller),
           parentCommentId,
+          origin: caller.origin,
         });
         forwardWorkflowTodoComment(comment);
         emitTodoProjectionEvent(context, params.id, "commented");
@@ -4411,7 +4333,7 @@ export async function handleApiRequest(
         const comment = tombstoneComment(params.cid, {
           ...workItemCommentAuthor(caller),
           operator: caller.kind === "operator",
-        });
+        }, caller.origin);
         emitTodoProjectionEvent(context, params.id, "comment-deleted");
         return json(res, { comment });
       } catch (err) {
@@ -4542,52 +4464,17 @@ export async function handleApiRequest(
       }
       const reqUrl = new URL(req.url || pathname, `http://${req.headers.host || "localhost"}`);
       const download = reqUrl.searchParams.get("download") === "1";
-      let selectedPath = attachment.storagePath;
-      let selectedMime = attachment.mime;
-      let selectedFilename = attachment.filename;
-      let variant = "original";
-      const wantsThumbnail = !download && reqUrl.searchParams.get("thumb") === "1" && isThumbnailable(attachment.mime);
-      if (!download && attachment.mime.startsWith("video/")) {
-        const key = `todo:${attachment.sha256}`;
-        if (reqUrl.searchParams.get("poster") === "1") {
-          const poster = await ensurePoster(attachment.storagePath, key);
-          if (!poster) return notFound(res);
-          selectedPath = poster;
-          selectedMime = "image/jpeg";
-          selectedFilename = `${path.parse(attachment.filename).name}-poster.jpg`;
-          variant = "poster";
-        } else if (reqUrl.searchParams.get("quality") === "low") {
-          const low = ensureLowVariant(attachment.storagePath, key);
-          if (low) {
-            selectedPath = low;
-            selectedMime = "video/mp4";
-            variant = "low";
-          }
-        }
-      } else if (wantsThumbnail) {
-        const thumbnail = await ensureThumbnail(attachment.storagePath, `todo:${attachment.sha256}`);
-        if (thumbnail) {
-          selectedPath = thumbnail;
-          selectedMime = "image/webp";
-          selectedFilename = `${path.parse(attachment.filename).name}-thumb.webp`;
-          variant = "thumb";
-        }
-      }
-      const selectedStat = fs.statSync(selectedPath);
-      // A variant that could not be produced this time falls back to the original,
-      // and that fallback must not be cached for a year under an immutable ETag.
-      const variantFallback = variant === "original"
-        && (wantsThumbnail
-          || (!download && attachment.mime.startsWith("video/") && reqUrl.searchParams.get("quality") === "low"));
-      await streamFile(req, res, selectedPath, {
-        mime: selectedMime,
-        filename: selectedFilename,
+      const selected = await selectAttachmentVariant(attachment, reqUrl.searchParams, download);
+      if (!selected) return notFound(res);
+      await streamFile(req, res, selected.path, {
+        mime: selected.mime,
+        filename: selected.filename,
         disposition: download || !attachment.mime.startsWith("video/") ? "attachment" : "inline",
-        cacheHeaders: variantFallback
+        cacheHeaders: selected.isFallback
           ? { "Cache-Control": "no-store" }
           : {
               "Cache-Control": "public, max-age=31536000, immutable",
-              ETag: `"${attachment.sha256}-${variant}-${selectedStat.size}"`,
+              ETag: `"${attachment.sha256}-${selected.variant}-${selected.size}"`,
             },
       });
       return;
@@ -4715,7 +4602,7 @@ export async function handleApiRequest(
         return badRequest(res, `labels accepts at most ${TODO_LABELS_MAX} entries per Todo (got ${body.labels.length})`);
       }
       try {
-        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller));
+        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller), caller.origin);
         emitTodoProjectionEvent(context, params.id, "labels-updated");
         return json(res, { labels });
       } catch (err) {
@@ -5537,6 +5424,7 @@ export async function handleApiRequest(
       // unprefixed operator-grade user message.
       const msgCaller = resolveScopedWriteCallerIdentity(req, context);
       let parentFollowUp: { caller: Session; message: string } | undefined;
+      let lateralDedupeKey: string | undefined;
       if (msgCaller.kind === "unidentified-tool") {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: UNIDENTIFIED_TOOL_CALL_ERROR }));
@@ -5562,6 +5450,7 @@ export async function handleApiRequest(
           res.end(JSON.stringify({ error: plan.error }));
           return;
         }
+        lateralDedupeKey = lateralSendDedupeKey(caller.id, params.id, String(rawMessage));
         body.role = "notification";
         body.message = plan.prompt;
         body.displayMessage = plan.displayMessage;
@@ -5747,18 +5636,13 @@ export async function handleApiRequest(
         queueItemId = acceptance.delivery.queueItemId!;
         incomingMessageId = acceptance.delivery.messageId!;
       } else {
-        queueItemId = isNotification
-          ? enqueueQueueItem(session.id, sessionKey, prompt, { internal: true })
-          : undefined;
-        incomingMessageId = insertMessage(
-          session.id,
-          messageRole,
-          isNotification ? displayMessage : prompt,
-          userMedia.length > 0 ? userMedia : undefined,
-          undefined,
-          undefined,
-          notificationMeta,
-        );
+        const claim = claimIncomingTurn({
+          sessionId: session.id, sessionKey, prompt, isNotification, role: messageRole, dedupeKey: lateralDedupeKey,
+          content: isNotification ? displayMessage : prompt, media: userMedia, meta: notificationMeta,
+        });
+        if (claim.deduplicated) return json(res, { status: "duplicate", sessionId: session.id, queueItemId: claim.queueItemId });
+        queueItemId = claim.queueItemId;
+        incomingMessageId = claim.messageId;
       }
       if (parentFollowUp) {
         const preview = clipSessionMessage(parentFollowUp.message, 220);
@@ -5907,237 +5791,8 @@ export async function handleApiRequest(
       return;
     }
 
-    // GET /api/cron
-    if (method === "GET" && pathname === "/api/cron") {
-      const jobs = loadJobs();
-      // Enrich with last run status — tail-read only the newest entry, the
-      // run logs are append-only JSONL that grows forever.
-      const enriched = await Promise.all(jobs.map(async (job) => {
-        const runFile = path.join(CRON_RUNS, `${job.id}.jsonl`);
-        const { entries } = await readJsonlTail(runFile, 1);
-        return cronJobSummary(job as unknown as Record<string, unknown>, entries[0] ?? null);
-      }));
-      return json(res, enriched);
-    }
-
-    // GET /api/cron/:id/runs?limit=N — newest first (the UI shows "Recent Runs").
-    // Run history is append-only JSONL that grows forever, so only the file's
-    // tail is read; corrupt lines (crash mid-write) are skipped, not 500'd.
-    params = matchRoute("/api/cron/:id/runs", pathname);
-    if (method === "GET" && params) {
-      const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "", 10) || 50));
-      const runFile = path.join(CRON_RUNS, `${params.id}.jsonl`);
-      const { entries: runs, skipped } = await readJsonlTail(runFile, limit);
-      if (skipped) logger.warn(`GET /api/cron/${params.id}/runs: skipped ${skipped} corrupt line(s)`);
-      return json(res, runs.map(summarizeCronRun));
-    }
-
-    // POST /api/cron — create new cron job
-    if (method === "POST" && pathname === "/api/cron") {
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      const jobs = loadJobs();
-      // Job ids are identity (run-log files and PUT/DELETE routing) —
-      // a duplicate would double-schedule one id and collide two run histories in
-      // one jsonl (Codex GRS-014d finding 2). Identity is CANONICAL (trim+lowercase,
-      // GRS-014d-fix2): run-log files `<id>.jsonl` collide case-insensitively on the
-      // default macOS volume, so differently-cased ids share the same job history.
-      // Stored ids stay as authored; only the collision check (and a
-      // padded-id rejection — whitespace ids break addressing) canonicalizes.
-      if (typeof body.id === "string" && body.id !== body.id.trim()) {
-        return badRequest(res, "cron job id must not have leading/trailing whitespace");
-      }
-      if (body.id && jobs.some((j) => canonicalCronJobId(j.id) === canonicalCronJobId(body.id))) {
-        return badRequest(res, `a cron job with id "${body.id}" already exists`);
-      }
-      const newJob: CronJob = {
-        id: body.id || crypto.randomUUID(),
-        name: body.name || "untitled",
-        enabled: body.enabled ?? true,
-        schedule: body.schedule || "0 * * * *",
-        timezone: body.timezone,
-        engine: body.engine,
-        model: body.model,
-        employee: body.employee,
-        prompt: body.prompt || "",
-        delivery: body.delivery,
-      };
-      const scheduleErrors = validateCronSchedule({ schedule: newJob.schedule, ...(newJob.timezone !== undefined ? { timezone: newJob.timezone } : {}) });
-      if (scheduleErrors.length > 0) return badRequest(res, scheduleErrors.map((entry) => entry.message).join("; "));
-      jobs.push(newJob);
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, newJob, 201);
-    }
-
-    // PUT /api/cron/:id
-    params = matchRoute("/api/cron/:id", pathname);
-    if (method === "PUT" && params) {
-      const jobs = loadJobs();
-      const idx = jobs.findIndex((j) => j.id === params!.id);
-      if (idx === -1) return notFound(res);
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      const merged = { ...jobs[idx], ...body, id: params.id } as CronJob;
-      const scheduleErrors = validateCronSchedule({ schedule: merged.schedule, ...(merged.timezone !== undefined ? { timezone: merged.timezone } : {}) });
-      if (scheduleErrors.length > 0) return badRequest(res, scheduleErrors.map((entry) => entry.message).join("; "));
-      jobs[idx] = merged;
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, jobs[idx]);
-    }
-
-    // DELETE /api/cron/:id
-    params = matchRoute("/api/cron/:id", pathname);
-    if (method === "DELETE" && params) {
-      const jobs = loadJobs();
-      const idx = jobs.findIndex((j) => j.id === params!.id);
-      if (idx === -1) return notFound(res);
-      const removed = jobs.splice(idx, 1)[0];
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, { deleted: removed.id, name: removed.name });
-    }
-
-    // POST /api/cron/:id/trigger — manually run a cron job now
-    params = matchRoute("/api/cron/:id/trigger", pathname);
-    if (method === "POST" && params) {
-      const jobs = loadJobs();
-      const job = jobs.find((j) => j.id === params!.id);
-      if (!job) return notFound(res);
-
-      logger.info(`Manual trigger for cron job "${job.name}" (${job.id})`);
-
-      // Fire and forget — respond immediately, run in background.
-      runCronJob(job, context.sessionManager, context.getConfig(), context.connectors, { emit: context.emit }).catch(
-        (err) => logger.error(`Manual cron trigger failed for "${job.name}": ${err}`)
-      );
-
-      return json(res, {
-        triggered: true,
-        jobId: job.id,
-        name: job.name,
-        employee: job.employee,
-        message: `Cron job "${job.name}" triggered manually`,
-      });
-    }
-
-    // GET /api/org
-    if (method === "GET" && pathname === "/api/org") {
-      const entries = fs.existsSync(ORG_DIR)
-        ? fs.readdirSync(ORG_DIR, { withFileTypes: true })
-        : [];
-      const departments = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name);
-
-      const { scanOrg } = await import("./org.js");
-      const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-      const orgRegistry = scanOrg(context.getConfig());
-      const hierarchy = resolveOrgHierarchy(orgRegistry);
-
-      const employees = hierarchy.sorted.map((name) => {
-        const node = hierarchy.nodes[name];
-        const emp = node.employee;
-        const { persona, ...rest } = emp;
-        const role = compactEmployeeRole(persona);
-        return {
-          ...rest,
-          ...(role ? { role } : {}),
-          parentName: node.parentName,
-          directReports: node.directReports,
-          depth: node.depth,
-          chain: node.chain,
-        };
-      });
-
-      return json(res, {
-        departments,
-        employees,
-        hierarchy: {
-          root: hierarchy.root,
-          sorted: hierarchy.sorted,
-          warnings: hierarchy.warnings,
-        },
-      });
-    }
-
-    // GET /api/org/employees/:name
-    params = matchRoute("/api/org/employees/:name", pathname);
-    if (method === "GET" && params) {
-      const { scanOrg } = await import("./org.js");
-      const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-      const orgRegistry = scanOrg(context.getConfig());
-      const emp = orgRegistry.get(params.name);
-      if (!emp) return notFound(res);
-
-      const hierarchy = resolveOrgHierarchy(orgRegistry);
-      const node = hierarchy.nodes[params.name];
-
-      return json(res, {
-        ...emp,
-        parentName: node?.parentName ?? null,
-        directReports: node?.directReports ?? [],
-        depth: node?.depth ?? 0,
-        chain: node?.chain ?? [params.name],
-      });
-    }
-
-    // PATCH /api/org/employees/:name — update employee fields (whitelisted, validated)
-    params = matchRoute("/api/org/employees/:name", pathname);
-    if (method === "PATCH" && params) {
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as Record<string, unknown>;
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return badRequest(res, "update body must be a JSON object");
-      }
-      const { scanOrg, updateEmployeeYaml, validateEmployeeUpdate } = await import("./org.js");
-      const current = scanOrg(context.getConfig()).get(params.name);
-      if (!current) return notFound(res);
-
-      const result = validateEmployeeUpdate(context.getConfig(), current, body);
-      if (!result.ok) return badRequest(res, result.error || "invalid update");
-
-      const wrote = updateEmployeeYaml(params.name, result.updates!);
-      if (!wrote) return notFound(res);
-
-      // G1: synchronously refresh the in-memory registry (and drop warm PTYs) so an
-      // immediate session spawn sees the new persona/model — don't wait for the watcher.
-      context.reloadOrg?.();
-
-      const updated = scanOrg(context.getConfig()).get(params.name);
-      return json(res, { status: "ok", employee: updated ?? null });
-    }
-
-    // GET /api/org/departments/:name/board
-    params = matchRoute("/api/org/departments/:name/board", pathname);
-    if (method === "GET" && params) {
-      const boardPath = path.join(ORG_DIR, params.name, "board.json");
-      if (!fs.existsSync(boardPath)) return notFound(res);
-      let board: unknown;
-      try { board = JSON.parse(fs.readFileSync(boardPath, "utf-8")); }
-      catch (err) {
-        logger.warn(`GET /api/org/departments/${params.name}/board: corrupt board.json — ${err instanceof Error ? err.message : String(err)}`);
-        return serverError(res, "board.json is corrupt");
-      }
-      return json(res, board);
-    }
-
-    // PUT /api/org/departments/:name/board
-    if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) {
-      const p = matchRoute("/api/org/departments/:name/board", pathname)!;
-      const boardPath = path.join(ORG_DIR, p.name, "board.json");
-      const deptDir = path.join(ORG_DIR, p.name);
-      if (!fs.existsSync(deptDir)) return notFound(res);
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
-      return json(res, { status: "ok" });
-    }
+    if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
 
     // GET /api/skills
     if (method === "GET" && pathname === "/api/skills") {
@@ -6698,60 +6353,6 @@ export async function handleApiRequest(
         const msg = err instanceof Error ? err.message : String(err);
         return serverError(res, `Failed to update STT config: ${msg}`);
       }
-    }
-
-    // ── TTS (per-message read-aloud) ──────────────────────────
-    // GET /api/tts — engine readiness so the client can pick Kokoro vs the
-    // browser Web Speech fallback WITHOUT a failed POST. Reuses the shared Kokoro
-    // engine; gated on weights + venv present.
-    if (method === "GET" && pathname === "/api/tts") {
-      const { available, voice } = ttsStatus(context.getConfig().talk?.kokoro);
-      return json(res, { available, voice });
-    }
-
-    // POST /api/tts {text} — STREAM one length-prefixed WAV frame per sentence as
-    // each is synthesized, so the client plays sentence 1 while 2..N are still
-    // synthesizing (time-to-first-audio ≈ one sentence, not the whole message).
-    // Frame = 4-byte big-endian length + WAV bytes. 503 {available:false} when
-    // Kokoro can't run (client then falls back to browser Web Speech).
-    if (method === "POST" && pathname === "/api/tts") {
-      const kokoroOpts = context.getConfig().talk?.kokoro;
-      if (!ttsStatus(kokoroOpts).available) {
-        return json(res, { available: false }, 503);
-      }
-      const parsed = await readJsonBody(req, res);
-      if (!parsed.ok) return;
-      const valid = validateTtsText((parsed.body as { text?: unknown } | null)?.text);
-      if (!valid.ok) return badRequest(res, valid.error);
-
-      res.writeHead(200, {
-        "Content-Type": "application/octet-stream",
-        "Cache-Control": "no-store",
-        "X-Accel-Buffering": "no", // don't let a proxy buffer the stream
-      });
-      // A client abort (pause / navigate) closes the request → stop synthesizing
-      // the rest of the message instead of wasting Kokoro on audio nobody hears.
-      let cancelled = false;
-      req.on("close", () => {
-        cancelled = true;
-      });
-      try {
-        await streamTtsSentences(
-          valid.text,
-          kokoroOpts,
-          (wav) => {
-            const header = Buffer.allocUnsafe(4);
-            header.writeUInt32BE(wav.length, 0);
-            res.write(header);
-            res.write(wav);
-          },
-          () => cancelled || res.writableEnded,
-        );
-      } catch (err) {
-        logger.warn(`TTS stream failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (!res.writableEnded) res.end();
-      return;
     }
 
     // /api/files — file upload/download/management

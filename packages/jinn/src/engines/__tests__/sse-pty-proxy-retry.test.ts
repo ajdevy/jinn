@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
 import { AddressInfo } from "node:net";
-import { SsePtyProxy, isRetriableUpstreamError } from "../sse-pty-proxy.js";
+import { SsePtyProxy } from "../sse-pty-proxy.js";
+import { isRetriableUpstreamError, MAX_UPSTREAM_ATTEMPTS } from "../upstream-pool.js";
 
 describe("isRetriableUpstreamError — corrupted TLS socket is retriable", () => {
   const mk = (code: string | undefined, message: string): NodeJS.ErrnoException =>
@@ -29,7 +30,7 @@ describe("isRetriableUpstreamError — corrupted TLS socket is retriable", () =>
 // These tests target the "stale pooled socket" failure mode: the keep-alive pool
 // occasionally hands the proxy a connection the server already half-closed, which
 // errors with ECONNRESET / "socket hang up" before any response — and surfaced to
-// the CLI as a bare 502. The proxy must retry ONCE on a fresh socket.
+// the CLI as a bare 502. The proxy must retry on a fresh socket, within a budget.
 
 interface Upstream {
   port: number;
@@ -114,7 +115,7 @@ describe("SsePtyProxy upstream retry (stale keep-alive socket → 502 fix)", () 
     expect(upstream.attempts()).toBe(2); // one failed attempt + one retry
   });
 
-  it("retries at most once — a persistently dead upstream ends as 502, not an infinite loop", async () => {
+  it("retries within a bounded budget — a persistently dead upstream ends as 502, not an infinite loop", async () => {
     const upstream = await startUpstream((_n, _req, res) => {
       res.socket?.destroy(); // every attempt resets
     });
@@ -125,7 +126,7 @@ describe("SsePtyProxy upstream retry (stale keep-alive socket → 502 fix)", () 
     const out = await callProxy(port);
 
     expect(out.status).toBe(502);
-    expect(upstream.attempts()).toBe(2); // original + exactly one retry
+    expect(upstream.attempts()).toBe(MAX_UPSTREAM_ATTEMPTS); // original + a capped number of retries
   });
 
   it("does NOT retry a real HTTP error response — 500 is forwarded unchanged", async () => {

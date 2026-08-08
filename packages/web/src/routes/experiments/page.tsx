@@ -11,6 +11,7 @@ function ExperimentRow({ experiment }: { experiment: Experiment }) {
   return (
     <Link
       to={`/experiments/${encodeURIComponent(experiment.id)}`}
+      data-talk-target={experiment.id}
       className="flex min-h-[68px] items-center gap-3 rounded-[13px] px-3.5 py-2.5 transition-colors duration-150 hover:bg-[var(--fill-quaternary)] focus-visible:bg-[var(--fill-quaternary)] focus-visible:outline-none"
     >
       <span

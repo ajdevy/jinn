@@ -19,6 +19,7 @@ import { buildCostTools } from "./cost-tools.js";
 import { buildCronTools } from "./cron-tools.js";
 import { buildFileTools } from "./file-tools.js";
 import { buildConnectorTools } from "./connector-tools.js";
+import { buildHeartbeatTools } from "./heartbeat-tools.js";
 import { JINN_SESSION_CAPABILITY_ENV, JINN_SESSION_ID_ENV, JINN_WORKFLOW_ATTEMPT_ENV } from "./identity.js";
 import { loadConfig } from "../shared/config.js";
 
@@ -102,12 +103,10 @@ const SERVER_VERSION = "0.10.0"; // 0.10: revision-safe Notes; 0.9: cost+cron re
 export { gatewayGet, gatewayRequest, JinnMcpToolError, type JinnMcpContext, type JinnMcpTool } from "./toolkit.js";
 
 /**
- * Build the full tool set: the GRS-017b org group + the GRS-017a sessions
- * group + the GRS-020a company-reference search group + the GRS-020b scoped
- * knowledge group + Experiments ledger + GRS-020c cost-only read + GRS-020d cron reads + the
- * GRS-017d delegation transaction + the GRS-021c Todo/work-item group + the
- * COO-default approval decision group + managed-file reads + the GRS-015
- * workflow group.
+ * Build the full tool set, one group per company surface: org, sessions,
+ * company-reference search, scoped knowledge, Notes, Experiments, cost reads,
+ * cron reads, the delegation transaction, Todos/work-items, approvals, managed
+ * files, connectors, session-armed heartbeats, and Workflows.
  * Growth discipline: the belt budget lives in the GRS-017 design §7 and the
  * GRS-020 design §4 (net context diet positive — measured in
  * mcp/__tests__/context-diet.test.ts and knowledge-diet.test.ts); at this
@@ -131,6 +130,7 @@ export function buildTools(opts?: { notesEnabled?: boolean; workflowAttempt?: bo
     ...buildApprovalTools(),
     ...buildFileTools(),
     ...buildConnectorTools(),
+    ...buildHeartbeatTools(),
     ...buildWorkflowTools({ attemptCompletion: opts?.workflowAttempt === true }),
   ];
 }

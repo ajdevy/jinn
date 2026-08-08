@@ -1,7 +1,8 @@
-import { render, waitFor } from "@testing-library/react"
+import { act, render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DEFAULTS, type JinnSettings } from "@/lib/settings"
 import { TalkOrbOverlay } from "../talk-orb-overlay"
+import { setTalkSessionId } from "../talk-session-store"
 
 /** Counts module evaluations, so "the chunk is not fetched" is an assertion
  *  rather than a hope: the factory only runs when the lazy import resolves. */
@@ -18,12 +19,20 @@ vi.mock("@/routes/settings-provider", () => ({
   useSettings: () => ({ settings: stored.settings }),
 }))
 
+const bindTalkActionLog = vi.fn()
+vi.mock("../talk-action-log", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../talk-action-log")>()),
+  bindTalkActionLog: (id: string | null) => bindTalkActionLog(id),
+}))
+
 function withTalkOrb(enabled: boolean) {
   stored.settings = { ...DEFAULTS, talkOrb: enabled }
 }
 
 afterEach(() => {
   orb.loads = 0
+  bindTalkActionLog.mockClear()
+  act(() => setTalkSessionId(null))
 })
 
 describe("TalkOrbOverlay", () => {
@@ -45,7 +54,33 @@ describe("TalkOrbOverlay", () => {
 
     render(<TalkOrbOverlay />)
 
-    await waitFor(() => expect(document.querySelector("[data-talk-orb]")).not.toBeNull())
+    // waitFor's one-second default is a budget for a render, and this waits on a
+    // cold dynamic import instead: transforming the talk-surface module graph
+    // costs ~520ms on an idle machine, so a loaded one times out.
+    await waitFor(() => expect(document.querySelector("[data-talk-orb]")).not.toBeNull(), {
+      timeout: 15_000,
+    })
     expect(orb.loads).toBe(1)
+  })
+
+  it("hands the open talk session down to the surface, and lets it go on the way out", async () => {
+    withTalkOrb(true)
+    act(() => setTalkSessionId("talk-9"))
+
+    const mounted = render(<TalkOrbOverlay />)
+    await waitFor(() => expect(bindTalkActionLog).toHaveBeenLastCalledWith("talk-9"))
+
+    mounted.unmount()
+
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith(null)
+  })
+
+  it("binds no session while none is open, which is what production does today", async () => {
+    withTalkOrb(true)
+
+    render(<TalkOrbOverlay />)
+
+    await waitFor(() => expect(bindTalkActionLog).toHaveBeenCalled())
+    expect(bindTalkActionLog).toHaveBeenLastCalledWith(null)
   })
 })

@@ -24,7 +24,7 @@ export function BodyEditor({
 }) {
   const [editing, setEditing] = useState(false)
   const readView = body ? (
-    <MarkdownView content={body} isDark={isDark} />
+    <MarkdownView content={body} isDark={isDark} mentions />
   ) : (
     <p className="text-[16px] leading-[1.6] text-[var(--text-quaternary)]">{BODY_PLACEHOLDER}</p>
   )

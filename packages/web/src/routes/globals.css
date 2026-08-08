@@ -171,6 +171,7 @@
   --accent: #E0A33C;
   --accent-fill: rgba(224,163,60,0.14);
   --accent-contrast: #14130F;
+  --talk-focus-ring: rgba(224,163,60,0.55);
   --system-blue: #5B9BD5;
   --system-indigo: #8586D8;
   --system-green: #7DBE6A;
@@ -241,6 +242,7 @@
   --accent: #926516;
   --accent-fill: rgba(146,101,22,0.14);
   --accent-contrast: #FBF9F2;
+  --talk-focus-ring: rgba(146,101,22,0.55);
   --system-blue: #2D6CB5;
   --system-indigo: #5155A6;
   --system-green: #597648;
@@ -311,6 +313,7 @@
     --accent: #B07A1A;
     --accent-fill: rgba(176,122,26,0.12);
     --accent-contrast: #FBF9F2;
+    --talk-focus-ring: rgba(176,122,26,0.55);
     --system-blue: #2D6CB5;
     --system-indigo: #5155A6;
     --system-green: #597648;
@@ -370,6 +373,7 @@
     --accent: #E0A33C;
     --accent-fill: rgba(224,163,60,0.14);
     --accent-contrast: #14130F;
+    --talk-focus-ring: rgba(224,163,60,0.55);
     --system-blue: #5B9BD5;
     --system-indigo: #8586D8;
     --system-green: #7DBE6A;
@@ -591,6 +595,47 @@ h1, h2, h3, h4, h5, h6 {
   .comm-arrive .comm-row::after { animation: jinn-comm-wash 0.8s linear both; }
 }
 
+/* ============================================
+   Talk focus mark
+   The orb scrolls something into view and marks it for the length of the
+   gesture, so "that one" has a referent. Transient by design: it is an answer,
+   not chrome, and nothing about it survives. Drawn on an ::after overlay so the
+   target's own box is untouched — which is why a talk target has to be an
+   element that can host a positioning context.
+   ============================================ */
+
+.talk-focus { position: relative; }
+.talk-focus::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--radius-lg);
+  background: var(--accent-fill);
+  box-shadow: 0 0 0 2px var(--talk-focus-ring);
+  pointer-events: none;
+  opacity: 0;
+  animation: jinn-talk-focus 1600ms var(--ease-smooth) both;
+}
+/* The undo strip's arrival. Transform and opacity only, so it never lands on
+   the compositor's slow path over a page that is still doing something. The
+   strip drops the animation outright under reduced motion, so there is nothing
+   to soften here. */
+@keyframes jinn-undo-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes jinn-talk-focus {
+  0% { opacity: 0; transform: scale(0.985); }
+  10% { opacity: 1; transform: scale(1); }
+  72% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The global reset collapses every animation to 0.01ms, which would flash the
+     mark and lose it. It holds still for its whole life instead. */
+  .talk-focus::after { animation: none; opacity: 1; }
+}
+
 /* Outbound follow-ups reuse the comms arrival rhythm without borrowing the
    callback wash or voice-row identity. Only provenance-backed live block puts
    receive this class; max-height grows the real layout while the row and chip
@@ -619,6 +664,16 @@ h1, h2, h3, h4, h5, h6 {
   .dispatch-arrive .dispatch-chip > span {
     animation: none;
   }
+}
+
+/* The hover glance on a Todo mention. It is portalled over the page, so it can
+   animate on transform and opacity alone and nothing around it reflows. */
+.todo-glance[data-state="open"] { animation: jinn-glance-in 120ms var(--ease-snappy) both; }
+.todo-glance[data-state="closed"] { animation: jinn-glance-out 80ms var(--ease-snappy) both; }
+@keyframes jinn-glance-in { from { opacity: 0; transform: translateY(-3px); } }
+@keyframes jinn-glance-out { to { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .todo-glance[data-state="open"], .todo-glance[data-state="closed"] { animation: none; }
 }
 
 /* ============================================

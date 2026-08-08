@@ -146,7 +146,7 @@ function callbackDeliveriesTableSql(tableName = 'callback_deliveries'): string {
 CREATE TABLE ${tableName} (
   id TEXT PRIMARY KEY,
   target_session_id TEXT NOT NULL CHECK (length(target_session_id) > 0 AND target_session_id = jinn_callback_identity(target_session_id)),
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('session', 'workflow-run')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('session', 'workflow-run', 'heartbeat')),
   source_id TEXT NOT NULL CHECK (length(source_id) > 0 AND source_id = jinn_callback_identity(source_id)),
   source_attempt TEXT NOT NULL CHECK (length(source_attempt) > 0 AND source_attempt = jinn_callback_identity(source_attempt)),
   source_outcome TEXT NOT NULL CHECK (length(source_outcome) > 0 AND source_outcome = jinn_callback_identity(source_outcome)),
@@ -196,22 +196,7 @@ const CALLBACK_DELIVERY_REQUIRED_COLUMNS = [
   'accepted_at',
 ] as const;
 
-export const CREATE_QUEUE_ITEMS_TABLE = `
-      CREATE TABLE IF NOT EXISTS queue_items (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        session_key TEXT NOT NULL,
-        prompt TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        internal INTEGER NOT NULL DEFAULT 0,
-        position INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        started_at TEXT,
-        completed_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_queue_session
-        ON queue_items (session_key, status, position);
-    `;
+export { CREATE_QUEUE_ITEMS_TABLE, migrateQueueItemsSchema } from './queue-items-schema.js';
 
 // Backs listSessionsByWorkItem (the GRS-002 read-back path) and any future
 // per-item session lookup. Partial: only sessions actually linked to an item.
@@ -297,16 +282,6 @@ export function migrateMessagesSchema(database: Database.Database): void {
   }
   if (!colNames.has('meta')) {
     database.exec('ALTER TABLE messages ADD COLUMN meta TEXT');
-  }
-}
-
-/** Additive migration for restart-safe system work. Internal queue rows use the
- * same durable ordering/replay machinery as user messages, but stay out of the
- * operator-facing queue panel and its cancel/clear controls. */
-export function migrateQueueItemsSchema(database: Database.Database): void {
-  const columns = database.prepare('PRAGMA table_info(queue_items)').all() as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === 'internal')) {
-    database.exec('ALTER TABLE queue_items ADD COLUMN internal INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -451,7 +426,7 @@ function hasSessionDeliveryConstraints(sql: string): boolean {
   return canonicalColumns.every((column) =>
     normalized.includes(`length(${column}) > 0 and ${column} = jinn_callback_identity(${column})`),
   )
-    && normalized.includes("source_kind in ('session', 'workflow-run')")
+    && normalized.includes("source_kind in ('session', 'workflow-run', 'heartbeat')")
     && normalized.includes('source_version >= 1')
     && normalized.includes('json_valid(payload)')
     && normalized.includes("json_type(payload) = 'object'")
@@ -755,7 +730,7 @@ export function sessionDeliveryFromRow(row: SessionDeliveryRow): SessionDelivery
   if (!Number.isInteger(row.sourceVersion) || row.sourceVersion < 1) {
     throw new Error(`Session delivery ${row.id} has an invalid source version`);
   }
-  if (row.sourceKind !== 'session' && row.sourceKind !== 'workflow-run') {
+  if (!['session', 'workflow-run', 'heartbeat'].includes(row.sourceKind)) {
     throw new Error(`Session delivery ${row.id} has an invalid source kind`);
   }
   if (!['pending', 'accepted', 'dead_letter'].includes(row.status)) {
@@ -888,7 +863,7 @@ export function validateSessionDeliveryIdentity(identity: SessionDeliveryIdentit
   })) {
     if (typeof value !== 'string' || !canonicalCallbackIdentityText(value)) throw new Error(`${name} is required for session delivery`);
   }
-  if (identity.sourceKind !== 'session' && identity.sourceKind !== 'workflow-run') {
+  if (!['session', 'workflow-run', 'heartbeat'].includes(identity.sourceKind)) {
     throw new Error('sourceKind is invalid for session delivery');
   }
   if (!Number.isInteger(identity.sourceVersion) || identity.sourceVersion < 1) {

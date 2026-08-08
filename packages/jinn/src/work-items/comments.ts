@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
+import type { WriteOrigin } from './origin.js';
 import { appendWorkItemEvent } from './store.js';
 
 /**
@@ -39,6 +40,8 @@ export interface AddCommentInput {
   author: string;
   authorKind: WorkItemComment['authorKind'];
   parentCommentId?: string | null;
+  /** The surface the write was issued from, when the request declared one. */
+  origin?: WriteOrigin;
 }
 
 /** Who is attempting an edit/tombstone: the derived author identity (string AND
@@ -156,7 +159,7 @@ export function addComment(input: AddCommentInput): WorkItemComment {
       workItemId,
       kind: 'comment_added',
       actor: input.author,
-      detail: { commentId: comment.id },
+      detail: { commentId: comment.id, ...(input.origin ? { origin: input.origin } : {}) },
       versionEffect: 'state', // new discussion resorts activity-ordered lists
     });
     return comment;
@@ -231,8 +234,12 @@ export function editComment(id: string, body: string, editor: CommentEditor): Wo
 }
 
 /** Tombstone a comment: body cleared, `deleted_at` stamped, row and thread shape
- *  retained. Author-or-operator. Idempotent — deleting a tombstone is a no-op. */
-export function tombstoneComment(id: string, editor: CommentEditor): WorkItemComment {
+ *  retained. Author-or-operator. Idempotent — deleting a tombstone is a no-op.
+ *
+ *  `origin` is the surface the deletion was issued from, same audit colour as
+ *  `addComment`'s: taking a spoken comment back is itself a talk write, and an
+ *  audit that labels the add but not its reversal tells half the story. */
+export function tombstoneComment(id: string, editor: CommentEditor, origin?: WriteOrigin): WorkItemComment {
   const db = initDb();
   const txn = db.transaction((): WorkItemComment => {
     const comment = requireEditable(db, id, editor, 'delete');
@@ -243,7 +250,7 @@ export function tombstoneComment(id: string, editor: CommentEditor): WorkItemCom
       workItemId: comment.workItemId,
       kind: 'comment_deleted',
       actor: editor.operator ? 'operator' : editor.author,
-      detail: { commentId: id },
+      detail: { commentId: id, ...(origin ? { origin } : {}) },
       versionEffect: 'audit',
     });
     return { ...comment, body: '', deletedAt: now };

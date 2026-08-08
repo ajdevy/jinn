@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense, lazy } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, Suspense, lazy } from 'react'
 import { useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import {
@@ -20,6 +20,9 @@ import { NavRibbon } from '@/components/pill-nav'
 import { MobileTabBar } from '@/components/chat/mobile-tab-bar'
 import { ChatPane, type FreshChatSourceSession } from '@/components/chat/chat-pane'
 import { ThreadPeek, type CommsPeekData } from '@/components/chat/thread-peek'
+import { PeekPanel } from '@/components/peek/peek-panel'
+import { PeekProvider } from '@/components/peek/peek-stack'
+import { ChatErrorBoundary } from './chat-error-boundary'
 import { formatMessage } from '@/components/chat/chat-messages'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
@@ -27,12 +30,10 @@ const FileView = lazy(() =>
   import('@/components/chat/file-view').then((m) => ({ default: m.FileView })),
 )
 import { FileOpenContext } from '@/components/chat/file-open-context'
-import { TodoPrefixContext } from '@/components/chat/todo-prefix-context'
 import { ShortcutOverlay } from '@/components/chat/shortcut-overlay'
 import { useChatTabs, type ChatTab } from '@/hooks/use-chat-tabs'
 import { invalidateLiveSessionSnapshot, prefetchLiveSessionSnapshot } from '@/hooks/use-live-session'
 import { useKeyboardShortcuts, type ShortcutDef } from '@/hooks/use-keyboard-shortcuts'
-import { useTodoPrefixes } from '@/hooks/use-todo-prefixes'
 import { useArchiveSession, useDeleteSession, useDuplicateSession, useSessions, useUnarchiveSession } from '@/hooks/use-sessions'
 import { clearIntermediateMessages } from '@/lib/conversations'
 import type { Message } from '@/lib/conversations'
@@ -46,35 +47,6 @@ import type { GatewayEvent } from '@jinn/gateway-events'
 import { shareDebugLog, clearDebugLog } from '@/lib/debug-log'
 import { buildNewSessionParams } from '@/components/chat/new-chat-helpers'
 import { buildContinuationPrompt } from '@/lib/stale-chat'
-
-class ChatErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
-  override state: { error: Error | null } = { error: null }
-  static getDerivedStateFromError(error: Error) { return { error } }
-  override componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[ChatErrorBoundary]', error.message, '\nComponent stack:', info.componentStack)
-  }
-  override render() {
-    if (this.state.error) {
-      return (
-        <PageLayout>
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-            <p className="text-lg font-semibold text-[var(--system-red)]">Chat crashed</p>
-            <pre className="max-w-lg overflow-auto rounded-lg bg-[var(--bg-tertiary)] p-4 text-left text-xs text-muted-foreground">
-              {this.state.error.message}{'\n'}{this.state.error.stack?.split('\n').slice(0, 5).join('\n')}
-            </pre>
-            <button
-              onClick={() => { this.setState({ error: null }); window.location.reload() }}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-            >
-              Reload
-            </button>
-          </div>
-        </PageLayout>
-      )
-    }
-    return this.props.children
-  }
-}
 
 function parseHistoryPreview(value: unknown): CommsPeekData | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -116,7 +88,6 @@ export default function ChatPageWrapper() {
 
 function ChatPage() {
   const { settings } = useSettings()
-  const todoPrefixes = useTodoPrefixes()
   const portalName = settings.portalName ?? 'Jinn'
   // The URL is the single source of truth for the selected session
   // (`/?session=<id>`) — selecting is a navigation, so browser back/forward
@@ -1058,7 +1029,7 @@ function ChatPage() {
 
   return (
     <FileOpenContext.Provider value={openFile}>
-    <TodoPrefixContext.Provider value={todoPrefixes}>
+    <PeekProvider>
     <PageLayout chromeless>
       <div className="flex overflow-hidden h-full">
         {/* Left region (desktop): the permanent slim nav ribbon + the foldable
@@ -1203,6 +1174,12 @@ function ChatPage() {
             renderContent={formatMessage}
           />
         </div>
+
+        {/* A sibling of the thread column, not a child of it: the rail takes its
+            372px from the row so the thread reflows narrower instead of being
+            covered, and the floating header pills stay over the thread. On the
+            phone it portals out as a bottom sheet and occupies nothing here. */}
+        <PeekPanel />
       </div>
 
       {/* Mobile bottom tab bar — persistent nav on the chat-list screen; hidden on
@@ -1228,7 +1205,7 @@ function ChatPage() {
         }
       `}</style>
     </PageLayout>
-    </TodoPrefixContext.Provider>
+    </PeekProvider>
     </FileOpenContext.Provider>
   )
 }

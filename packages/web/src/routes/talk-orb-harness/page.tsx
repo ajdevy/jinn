@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import { ORB_STATES, type OrbState } from "@/components/talk/orb-motion"
-import { TalkOrb } from "@/components/talk/talk-orb"
+import type { SituationPayload } from "@/components/talk/situation-payload"
+import {
+  presentSituation,
+  restoreDeferredSituation,
+  useDeferredSituation,
+} from "@/components/talk/talk-situation-store"
+import { TalkSurface } from "@/components/talk/talk-surface"
 import { cn } from "@/lib/utils"
+import { SITUATION_KINDS, situationFixture } from "./situation-fixtures"
+import { ToolBench } from "./tool-bench"
 
 /**
  * DEV-only bench for the Talk orb: every state on demand, a synthetic amplitude
@@ -51,6 +59,47 @@ function StatePicker({ state, onPick }: { state: OrbState; onPick: (next: OrbSta
   )
 }
 
+const BENCH_BUTTON = cn(
+  "h-[38px] cursor-pointer rounded-full border-none px-4",
+  "text-[length:var(--text-subheadline)]",
+)
+
+/**
+ * Raises one situation per payload kind, which is the reproducible QA path — and
+ * offers the last dismissed one back, which is how a deferral is shown to be a
+ * deferral rather than a deletion.
+ */
+function SituationPicker({ onPick }: { onPick: (kind: SituationPayload["kind"]) => void }) {
+  const deferred = useDeferredSituation()
+  return (
+    <div className="mt-[var(--space-3)] flex flex-wrap gap-[var(--space-2)]">
+      {SITUATION_KINDS.map((kind) => (
+        <button
+          key={kind}
+          onClick={() => onPick(kind)}
+          className={cn(
+            BENCH_BUTTON,
+            "capitalize bg-[var(--fill-tertiary)] text-[var(--text-secondary)]",
+          )}
+        >
+          {kind}
+        </button>
+      ))}
+      <button
+        onClick={restoreDeferredSituation}
+        disabled={!deferred}
+        className={cn(
+          BENCH_BUTTON,
+          "bg-[var(--accent-fill)] text-[var(--accent)]",
+          "disabled:cursor-default disabled:bg-[var(--fill-quaternary)] disabled:text-[var(--text-quaternary)]",
+        )}
+      >
+        Raise last dismissed
+      </button>
+    </div>
+  )
+}
+
 /** Something for the orb to keep animating in front of. */
 function ScrollBed() {
   return (
@@ -72,8 +121,12 @@ export default function TalkOrbHarnessPage() {
   return (
     <div className="h-dvh overflow-y-auto bg-[var(--bg)] px-[var(--space-5)] py-[var(--space-6)]">
       <StatePicker state={state} onPick={setState} />
+      <SituationPicker onPick={(kind) => presentSituation(situationFixture(kind))} />
+      <div className="mt-[var(--space-5)]">
+        <ToolBench />
+      </div>
       <ScrollBed />
-      <TalkOrb state={state} levelRef={levelRef} />
+      <TalkSurface state={state} levelRef={levelRef} />
     </div>
   )
 }
