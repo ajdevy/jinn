@@ -78,16 +78,13 @@ function psDump(env) {
 function protectedHomeEntries(env) {
   const defaultHome = resolveDefaultHome(env)
   const entries = [{ kind: "home", label: defaultHome, reason: "default-home" }]
-  for (const instance of readRegisteredInstances(defaultHome)) {
+  for (const instance of readRegisteredInstances(defaultHome, env)) {
     entries.push({ kind: "home", label: path.resolve(instance.home), reason: `registered:${instance.name}` })
   }
   return entries
 }
 
-async function planWorktrees({ repo, env, endpoint }) {
-  const git = gitRunner(env)
-  const main = mainCheckout(repo, git)
-  const worktreesRoot = realPath(path.join(path.dirname(main), ".worktrees"))
+async function planWorktrees({ main, git, worktreesRoot, endpoint }) {
   const options = { worktreesRoot, minAgeMinutes: WORKTREE_MIN_AGE_MINUTES }
   const targets = []
   const spared = []
@@ -151,13 +148,25 @@ async function reapProcesses(targets, graceSeconds) {
   return targets.filter((target) => !isAlive(target.pid)).length
 }
 
+/**
+ * Removal reads the tree's state again, because the plan was made before the
+ * process grace wait and a run that wrote into its worktree in between must
+ * still be preserved. No `--force`: git's own refusal to remove a tree that is
+ * not clean is the second half of the same guarantee.
+ */
 function pruneWorktrees(targets, repo, git) {
-  let removed = 0
+  const removed = []
+  const kept = []
   for (const target of targets) {
-    if (git(repo, ["worktree", "remove", "--force", target.label]) !== null) removed += 1
+    const current = inspectWorktree(target.label, { repo, git, now: Date.now() })
+    if (current.missing || current.dirty) {
+      kept.push(target.label)
+      continue
+    }
+    if (git(repo, ["worktree", "remove", target.label]) !== null) removed.push(target.label)
   }
   git(repo, ["worktree", "prune"])
-  return removed
+  return { removed, kept }
 }
 
 async function main() {
@@ -167,9 +176,22 @@ async function main() {
     return
   }
   const env = process.env
-  const context = buildContext({ env, minAgeMinutes: options.minAgeMin, selfPids: [process.pid, process.ppid] })
+  const git = gitRunner(env)
+  const checkout = mainCheckout(options.repo, git)
+  const worktreesRoot = realPath(path.join(path.dirname(checkout), ".worktrees"))
+  const context = buildContext({
+    env,
+    minAgeMinutes: options.minAgeMin,
+    selfPids: [process.pid, process.ppid],
+    worktreesRoot,
+  })
   const processes = planProcessReap(parsePsDump(psDump(env)), context)
-  const worktrees = await planWorktrees({ repo: options.repo, env, endpoint: gatewayEndpoint(context.defaultHome) })
+  const worktrees = await planWorktrees({
+    main: checkout,
+    git,
+    worktreesRoot,
+    endpoint: gatewayEndpoint(context.defaultHome),
+  })
   const plan = {
     processes,
     worktrees,
@@ -189,9 +211,10 @@ async function main() {
   }
 
   const reaped = await reapProcesses(processes.targets, options.graceSeconds)
-  const removed = pruneWorktrees(worktrees.targets, worktrees.main, gitRunner(env))
+  const pruned = pruneWorktrees(worktrees.targets, worktrees.main, git)
   if (!options.json) {
-    process.stdout.write(`\nReaped ${reaped}/${processes.targets.length} process(es), removed ${removed}/${worktrees.targets.length} worktree(s).\n`)
+    for (const label of pruned.kept) process.stdout.write(`  keep   ${label}  changed since the plan was made\n`)
+    process.stdout.write(`\nReaped ${reaped}/${processes.targets.length} process(es), removed ${pruned.removed.length}/${worktrees.targets.length} worktree(s).\n`)
   }
 }
 

@@ -85,12 +85,15 @@ export function classifyGateway(candidate, context) {
 }
 
 /**
- * A worker orphaned by a killed run. Unlike a gateway it has no `gateway.json`
- * to identify it, so the parent being gone is the whole evidence — a live
- * parent means a live run, and the run owns its workers.
+ * A worker orphaned by a killed run. It has no `gateway.json` to claim it, so
+ * the evidence is the build worktree it runs out of — a tree this sweep already
+ * has the authority to remove. The name is never the evidence: an operator's own
+ * `vitest --watch` reparents to PID 1 the moment its shell closes, and killing
+ * that would be reaping a process we did not start.
  */
 function isOrphanedTestWorker(candidate, context) {
   if (candidate.ppid !== 1 || !TEST_WORKER.test(candidate.args)) return false
+  if (!context.worktreesRoot || !candidate.args.includes(`${context.worktreesRoot}${path.sep}`)) return false
   if (untouchableReason(candidate.pid, context)) return false
   return candidate.ageMinutes >= context.minAgeMinutes
 }

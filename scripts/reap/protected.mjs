@@ -25,10 +25,47 @@ function readJson(file) {
   }
 }
 
-/** The registry the gateway itself writes. Absent or unreadable means no registered instances. */
-export function readRegisteredInstances(defaultHome) {
-  const registry = readJson(path.join(defaultHome, "instances.json"))
-  return Array.isArray(registry) ? registry.filter((entry) => typeof entry?.home === "string") : []
+/** Where the gateway keeps the instance directory, mirroring `instances/directory.ts`. */
+function hostDataDir(env) {
+  const home = os.homedir()
+  if (process.platform === "darwin") return path.join(home, "Library", "Application Support", "Jinn")
+  if (process.platform === "win32") return path.join(env.APPDATA || path.join(home, "AppData", "Roaming"), "Jinn")
+  return path.join(env.XDG_CONFIG_HOME || path.join(home, ".config"), "jinn")
+}
+
+/**
+ * Every file that could hold the instance directory, most authoritative first:
+ * the override, the host-level registry the current schema writes, and the
+ * pre-host-registry file inside the home. All three are consulted rather than
+ * only the first that resolves — reading one registry too many can only widen
+ * the protected set, while missing one reaps a live instance.
+ */
+export function instancesRegistryPaths(defaultHome, env) {
+  return [env.JINN_INSTANCES_REGISTRY, path.join(hostDataDir(env), "instances.json"), path.join(defaultHome, "instances.json")]
+    .filter(Boolean)
+    .map((file) => path.resolve(file))
+}
+
+/**
+ * The registry the gateway itself writes. Both shapes are read: the current
+ * `{ schemaVersion, instances }` envelope and the bare array that preceded it.
+ * Absent or unreadable means no registered instances.
+ */
+export function readRegisteredInstances(defaultHome, env) {
+  // Keyed by home: the registries overlap heavily on a machine that predates the
+  // host-level one, and every duplicate would print twice in the spared list.
+  const byHome = new Map()
+  for (const file of new Set(instancesRegistryPaths(defaultHome, env))) {
+    const registry = readJson(file)
+    const listed = Array.isArray(registry) ? registry : registry?.instances
+    if (!Array.isArray(listed)) continue
+    for (const entry of listed) {
+      if (typeof entry?.home !== "string") continue
+      const home = path.resolve(entry.home)
+      if (!byHome.has(home)) byHome.set(home, entry)
+    }
+  }
+  return [...byHome.values()]
 }
 
 function directChildren(root) {
@@ -109,9 +146,9 @@ export function gatewayEndpoint(defaultHome) {
   return { url: gateway.url, token: gateway.token }
 }
 
-export function buildContext({ env, minAgeMinutes, selfPids }) {
+export function buildContext({ env, minAgeMinutes, selfPids, worktreesRoot }) {
   const defaultHome = resolveDefaultHome(env)
-  const registered = readRegisteredInstances(defaultHome)
+  const registered = readRegisteredInstances(defaultHome, env)
   const throwawayRoots = throwawayRootsFor(env)
   return {
     defaultHome,
@@ -119,6 +156,7 @@ export function buildContext({ env, minAgeMinutes, selfPids }) {
     homeByPid: mapPidsToHomes(discoverHomes({ defaultHome, registered, throwawayRoots })),
     protectedPortPids: protectedPortOwners(registered, env),
     throwawayRoots,
+    worktreesRoot,
     minAgeMinutes,
     selfPids,
   }

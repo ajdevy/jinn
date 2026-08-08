@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -35,6 +36,12 @@ const CASES = [
     candidate: candidate({ dirty: true, merged: true }),
     prune: false,
     reason: "uncommitted-changes",
+  },
+  {
+    name: "a tree git still lists but that is gone from disk is left to the prune",
+    candidate: candidate({ missing: true, merged: true }),
+    prune: false,
+    reason: "already-gone",
   },
   {
     name: "a tree younger than the age guard is kept even when it is merged",
@@ -134,14 +141,19 @@ test("a bare run removes nothing; --apply prunes only the merged clean tree", ()
     const merged = path.join(trees, "jinn-build-TEST-1-merged")
     const dirty = path.join(trees, "jinn-build-TEST-2-dirty")
     const open = path.join(trees, "jinn-build-TEST-3-open")
+    // Deleted by hand, so git keeps listing metadata for a directory that is no
+    // longer there. Inspecting it must not take the sweep down.
+    const gone = path.join(trees, "jinn-build-TEST-4-gone")
     git(repo, "worktree", "add", "-b", "merged-branch", merged, "main")
     git(repo, "worktree", "add", "-b", "dirty-branch", dirty, "main")
     git(repo, "worktree", "add", "-b", "open-branch", open, "main")
+    git(repo, "worktree", "add", "-b", "gone-branch", gone, "main")
     fs.writeFileSync(path.join(dirty, "scratch.txt"), "work in progress\n")
     fs.writeFileSync(path.join(open, "feature.txt"), "shipped\n")
     git(open, "add", "-A")
     git(open, "commit", "-m", "unmerged work")
     for (const tree of [merged, dirty, open]) backdate(tree, 300)
+    fs.rmSync(gone, { recursive: true, force: true })
 
     const env = { ...HERMETIC, JINN_HOME: path.join(root, ".jinn"), JINN_REAP_PS_SOURCE: "/dev/null" }
     const run = (...args) =>
@@ -150,6 +162,7 @@ test("a bare run removes nothing; --apply prunes only the merged clean tree", ()
     const dry = run()
     assert.equal(dry.status, 0, dry.stderr)
     assert.match(dry.stdout, /PRUNE\s+.*jinn-build-TEST-1-merged\s+merged-into-main/)
+    assert.match(dry.stdout, /jinn-build-TEST-4-gone\s+already-gone/)
     assert.ok(fs.existsSync(merged), "a bare run must remove nothing")
 
     // The sweep is routinely launched from inside a worktree. Anchoring on the
@@ -168,4 +181,50 @@ test("a bare run removes nothing; --apply prunes only the merged clean tree", ()
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+/**
+ * The plan is made before processes are signalled, and the grace wait is long
+ * enough for a live run to write into a tree that was clean when it was judged.
+ * A dirty tree is never removed, and "clean at planning time" is not the same
+ * claim.
+ */
+test("a tree that turns dirty during the process grace wait is preserved", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "reap-grace-"))
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-sandbox-"))
+  const victim = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
+  t.after(() => {
+    victim.kill("SIGKILL")
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(sandbox, { recursive: true, force: true })
+  })
+
+  const repo = path.join(root, "jinn")
+  fs.mkdirSync(repo, { recursive: true })
+  git(repo, "init", "--initial-branch=main", ".")
+  fs.writeFileSync(path.join(repo, "README.md"), "seed\n")
+  git(repo, "add", "-A")
+  git(repo, "commit", "-m", "seed")
+  const merged = path.join(root, ".worktrees", "jinn-build-TEST-5-merged")
+  git(repo, "worktree", "add", "-b", "grace-branch", merged, "main")
+  backdate(merged, 300)
+
+  // A reap target is what makes the run wait at all: no processes, no grace.
+  fs.writeFileSync(path.join(sandbox, "gateway.json"), JSON.stringify({ pid: victim.pid, ptyPids: [] }))
+  const psDump = path.join(root, "ps.txt")
+  const gatewayArgs = "node /repo/packages/jinn/dist/src/gateway/daemon-entry.js"
+  fs.writeFileSync(psDump, `${victim.pid} 1 05:00:00 90000 ${gatewayArgs}\n`)
+
+  const env = {
+    ...HERMETIC,
+    JINN_HOME: path.join(root, ".jinn"),
+    JINN_REAP_PS_SOURCE: psDump,
+    JINN_REAP_PROTECTED_PORTS: "",
+  }
+  const run = spawn(process.execPath, [REAP, "--repo", repo, "--apply", "--grace-seconds", "3"], { stdio: "ignore", env })
+  await new Promise((resolve) => setTimeout(resolve, 1000))
+  fs.writeFileSync(path.join(merged, "dirty-during-grace.txt"), "late work\n")
+  await once(run, "exit")
+
+  assert.ok(fs.existsSync(merged), "a tree that turned dirty after the plan must survive the removal")
 })

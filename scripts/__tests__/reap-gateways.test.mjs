@@ -7,6 +7,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 
 import { classifyGateway, parsePsDump, planProcessReap } from "../reap/gateways.mjs"
+import { buildContext } from "../reap/protected.mjs"
 
 const REAP = fileURLToPath(new URL("../reap-sandboxes.mjs", import.meta.url))
 
@@ -15,6 +16,7 @@ const DEFAULT_HOME = path.join(TEMP, "reap-fixture", ".jinn")
 const REGISTERED_HOME = path.join(TEMP, "reap-fixture", ".jinn-second")
 const SETTLED_HOME = path.join(os.homedir(), ".jinn-unregistered")
 const SANDBOX_HOME = path.join(TEMP, "jinn-sandbox-abc")
+const WORKTREES_ROOT = path.join(TEMP, "reap-fixture", ".worktrees")
 
 const GATEWAY_ARGS = "node /repo/packages/jinn/dist/src/gateway/daemon-entry.js"
 
@@ -30,6 +32,7 @@ function context(overrides = {}) {
     homeByPid: {},
     protectedPortPids: [],
     throwawayRoots: [TEMP],
+    worktreesRoot: WORKTREES_ROOT,
     minAgeMinutes: 120,
     selfPids: [],
     ...overrides,
@@ -128,14 +131,20 @@ test("parsePsDump keeps the whole command line as one field", () => {
   ])
 })
 
+/** A test worker's argv, running out of a build worktree the sweep owns. */
+const WORKER_IN_WORKTREE = `node ${path.join(WORKTREES_ROOT, "jinn-build-TEST-1", "node_modules", "vitest", "dist", "worker.js")}`
+
 test("planProcessReap sweeps a reaped gateway's children and orphaned test workers", () => {
   const processes = [
     gateway(9101),
     gateway(9102),
     { pid: 9103, ppid: 9101, ageMinutes: 300, rssKiB: 900, args: "node /repo/worker.js" },
     { pid: 9104, ppid: 9102, ageMinutes: 300, rssKiB: 900, args: "node /repo/worker.js" },
-    { pid: 9105, ppid: 1, ageMinutes: 300, rssKiB: 900, args: "node vitest/dist/worker.js" },
-    { pid: 9106, ppid: 1, ageMinutes: 4, rssKiB: 900, args: "node vitest/dist/worker.js" },
+    { pid: 9105, ppid: 1, ageMinutes: 300, rssKiB: 900, args: WORKER_IN_WORKTREE },
+    { pid: 9106, ppid: 1, ageMinutes: 4, rssKiB: 900, args: WORKER_IN_WORKTREE },
+    // The operator's own `vitest --watch`, reparented to PID 1 when its shell
+    // closed. Nothing but the name says it is ours, so it is not ours.
+    { pid: 9107, ppid: 1, ageMinutes: 300, rssKiB: 900, args: "node /elsewhere/node_modules/vitest/dist/worker.js" },
   ]
   const plan = planProcessReap(
     processes,
@@ -150,6 +159,56 @@ test("planProcessReap sweeps a reaped gateway's children and orphaned test worke
     ],
   )
   assert.equal(plan.spared.find((entry) => entry.pid === 9102).reason, "registered-instance")
+})
+
+/**
+ * A registered instance may legitimately live on a throwaway-looking home — a
+ * sandbox instance registered through the CLI is exactly that. Reading the
+ * registry the running gateway actually writes is what tells the two apart.
+ */
+function registryFixture(t, contents) {
+  const root = fs.mkdtempSync(path.join(TEMP, "reap-registry-"))
+  const home = fs.mkdtempSync(path.join(TEMP, "jinn-sandbox-"))
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+  fs.writeFileSync(path.join(home, "gateway.json"), JSON.stringify({ pid: 9201, ptyPids: [] }))
+  const registry = path.join(root, "instances.json")
+  const instance = { id: "fixture", name: "registered", port: 65_123, home, createdAt: "2026-01-01T00:00:00.000Z" }
+  fs.writeFileSync(registry, JSON.stringify(contents(instance)))
+  return { root, home, registry }
+}
+
+function contextFromRegistry(fixture, overrides = {}) {
+  return buildContext({
+    env: {
+      ...process.env,
+      JINN_HOME: path.join(fixture.root, ".jinn"),
+      JINN_REAP_PROTECTED_PORTS: "",
+      ...overrides,
+    },
+    minAgeMinutes: 120,
+    selfPids: [],
+    worktreesRoot: WORKTREES_ROOT,
+  })
+}
+
+test("a schema-v2 registry protects the instances it lists", (t) => {
+  const fixture = registryFixture(t, (instance) => ({ schemaVersion: 2, instances: [instance] }))
+  const built = contextFromRegistry(fixture, { JINN_INSTANCES_REGISTRY: fixture.registry })
+  assert.ok(built.registeredHomes.includes(fixture.home), "the registered home must be protected")
+  assert.deepEqual(classifyGateway(gateway(9201), built), { reap: false, reason: "registered-instance" })
+})
+
+test("the pre-host-registry array inside the home is still honoured", (t) => {
+  const fixture = registryFixture(t, (instance) => [instance])
+  const legacyHome = path.join(fixture.root, ".jinn")
+  fs.mkdirSync(legacyHome, { recursive: true })
+  fs.renameSync(fixture.registry, path.join(legacyHome, "instances.json"))
+  const built = contextFromRegistry(fixture)
+  assert.ok(built.registeredHomes.includes(fixture.home), "the registered home must be protected")
+  assert.deepEqual(classifyGateway(gateway(9201), built), { reap: false, reason: "registered-instance" })
 })
 
 /**

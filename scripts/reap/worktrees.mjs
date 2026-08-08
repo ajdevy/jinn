@@ -38,6 +38,7 @@ export function classifyWorktree(candidate, options) {
   if (!isEligibleWorktree(candidate.path, options.worktreesRoot)) {
     return { prune: false, reason: "not-a-build-worktree" }
   }
+  if (candidate.missing) return { prune: false, reason: "already-gone" }
   if (candidate.dirty) return { prune: false, reason: "uncommitted-changes" }
   if (candidate.ageMinutes < options.minAgeMinutes) return { prune: false, reason: "too-young" }
   if (candidate.merged) return { prune: true, reason: "merged-into-main" }
@@ -85,13 +86,27 @@ export function listWorktrees(repo, git) {
 export function inspectWorktree(tree, { repo, git, now }) {
   const status = git(tree, ["status", "--porcelain"])
   const head = git(tree, ["rev-parse", "HEAD"])
+  const modifiedAt = modifiedTime(tree)
   return {
     path: tree,
+    // Git keeps listing a worktree whose directory was deleted by hand. That is
+    // metadata for `git worktree prune` to clear rather than a tree to remove,
+    // and stat-ing it must not take the whole sweep down.
+    missing: modifiedAt === null,
     // A status we could not read counts as dirty: a tree we failed to inspect
     // is a tree we know nothing about, and the safe verdict is to keep it.
     dirty: status === null || status.trim().length > 0,
-    ageMinutes: (now - fs.statSync(tree).mtimeMs) / 60_000,
+    ageMinutes: modifiedAt === null ? 0 : (now - modifiedAt) / 60_000,
     merged: head !== null && git(repo, ["merge-base", "--is-ancestor", head.trim(), "main"]) !== null,
+  }
+}
+
+/** The directory's mtime, or null when it is no longer there to stat. */
+function modifiedTime(tree) {
+  try {
+    return fs.statSync(tree).mtimeMs
+  } catch {
+    return null
   }
 }
 
