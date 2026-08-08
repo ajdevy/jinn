@@ -1798,7 +1798,7 @@
       ]
     },
     "packages/web/src/routes/todos/pickers/picker-contents.tsx": {
-      "lines": 431,
+      "lines": 369,
       "exempt": [
         "max-lines-per-function"
       ]
