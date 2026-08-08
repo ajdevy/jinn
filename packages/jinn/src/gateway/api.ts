@@ -37,7 +37,6 @@ import {
   listSessionsForGroup,
   getSessionGroupCounts,
   coercePortalEmployee,
-  isPortalAgentSession,
   searchSessions,
   searchMessages,
   searchSessionsFiltered,
@@ -226,7 +225,8 @@ import {
   WorkItemAttachmentError,
   type AttachmentActor,
 } from "../work-items/attachments.js";
-import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER, type WriteOrigin } from "../work-items/origin.js";
+import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
+import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
@@ -1158,9 +1158,6 @@ function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   return false;
 }
 
-type WorkItemCaller = { origin?: WriteOrigin }
-  & ({ kind: 'operator'; session?: undefined; callerId?: undefined } | { kind: 'session'; session: Session; callerId: string });
-
 function resolveWorkItemCaller(req: HttpRequest, res: ServerResponse, context: ApiContext): WorkItemCaller | undefined {
   const identity = resolveScopedWriteCallerIdentity(req, context);
   if (identity.kind === "unidentified-tool" || identity.kind === "unauthenticated") {
@@ -1650,10 +1647,6 @@ function resolveSpawnParentSessionId(caller: CallerIdentity, requested: unknown,
   return undefined;
 }
 
-function workItemActor(caller: WorkItemCaller): string {
-  return caller.kind === 'session' ? `session:${caller.callerId}` : 'operator';
-}
-
 /** Comment identity is stamped server-side, never taken from the request body:
  *  operator surface → 'operator'; a session with a resolved employee comments
  *  as that employee (stable across their sessions); a bare session keeps the
@@ -1882,39 +1875,6 @@ function spawnAsRootRefusal(caller: CallerIdentity, employeeName: string | null 
   return `a session cannot run work as "${root.name}", the employee-hierarchy root, because that identity carries operator-delegated authority; request an approval or escalate the Todo to the root instead of running as it`;
 }
 
-/**
- * `asOperator` stamps the transition's recorded actor as `operator`, so a
- * `todo-status` Workflow trigger filtered on the operator fires for work the
- * COO arms on the operator's behalf.
- *
- * That actor string is an authority boundary — filtering on it is what keeps an
- * arbitrary employee from starting a pipeline nobody asked for — so exactly two
- * callers may claim it: the authenticated operator surface, for which it is a
- * no-op, and the gateway's own top-level agent session, the COO the operator is
- * talking to.
- *
- * The COO is deliberately NOT an org employee — the portal is the root, and
- * `resolveRootApprovalTarget()` answers with a VIRTUAL root that matches no
- * session's employee. So the claim cannot be keyed on an employee name; it is
- * keyed on the session shape only the operator's own surfaces produce
- * (`isPortalAgentSession`). An employee session never has that shape, and
- * neither does anything an employee can spawn.
- *
- * The claim never erases the claimant: the audit event's `actor` reads
- * `operator` for the trigger, and its `detail.asOperator` names the session that
- * actually made the call.
- */
-function authorizeActingAsOperator(caller: WorkItemCaller): { ok: true; actingAs?: string } | { ok: false; error: string } {
-  if (caller.kind === 'operator') return { ok: true };
-  if (!isPortalAgentSession(caller.session)) {
-    const who = caller.session.employee ? `employee "${caller.session.employee}"` : `session ${caller.callerId}`;
-    return {
-      ok: false,
-      error: `asOperator records the transition as the operator and is reserved for the operator surface and the top-level COO session; ${who} must transition as itself`,
-    };
-  }
-  return { ok: true, actingAs: workItemActor(caller) };
-}
 
 function levenshtein(a: string, b: string): number {
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -3717,7 +3677,14 @@ export async function handleApiRequest(
         actingAsOperator = permitted.actingAs;
       }
       const actor = body.asOperator === true ? "operator" : workItemActor(caller);
-      const detail = writeDetail({ ...(note ? { note } : {}), ...(actingAsOperator ? { asOperator: actingAsOperator } : {}) }, caller.origin);
+      // Read the list per request, so adding or removing a delegate takes effect
+      // on the next move rather than at the next restart.
+      const armedAsDelegate = resolveArmingDelegate(caller, target, context.getConfig());
+      const detail = writeDetail({
+        ...(note ? { note } : {}),
+        ...(actingAsOperator ? { asOperator: actingAsOperator } : {}),
+        ...(armedAsDelegate ? { armedAsDelegate } : {}),
+      }, caller.origin);
       // The banner's asked-for-after reason (design-doc §5): a same-status
       // operator PUT with a note annotates the CURRENT exception state instead
       // of vanishing in transition()'s same-status no-op. The note event

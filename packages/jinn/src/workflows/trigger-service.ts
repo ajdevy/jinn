@@ -39,8 +39,13 @@ function labelMatches(filter: string, labels: WorkflowTodoStatusEvent["item"]["l
  *  suppressed run always says which filter refused it. */
 function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): string | undefined {
   if (node.config.kind !== "todo-status") return "trigger is not a todo-status trigger";
-  const { actor, label, department, assignee, unlabeled, unassigned, rootOnly } = node.config;
-  if (actor !== undefined && actor !== event.actor) return `actor ${event.actor ?? "unknown"} is not ${actor}`;
+  const { actor, label, department, assignee, delegates, unlabeled, unassigned, rootOnly } = node.config;
+  // An arming delegate moved the Todo as itself, so the event names its session
+  // rather than the operator; the stamp the status route wrote at that moment is
+  // what says the operator's authority stands behind it. Only an `operator`
+  // filter is widened, and only where the binding has not opted out.
+  const armed = actor === "operator" && delegates !== false && event.armedAsDelegate !== null;
+  if (actor !== undefined && actor !== event.actor && !armed) return `actor ${event.actor ?? "unknown"} is not ${actor}`;
   if (department !== undefined && department !== event.item.department) return `department filter ${department} does not match`;
   if (assignee !== undefined && assignee !== event.item.assignee) return `assignee filter ${assignee} does not match`;
   if (label !== undefined && !labelMatches(label, event.item.labels)) return `label filter ${label} does not match`;

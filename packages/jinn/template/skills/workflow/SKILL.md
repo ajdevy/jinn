@@ -44,6 +44,8 @@ A `todo-status` trigger BINDS its run to the Todo that fired it: no new Todo is 
 
 A `todo-status` trigger fires for every Todo reaching `status` unless you narrow it with the optional `actor`, `label`, `department`, `assignee`, `unlabeled`, `unassigned`, and `rootOnly` filters. Every filter you set must match; an omitted one matches everything. `label` accepts a label id or a label name, matched against the Todo's labels as they stand when the trigger fires. `unlabeled`, `unassigned`, and `rootOnly` are set only to `true` and likewise read the Todo as it stands then — no labels at all, no assignee, and no parent respectively. Setting both `unlabeled` and `label` is rejected: a Todo carrying no labels can never carry the one named.
 
+`actor: "operator"` is also satisfied by an employee named in `workflows.armingDelegates`, when that employee moves the Todo to `assigned` as itself — the operator delegating the arming of a pipeline without anyone impersonating the operator. The event still records the session that made the move. Set `"delegates": false` on the trigger for a workflow that must stay armed by the operator alone.
+
 The `assigned` status does NOT imply an assignee: assigning a Todo is its own action, and moving a Todo's status straight to `assigned` leaves it unassigned. So `{ "status": "assigned", "assignee": "some-employee" }` silently never fires for a Todo armed that way. Filter on `assignee` only for a status that assignment itself produces.
 
 ```json

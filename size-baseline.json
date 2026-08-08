@@ -348,7 +348,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6376,
+      "lines": 6343,
       "exempt": [
         "complexity",
         "max-depth",
@@ -853,7 +853,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 967
+      "lines": 847
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1013,7 +1013,7 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 403,
+      "lines": 370,
       "exempt": [
         "complexity"
       ]

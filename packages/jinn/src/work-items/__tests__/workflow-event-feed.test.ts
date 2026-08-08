@@ -51,6 +51,24 @@ describe("workflow Todo event feed", () => {
     expect(pending.find((candidate) => candidate.workItemId === item.id)!.actor).toBe("operator");
   });
 
+  it("carries the arming-delegate stamp, and reads a missing or non-string one as unstamped", () => {
+    const stamped = store.createWorkItem({ title: "delegate armed", status: "backlog" });
+    tr.transition(stamped.id, "assigned", "session:delegate", { detail: { armedAsDelegate: "worker" } });
+    const plain = store.createWorkItem({ title: "no stamp", status: "backlog" });
+    tr.transition(plain.id, "assigned", "session:delegate");
+    // Anything but a string is a detail written by something other than the
+    // status route, so it grants nothing rather than reading as truthy.
+    const malformed = store.createWorkItem({ title: "malformed stamp", status: "backlog" });
+    tr.transition(malformed.id, "assigned", "session:delegate", { detail: { armedAsDelegate: { name: "worker" } } });
+
+    const pending = feed.createWorkflowTodoEventFeed({ ownerId: "test-owner" }).listPendingEvents();
+    const event = (id: string) => pending.find((candidate) => candidate.workItemId === id)!;
+
+    expect(event(stamped.id)).toMatchObject({ actor: "session:delegate", armedAsDelegate: "worker" });
+    expect(event(plain.id).armedAsDelegate).toBeNull();
+    expect(event(malformed.id).armedAsDelegate).toBeNull();
+  });
+
   it("reads an unlabelled Todo as an empty label set", () => {
     const item = store.createWorkItem({ title: "bare todo", status: "executing" });
     tr.transition(item.id, "in_review", "worker");

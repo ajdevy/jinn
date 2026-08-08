@@ -13,6 +13,10 @@ export interface WorkflowTodoStatusEvent {
    *  column rather than the provenance snapshot — so every event written
    *  before the trigger filter existed replays with its actor intact. */
   actor: string | null;
+  /** The employee the status route stamped this move as armed on behalf of, or
+   *  null for every other event. It is written at the moment of the move, so a
+   *  later change to the delegate list never rewrites what already happened. */
+  armedAsDelegate: string | null;
   /** `source`, `department`, and `assignee` are the provenance snapshot frozen
    *  into the audit row when the Todo moved. `labels` and `live` are read at
    *  replay time instead: labels, assignment, and parentage all change
@@ -148,7 +152,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
   if (!isTodoId(row.work_item_id)) return null;
   if (!row.detail) return null;
   try {
-    const detail = JSON.parse(row.detail) as { todoProvenance?: unknown };
+    const detail = JSON.parse(row.detail) as { todoProvenance?: unknown; armedAsDelegate?: unknown };
     const snapshot = detail.todoProvenance;
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
     const value = snapshot as Record<string, unknown>;
@@ -163,6 +167,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
       fromStatus: row.from_status,
       toStatus: row.to_status,
       actor: row.actor,
+      armedAsDelegate: typeof detail.armedAsDelegate === 'string' ? detail.armedAsDelegate : null,
       item: {
         source: value.source as WorkItemSource,
         department: value.department as string | null,
