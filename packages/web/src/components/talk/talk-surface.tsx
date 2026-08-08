@@ -15,6 +15,12 @@ import { UndoStrip } from "./undo-strip"
  * on purpose: the sheet deactivates `#root` while it is open, and the orb has to
  * stay live and draggable through the whole decision, which it cannot do from
  * inside it.
+ *
+ * The strip stands down while a sheet is on screen. On a phone the sheet owns
+ * the whole bottom, which is where the strip sits, so one left up would be
+ * buried under a modal and counting down where nobody could reach it. A null
+ * layout box is what says the sheet has finished leaving; the offer keeps its
+ * own window, so the strip comes back with whatever is left of it.
  */
 
 interface TalkSurfaceProps {
@@ -74,7 +80,7 @@ export function TalkSurface({ state = "idle", levelRef, sessionId = null, onAnsw
         onDismiss={dismissSituation}
         onLayout={setSheetRect}
       />
-      <UndoStrip />
+      {!situation && !sheetRect && <UndoStrip />}
       <TalkOrb state={state} levelRef={levelRef} dock={dock} />
     </>,
     document.body,

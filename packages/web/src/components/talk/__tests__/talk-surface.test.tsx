@@ -267,13 +267,18 @@ describe("a preview over the sheet", () => {
 })
 
 describe("the undo strip", () => {
-  it("rides along with the orb, so the fast lane's way back is on screen with no sheet up", () => {
-    mount()
-    expect(undoStrip()).toBeNull()
-
+  // At 390px the sheet owns the whole bottom of the screen, which is where the
+  // strip lives — so a strip left up would be buried under a modal, counting
+  // down somewhere nobody can reach it.
+  it("stands down under a sheet and comes back with the offer still good", async () => {
+    await raise(SITUATION)
     act(() => {
       offerUndo("Commented on AAA-1", async () => {})
     })
+    expect(undoStrip()).toBeNull()
+
+    act(() => dismissSituation())
+    await waitFor(() => expect(sheet()).toBeNull())
 
     expect(undoStrip()).not.toBeNull()
   })
