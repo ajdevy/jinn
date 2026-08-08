@@ -271,7 +271,7 @@ describe("the board surface", () => {
       rows.in_review = [{ ...todo, status: "in_review", version: 5 }]
       totals.backlog = 0
       totals.in_review = 1
-      return undefined
+      return { workItem: { ...todo, status: "in_review", version: 5 }, escalated: false }
     })
     const { client } = renderBoardNavigation()
 
@@ -310,7 +310,7 @@ describe("the board surface", () => {
       rows.in_review = [{ ...outsidePage, status: "in_review", version: 5 }]
       totals.backlog = 1
       totals.in_review = 1
-      return undefined
+      return { workItem: { ...outsidePage, status: "in_review", version: 5 }, escalated: false }
     })
     const { client } = renderBoardNavigation()
 

@@ -1,25 +1,22 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, ChevronDown, MessageSquare, UserRound } from 'lucide-react'
-import { api, type Employee, type WorkItemEventWire, type WorkItemFullWire } from '@/lib/api'
-import { STATUS_LABEL, priorityLabel } from '@/lib/todos'
+import { ArrowUpRight, MessageSquare } from 'lucide-react'
+import { api, type Employee, type WorkItemDetailWire, type WorkItemEventWire } from '@/lib/api'
 import { todoPath } from '@/lib/todo-id'
 import { requestTodoPreview } from '@/lib/todo-preview'
-import { EmployeeAvatar } from '@/components/ui/employee-avatar'
-import { TodoMention } from '@/components/todo-mention'
 import { useOrg } from '@/hooks/use-employees'
-import { StatusCircle } from '@/routes/todos/state-glyph'
 import { useEmployeesByName } from '@/routes/todos/use-todos'
 import { whisperOf } from '@/routes/todos/task-page/activity'
-import { RailPriorityBars } from '@/routes/todos/task-page/props-rail'
-import { displayNameOf, formatRelativeTime } from '@/routes/todos/util'
+import { formatRelativeTime } from '@/routes/todos/util'
+import { TodoProps } from './todo-peek-props'
+import { usePeekPickers, type PeekPickerKey, type PeekPickerRow } from './use-peek-pickers'
 
-/* The Todo body of the peek inspector. Read-only by design: Status and Assignee
- * carry the chevron that says "this is where you will change it", but the seam
- * behind it belongs to ICI-743. The detail sits under the ['work-item-preview',
- * id] key the invalidation wiring already watches, so a company:changed event
- * for this Todo refetches the open panel. */
+/* The Todo body of the peek inspector. Status and Assignee are editable from
+ * here (ICI-743); everything else is a glance. The detail sits under the
+ * ['work-item-preview', id] key the invalidation wiring already watches, so a
+ * company:changed event for this Todo refetches the open panel — and so does
+ * every write lane, which patches that key alongside the board's. */
 
 /** The three newest events, newest first: this is a glance, not the feed. */
 export function latestEvents(events: WorkItemEventWire[]): WorkItemEventWire[] {
@@ -44,62 +41,6 @@ function useParentTitle(parentId: string | null | undefined): string | null {
   }, [parentId])
 
   return title
-}
-
-function PropRow({ label, chevron, children }: { label: string; chevron?: boolean; children: ReactNode }) {
-  return (
-    <div className="flex min-h-[34px] items-center" data-testid={`peek-prop-${label.toLowerCase()}`}>
-      <span className="w-[86px] flex-none text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{label}</span>
-      <span className="-ml-[9px] inline-flex min-w-0 items-center gap-[7px] rounded-[var(--radius-md)] px-[9px] py-[5px] text-[length:var(--text-footnote)] text-[var(--text-primary)]">
-        {children}
-        {chevron && <ChevronDown size={11} strokeWidth={2} aria-hidden className="flex-none text-[var(--text-quaternary)] opacity-45" />}
-      </span>
-    </div>
-  )
-}
-
-function TodoProps({ item, byName, parentTitle }: {
-  item: WorkItemFullWire
-  byName: Map<string, Employee>
-  parentTitle: string | null
-}) {
-  return (
-    <div className="mt-[var(--space-4)] flex flex-col gap-0.5">
-      <PropRow label="Status" chevron>
-        <StatusCircle status={item.status} size={18} />
-        {STATUS_LABEL[item.status]}
-      </PropRow>
-      <PropRow label="Assignee" chevron>
-        {item.assignee ? (
-          <>
-            <EmployeeAvatar name={item.assignee} size={18} fontSize={10} className="bg-[var(--fill-secondary)]" />
-            {displayNameOf(item.assignee, byName)}
-          </>
-        ) : (
-          <>
-            <span className="grid size-[18px] flex-none place-items-center rounded-full bg-[var(--fill-secondary)] text-[var(--text-quaternary)]">
-              <UserRound size={10} aria-hidden />
-            </span>
-            <span className="text-[var(--text-tertiary)]">Unassigned</span>
-          </>
-        )}
-      </PropRow>
-      <PropRow label="Priority">
-        <RailPriorityBars priority={item.priority} />
-        {priorityLabel(item.priority)}
-      </PropRow>
-      <PropRow label="Parent">
-        {item.parentId ? (
-          <>
-            <TodoMention id={item.parentId} />
-            {parentTitle && <span className="truncate">{parentTitle}</span>}
-          </>
-        ) : (
-          <span className="text-[var(--text-tertiary)]">No parent</span>
-        )}
-      </PropRow>
-    </div>
-  )
 }
 
 function ActivityRow({ event, live }: { event: WorkItemEventWire; live: boolean }) {
@@ -146,7 +87,65 @@ const FOOTER_BUTTON =
 
 const QUIET_LINE = 'flex-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]'
 
-export function TodoPeek({ id }: { id: string }) {
+/** Both footer actions leave for the task page: commenting and editing the body
+ *  are that surface's job, and the panel does not try to be a second one. */
+function PeekFooter({ id }: { id: string }) {
+  return (
+    <div className="flex flex-none gap-[var(--space-2)] pt-[var(--space-4)]">
+      <Link to={todoPath(id)} className={FOOTER_BUTTON}>
+        <MessageSquare size={14} strokeWidth={2} aria-hidden />
+        Comment
+      </Link>
+      <Link to={todoPath(id)} className={FOOTER_BUTTON}>
+        <ArrowUpRight size={14} strokeWidth={2} aria-hidden />
+        Open full
+      </Link>
+    </div>
+  )
+}
+
+/** The scrolling half: what the Todo is, what it looks like, what it just did.
+ *  A refusal states itself in place — the panel has no live region of its own. */
+function TodoPeekBody({ detail, byName, parentTitle, rowFor, refusal }: {
+  detail: WorkItemDetailWire
+  byName: Map<string, Employee>
+  parentTitle: string | null
+  rowFor: (key: PeekPickerKey) => PeekPickerRow
+  refusal: string | null
+}) {
+  const item = detail.workItem
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="peek-todo">
+      <h2 className="text-[length:var(--text-title3)] font-semibold leading-[1.25] tracking-[-0.4px] text-[var(--text-primary)]">
+        {item.title}
+      </h2>
+      {item.body && (
+        <p className="mt-[var(--space-3)] line-clamp-3 text-[length:var(--text-subheadline)] leading-[1.5] text-[var(--text-secondary)]">
+          {item.body}
+        </p>
+      )}
+      <TodoProps item={item} byName={byName} parentTitle={parentTitle} rowFor={rowFor} />
+      {refusal && (
+        <p
+          role="status"
+          data-testid="peek-action-error"
+          className="mt-[var(--space-3)] text-[length:var(--text-footnote)] leading-[1.4] text-[var(--system-red)]"
+        >
+          {refusal}
+        </p>
+      )}
+      <TodoActivity events={detail.events} executing={item.status === 'executing'} />
+    </div>
+  )
+}
+
+export function TodoPeek({ id, sheet, onPickerOpenChange }: {
+  id: string
+  /** The panel's form. The pickers follow it: popover beside the rail, bottom
+   *  sheet over the phone sheet. */
+  sheet: boolean
+  onPickerOpenChange: (open: boolean) => void
+}) {
   const detail = useQuery({
     queryKey: ['work-item-preview', id],
     queryFn: () => api.getWorkItem(id),
@@ -154,6 +153,12 @@ export function TodoPeek({ id }: { id: string }) {
   const org = useOrg()
   const byName = useEmployeesByName(org.data?.employees)
   const parentTitle = useParentTitle(detail.data?.workItem.parentId)
+  const pickers = usePeekPickers({
+    detail: detail.data,
+    employees: org.data?.employees ?? [],
+    sheet,
+    onOpenChange: onPickerOpenChange,
+  })
 
   if (detail.isPending) return <p className={QUIET_LINE}>Loading {id}…</p>
   if (!detail.data) {
@@ -164,32 +169,17 @@ export function TodoPeek({ id }: { id: string }) {
     )
   }
 
-  const item = detail.data.workItem
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="peek-todo">
-        <h2 className="text-[length:var(--text-title3)] font-semibold leading-[1.25] tracking-[-0.4px] text-[var(--text-primary)]">
-          {item.title}
-        </h2>
-        {item.body && (
-          <p className="mt-[var(--space-3)] line-clamp-3 text-[length:var(--text-subheadline)] leading-[1.5] text-[var(--text-secondary)]">
-            {item.body}
-          </p>
-        )}
-        <TodoProps item={item} byName={byName} parentTitle={parentTitle} />
-        <TodoActivity events={detail.data.events} executing={item.status === 'executing'} />
-      </div>
-
-      <div className="flex flex-none gap-[var(--space-2)] pt-[var(--space-4)]">
-        <Link to={todoPath(id)} className={FOOTER_BUTTON}>
-          <MessageSquare size={14} strokeWidth={2} aria-hidden />
-          Comment
-        </Link>
-        <Link to={todoPath(id)} className={FOOTER_BUTTON}>
-          <ArrowUpRight size={14} strokeWidth={2} aria-hidden />
-          Open full
-        </Link>
-      </div>
+      <TodoPeekBody
+        detail={detail.data}
+        byName={byName}
+        parentTitle={parentTitle}
+        rowFor={pickers.rowFor}
+        refusal={pickers.error}
+      />
+      {pickers.pickerSheet}
+      <PeekFooter id={id} />
     </>
   )
 }

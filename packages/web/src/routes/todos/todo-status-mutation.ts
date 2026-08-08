@@ -1,7 +1,9 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query"
 import { api, type WorkItemStatusWire } from "@/lib/api"
 import { TODO_WRITE_KEY } from "@/lib/query-keys"
+import { TODO_CACHE_ROOTS, refetchTodoPreview } from "@/lib/todo-caches"
 import { isPositiveTodoVersion } from "@/lib/todos"
+import { mergeTodoIntoCaches } from "./todo-edit-request"
 
 type UnknownRecord = Record<string, unknown>
 
@@ -105,15 +107,15 @@ export interface TodoStatusMutationArgs {
 
 type TodoStatusMutationFn = (variables: TodoStatusMutationArgs) => ReturnType<typeof api.setWorkItemStatus>
 
+type TodoStatusMutationResult = Awaited<ReturnType<TodoStatusMutationFn>>
+
 function snapshotTodoCaches(queryClient: QueryClient, id: string): TodoCacheSnapshot {
-  const queries = [
-    ...queryClient.getQueriesData({ queryKey: ["work-items"] }),
-    ...queryClient.getQueriesData({ queryKey: ["work-item"] }),
-  ]
   const entries: TodoCacheSnapshot["entries"] = []
-  for (const [queryKey, data] of queries) {
-    const previous = findTodoStatus(data, id)
-    if (previous) entries.push({ queryKey, previous })
+  for (const root of TODO_CACHE_ROOTS) {
+    for (const [queryKey, data] of queryClient.getQueriesData({ queryKey: root })) {
+      const previous = findTodoStatus(data, id)
+      if (previous) entries.push({ queryKey, previous })
+    }
   }
   return { entries }
 }
@@ -123,8 +125,9 @@ function patchTodoStatusIntoCaches(
   id: string,
   status: WorkItemStatusWire,
 ): void {
-  queryClient.setQueriesData({ queryKey: ["work-items"] }, (current) => setTodoStatus(current, id, status))
-  queryClient.setQueriesData({ queryKey: ["work-item"] }, (current) => setTodoStatus(current, id, status))
+  for (const root of TODO_CACHE_ROOTS) {
+    queryClient.setQueriesData({ queryKey: root }, (current) => setTodoStatus(current, id, status))
+  }
 }
 
 function restoreTodoCaches(
@@ -139,26 +142,35 @@ function restoreTodoCaches(
   }
 }
 
-/** Shared status-write lane for the task surfaces and board drag. */
+/** Shared status-write lane for the task surfaces, board drag and the peek
+ *  rail. Every cache root that holds a Todo moves together, so a write from one
+ *  surface never leaves another showing the pre-write value. */
 export function todoStatusMutationOptions(queryClient: QueryClient, mutationFn: TodoStatusMutationFn) {
   return {
     mutationKey: TODO_WRITE_KEY,
     mutationFn,
     onMutate: async ({ id, status }: TodoStatusMutationArgs) => {
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: ["work-items"] }),
-        queryClient.cancelQueries({ queryKey: ["work-item"] }),
-      ])
+      await Promise.all(TODO_CACHE_ROOTS.map((root) => queryClient.cancelQueries({ queryKey: root })))
       const snapshot = snapshotTodoCaches(queryClient, id)
       patchTodoStatusIntoCaches(queryClient, id, status)
       return snapshot
     },
+    onSuccess: (data: TodoStatusMutationResult) => {
+      // Bank the confirmed revision. Without it a second write of the same move
+      // leaves the caches on the pre-write version, and the version fence in
+      // rollbackTodoStatus has nothing to weigh the first write's stale snapshot
+      // against when that one later fails.
+      mergeTodoIntoCaches(queryClient, data.workItem)
+    },
     onError: (_error: unknown, variables: TodoStatusMutationArgs, snapshot: TodoCacheSnapshot | undefined) => {
       if (snapshot) restoreTodoCaches(queryClient, snapshot, variables.id, variables.status)
     },
-    onSettled: () => {
+    onSettled: (_data: unknown, _error: unknown, variables: TodoStatusMutationArgs) => {
       void queryClient.invalidateQueries({ queryKey: ["work-items"] })
       void queryClient.invalidateQueries({ queryKey: ["work-item"] })
+      // Only this Todo's preview: the transcript around it may hold dozens of
+      // other mentions, and none of them changed.
+      refetchTodoPreview(queryClient, variables.id)
     },
   }
 }

@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { api, TodoApiError, type WorkItemDetailWire, type WorkItemEditPatch, type WorkItemEditRequest, type WorkItemFullWire } from "@/lib/api"
+import { TODO_CACHE_ROOTS, refetchTodoPreview } from "@/lib/todo-caches"
 import { isPositiveTodoVersion, isTodoVersionConflictError } from "@/lib/todos"
 
 type UnknownRecord = Record<string, unknown>
@@ -75,12 +76,14 @@ export function mergeTodoIntoCaches<T extends { id: string; version?: number }>(
 ): void {
   if (!isPositiveTodoVersion(workItem.version)) return
   const versioned = workItem as UnknownRecord & { id: string; version: number }
-  queryClient.setQueriesData({ queryKey: ["work-items"] }, (current) => mergeTodoValue(current, versioned))
-  queryClient.setQueriesData({ queryKey: ["work-item"] }, (current) => mergeTodoValue(current, versioned))
+  for (const root of TODO_CACHE_ROOTS) {
+    queryClient.setQueriesData({ queryKey: root }, (current) => mergeTodoValue(current, versioned))
+  }
 }
 
-/** Refetch every list/search projection plus the exact Todo detail. */
+/** Refetch every list/search projection plus the exact Todo detail and preview. */
 export async function invalidateTodoCaches(queryClient: QueryClient, id: string): Promise<void> {
+  refetchTodoPreview(queryClient, id)
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["work-items"] }),
     queryClient.invalidateQueries({ queryKey: ["work-item", id], exact: true }),

@@ -139,15 +139,12 @@ describe("peek panel contents", () => {
     expect(screen.queryByTestId("peek-activity-pulse")).toBeNull()
   })
 
-  it("renders the property values read-only — no picker, no mutation", async () => {
+  it("opens no picker until a property is actually clicked", async () => {
     renderChat()
     await openPanel()
 
-    const status = screen.getByTestId("peek-prop-status")
-    expect(status.querySelector("button")).toBeNull()
-    fireEvent.click(status)
-    fireEvent.click(screen.getByTestId("peek-prop-assignee"))
-
+    // The editable rows and their writes are todo-peek-actions.test.tsx; what
+    // matters here is that merely rendering the panel is still one read.
     expect(screen.queryByRole("menu")).toBeNull()
     expect(getWorkItem).toHaveBeenCalledTimes(1)
   })

@@ -27,6 +27,7 @@ export function detailOf(
   return {
     workItem: {
       id,
+      version: 4,
       title: `Title of ${id}`,
       body: BODY,
       status: "executing",

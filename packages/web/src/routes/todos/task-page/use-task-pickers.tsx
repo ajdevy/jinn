@@ -22,9 +22,9 @@ import {
   DuePickerContent,
   LabelsPickerContent,
   PriorityPickerContent,
-  StatusPickerContent,
   VerifyPickerContent,
 } from "../pickers/picker-contents"
+import { StatusPickerContent } from "../pickers/status-picker-content"
 
 /* Todos v2 slice 6 — the task page's picker wiring: ONE picker open at a time,
  * one content component per property rendered in the popover shell (desktop —

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronLeft, X } from 'lucide-react'
@@ -46,8 +46,8 @@ function useEscapeToClose(open: boolean, close: (() => void) | undefined): void 
   }, [open, close])
 }
 
-/** Modal behaviour for the sheet only: the Tab ring, the scroll lock and the
- *  inert app root. The rail is beside the thread, not over it, and wants none. */
+/** Modal behaviour for the sheet only: the scroll lock and the inert app root.
+ *  The rail is beside the thread, not over it, and wants neither. */
 function useSheetModality(panel: HTMLElement | null, active: boolean): void {
   useEffect(() => {
     if (!active || !panel) return
@@ -56,7 +56,19 @@ function useSheetModality(panel: HTMLElement | null, active: boolean): void {
     const priorOverflow = document.body.style.overflow
     if (appRoot) appRoot.inert = true
     document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = priorOverflow
+      if (appRoot) appRoot.inert = priorInert ?? false
+    }
+  }, [panel, active])
+}
 
+/** The sheet's Tab ring. It stands down while a picker sheet is open above the
+ *  panel: that sheet is the modal then, and pulling focus back in here would
+ *  ring the wrong one. */
+function useSheetTabTrap(panel: HTMLElement | null, active: boolean): void {
+  useEffect(() => {
+    if (!active || !panel) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return
       const focusable = [...panel.querySelectorAll<HTMLElement>('button:not([disabled]),[href]')]
@@ -72,11 +84,7 @@ function useSheetModality(panel: HTMLElement | null, active: boolean): void {
       }
     }
     document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = priorOverflow
-      if (appRoot) appRoot.inert = priorInert ?? false
-    }
+    return () => document.removeEventListener('keydown', onKeyDown)
   }, [panel, active])
 }
 
@@ -129,17 +137,23 @@ export function PeekPanel() {
   const stack = usePeekStack()
   const sheet = useSheetLayout()
   const [panel, setPanel] = useState<HTMLElement | null>(null)
+  // A picker opened from inside the panel owns Escape and the focus ring until
+  // it closes: the operator is answering the picker, not the preview.
+  const [pickerOpen, setPickerOpen] = useState(false)
   const entry = stack?.entries[stack.entries.length - 1]
 
   useSheetModality(panel, Boolean(entry) && sheet)
-  useEscapeToClose(Boolean(entry), stack?.close)
+  useSheetTabTrap(panel, Boolean(entry) && sheet && !pickerOpen)
+  useEscapeToClose(Boolean(entry) && !pickerOpen, stack?.close)
 
   if (!stack || !entry) return null
 
   const body = (
     <>
       <PeekHeader stack={stack} entry={entry} sheet={sheet} />
-      <TodoPeek id={entry.id} />
+      {/* Keyed so following a reference starts the next Todo with no picker
+        * open and no half-written state from the one underneath. */}
+      <TodoPeek key={entry.id} id={entry.id} sheet={sheet} onPickerOpenChange={setPickerOpen} />
     </>
   )
 
@@ -151,7 +165,15 @@ export function PeekPanel() {
       </aside>
     )
   }
+  return <PeekSheetLayer id={entry.id} onScrimClick={stack.close} onPanel={setPanel}>{body}</PeekSheetLayer>
+}
 
+function PeekSheetLayer({ id, onScrimClick, onPanel, children }: {
+  id: string
+  onScrimClick: () => void
+  onPanel: (panel: HTMLElement | null) => void
+  children: ReactNode
+}) {
   return createPortal(
     <div className="fixed inset-0 z-[100]">
       {/* Tap-outside is a pointer shortcut for the header's Close button, not a
@@ -161,10 +183,10 @@ export function PeekPanel() {
         aria-hidden
         data-testid="peek-scrim"
         className="absolute inset-0 bg-[var(--scrim)]"
-        onClick={stack.close}
+        onClick={onScrimClick}
       />
-      <aside ref={setPanel} role="dialog" aria-modal="true" aria-label={`Preview of ${entry.id}`} data-testid="peek-sheet" className={SHEET}>
-        {body}
+      <aside ref={onPanel} role="dialog" aria-modal="true" aria-label={`Preview of ${id}`} data-testid="peek-sheet" className={SHEET}>
+        {children}
       </aside>
       <style>{PEEK_KEYFRAMES}</style>
     </div>,
