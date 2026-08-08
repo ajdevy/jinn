@@ -169,30 +169,28 @@ function pruneWorktrees(targets, repo, git) {
   return { removed, kept }
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2))
-  if (options.help) {
-    process.stdout.write(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 18).join("\n"))
-    return
-  }
-  const env = process.env
-  const git = gitRunner(env)
+/**
+ * Worktrees are planned before processes because the process plan is decided
+ * against them: a parentless test worker is only ours when it runs out of a
+ * tree this same run is removing. Execution keeps the opposite order — kill the
+ * worker, then remove the tree it was holding open.
+ */
+async function buildPlan(options, env, git) {
   const checkout = mainCheckout(options.repo, git)
-  const worktreesRoot = realPath(path.join(path.dirname(checkout), ".worktrees"))
+  const worktrees = await planWorktrees({
+    main: checkout,
+    git,
+    worktreesRoot: realPath(path.join(path.dirname(checkout), ".worktrees")),
+    endpoint: gatewayEndpoint(resolveDefaultHome(env)),
+  })
   const context = buildContext({
     env,
     minAgeMinutes: options.minAgeMin,
     selfPids: [process.pid, process.ppid],
-    worktreesRoot,
+    pruningWorktrees: worktrees.targets.map((target) => target.label),
   })
   const processes = planProcessReap(parsePsDump(psDump(env)), context)
-  const worktrees = await planWorktrees({
-    main: checkout,
-    git,
-    worktreesRoot,
-    endpoint: gatewayEndpoint(context.defaultHome),
-  })
-  const plan = {
+  return {
     processes,
     worktrees,
     spared: [
@@ -201,6 +199,18 @@ async function main() {
       ...worktrees.spared,
     ],
   }
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
+  if (options.help) {
+    process.stdout.write(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 18).join("\n"))
+    return
+  }
+  const env = process.env
+  const git = gitRunner(env)
+  const plan = await buildPlan(options, env, git)
+  const { processes, worktrees } = plan
 
   const report = options.json ? `${JSON.stringify(plan)}\n` : render(plan, options)
   process.stdout.write(report)

@@ -84,16 +84,26 @@ export function classifyGateway(candidate, context) {
   return { reap: true, reason: "throwaway-home" }
 }
 
+/** The absolute paths in a command line, which is where a worker names its tree. */
+function absolutePathsIn(args) {
+  return args.split(/\s+/).filter((token) => token.startsWith(path.sep))
+}
+
 /**
  * A worker orphaned by a killed run. It has no `gateway.json` to claim it, so
- * the evidence is the build worktree it runs out of — a tree this sweep already
- * has the authority to remove. The name is never the evidence: an operator's own
- * `vitest --watch` reparents to PID 1 the moment its shell closes, and killing
- * that would be reaping a process we did not start.
+ * the only thing that can claim it is a worktree this same sweep is deleting —
+ * a tree git listed and the plan already resolved to remove, not a path that
+ * reads like one. Ownership is proven or the worker is left alone: an
+ * operator's own `vitest --watch` reparents to PID 1 the moment its shell
+ * closes, and its name and its directory are both things we may not act on.
  */
 function isOrphanedTestWorker(candidate, context) {
   if (candidate.ppid !== 1 || !TEST_WORKER.test(candidate.args)) return false
-  if (!context.worktreesRoot || !candidate.args.includes(`${context.worktreesRoot}${path.sep}`)) return false
+  const pruning = context.pruningWorktrees ?? []
+  const owned = absolutePathsIn(candidate.args).some((token) =>
+    pruning.some((tree) => token === path.resolve(tree) || isInside(token, tree)),
+  )
+  if (!owned) return false
   if (untouchableReason(candidate.pid, context)) return false
   return candidate.ageMinutes >= context.minAgeMinutes
 }

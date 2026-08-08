@@ -32,7 +32,7 @@ function context(overrides = {}) {
     homeByPid: {},
     protectedPortPids: [],
     throwawayRoots: [TEMP],
-    worktreesRoot: WORKTREES_ROOT,
+    pruningWorktrees: [],
     minAgeMinutes: 120,
     selfPids: [],
     ...overrides,
@@ -131,8 +131,9 @@ test("parsePsDump keeps the whole command line as one field", () => {
   ])
 })
 
-/** A test worker's argv, running out of a build worktree the sweep owns. */
-const WORKER_IN_WORKTREE = `node ${path.join(WORKTREES_ROOT, "jinn-build-TEST-1", "node_modules", "vitest", "dist", "worker.js")}`
+/** A test worker's argv, running out of a build worktree this sweep is removing. */
+const REMOVED_WORKTREE = path.join(WORKTREES_ROOT, "jinn-build-TEST-1")
+const WORKER_IN_WORKTREE = `node ${path.join(REMOVED_WORKTREE, "node_modules", "vitest", "dist", "worker.js")}`
 
 test("planProcessReap sweeps a reaped gateway's children and orphaned test workers", () => {
   const processes = [
@@ -148,7 +149,7 @@ test("planProcessReap sweeps a reaped gateway's children and orphaned test worke
   ]
   const plan = planProcessReap(
     processes,
-    context({ homeByPid: { 9101: SANDBOX_HOME, 9102: REGISTERED_HOME } }),
+    context({ homeByPid: { 9101: SANDBOX_HOME, 9102: REGISTERED_HOME }, pruningWorktrees: [REMOVED_WORKTREE] }),
   )
   assert.deepEqual(
     plan.targets.map((target) => [target.pid, target.kind, target.reason]),
@@ -190,7 +191,7 @@ function contextFromRegistry(fixture, overrides = {}) {
     },
     minAgeMinutes: 120,
     selfPids: [],
-    worktreesRoot: WORKTREES_ROOT,
+    pruningWorktrees: [],
   })
 }
 
@@ -213,18 +214,24 @@ test("the pre-host-registry array inside the home is still honoured", (t) => {
 
 /**
  * The one that matters: a real, live process the plan targets must survive a
- * bare run and die only under `--apply`. Nothing else proves the apply path is
- * gated rather than merely written.
+ * bare run and die only under `--apply`, while a real, live process the plan
+ * does not own must survive both. Nothing else proves the apply path is gated
+ * rather than merely written, or that ownership is proven rather than guessed.
  */
-test("a bare run prints the plan and signals nothing; --apply reaps", async (t) => {
+test("a bare run signals nothing; --apply reaps what this run owns and nothing else", async (t) => {
   const root = fs.mkdtempSync(path.join(TEMP, "reap-cli-"))
   const home = path.join(root, ".jinn")
   const sandbox = fs.mkdtempSync(path.join(TEMP, "jinn-sandbox-"))
   const victim = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
   const worker = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
+  // Reparented to PID 1, named like a test worker, sitting under the worktrees
+  // root — and belonging to nobody. This run removes no worktree, so there is
+  // nothing to own it and it must come through untouched.
+  const bystander = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
   t.after(() => {
     victim.kill("SIGKILL")
     worker.kill("SIGKILL")
+    bystander.kill("SIGKILL")
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(sandbox, { recursive: true, force: true })
   })
@@ -234,9 +241,12 @@ test("a bare run prints the plan and signals nothing; --apply reaps", async (t) 
   fs.writeFileSync(path.join(home, "gateway.json"), JSON.stringify({ pid: 1, ptyPids: [] }))
   fs.writeFileSync(path.join(sandbox, "gateway.json"), JSON.stringify({ pid: victim.pid, ptyPids: [] }))
   const psDump = path.join(root, "ps.txt")
+  const strayWorker = path.join(root, ".worktrees", "jinn-build-ACTIVE", "node_modules", "vitest", "dist", "worker.js")
   fs.writeFileSync(
     psDump,
-    `${victim.pid} 1 05:00:00 90000 ${GATEWAY_ARGS}\n${worker.pid} ${victim.pid} 05:00:00 900 node /repo/worker.js\n`,
+    `${victim.pid} 1 05:00:00 90000 ${GATEWAY_ARGS}\n` +
+      `${worker.pid} ${victim.pid} 05:00:00 900 node /repo/worker.js\n` +
+      `${bystander.pid} 1 05:00:00 900 node ${strayWorker}\n`,
   )
 
   const env = {
@@ -255,6 +265,7 @@ test("a bare run prints the plan and signals nothing; --apply reaps", async (t) 
   assert.equal(dry.status, 0, dry.stderr)
   assert.match(dry.stdout, new RegExp(`REAP\\s+pid=${victim.pid}`))
   assert.match(dry.stdout, /Spared/)
+  assert.doesNotMatch(dry.stdout, new RegExp(`pid=${bystander.pid}`), "an unowned worker must not appear in the plan")
   // A signalled child lingers as a zombie the parent can still `kill(pid, 0)`,
   // so liveness is read off the handle rather than off the process table.
   await settle()
@@ -265,6 +276,7 @@ test("a bare run prints the plan and signals nothing; --apply reaps", async (t) 
   assert.equal(applied.status, 0, applied.stderr)
   await waitForExit(victim, "gateway")
   await waitForExit(worker, "child worker")
+  assert.equal(bystander.exitCode ?? bystander.signalCode, null, "--apply must not signal an unowned worker")
 })
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 300))

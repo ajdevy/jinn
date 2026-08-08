@@ -146,7 +146,7 @@ export function gatewayEndpoint(defaultHome) {
   return { url: gateway.url, token: gateway.token }
 }
 
-export function buildContext({ env, minAgeMinutes, selfPids, worktreesRoot }) {
+export function buildContext({ env, minAgeMinutes, selfPids, pruningWorktrees }) {
   const defaultHome = resolveDefaultHome(env)
   const registered = readRegisteredInstances(defaultHome, env)
   const throwawayRoots = throwawayRootsFor(env)
@@ -156,7 +156,10 @@ export function buildContext({ env, minAgeMinutes, selfPids, worktreesRoot }) {
     homeByPid: mapPidsToHomes(discoverHomes({ defaultHome, registered, throwawayRoots })),
     protectedPortPids: protectedPortOwners(registered, env),
     throwawayRoots,
-    worktreesRoot,
+    // The trees this run has already decided to remove. It is the only thing
+    // that can make a parentless worker ours, so it is built from the worktree
+    // plan rather than from the root those trees happen to live under.
+    pruningWorktrees,
     minAgeMinutes,
     selfPids,
   }
