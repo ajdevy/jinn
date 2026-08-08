@@ -3,9 +3,9 @@ import { logger } from "../../shared/logger.js";
 import { selectClaudeModelFallback } from "../../shared/model-fallback.js";
 import { getModelRegistry, refreshClaudeModels } from "../../shared/models.js";
 import type { EngineResult, StreamDelta } from "../../shared/types.js";
-import { getSession, insertMessage, recordEngineSessionId, updateSessionForAttempt } from "../registry.js";
-import { notifyParentSession } from "../callbacks.js";
+import { getSession, insertMessage, updateSessionForAttempt } from "../registry.js";
 import { normalizeBlockDeltaForTurn, type PartialStreamWriter } from "../partial-stream.js";
+import { settleTurn } from "./completion.js";
 import type { TurnHeartbeat } from "./heartbeat.js";
 import type { TurnInput, TurnPlan, TurnSurface } from "./types.js";
 
@@ -148,28 +148,36 @@ async function recoverLateTurn(args: {
 }): Promise<void> {
   const { input, plan, surface } = args;
   const sessionId = input.session.id;
-  const recovered = updateSessionForAttempt(sessionId, input.attemptToken, {
-    status: "idle",
-    attemptOutcome: "succeeded",
-    lastActivity: new Date().toISOString(),
-    lastError: null,
-  }, ["error"]);
-  if (!recovered || recovered.engine !== plan.engineName) return;
+  const live = getSession(sessionId);
+  if (!live || live.engine !== plan.engineName) return;
 
-  insertMessage(sessionId, "assistant", args.lateText);
-  if (args.engineSid.trim()) {
-    recordEngineSessionId(sessionId, plan.engineName, args.engineSid, {
-      model: plan.model,
-      effortLevel: plan.effortLevel,
-      lastSyncedAt: new Date().toISOString(),
-      platformContextFingerprint: args.fingerprint,
-    });
-  }
   // The parent/channel already saw this turn fail — label the late answer so it
   // reads as a supersede, not a fresh unprompted turn.
   const labelled = `(recovered — this supersedes the earlier reported failure)\n\n${args.lateText}`;
-  notifyParentSession(recovered, { result: labelled, error: null }, { alwaysNotify: input.employee?.alwaysNotify });
-  await surface.settled({ session: recovered, result: args.lateText, error: null });
+  const recovered = await settleTurn({
+    sessionId,
+    attemptToken: input.attemptToken,
+    outcome: "succeeded",
+    result: labelled,
+    error: null,
+    ...(args.engineSid.trim()
+      ? {
+        engineSession: {
+          engine: plan.engineName,
+          nativeId: args.engineSid,
+          meta: { model: plan.model, effortLevel: plan.effortLevel, platformContextFingerprint: args.fingerprint },
+        },
+      }
+      : {}),
+    // A recovery settles the failed turn's own row, so it lands out of `error`
+    // rather than the default running-only fence.
+    expectedStatuses: ["error"],
+    employee: input.employee,
+    surface,
+  });
+  if (!recovered) return;
+
+  insertMessage(sessionId, "assistant", args.lateText);
   await surface.reply(labelled);
   logger.info(`Session ${sessionId} recovered by late Stop after a failed turn`);
 }
