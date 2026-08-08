@@ -152,17 +152,6 @@ function rowToSession(row: Record<string, unknown>): Session {
   };
 }
 
-/** Read a value from the generic key/value meta store (one-off progress flags /
- * watermarks). Returns null when the key was never written. */
-export function getMetaValue(key: string): string | null {
-  return getMeta(initDb(), key);
-}
-
-/** Upsert a value into the generic key/value meta store. Keep entries tiny. */
-export function setMetaValue(key: string, value: string): void {
-  setMeta(initDb(), key, value);
-}
-
 const FTS_BACKFILL_CHUNK = 1000;
 
 /**
@@ -1404,15 +1393,6 @@ export function searchSessionsFiltered(filter: SearchSessionsFilter, limit = 20)
   const rows = db
     .prepare(`SELECT * FROM sessions WHERE ${conditions.join(' AND ')} ORDER BY last_activity DESC LIMIT ?`)
     .all(...values, cap) as Record<string, unknown>[];
-  return rows.map(rowToSession);
-}
-
-/** Recent sessions for a given source, newest first (bounded). */
-export function listSessionsBySource(source: string, limit: number): Session[] {
-  const db = initDb();
-  const rows = db
-    .prepare(`SELECT * FROM sessions WHERE source = ? ORDER BY last_activity DESC LIMIT ?`)
-    .all(source, limit) as Record<string, unknown>[];
   return rows.map(rowToSession);
 }
 

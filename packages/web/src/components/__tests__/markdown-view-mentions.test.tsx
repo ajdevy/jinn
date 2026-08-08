@@ -14,7 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 const LIVE_PREFIXES: ReadonlySet<string> = new Set(["ICI"])
 
-function renderMarkdown(content: string, prefixes: ReadonlySet<string> = LIVE_PREFIXES) {
+function renderDocument(content: string, prefixes: ReadonlySet<string> = LIVE_PREFIXES) {
   return render(
     <MemoryRouter initialEntries={["/todos/ICI-1"]}>
       <TodoPrefixContext.Provider value={prefixes}>
@@ -26,7 +26,7 @@ function renderMarkdown(content: string, prefixes: ReadonlySet<string> = LIVE_PR
 
 describe("Todo mentions in a rendered markdown document", () => {
   it("links a live id in a body or a comment", () => {
-    renderMarkdown("Depends on ICI-740, which is merged.")
+    renderDocument("Depends on ICI-740, which is merged.")
 
     const link = screen.getByRole("link", { name: "ICI-740" })
     expect(link.getAttribute("href")).toBe("/todos/ICI-740")
@@ -34,7 +34,7 @@ describe("Todo mentions in a rendered markdown document", () => {
   })
 
   it("links a live id nested in emphasis, a list and a table cell", () => {
-    renderMarkdown([
+    renderDocument([
       "- **ICI-741** in a list",
       "",
       "| Ticket | Note |",
@@ -47,7 +47,7 @@ describe("Todo mentions in a rendered markdown document", () => {
   })
 
   it("leaves an id alone inside inline code, a fenced block and an existing link", () => {
-    const { container } = renderMarkdown([
+    const { container } = renderDocument([
       "Inline `ICI-743` stays code.",
       "",
       "```",
@@ -79,7 +79,7 @@ describe("Todo mentions in a rendered markdown document", () => {
   })
 
   it("leaves an id from an unknown prefix as the text it was", () => {
-    const { container } = renderMarkdown("GPT-5 and SHA-256 and ZZZ-746 are not Todos.")
+    const { container } = renderDocument("GPT-5 and SHA-256 and ZZZ-746 are not Todos.")
 
     expect(container.querySelector("a")).toBeNull()
     expect(screen.getByText(/GPT-5/).textContent).toBe("GPT-5 and SHA-256 and ZZZ-746 are not Todos.")
@@ -91,7 +91,7 @@ describe("Todo mentions in a rendered markdown document", () => {
     const before = withoutProvider.container.innerHTML
     withoutProvider.unmount()
 
-    const { container } = renderMarkdown(document)
+    const { container } = renderDocument(document)
 
     expect(container.innerHTML).toBe(before)
   })

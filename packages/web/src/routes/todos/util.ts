@@ -1,4 +1,4 @@
-import type { Employee, WorkItemDetailWire } from "@/lib/api"
+import type { Employee } from "@/lib/api"
 
 /** Compact relative time: "22m", "4h", "Yesterday", "Jul 4". Past only. */
 export function formatRelativeTime(iso: string, now = Date.now()): string {
@@ -20,16 +20,4 @@ export function formatRelativeTime(iso: string, now = Date.now()): string {
 export function displayNameOf(assignee: string | null, byName: Map<string, Employee>): string {
   if (!assignee) return ""
   return byName.get(assignee)?.displayName ?? assignee
-}
-
-/** The human reason a Todo is escalated/blocked: the newest event note/critique,
- *  else a calm fallback. Blocked/escalated transitions always carry a note. */
-export function attentionReason(detail: WorkItemDetailWire, fallback: string): string {
-  for (let i = detail.events.length - 1; i >= 0; i--) {
-    const d = detail.events[i].detail
-    if (!d) continue
-    const text = (d.note ?? d.critique ?? d.reason) as unknown
-    if (typeof text === "string" && text.trim()) return text.trim()
-  }
-  return fallback
 }

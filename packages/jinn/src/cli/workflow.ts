@@ -6,7 +6,6 @@ import { JINN_HOME } from "../shared/paths.js";
 
 type JsonOptions = { json?: boolean };
 type Method = "GET" | "POST" | "PUT";
-export interface WorkflowRunResult { runId: string; workflowId: string; status: string; [key: string]: unknown }
 export interface WorkflowRequestOptions {
   baseUrl: string; token: string; method: Method; path: string; body?: unknown; fetchImpl?: typeof fetch;
 }

@@ -8,11 +8,3 @@ export function useSkills() {
     queryFn: () => api.getSkills(),
   })
 }
-
-export function useSkill(name: string | null) {
-  return useQuery({
-    queryKey: queryKeys.skills.detail(name!),
-    queryFn: () => api.getSkill(name!),
-    enabled: !!name,
-  })
-}

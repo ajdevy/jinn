@@ -27,7 +27,3 @@ export function restartEntryOptionsFromArgv(argv: readonly string[] = process.ar
   if (!validPort(port)) throw new Error(`invalid restart-entry port: ${rawPort}`);
   return { port, takePort: args.includes("--take-port") };
 }
-
-export function restartEntryTakePortFromArgv(argv: readonly string[] = process.argv): boolean {
-  return restartEntryOptionsFromArgv(argv).takePort;
-}

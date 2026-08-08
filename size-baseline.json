@@ -174,7 +174,7 @@
       ]
     },
     "packages/jinn/src/engines/antigravity.ts": {
-      "lines": 594,
+      "lines": 593,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -222,7 +222,7 @@
       ]
     },
     "packages/jinn/src/engines/grok.ts": {
-      "lines": 792,
+      "lines": 791,
       "exempt": [
         "complexity",
         "max-depth",
@@ -435,7 +435,7 @@
       ]
     },
     "packages/jinn/src/gateway/org.ts": {
-      "lines": 421,
+      "lines": 404,
       "exempt": [
         "complexity",
         "max-depth",
@@ -755,7 +755,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2827,
+      "lines": 2807,
       "exempt": [
         "complexity",
         "max-depth",
@@ -844,7 +844,7 @@
       ]
     },
     "packages/jinn/src/shared/models.ts": {
-      "lines": 712,
+      "lines": 701,
       "exempt": [
         "complexity"
       ]
@@ -914,7 +914,7 @@
       ]
     },
     "packages/jinn/src/work-items/attachments.ts": {
-      "lines": 394,
+      "lines": 390,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1556,7 +1556,7 @@
       ]
     },
     "packages/web/src/lib/todos.ts": {
-      "lines": 369,
+      "lines": 367,
       "exempt": [
         "complexity"
       ]

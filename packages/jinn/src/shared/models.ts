@@ -318,17 +318,6 @@ export function effortLevelsForModel(config: JinnConfig, engine: string, modelId
   return model?.supportsEffort ? model.effortLevels : [];
 }
 
-/** Context window (tokens) for a session's engine+model, or undefined if unknown. */
-export function contextWindowForModel(config: JinnConfig, engine: string, modelId?: string): number | undefined {
-  const entry = getModelRegistry(config)[engine];
-  if (!entry) return undefined;
-  const model =
-    (modelId ? entry.models.find((m) => m.id === modelId) : undefined) ??
-    entry.models.find((m) => m.id === entry.defaultModel) ??
-    entry.models[0];
-  return model?.contextWindow;
-}
-
 /** Build the registry without touching the cache (used by getModelRegistry + tests). */
 export function buildRegistry(config: JinnConfig): ModelRegistry {
   const synthesized = synthesizeFromEngineConfig(config);

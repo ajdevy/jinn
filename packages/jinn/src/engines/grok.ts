@@ -10,7 +10,6 @@ import { buildEngineChildEnv } from "../shared/child-env.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
 import { prepareGrokProjectMcpConfig, cleanupGrokProjectMcpConfig, grokJinnSessionEnv, type GrokMcpAttachHandle } from "./grok-mcp.js";
 
-export const GROK_DEFAULT_MODEL = "grok-build";
 export const GROK_SESSIONS_DIR = path.join(os.homedir(), ".grok", "sessions");
 
 const STDERR_MAX = 10 * 1024;

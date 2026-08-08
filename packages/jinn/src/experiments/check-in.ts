@@ -61,7 +61,7 @@ function validateCheckIn(input: ExperimentCheckInInput): Failure | null {
   return null;
 }
 
-export function registerExperimentCheckIn(
+function registerExperimentCheckIn(
   experiment: CheckInSubject,
   input: ExperimentCheckInInput,
   jobId = `experiment-check-in-${experiment.id}`,
@@ -86,7 +86,7 @@ export function registerExperimentCheckIn(
   return { ok: true, value: job };
 }
 
-export function disableExperimentCheckIn(jobId: string): void {
+function disableExperimentCheckIn(jobId: string): void {
   const jobs = loadJobs();
   const index = jobs.findIndex((job) => canonicalCronJobId(job.id) === canonicalCronJobId(jobId));
   if (index < 0 || !jobs[index].enabled) return;
@@ -95,7 +95,7 @@ export function disableExperimentCheckIn(jobId: string): void {
   saveJobs(next);
 }
 
-export function removeExperimentCheckIn(jobId: string): void {
+function removeExperimentCheckIn(jobId: string): void {
   const jobs = loadJobs();
   const next = jobs.filter((job) => canonicalCronJobId(job.id) !== canonicalCronJobId(jobId));
   if (next.length !== jobs.length) saveJobs(next);
@@ -135,7 +135,7 @@ export function createExperimentWithCheckIn(
 
 /** Rewrites the registered job from the experiment as it now stands. No-op when
  * the experiment has no check-in, or when its job has since been removed. */
-export function updateExperimentCheckIn(experiment: HydratedExperiment): void {
+function updateExperimentCheckIn(experiment: HydratedExperiment): void {
   if (!experiment.checkInCronJobId) return;
   const jobs = loadJobs();
   const canonicalId = canonicalCronJobId(experiment.checkInCronJobId);

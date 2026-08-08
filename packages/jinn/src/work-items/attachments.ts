@@ -90,10 +90,6 @@ export class WorkItemAttachmentError extends Error {
   }
 }
 
-export function attachmentsDir(): string {
-  return ATTACHMENTS_DIR;
-}
-
 /** Absolute content-addressed path for a stored hash. */
 export function attachmentPath(sha256: string): string {
   return path.join(ATTACHMENTS_DIR, sha256.slice(0, 2), sha256);

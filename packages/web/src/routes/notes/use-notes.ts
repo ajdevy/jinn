@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
-import type { CreateNoteInput, UpdateNoteInput } from "./types"
+import type { CreateNoteInput } from "./types"
 
 export function useNotes(query = "") {
   return useQuery({
@@ -21,17 +21,6 @@ export function useCreateNote() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateNoteInput) => api.createNote(input),
-    onSuccess: ({ note }) => {
-      client.setQueryData(queryKeys.notes.document(note.path), { note })
-      void client.invalidateQueries({ queryKey: queryKeys.notes.all })
-    },
-  })
-}
-
-export function useUpdateNote() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: (input: UpdateNoteInput) => api.updateNote(input),
     onSuccess: ({ note }) => {
       client.setQueryData(queryKeys.notes.document(note.path), { note })
       void client.invalidateQueries({ queryKey: queryKeys.notes.all })

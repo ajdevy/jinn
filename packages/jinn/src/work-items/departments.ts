@@ -66,11 +66,6 @@ export function resolveDepartmentPrefix(db: DatabaseType, slug: string, reserved
 
 export interface DepartmentRecord { slug: string; prefix: string; createdAt: string }
 
-export function listDepartments(db: DatabaseType): DepartmentRecord[] {
-  return (db.prepare("SELECT slug, prefix, created_at FROM departments ORDER BY slug").all() as Array<Record<string, string>>)
-    .map((row) => ({ slug: row.slug, prefix: row.prefix, createdAt: row.created_at }));
-}
-
 export interface DepartmentSummary extends DepartmentRecord {
   /** Live count of Todos currently IN the department (items keep their birth
    *  prefix when moved, so this counts membership, not the ID namespace). */

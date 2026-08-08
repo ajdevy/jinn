@@ -68,10 +68,6 @@ const SPEC: Record<StateGlyphKey, GlyphSpec> = {
   approval: { Icon: Bell, bg: "var(--accent-fill)", fg: "var(--accent)" },
 }
 
-export function specForStatus(status: WorkItemStatusWire): GlyphSpec {
-  return SPEC[stateKeyOf(status)]
-}
-
 /** A tinted state disc. `size` is the disc diameter in px; the glyph scales to ~half. */
 export function StateCircle({
   keyOf,

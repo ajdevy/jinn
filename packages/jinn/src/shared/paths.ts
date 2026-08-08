@@ -2,8 +2,8 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { resolveJinnHome, resolveMcpSessionCapabilityKeyFile } from "./home.js";
-import { resolveInstancesRegistryPath, resolveLegacyInstancesRegistryPath } from "../instances/directory.js";
+import { resolveJinnHome } from "./home.js";
+import { resolveInstancesRegistryPath } from "../instances/directory.js";
 import { resolveSttModelsDir } from "../stt/model-store.js";
 import { resolveSttSettingsPath } from "../stt/settings-store.js";
 
@@ -90,7 +90,6 @@ export const TMP_DIR = path.join(JINN_HOME, "tmp");
 export const PTY_SNAPSHOTS_DIR = path.join(JINN_HOME, "state", "pty-snapshots");
 export const ENGINE_LIMITS_DIR = path.join(TMP_DIR, "engine-limits");
 export const CLAUDE_LIMITS_DIR = path.join(ENGINE_LIMITS_DIR, "claude");
-export const MODELS_DIR = path.join(JINN_HOME, "models");
 export const STT_MODELS_DIR = resolveSttModelsDir();
 export const STT_SETTINGS_FILE = resolveSttSettingsPath();
 /** Read fallback for installs that have not yet adopted their per-home model. */
@@ -98,8 +97,6 @@ export const LEGACY_STT_MODELS_DIR = path.join(JINN_HOME, "models", "whisper");
 export const PID_FILE = path.join(JINN_HOME, "gateway.pid");
 /** Gateway connection info (port + hook secret + pids) for hook-relay discovery. */
 export const GATEWAY_INFO_FILE = path.join(JINN_HOME, "gateway.json");
-/** Persistent per-instance key for restart-stable, session-scoped MCP capabilities. */
-export const MCP_SESSION_CAPABILITY_KEY_FILE = resolveMcpSessionCapabilityKeyFile(JINN_HOME);
 /** Per-session Claude Code --settings files. */
 export const CLAUDE_SETTINGS_DIR = path.join(JINN_HOME, "tmp", "settings");
 /**
@@ -121,10 +118,6 @@ export const IMAGE_CACHE_DIR = path.join(JINN_HOME, "cache", "image");
 /** Date-bucketed storage for files attached to / emitted by sessions. */
 export const UPLOADS_DIR = path.join(JINN_HOME, "uploads");
 export const TEMPLATE_MIGRATIONS_DIR = path.join(TEMPLATE_DIR, "migrations");
-/** Snapshot-first backups for automatic instance-template migrations. */
-export const MIGRATION_SNAPSHOTS_DIR = path.join(JINN_HOME, ".migration-snapshots");
 
 /** Host-scoped workspace directory, deliberately outside every JINN_HOME. */
 export const INSTANCES_REGISTRY = resolveInstancesRegistryPath();
-/** Pre-v0.28 registry location, read only for one-time automatic import. */
-export const LEGACY_INSTANCES_REGISTRY = resolveLegacyInstancesRegistryPath();

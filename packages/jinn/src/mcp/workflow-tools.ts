@@ -174,7 +174,6 @@ const specs: ToolSpec[] = [
   },
 ];
 
-export const workflowAdvertisedComponentSchemas: Record<string, Record<string, unknown>> = {};
 export function buildWorkflowTools(options?: { attemptCompletion?: boolean }): JinnMcpTool[] {
   const visible = options?.attemptCompletion
     ? specs

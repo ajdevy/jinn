@@ -1,4 +1,3 @@
-import { api } from '@/lib/api'
 import { stripMarkdown } from '@/lib/strip-markdown'
 import { clockTime, CommsLedgerRow } from './comms-callout'
 import type { CommsPeekData } from './thread-peek'
@@ -85,21 +84,6 @@ export function cleanLikeGateway(text: string, max = 220): string {
   const cut = oneLine.slice(0, max)
   const lastSpace = cut.lastIndexOf(' ')
   return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + '…'
-}
-
-export async function fetchFullReply(childSessionId: string, preview: string): Promise<string | null> {
-  const session = await api.getSession(childSessionId, { last: 40 }) as Record<string, unknown>
-  const messages = Array.isArray(session.messages) ? session.messages as Array<Record<string, unknown>> : []
-  // Newest-first provenance match: find the assistant message this preview was
-  // clipped from. The exact match keeps historical callbacks honest — a child
-  // that ran again later never gets its NEWER reply attributed to an OLD card.
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message.role !== 'assistant') continue
-    const content = typeof message.content === 'string' ? message.content : ''
-    if (content && cleanLikeGateway(content) === preview) return content
-  }
-  return null
 }
 
 /* ── Component ──────────────────────────────────────────── */

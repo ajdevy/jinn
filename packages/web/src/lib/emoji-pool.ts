@@ -18,8 +18,6 @@ export const EMOJI_POOL = [
   "🦾", "🧿", "🪬", "🫧", "🧊", "🪸", "🦑", "🦞", "🪷", "🪻",
 ] as const
 
-export type PoolEmoji = (typeof EMOJI_POOL)[number]
-
 /** Deterministic hash → emoji index from a name string */
 export function emojiForName(name: string): string {
   if (!name) return EMOJI_POOL[0]

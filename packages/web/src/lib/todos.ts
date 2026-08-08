@@ -211,8 +211,6 @@ export interface TodoFilters {
   q?: string
 }
 
-export const DEFAULT_FILTERS: TodoFilters = { status: "open" }
-
 /** Transport-only work-item ids must never cross into user-facing metadata. */
 export function publicWorkItemReference(value: string | null | undefined): string | null {
   const reference = value?.trim() ?? ""
