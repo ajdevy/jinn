@@ -187,6 +187,31 @@ export function withoutGatewayEnvValues<T>(
 }
 
 /**
+ * The top-level keys a config write may carry. Keep aligned with `JinnConfig`
+ * in ./config-types.ts: a key the interface declares but this omits cannot be
+ * saved back, so a gateway already using it fails to round-trip its own config.
+ */
+export const CONFIG_TOP_LEVEL_KEYS = [
+  "jinn",
+  "gateway",
+  "engines",
+  "models",
+  "connectors",
+  "logging",
+  "mcp",
+  "sessions",
+  "cron",
+  "notifications",
+  "workflows",
+  "portal",
+  "context",
+  "stt",
+  "talk",
+  "skills",
+  "remotes",
+];
+
+/**
  * Atomically persist a config object to config.yaml. The live gateway
  * hot-reloads config.yaml via a file watcher, so a torn write would be
  * consumed mid-write — write to a tmp file in the same directory, then rename.

@@ -101,7 +101,7 @@ import {
   TEMPLATE_MIGRATIONS_DIR,
   resolveHomeIdentity,
 } from "../shared/paths.js";
-import { saveConfigAtomic, gatewayEnvOverrides } from "../shared/config.js";
+import { CONFIG_TOP_LEVEL_KEYS, saveConfigAtomic, gatewayEnvOverrides } from "../shared/config.js";
 import { messageBodyError } from "../shared/message-body.js";
 import { logger } from "../shared/logger.js";
 import { redactText } from "../shared/redact.js";
@@ -5599,26 +5599,7 @@ export async function handleApiRequest(
         return badRequest(res, "Config must be a JSON object");
       }
       // Validate known top-level keys
-      // Keep this aligned with `JinnConfig` in src/shared/types.ts
-      const KNOWN_KEYS = [
-        "jinn",
-        "gateway",
-        "engines",
-        "models",
-        "connectors",
-        "logging",
-        "mcp",
-        "sessions",
-        "cron",
-        "notifications",
-        "portal",
-        "context",
-        "stt",
-        "talk",
-        "skills",
-        "remotes",
-      ];
-      const unknownKeys = Object.keys(body).filter((k) => !KNOWN_KEYS.includes(k));
+      const unknownKeys = Object.keys(body).filter((k) => !CONFIG_TOP_LEVEL_KEYS.includes(k));
       if (unknownKeys.length > 0) {
         return badRequest(res, `Unknown config keys: ${unknownKeys.join(", ")}`);
       }
