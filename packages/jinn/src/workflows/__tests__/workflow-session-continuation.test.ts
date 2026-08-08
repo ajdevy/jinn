@@ -75,7 +75,7 @@ let engine: DeferredEngine;
 let executor: RecordingExecutor;
 let service: WorkflowService;
 
-function definition(engineName: "claude" | "codex"): WorkflowDefinition {
+function definition(engineName: "claude" | "codex", delta = "Fix only what the review flagged."): WorkflowDefinition {
   const created = repository.createDefinition({ id: `flow-${engineName}`, title: `Flow ${engineName}` });
   const saved = repository.saveDefinition({
     ...created,
@@ -87,7 +87,7 @@ function definition(engineName: "claude" | "codex"): WorkflowDefinition {
       { id: "second", type: "employee", name: "Second", config: {
         employee: { source: "fixed", value: "worker" }, engine: { source: "fixed", value: engineName },
         prompt: "Build the thing, and here is the whole brief again.",
-        continueFrom: { nodeId: "first", prompt: "Fix only what the review flagged." },
+        continueFrom: { nodeId: "first", prompt: delta },
         output: { fields: {}, allowAdditionalFields: true } } },
       { id: "finish", type: "end", name: "Finish", config: { result: "success" } },
     ],
@@ -163,6 +163,21 @@ describe("a second round on the session the first round left behind", () => {
     expect(second.resolvedConfig.continuedFrom).toBeUndefined();
     expect(executor.commands[1]?.continueFrom).toBeUndefined();
     expect(getSession(second.sessionId!)?.engineSessionId).toBeNull();
+    expect(second.promptText?.startsWith("Build the thing, and here is the whole brief again.")).toBe(true);
+
+    engine.resolve({ sessionId: "native-round-2", result: "Done.\n```jinn-output\n{}\n```", durationMs: 1 });
+    await vi.waitFor(() => expect(service.getRun(authored.id, runId)?.status).toBe("completed"));
+  });
+
+  it("dispatches cold over a delta whose bindings this run cannot resolve", async () => {
+    // codex again, so the candidate is rejected and the delta never goes out. A
+    // binding only the unused prompt reads must not fail the round reading the
+    // other one.
+    const authored = definition("codex", "Fix {{ input.reviewNote }} and nothing else.");
+    const runId = await runBothPhases(authored);
+
+    const second = repository.getRun(authored.id, runId)!.attempts.find((attempt) => attempt.nodeId === "second")!;
+    expect(second.resolvedConfig.continuedFrom).toBeUndefined();
     expect(second.promptText?.startsWith("Build the thing, and here is the whole brief again.")).toBe(true);
 
     engine.resolve({ sessionId: "native-round-2", result: "Done.\n```jinn-output\n{}\n```", durationMs: 1 });

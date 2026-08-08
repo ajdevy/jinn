@@ -47,14 +47,18 @@ export function resolveEmployeeContinuation(
     // Without a Todo there is nothing tying two runs together, so cross-run
     // continuation simply does not apply — never fall back to "any prior run".
     () => (run.trigger.todoId
-      ? options.repository.findContinuationAttempt({ workflowId: run.workflowId, nodeId: target, todoId: run.trigger.todoId, excludeRunId: run.id })
+      ? options.repository.findContinuationAttempt({ workflowId: run.workflowId, nodeId: target,
+        todoId: run.trigger.todoId, runId: run.id, runStartedAt: run.startedAt })
       : null),
   ];
   for (const candidate of candidates) {
-    const sessionId = candidate()?.sessionId;
-    if (!sessionId) continue;
-    const engineSessionId = options.resumableEngineSession(sessionId, engine);
-    if (engineSessionId) return { sessionId, engineSessionId };
+    const attempt = candidate();
+    // The engine the attempt actually ran on, read off what it persisted. Its
+    // session is mutable — an employee switched since keeps the same session row
+    // and records a ref for the new engine, which is not this thread.
+    if (!attempt?.sessionId || attempt.resolvedConfig.engine !== engine) continue;
+    const engineSessionId = options.resumableEngineSession(attempt.sessionId, engine);
+    if (engineSessionId) return { sessionId: attempt.sessionId, engineSessionId };
   }
   logger.info(`Workflow ${run.workflowId} run ${run.id} node ${node.id} dispatches cold: no resumable ${engine} attempt of ${target} to continue.`);
   return null;

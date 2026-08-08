@@ -9,7 +9,11 @@ export interface ContinuationAttemptQuery {
   /** The Todo this run is bound to. Runs bound to any other Todo — or to none —
    *  are invisible here, so a continuation can never cross Todos. */
   todoId: string;
-  excludeRunId: string;
+  /** This run's own id and start. Only runs that began strictly before it are
+   *  candidates: two runs of the same Workflow can be in flight on one Todo, and
+   *  a run must never pick up a thread from one that started after it. */
+  runId: string;
+  runStartedAt: string;
 }
 
 /**
@@ -22,7 +26,8 @@ export function readContinuationAttempt(
   query: ContinuationAttemptQuery,
 ): WorkflowAttemptRecord | null {
   const row = db.prepare(`SELECT a.* FROM workflow_attempts a JOIN workflow_runs r ON r.id = a.run_id
-    WHERE r.workflow_id = @workflowId AND r.id <> @excludeRunId AND json_extract(r.trigger_json, '$.todoId') = @todoId
+    WHERE r.workflow_id = @workflowId AND (r.started_at, r.id) < (@runStartedAt, @runId)
+      AND json_extract(r.trigger_json, '$.todoId') = @todoId
       AND a.node_id = @nodeId AND a.status = 'completed' AND a.session_id IS NOT NULL
     ORDER BY a.started_at DESC, a.run_id DESC, a.attempt DESC LIMIT 1`).get(query) as AttemptRow | undefined;
   return row ? decodeAttempt(row) : null;

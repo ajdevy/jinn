@@ -234,12 +234,12 @@ function resolveDispatch(run: WorkflowRunDetail, node: EmployeeNode, options: Wo
   if (effort && (!modelInfo.supportsEffort || !modelInfo.effortLevels.includes(effort))) {
     throw new Error(`Workflow effort "${effort}" is not available for model "${model}".`);
   }
-  interpolateWorkflowPrompt(node.config.prompt, context);
-  if (node.config.continueFrom) interpolateWorkflowPrompt(node.config.continueFrom.prompt, context);
   const continuedFrom = resolveEmployeeContinuation(run, node, engine, {
     repository: options.repository,
     resumableEngineSession: (id, target) => options.executor.resumableEngineSession(id, target),
   });
+  // Only the prompt going out: an unused delta must not fail a cold round over a binding it never reads.
+  interpolateWorkflowPrompt(continuationPrompt(node, Boolean(continuedFrom)), context);
   const config: ResolvedEmployeeConfig = {
     employeeId, engine, model, ...(effort ? { effort } : {}), ...(continuedFrom ? { continuedFrom } : {}),
     retry: node.config.retry ?? { attempts: 1, delaySeconds: 0, backoff: "fixed" },

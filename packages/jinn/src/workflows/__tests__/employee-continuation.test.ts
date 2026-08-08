@@ -8,7 +8,7 @@ import type { EmployeeNode, WorkflowDefinition, WorkflowNode } from '../model.js
 import { workflowDefinitionSchema } from '../model.js';
 import { openWorkflowDatabase } from '../repository-migrations.js';
 import { WorkflowRepository } from '../repository.js';
-import type { ResolvedEmployeeConfig, WorkflowRunDetail } from '../runtime.js';
+import type { ResolvedEmployeeConfig, WorkflowRunDetail, WorkflowRunRecord } from '../runtime.js';
 import { validateExecutableWorkflow } from '../validation.js';
 
 const CONFIG: ResolvedEmployeeConfig = {
@@ -47,29 +47,38 @@ let database: Database.Database;
 let repository: WorkflowRepository;
 
 function run(input: {
-  runId: string; todoId?: string; attempts?: Array<{ nodeId: string; status: string; sessionId?: string }>;
+  runId: string; todoId?: string; startedAt?: string;
+  attempts?: Array<{ nodeId: string; status: string; sessionId?: string }>;
 }): WorkflowRunDetail {
+  const startedAt = input.startedAt ?? '2026-08-01T00:00:00.000Z';
   return {
     id: input.runId, workflowId: 'flow', workflowTitle: 'Flow', definitionRevision: 1, definition: definition(),
     input: {}, trigger: { nodeId: 'start', kind: 'manual', payload: {}, ...(input.todoId ? { todoId: input.todoId } : {}) },
-    status: 'running', revision: 1, startedAt: '2026-08-01T00:00:00.000Z', nodeRuns: [], approvals: [], childRuns: [],
+    status: 'running', revision: 1, startedAt, nodeRuns: [], approvals: [], childRuns: [],
     attempts: (input.attempts ?? []).map((attempt, index) => ({
       runId: input.runId, nodeId: attempt.nodeId, attempt: index + 1, status: attempt.status, resolvedConfig: CONFIG,
-      input: {}, startedAt: '2026-08-01T00:00:00.000Z', remindersSent: 0, extensions: 0, lastProcessedTurn: 0,
+      input: {}, startedAt, remindersSent: 0, extensions: 0, lastProcessedTurn: 0,
       ...(attempt.sessionId ? { sessionId: attempt.sessionId } : {}),
     })),
   } as unknown as WorkflowRunDetail;
 }
 
+/** The instant a millisecond either side of a stored run, so a test can place the
+ *  run it is resolving for either side of one the repository stamped itself. */
+const before = (instant: string) => new Date(Date.parse(instant) - 1).toISOString();
+const after = (instant: string) => new Date(Date.parse(instant) + 1).toISOString();
+
 /** Records a completed attempt of `first` in a run of `flow` bound to `todoId`. */
-function priorRun(input: { runId: string; todoId?: string; sessionId: string; status?: string }): void {
+function priorRun(input: {
+  runId: string; todoId?: string; sessionId: string; status?: string; engine?: string;
+}): WorkflowRunRecord {
   const created = repository.createRun({
     workflowId: 'flow', input: {}, idempotencyKey: input.runId,
     trigger: { nodeId: 'start', kind: 'manual', payload: {}, ...(input.todoId ? { todoId: input.todoId } : {}) },
   }, definition());
   const dispatched = repository.mutateRun(created.id, created.revision, (tx) => {
     tx.setNodeStatus('first', 'dispatching', { activated: true });
-    tx.createAttempt({ nodeId: 'first', resolvedConfig: CONFIG, input: {} });
+    tx.createAttempt({ nodeId: 'first', resolvedConfig: { ...CONFIG, engine: input.engine ?? CONFIG.engine }, input: {} });
     tx.settleAttempt('first', 1, { status: 'running', sessionId: input.sessionId });
     return tx;
   }) && repository.getRun('flow', created.id)!;
@@ -79,6 +88,7 @@ function priorRun(input: { runId: string; todoId?: string; sessionId: string; st
       ? { status: 'failed', endedAt, error: { code: 'boom', message: 'Attempt failed.', retryable: false } }
       : { status: 'completed', endedAt, output: { text: 'done', fields: {} } });
   });
+  return created;
 }
 
 const always = (id: string) => `engine-of-${id}`;
@@ -132,8 +142,8 @@ describe('resolving an employee continuation', () => {
   });
 
   it('falls back to a prior run of the same Workflow bound to the same Todo', () => {
-    priorRun({ runId: 'prior', todoId: 'PLA-1', sessionId: 'session-prior' });
-    const detail = run({ runId: 'run-2', todoId: 'PLA-1' });
+    const prior = priorRun({ runId: 'prior', todoId: 'PLA-1', sessionId: 'session-prior' });
+    const detail = run({ runId: 'run-2', todoId: 'PLA-1', startedAt: after(prior.startedAt) });
     expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'codex', options(always)))
       .toEqual({ sessionId: 'session-prior', engineSessionId: 'engine-of-session-prior' });
   });
@@ -142,9 +152,16 @@ describe('resolving an employee continuation', () => {
     ['a prior run bound to a different Todo', { todoId: 'PLA-999', status: 'completed' }, 'PLA-1'],
     ['a prior run bound to no Todo', { status: 'completed' }, 'PLA-1'],
     ['an attempt that did not complete', { todoId: 'PLA-1', status: 'failed' }, 'PLA-1'],
-  ])('never selects %s', (_label, prior: { todoId?: string; status?: string }, todoId) => {
-    priorRun({ runId: 'prior', sessionId: 'session-prior', ...prior });
-    const detail = run({ runId: 'run-2', todoId });
+    ['a completed attempt of another engine', { todoId: 'PLA-1', status: 'completed', engine: 'claude' }, 'PLA-1'],
+  ])('never selects %s', (_label, prior: { todoId?: string; status?: string; engine?: string }, todoId) => {
+    const stored = priorRun({ runId: 'prior', sessionId: 'session-prior', ...prior });
+    const detail = run({ runId: 'run-2', todoId, startedAt: after(stored.startedAt) });
+    expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'codex', options(always))).toBeNull();
+  });
+
+  it('never selects a run of the same Todo that started after this one', () => {
+    const later = priorRun({ runId: 'later', todoId: 'PLA-1', sessionId: 'session-from-later-run' });
+    const detail = run({ runId: 'run-2', todoId: 'PLA-1', startedAt: before(later.startedAt) });
     expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'codex', options(always))).toBeNull();
   });
 
@@ -153,9 +170,16 @@ describe('resolving an employee continuation', () => {
     expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'claude', options(never))).toBeNull();
   });
 
+  it('never selects an in-run attempt that ran on another engine, however resumable its session looks', () => {
+    // The attempt ran on codex. Its session has since switched to claude and holds
+    // a claude thread — a ref that belongs to no round of this node.
+    const detail = run({ runId: 'run-1', todoId: 'PLA-1', attempts: [{ nodeId: 'first', status: 'completed', sessionId: 'session-1' }] });
+    expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'claude', options(always))).toBeNull();
+  });
+
   it('does not look across runs when this run is bound to no Todo', () => {
-    priorRun({ runId: 'prior', todoId: 'PLA-1', sessionId: 'session-prior' });
-    const detail = run({ runId: 'run-2' });
+    const prior = priorRun({ runId: 'prior', todoId: 'PLA-1', sessionId: 'session-prior' });
+    const detail = run({ runId: 'run-2', startedAt: after(prior.startedAt) });
     expect(resolveEmployeeContinuation(detail, node('second', { nodeId: 'first', prompt: 'Continue.' }), 'codex', options(always))).toBeNull();
   });
 });
