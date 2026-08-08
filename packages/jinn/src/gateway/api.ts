@@ -5,9 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, CronJob, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, StreamDelta, Target } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
-import { compactEmployeeRole } from "../shared/employee-role.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
 import {
@@ -115,7 +114,6 @@ import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
   CONFIG_PATH,
-  CRON_RUNS,
   ORG_DIR,
   SKILLS_DIR,
   LOGS_DIR,
@@ -146,12 +144,10 @@ import { decideJinnAttachment } from "../mcp/attachment.js";
 import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
-import { pickEncoding, compressBuffer, MIN_COMPRESS_BYTES } from "./compress.js";
-import { canonicalCronJobId, loadJobs, saveJobs } from "../cron/jobs.js";
-import { summarizeCronRun } from "../cron/run-summary.js";
-import { reloadScheduler } from "../cron/scheduler.js";
-import { validateCronSchedule } from "../cron/validation.js";
-import { runCronJob } from "../cron/runner.js";
+import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
+export { matchRoute } from "./route-helpers.js";
+import { handleCronApi } from "./cron-api.js";
+import { handleOrgApi } from "./org-api.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
@@ -160,7 +156,6 @@ import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
-import { readJsonlTail } from "./jsonl-tail.js";
 import { completedStreamedBlockIds } from "./streamed-blocks.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyOperatorChannel, recoverPendingSessionDeliveries } from "../sessions/callbacks.js";
@@ -815,36 +810,6 @@ function findUnresolvedAttachmentIds(fileIds: string[]): string[] {
   });
 }
 
-/** Per-request Accept-Encoding, stashed by handleApiRequest so json() can compress. */
-type ResWithEncoding = ServerResponse & { __acceptEncoding?: string };
-
-function json(res: ServerResponse, data: unknown, status = 200): void {
-  const body = Buffer.from(JSON.stringify(data));
-  const enc =
-    body.length >= MIN_COMPRESS_BYTES
-      ? pickEncoding((res as ResWithEncoding).__acceptEncoding)
-      : null;
-  if (enc) {
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      "Content-Encoding": enc,
-      Vary: "Accept-Encoding",
-    });
-    res.end(compressBuffer(enc, body));
-    return;
-  }
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(body);
-}
-
-function notFound(res: ServerResponse): void {
-  json(res, { error: "Not found" }, 404);
-}
-
-function badRequest(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 400);
-}
-
 function noteStoreFailureResponse(
   res: ServerResponse,
   result: Extract<NoteStoreResult<unknown>, { ok: false }>,
@@ -869,10 +834,6 @@ function experimentStoreFailureResponse(
 ): void {
   const status = { invalid: 400, "not-found": 404, conflict: 409 }[result.reason];
   json(res, { error: result.detail }, status);
-}
-
-function serverError(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 500);
 }
 
 const REDACTED_SECRET = "***";
@@ -945,36 +906,6 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function matchRoute(
-  pattern: string,
-  pathname: string,
-): Record<string, string> | null {
-  const patternParts = pattern.split("/");
-  const pathParts = pathname.split("/");
-  if (patternParts.length !== pathParts.length) return null;
-
-  const params: Record<string, string> = {};
-  for (let i = 0; i < patternParts.length; i++) {
-    if (patternParts[i].startsWith(":")) {
-      const raw = pathParts[i];
-      if (/%2f|%5c/i.test(raw)) return null;
-      let decoded: string;
-      try {
-        decoded = decodeURIComponent(raw);
-      } catch {
-        return null;
-      }
-      if (!decoded || decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\") || decoded.includes("\0")) {
-        return null;
-      }
-      params[patternParts[i].slice(1)] = decoded;
-    } else if (patternParts[i] !== pathParts[i]) {
-      return null;
-    }
-  }
-  return params;
-}
-
 function sessionHasRuntimeActivity(session: Session, context: ApiContext): boolean {
   const activity = context.backgroundActivity?.get(session.id);
   if (!activity) return false;
@@ -1032,19 +963,6 @@ function compactSessionSummary(session: Session): Record<string, unknown> {
     lastActivity: session.lastActivity ?? null,
     parentSessionId: session.parentSessionId ?? null,
     ...(session.workflowProvenance ? { workflowProvenance: session.workflowProvenance } : {}),
-  };
-}
-
-function cronJobSummary(job: Record<string, unknown>, lastRun: unknown): Record<string, unknown> {
-  return {
-    id: job.id,
-    name: job.name,
-    schedule: job.schedule,
-    enabled: job.enabled !== false,
-    employee: job.employee ?? null,
-    engine: job.engine ?? null,
-    timezone: job.timezone ?? null,
-    lastRun: lastRun ? summarizeCronRun(lastRun) : null,
   };
 }
 
@@ -5866,237 +5784,8 @@ export async function handleApiRequest(
       return;
     }
 
-    // GET /api/cron
-    if (method === "GET" && pathname === "/api/cron") {
-      const jobs = loadJobs();
-      // Enrich with last run status — tail-read only the newest entry, the
-      // run logs are append-only JSONL that grows forever.
-      const enriched = await Promise.all(jobs.map(async (job) => {
-        const runFile = path.join(CRON_RUNS, `${job.id}.jsonl`);
-        const { entries } = await readJsonlTail(runFile, 1);
-        return cronJobSummary(job as unknown as Record<string, unknown>, entries[0] ?? null);
-      }));
-      return json(res, enriched);
-    }
-
-    // GET /api/cron/:id/runs?limit=N — newest first (the UI shows "Recent Runs").
-    // Run history is append-only JSONL that grows forever, so only the file's
-    // tail is read; corrupt lines (crash mid-write) are skipped, not 500'd.
-    params = matchRoute("/api/cron/:id/runs", pathname);
-    if (method === "GET" && params) {
-      const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "", 10) || 50));
-      const runFile = path.join(CRON_RUNS, `${params.id}.jsonl`);
-      const { entries: runs, skipped } = await readJsonlTail(runFile, limit);
-      if (skipped) logger.warn(`GET /api/cron/${params.id}/runs: skipped ${skipped} corrupt line(s)`);
-      return json(res, runs.map(summarizeCronRun));
-    }
-
-    // POST /api/cron — create new cron job
-    if (method === "POST" && pathname === "/api/cron") {
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      const jobs = loadJobs();
-      // Job ids are identity (run-log files and PUT/DELETE routing) —
-      // a duplicate would double-schedule one id and collide two run histories in
-      // one jsonl (Codex GRS-014d finding 2). Identity is CANONICAL (trim+lowercase,
-      // GRS-014d-fix2): run-log files `<id>.jsonl` collide case-insensitively on the
-      // default macOS volume, so differently-cased ids share the same job history.
-      // Stored ids stay as authored; only the collision check (and a
-      // padded-id rejection — whitespace ids break addressing) canonicalizes.
-      if (typeof body.id === "string" && body.id !== body.id.trim()) {
-        return badRequest(res, "cron job id must not have leading/trailing whitespace");
-      }
-      if (body.id && jobs.some((j) => canonicalCronJobId(j.id) === canonicalCronJobId(body.id))) {
-        return badRequest(res, `a cron job with id "${body.id}" already exists`);
-      }
-      const newJob: CronJob = {
-        id: body.id || crypto.randomUUID(),
-        name: body.name || "untitled",
-        enabled: body.enabled ?? true,
-        schedule: body.schedule || "0 * * * *",
-        timezone: body.timezone,
-        engine: body.engine,
-        model: body.model,
-        employee: body.employee,
-        prompt: body.prompt || "",
-        delivery: body.delivery,
-      };
-      const scheduleErrors = validateCronSchedule({ schedule: newJob.schedule, ...(newJob.timezone !== undefined ? { timezone: newJob.timezone } : {}) });
-      if (scheduleErrors.length > 0) return badRequest(res, scheduleErrors.map((entry) => entry.message).join("; "));
-      jobs.push(newJob);
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, newJob, 201);
-    }
-
-    // PUT /api/cron/:id
-    params = matchRoute("/api/cron/:id", pathname);
-    if (method === "PUT" && params) {
-      const jobs = loadJobs();
-      const idx = jobs.findIndex((j) => j.id === params!.id);
-      if (idx === -1) return notFound(res);
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      const merged = { ...jobs[idx], ...body, id: params.id } as CronJob;
-      const scheduleErrors = validateCronSchedule({ schedule: merged.schedule, ...(merged.timezone !== undefined ? { timezone: merged.timezone } : {}) });
-      if (scheduleErrors.length > 0) return badRequest(res, scheduleErrors.map((entry) => entry.message).join("; "));
-      jobs[idx] = merged;
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, jobs[idx]);
-    }
-
-    // DELETE /api/cron/:id
-    params = matchRoute("/api/cron/:id", pathname);
-    if (method === "DELETE" && params) {
-      const jobs = loadJobs();
-      const idx = jobs.findIndex((j) => j.id === params!.id);
-      if (idx === -1) return notFound(res);
-      const removed = jobs.splice(idx, 1)[0];
-      saveJobs(jobs);
-      reloadScheduler(jobs);
-      return json(res, { deleted: removed.id, name: removed.name });
-    }
-
-    // POST /api/cron/:id/trigger — manually run a cron job now
-    params = matchRoute("/api/cron/:id/trigger", pathname);
-    if (method === "POST" && params) {
-      const jobs = loadJobs();
-      const job = jobs.find((j) => j.id === params!.id);
-      if (!job) return notFound(res);
-
-      logger.info(`Manual trigger for cron job "${job.name}" (${job.id})`);
-
-      // Fire and forget — respond immediately, run in background.
-      runCronJob(job, context.sessionManager, context.getConfig(), context.connectors, { emit: context.emit }).catch(
-        (err) => logger.error(`Manual cron trigger failed for "${job.name}": ${err}`)
-      );
-
-      return json(res, {
-        triggered: true,
-        jobId: job.id,
-        name: job.name,
-        employee: job.employee,
-        message: `Cron job "${job.name}" triggered manually`,
-      });
-    }
-
-    // GET /api/org
-    if (method === "GET" && pathname === "/api/org") {
-      const entries = fs.existsSync(ORG_DIR)
-        ? fs.readdirSync(ORG_DIR, { withFileTypes: true })
-        : [];
-      const departments = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name);
-
-      const { scanOrg } = await import("./org.js");
-      const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-      const orgRegistry = scanOrg(context.getConfig());
-      const hierarchy = resolveOrgHierarchy(orgRegistry);
-
-      const employees = hierarchy.sorted.map((name) => {
-        const node = hierarchy.nodes[name];
-        const emp = node.employee;
-        const { persona, ...rest } = emp;
-        const role = compactEmployeeRole(persona);
-        return {
-          ...rest,
-          ...(role ? { role } : {}),
-          parentName: node.parentName,
-          directReports: node.directReports,
-          depth: node.depth,
-          chain: node.chain,
-        };
-      });
-
-      return json(res, {
-        departments,
-        employees,
-        hierarchy: {
-          root: hierarchy.root,
-          sorted: hierarchy.sorted,
-          warnings: hierarchy.warnings,
-        },
-      });
-    }
-
-    // GET /api/org/employees/:name
-    params = matchRoute("/api/org/employees/:name", pathname);
-    if (method === "GET" && params) {
-      const { scanOrg } = await import("./org.js");
-      const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-      const orgRegistry = scanOrg(context.getConfig());
-      const emp = orgRegistry.get(params.name);
-      if (!emp) return notFound(res);
-
-      const hierarchy = resolveOrgHierarchy(orgRegistry);
-      const node = hierarchy.nodes[params.name];
-
-      return json(res, {
-        ...emp,
-        parentName: node?.parentName ?? null,
-        directReports: node?.directReports ?? [],
-        depth: node?.depth ?? 0,
-        chain: node?.chain ?? [params.name],
-      });
-    }
-
-    // PATCH /api/org/employees/:name — update employee fields (whitelisted, validated)
-    params = matchRoute("/api/org/employees/:name", pathname);
-    if (method === "PATCH" && params) {
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as Record<string, unknown>;
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return badRequest(res, "update body must be a JSON object");
-      }
-      const { scanOrg, updateEmployeeYaml, validateEmployeeUpdate } = await import("./org.js");
-      const current = scanOrg(context.getConfig()).get(params.name);
-      if (!current) return notFound(res);
-
-      const result = validateEmployeeUpdate(context.getConfig(), current, body);
-      if (!result.ok) return badRequest(res, result.error || "invalid update");
-
-      const wrote = updateEmployeeYaml(params.name, result.updates!);
-      if (!wrote) return notFound(res);
-
-      // G1: synchronously refresh the in-memory registry (and drop warm PTYs) so an
-      // immediate session spawn sees the new persona/model — don't wait for the watcher.
-      context.reloadOrg?.();
-
-      const updated = scanOrg(context.getConfig()).get(params.name);
-      return json(res, { status: "ok", employee: updated ?? null });
-    }
-
-    // GET /api/org/departments/:name/board
-    params = matchRoute("/api/org/departments/:name/board", pathname);
-    if (method === "GET" && params) {
-      const boardPath = path.join(ORG_DIR, params.name, "board.json");
-      if (!fs.existsSync(boardPath)) return notFound(res);
-      let board: unknown;
-      try { board = JSON.parse(fs.readFileSync(boardPath, "utf-8")); }
-      catch (err) {
-        logger.warn(`GET /api/org/departments/${params.name}/board: corrupt board.json — ${err instanceof Error ? err.message : String(err)}`);
-        return serverError(res, "board.json is corrupt");
-      }
-      return json(res, board);
-    }
-
-    // PUT /api/org/departments/:name/board
-    if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) {
-      const p = matchRoute("/api/org/departments/:name/board", pathname)!;
-      const boardPath = path.join(ORG_DIR, p.name, "board.json");
-      const deptDir = path.join(ORG_DIR, p.name);
-      if (!fs.existsSync(deptDir)) return notFound(res);
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-      fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
-      return json(res, { status: "ok" });
-    }
+    if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
 
     // GET /api/skills
     if (method === "GET" && pathname === "/api/skills") {

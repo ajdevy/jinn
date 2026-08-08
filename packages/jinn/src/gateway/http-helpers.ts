@@ -1,8 +1,8 @@
 /**
- * Shared HTTP request-body helpers used by gateway/api.ts.
- * Error responses written here are tiny
+ * Shared HTTP request-body helpers used by gateway/api.ts and the per-domain
+ * router modules. Error responses written here are tiny
  * (well under the compression threshold), so plain uncompressed JSON writes
- * are behaviour-identical to api.ts's compressing json() helper.
+ * are behaviour-identical to route-helpers.ts's compressing json() helper.
  */
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 
