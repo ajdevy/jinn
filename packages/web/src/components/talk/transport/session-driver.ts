@@ -8,7 +8,7 @@
  */
 import { executeToolCall, toolDefinitions } from "../tools/registry"
 import type { OrbState } from "../orb-motion"
-import { parseRealtimeFrame, type RealtimeFrame } from "./realtime-events"
+import { createFrameReader, type RealtimeFrame } from "./realtime-events"
 import { postTalkTurn } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
 
@@ -110,10 +110,11 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
 
 export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
   const driver: DriverState = { options, billed: emptyTalkUsage(), said: "", state: "listening" }
+  const read = createFrameReader()
   return {
     start: () => options.send({ type: "session.update", session: { type: "realtime", tools: functionTools() } }),
     receive: (data: string) => {
-      const frame = parseRealtimeFrame(data)
+      const frame = read(data)
       if (frame) handle(driver, frame)
     },
   }

@@ -128,12 +128,15 @@ describe("running a tool the model called", () => {
 })
 
 describe("what a turn costs", () => {
-  it("posts the delta between two running totals, never the running total itself", async () => {
+  it("posts what each response cost, never the running total it took the session to", async () => {
     const { driver: talk } = driver()
 
+    // `response.usage` counts one response, so a cheaper second turn is a
+    // smaller number and not a lower total. Posting it as a total would bill
+    // the first turn twice; subtracting it from one would bill it as nothing.
     talk.receive(turnDone({ inputAudio: 900, outputAudio: 400 }))
     await vi.waitFor(() => expect(turnBodies()).toHaveLength(1))
-    talk.receive(turnDone({ inputAudio: 1500, outputAudio: 650 }))
+    talk.receive(turnDone({ inputAudio: 600, outputAudio: 250 }))
     await vi.waitFor(() => expect(turnBodies()).toHaveLength(2))
 
     const [first, second] = turnBodies()

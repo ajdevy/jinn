@@ -37,6 +37,10 @@ interface SessionControls {
   /** True between the open request and its answer, so a second press cannot
    *  mint a second credential. */
   openingRef: RefObject<boolean>
+  /** Bumped by every teardown. A connection that finished opening across a bump
+   *  belongs to a session nobody is waiting for, and hands itself back rather
+   *  than turning the microphone on behind a closed session. */
+  generationRef: RefObject<number>
   attach: (id: string, token: string) => Promise<TalkConnection>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
@@ -108,11 +112,13 @@ function useAttach(
 /** Tear the session down locally, whatever the gateway makes of the DELETE. */
 function useForget(
   liveRef: RefObject<LiveSession | null>,
+  generationRef: RefObject<number>,
   setActive: (active: boolean) => void,
   setState: (state: OrbState) => void,
 ) {
   return useCallback(
     (live: LiveSession) => {
+      generationRef.current += 1
       live.stopHeartbeat()
       live.connection?.close()
       liveRef.current = null
@@ -120,7 +126,7 @@ function useForget(
       setActive(false)
       setState("idle")
     },
-    [liveRef, setActive, setState],
+    [liveRef, generationRef, setActive, setState],
   )
 }
 
@@ -130,6 +136,8 @@ function useForget(
  * The two halves fail differently and both have to leave nothing behind: a
  * refused open never names a session, and a session that opened but never
  * connected is closed here rather than left for the reaper ninety seconds later.
+ * A page that left while this was in flight is the same case — the session is
+ * named by then, so it is closed on the way out rather than never mentioned.
  */
 async function openSession(controls: SessionControls): Promise<void> {
   if (controls.liveRef.current || controls.openingRef.current) return
@@ -137,12 +145,19 @@ async function openSession(controls: SessionControls): Promise<void> {
   controls.setError(null)
   controls.setState("thinking")
 
+  const generation = controls.generationRef.current
   let opened: string | null = null
   try {
     const session = await openTalkSession()
     opened = session.id
     setTalkSessionId(opened)
     const connection = await controls.attach(opened, session.token)
+    if (generation !== controls.generationRef.current) {
+      connection.close()
+      setTalkSessionId(null)
+      void closeTalkSession(opened).catch(() => {})
+      return
+    }
     controls.liveRef.current = { id: opened, connection, stopHeartbeat: startTalkHeartbeat(opened) }
     controls.setActive(true)
     controls.setState("listening")
@@ -186,9 +201,17 @@ function useParkWhileHidden(controls: SessionControls): void {
 
     const resume = (live: LiveSession) => {
       if (live.connection) return
+      const generation = controls.generationRef.current
       void resumeTalkSession(live.id)
         .then(async (resumed) => {
-          live.connection = await controls.attach(live.id, resumed.token)
+          const connection = await controls.attach(live.id, resumed.token)
+          if (generation !== controls.generationRef.current) {
+            // Closed while this was connecting. The microphone does not come
+            // back on for a session that has already been deleted.
+            connection.close()
+            return
+          }
+          live.connection = connection
           controls.setState("listening")
         })
         .catch((failure) => {
@@ -215,9 +238,16 @@ function useParkWhileHidden(controls: SessionControls): void {
  * paid credential outliving its page is ninety seconds too many. Unmounting the
  * surface is the same thing by a different route.
  */
-function useCloseOnLeaving(liveRef: RefObject<LiveSession | null>, forget: (live: LiveSession) => void): void {
+function useCloseOnLeaving(
+  liveRef: RefObject<LiveSession | null>,
+  generationRef: RefObject<number>,
+  forget: (live: LiveSession) => void,
+): void {
   useEffect(() => {
     const onLeaving = () => {
+      // Bumped even with nothing live: an open still in flight has a session
+      // named on the gateway, and `openSession` closes it once it sees this.
+      generationRef.current += 1
       const live = liveRef.current
       if (!live) return
       forget(live)
@@ -229,11 +259,11 @@ function useCloseOnLeaving(liveRef: RefObject<LiveSession | null>, forget: (live
       window.removeEventListener("pagehide", onLeaving)
       window.removeEventListener("beforeunload", onLeaving)
       // Unmounting the surface is a page leaving by a shorter route. Safe as a
-      // teardown because both dependencies are stable for the hook's lifetime,
+      // teardown because every dependency is stable for the hook's lifetime,
       // so this effect runs once and its cleanup is the unmount.
       onLeaving()
     }
-  }, [liveRef, forget])
+  }, [liveRef, generationRef, forget])
 }
 
 export function useTalkSession(connect: ConnectRealtime = connectRealtime): TalkSessionHandle {
@@ -243,11 +273,12 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   const levelRef = useRef(0)
   const liveRef = useRef<LiveSession | null>(null)
   const openingRef = useRef(false)
+  const generationRef = useRef(0)
   const attach = useAttach(connect, levelRef, setState, setError)
-  const forget = useForget(liveRef, setActive, setState)
+  const forget = useForget(liveRef, generationRef, setActive, setState)
 
   const controls = useMemo<SessionControls>(
-    () => ({ liveRef, openingRef, attach, forget, setActive, setState, setError }),
+    () => ({ liveRef, openingRef, generationRef, attach, forget, setActive, setState, setError }),
     [attach, forget],
   )
 
@@ -257,7 +288,7 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   }, [controls])
 
   useParkWhileHidden(controls)
-  useCloseOnLeaving(liveRef, forget)
+  useCloseOnLeaving(liveRef, generationRef, forget)
 
   return { active, state, levelRef, error, toggle }
 }

@@ -355,13 +355,18 @@ clothes, and the client offers a text session instead of answering it out loud.
 ### Progressive tool exposure
 
 `tools.ts` splits the catalog into an always-on set and named on-intent groups.
-The token minted at open carries only the always-on set. When the client hears a
-matching intent it posts to `POST /api/talk/sessions/:id/tools`, and
+The token minted at open carries only the always-on set. A client that hears a
+matching intent posts to `POST /api/talk/sessions/:id/tools`, and
 `toolsForIntents` returns only the tools not already exposed. Asking twice for the
 same intent returns an empty array rather than a duplicate declaration, because a
 provider session carrying two tools of the same name is rejected. Two invariants
 are tested: the always-on list is a strict subset of the full catalog, and the
 endpoint is idempotent per intent.
+
+No client posts to it yet. The browser transport declares the web catalog in one
+`session.update` on the data channel opening and has no intent detection at all —
+"The browser half" above says why the two catalogs have not been unified. The
+endpoint is the gateway half of a mechanism whose other half is unbuilt.
 
 What ships here is the mechanism plus a small read-only seed. `search_knowledge`
 and `hand_off_to_chat` are always on; `todos`, `sessions`, and `org` are the seed

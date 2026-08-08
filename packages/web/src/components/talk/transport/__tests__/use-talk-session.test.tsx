@@ -7,49 +7,7 @@ vi.mock("@/lib/auth", () => ({ authFetch: (...args: unknown[]) => authFetch(...a
 const { useTalkSession } = await import("../use-talk-session")
 const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
 const { HEARTBEAT_INTERVAL_MS } = await import("../session-client")
-type ConnectOptions = import("../webrtc-connection").ConnectOptions
-
-/**
- * The peer connection, by hand. jsdom implements none of `RTCPeerConnection`,
- * `getUserMedia`, or `AudioContext`, so the real one is never constructed here —
- * `connectRealtime` is injected, which is what that seam is for.
- */
-class FakeConnection {
-  static opened: FakeConnection[] = []
-
-  readonly sent: Array<Record<string, unknown>> = []
-  readonly token: string
-  closes = 0
-  private readonly onOpen: () => void
-  readonly onFrame: (data: string) => void
-
-  constructor(options: { token: string; onOpen: () => void; onFrame: (data: string) => void }) {
-    this.token = options.token
-    this.onOpen = options.onOpen
-    this.onFrame = options.onFrame
-    FakeConnection.opened.push(this)
-  }
-
-  send(event: Record<string, unknown>) {
-    this.sent.push(event)
-  }
-
-  close() {
-    this.closes += 1
-  }
-
-  /** The data channel reaching `open`, which is what starts the conversation. */
-  openChannel() {
-    this.onOpen()
-  }
-}
-
-const connect = vi.fn(async (options: ConnectOptions) => {
-  const connection = new FakeConnection(options)
-  // Real channels open after the SDP round trip settles, so this one does too.
-  queueMicrotask(() => connection.openChannel())
-  return connection
-})
+const { FakeConnection, connect, holdNextConnect } = await import("./fake-connection")
 
 let handle: ReturnType<typeof useTalkSession>
 
@@ -275,5 +233,42 @@ describe("leaving and coming back", () => {
       expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true),
     )
     expect(FakeConnection.opened[0]!.closes).toBe(1)
+  })
+
+  it("closes a session whose page left while it was still connecting", async () => {
+    openSucceeds()
+    const finishConnecting = holdNextConnect()
+    const { getByTestId } = render(<Probe />)
+    await act(async () => handle.toggle())
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(1))
+
+    await act(async () => window.dispatchEvent(new Event("pagehide")))
+    await act(async () => finishConnecting())
+
+    await waitFor(() =>
+      expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true),
+    )
+    expect(FakeConnection.opened[0]!.closes).toBe(1)
+    expect(calls("/heartbeat")).toHaveLength(0)
+    expect(handle.active).toBe(false)
+    expect(getByTestId("open-session").textContent).toBe("none")
+  })
+
+  it("does not bring the microphone back for a session closed while it was resuming", async () => {
+    openSucceeds()
+    render(<Probe />)
+    await activate()
+    await act(async () => setHidden(true))
+    await waitFor(() => expect(calls("/park")).toHaveLength(1))
+    const finishConnecting = holdNextConnect()
+    await act(async () => setHidden(false))
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(2))
+
+    await act(async () => handle.toggle())
+    await waitFor(() => expect(handle.active).toBe(false))
+    await act(async () => finishConnecting())
+
+    await waitFor(() => expect(FakeConnection.opened[1]!.closes).toBe(1))
+    expect(handle.state).toBe("idle")
   })
 })

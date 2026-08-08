@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { parseRealtimeFrame } from "../realtime-events"
+import { createFrameReader } from "../realtime-events"
 
+/** One frame through a reader of its own, for the cases where no total carries. */
 function frame(event: unknown) {
-  return parseRealtimeFrame(JSON.stringify(event))
+  return createFrameReader()(JSON.stringify(event))
 }
 
-describe("parseRealtimeFrame", () => {
+function responseDone(usage: unknown) {
+  return JSON.stringify({ type: "response.done", response: { usage } })
+}
+
+describe("createFrameReader", () => {
   it("reads a finished tool call, arguments left as the raw JSON the model wrote", () => {
     expect(
       frame({
@@ -15,6 +20,17 @@ describe("parseRealtimeFrame", () => {
         arguments: '{"id":"ABC-1"}',
       }),
     ).toEqual({ type: "tool_call", callId: "call-1", name: "open_todo", arguments: '{"id":"ABC-1"}' })
+  })
+
+  it("carries the session total after the turn, adding up counts reported per response", () => {
+    const read = createFrameReader()
+
+    read(responseDone({ input_token_details: { audio_tokens: 900 }, output_token_details: { audio_tokens: 400 } }))
+    const second = read(
+      responseDone({ input_token_details: { audio_tokens: 600 }, output_token_details: { audio_tokens: 250 } }),
+    )
+
+    expect(second).toMatchObject({ type: "turn_done", usage: { inputAudioTokens: 1500, outputAudioTokens: 650 } })
   })
 
   it("reads the turn's usage off response.done", () => {
@@ -108,7 +124,7 @@ describe("parseRealtimeFrame", () => {
   it("ignores the frames the orb has no use for, and a frame that is not JSON", () => {
     expect(frame({ type: "response.created" })).toBeNull()
     expect(frame({ type: "conversation.item.created" })).toBeNull()
-    expect(parseRealtimeFrame("not json")).toBeNull()
-    expect(parseRealtimeFrame("[]")).toBeNull()
+    expect(createFrameReader()("not json")).toBeNull()
+    expect(createFrameReader()("[]")).toBeNull()
   })
 })

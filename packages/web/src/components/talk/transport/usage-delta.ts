@@ -1,13 +1,15 @@
 /**
- * Token counts, and the one subtraction that keeps a voice session honestly
- * billed.
+ * Token counts, and the two sums that keep a voice session honestly billed.
  *
- * The provider reports a session's usage as a running total, while
- * `POST /api/talk/sessions/:id/turn` prices whatever it is handed as that turn
- * alone (docs/talk-session-runtime.md). Posting a total where a delta belongs
- * bills every earlier turn again, and the over-charge compounds with the
- * conversation. So the subtraction lives here rather than inline in the
- * transport: one place to read, and one place to get wrong.
+ * The provider reports each response's own counts, while a `turn_done` frame
+ * carries the session total after that turn — the gateway's adapter folds one
+ * into the other over its socket (talk/realtime/openai.ts) and the browser does
+ * the same over its data channel. `POST /api/talk/sessions/:id/turn` then prices
+ * whatever it is handed as that turn alone, so the client subtracts the reading
+ * before it (docs/talk-session-runtime.md). Posting a total where a delta
+ * belongs bills every earlier turn again, and the over-charge compounds with the
+ * conversation. Both sums live here rather than inline in the transport: one
+ * place to read, and one place to get wrong.
  */
 
 /** Structurally the gateway's `RealtimeUsage` (packages/jinn/src/shared/voice.ts).
@@ -40,6 +42,13 @@ export function emptyTalkUsage(): TalkUsage {
     cachedInputAudioTokens: 0,
     cachedInputTextTokens: 0,
   }
+}
+
+/** One response's counts folded into the session total that precedes it. */
+export function addTalkUsage(total: TalkUsage, response: TalkUsage): TalkUsage {
+  const sum = emptyTalkUsage()
+  for (const key of USAGE_KEYS) sum[key] = total[key] + response[key]
+  return sum
 }
 
 /**
