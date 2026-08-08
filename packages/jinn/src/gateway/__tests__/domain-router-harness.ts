@@ -49,6 +49,7 @@ function makeRes() {
   return {
     res,
     get status() { return status; },
+    get raw() { return Buffer.concat(chunks).toString("utf-8"); },
     get body(): any {
       const raw = Buffer.concat(chunks).toString("utf-8");
       if (!raw) return undefined;
@@ -67,7 +68,19 @@ export async function call(method: string, url: string, body?: unknown, headers?
   });
   const cap = makeRes();
   await handleApiRequest(req as unknown as Parameters<typeof handleApiRequest>[0], cap.res, context);
-  return { status: cap.status, body: cap.body };
+  return { status: cap.status, raw: cap.raw, body: cap.body };
+}
+
+/**
+ * Pins a response to the bytes it wrote, not to a value parsed back out of them.
+ * `toEqual` on the parsed body cannot see the wire at all: change how `json()`
+ * serializes — spacing, key order — and every parsed assertion stays green while
+ * every byte on the wire moves. Comparing the captured bytes against the compact
+ * stringification of `expected` is what makes "byte-identical" a claim that can
+ * fail.
+ */
+export function expectWire(response: { status: number; raw: string }, status: number, expected: unknown): void {
+  expect([response.status, response.raw]).toEqual([status, JSON.stringify(expected)]);
 }
 
 // The create body every experiment test starts from, and the wire shape it comes

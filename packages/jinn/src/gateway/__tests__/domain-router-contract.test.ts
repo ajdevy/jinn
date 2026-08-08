@@ -60,7 +60,7 @@ vi.mock("../../experiments/store.js", async (importOriginal) => {
 });
 
 import { JOBS, home, seedHome } from "./domain-router-home.js";
-import { RUN, call, createExperiment, runningExperiment } from "./domain-router-harness.js";
+import { RUN, call, createExperiment, expectWire, runningExperiment } from "./domain-router-harness.js";
 
 beforeEach(() => {
   cronRunsThrows = false;
@@ -71,41 +71,40 @@ beforeEach(() => {
 
 describe("experiment routes still answer identically through handleExperimentsApi", () => {
   it("POST /api/experiments returns the created experiment (201) and 400s a missing field", async () => {
-    const experiment = await createExperiment();
+    const created = await call("POST", "/api/experiments", RUN);
+    const experiment = created.body.experiment;
     expect(experiment.id).toMatch(/^exp_[0-9a-f]{12}$/);
     expect(Number.isNaN(Date.parse(experiment.startedAt))).toBe(false);
-    expect(experiment).toEqual(runningExperiment(experiment.id, experiment.startedAt));
+    expectWire(created, 201, { experiment: runningExperiment(experiment.id, experiment.startedAt) });
 
     const bad = await call("POST", "/api/experiments", { ...RUN, hypothesis: undefined });
-    expect(bad.status).toBe(400);
-    expect(bad.body).toEqual({ error: "hypothesis is required and must be a string" });
+    expectWire(bad, 400, { error: "hypothesis is required and must be a string" });
   });
 
   it("GET /api/experiments lists the created experiment and filters by status", async () => {
     const experiment = await createExperiment();
     const listed = await call("GET", "/api/experiments");
     expect(listed.status).toBe(200);
-    expect(listed.body.experiments.find((row: any) => row.id === experiment.id))
-      .toEqual(runningExperiment(experiment.id, experiment.startedAt));
+    // The page carries whatever the other tests in this file left behind, so the
+    // pin is the envelope's own bytes plus this experiment's bytes inside it.
+    expect([listed.raw.slice(0, 16), listed.raw.slice(-2)]).toEqual([`{"experiments":[`, "]}"]);
+    expect(listed.raw).toContain(JSON.stringify(runningExperiment(experiment.id, experiment.startedAt)));
 
     const concluded = await call("GET", "/api/experiments?status=concluded");
     expect(concluded.status).toBe(200);
     expect(concluded.body.experiments.map((row: any) => row.id)).not.toContain(experiment.id);
 
     const bogus = await call("GET", "/api/experiments?status=maybe");
-    expect(bogus.status).toBe(400);
-    expect(bogus.body).toEqual({ error: "status must be running or concluded" });
+    expectWire(bogus, 400, { error: "status must be running or concluded" });
   });
 
   it("GET /api/experiments/:id returns the one experiment, and 404s an unknown id", async () => {
     const experiment = await createExperiment();
     const found = await call("GET", `/api/experiments/${experiment.id}`);
-    expect(found.status).toBe(200);
-    expect(found.body).toEqual({ experiment: runningExperiment(experiment.id, experiment.startedAt) });
+    expectWire(found, 200, { experiment: runningExperiment(experiment.id, experiment.startedAt) });
 
     const missing = await call("GET", "/api/experiments/exp_000000000000");
-    expect(missing.status).toBe(404);
-    expect(missing.body).toEqual({ error: 'experiment "exp_000000000000" was not found' });
+    expectWire(missing, 404, { error: 'experiment "exp_000000000000" was not found' });
   });
 
   it("PATCH /api/experiments/:id applies the edit, and 400s a metric without a baseline", async () => {
@@ -117,8 +116,7 @@ describe("experiment routes still answer identically through handleExperimentsAp
       metrics,
       baseline: { retention: 22 },
     });
-    expect(updated.status).toBe(200);
-    expect(updated.body).toEqual({
+    expectWire(updated, 200, {
       experiment: runningExperiment(experiment.id, experiment.startedAt, {
         name: "Even shorter onboarding",
         metrics,
@@ -129,8 +127,7 @@ describe("experiment routes still answer identically through handleExperimentsAp
     const unbacked = await call("PATCH", `/api/experiments/${experiment.id}`, {
       metrics: [...metrics, { name: "referrals", howToMeasure: "Count invites sent." }],
     });
-    expect(unbacked.status).toBe(400);
-    expect(unbacked.body).toEqual({ error: 'baseline must include a finite number for metric "referrals"' });
+    expectWire(unbacked, 400, { error: 'baseline must include a finite number for metric "referrals"' });
   });
 
   it("POST /api/experiments/:id/readings appends a reading (201), and 400s an undeclared metric", async () => {
@@ -141,8 +138,8 @@ describe("experiment routes still answer identically through handleExperimentsAp
       value: 46,
       note: "First week.",
     });
-    expect(recorded.status).toBe(201);
-    expect(recorded.body).toEqual({
+    expect(recorded.body.reading.id).toMatch(/^rd_[0-9a-f]{12}$/);
+    expectWire(recorded, 201, {
       reading: {
         id: recorded.body.reading.id,
         experimentId: experiment.id,
@@ -152,15 +149,13 @@ describe("experiment routes still answer identically through handleExperimentsAp
         note: "First week.",
       },
     });
-    expect(recorded.body.reading.id).toMatch(/^rd_[0-9a-f]{12}$/);
 
     const undeclared = await call("POST", `/api/experiments/${experiment.id}/readings`, {
       at: "2026-08-08T09:00:00.000Z",
       metric: "churn",
       value: 1,
     });
-    expect(undeclared.status).toBe(400);
-    expect(undeclared.body).toEqual({ error: 'metric "churn" is not declared on this experiment' });
+    expectWire(undeclared, 400, { error: 'metric "churn" is not declared on this experiment' });
   });
 
   it("POST /api/experiments/:id/conclude records the verdict, and 409s a second attempt", async () => {
@@ -169,8 +164,7 @@ describe("experiment routes still answer identically through handleExperimentsAp
       outcome: "win",
       note: "Activation rose six points.",
     });
-    expect(concluded.status).toBe(200);
-    expect(concluded.body).toEqual({
+    expectWire(concluded, 200, {
       experiment: runningExperiment(experiment.id, experiment.startedAt, {
         status: "concluded",
         verdict: {
@@ -182,8 +176,7 @@ describe("experiment routes still answer identically through handleExperimentsAp
     });
 
     const again = await call("POST", `/api/experiments/${experiment.id}/conclude`, { outcome: "loss", note: "Again." });
-    expect(again.status).toBe(409);
-    expect(again.body).toEqual({ error: "experiment is already concluded" });
+    expectWire(again, 409, { error: "experiment is already concluded" });
   });
 });
 
