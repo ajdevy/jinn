@@ -6,6 +6,7 @@ import type {
   Session,
 } from "../shared/types.js";
 import type { SessionManager } from "../sessions/manager.js";
+import { resumableEngineSession } from "../sessions/attempt-continuation.js";
 import { workflowAttemptInterruptionCause } from "../sessions/workflow-interruptions.js";
 
 export type WorkflowSessionReceiptReader =
@@ -32,6 +33,12 @@ export class WorkflowSessionExecutor implements WorkflowSessionExecutorContract 
 
   attemptState(sessionId: string): { idle: boolean; runningChildren: number } | null {
     return this.sessions.workflowAttemptState(sessionId);
+  }
+
+  /** The engine thread a completed attempt session still holds and a new attempt
+   *  could pick up, or null when there is nothing usable to continue from. */
+  resumableEngineSession(sessionId: string, engine: string): string | null {
+    return resumableEngineSession(sessionId, engine);
   }
 
   subscribe(listener: WorkflowAttemptCompletionListener): () => void {

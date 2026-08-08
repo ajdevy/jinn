@@ -19,6 +19,9 @@ export interface ResolvedEmployeeConfig {
   effort?: 'low' | 'medium' | 'high' | 'xhigh';
   retry: { attempts: number; delaySeconds: number; backoff: 'fixed' | 'exponential' };
   timeoutMinutes?: number;
+  /** The completed attempt session whose engine thread this attempt continues.
+   *  Absent means the attempt was dispatched cold. */
+  continuedFrom?: { sessionId: string; engineSessionId: string };
 }
 
 export interface WorkflowError {

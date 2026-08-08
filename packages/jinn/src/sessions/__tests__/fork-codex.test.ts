@@ -13,7 +13,10 @@ import os from "node:os";
  * (year/month/day are UTC-derived in fork.ts).
  */
 
-let fakeHome: string;
+// Hoisted with the mock factory below: `vi.mock` is lifted above ordinary
+// declarations, and the mocked homedir is read while the module graph is
+// still loading, which a plain `let` would still have in its dead zone.
+const fake = vi.hoisted(() => ({ home: "" }));
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -21,9 +24,9 @@ vi.mock("node:os", async (importOriginal) => {
     ...actual,
     default: {
       ...actual,
-      homedir: () => fakeHome,
+      homedir: () => fake.home,
     },
-    homedir: () => fakeHome,
+    homedir: () => fake.home,
   };
 });
 
@@ -37,7 +40,7 @@ import { forkCodexSession } from "../fork.js";
 const SESSIONS_REL = [".codex", "sessions"];
 
 function sessionsRoot(): string {
-  return path.join(fakeHome, ...SESSIONS_REL);
+  return path.join(fake.home, ...SESSIONS_REL);
 }
 
 /**
@@ -73,11 +76,11 @@ function findForkedFile(excludeSourceFile: string, root: string = sessionsRoot()
 }
 
 beforeEach(() => {
-  fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "fork-codex-"));
+  fake.home = fs.mkdtempSync(path.join(os.tmpdir(), "fork-codex-"));
 });
 
 afterEach(() => {
-  if (fakeHome && fs.existsSync(fakeHome)) fs.rmSync(fakeHome, { recursive: true, force: true });
+  if (fake.home && fs.existsSync(fake.home)) fs.rmSync(fake.home, { recursive: true, force: true });
   vi.clearAllMocks();
 });
 
@@ -128,8 +131,8 @@ describe("forkCodexSession", () => {
 
   it("copies a fork from the source session root into the destination session root", () => {
     const srcId = "44444444-4444-4444-4444-444444444444";
-    const sourceRoot = path.join(fakeHome, "codex-homes", "source", "sessions");
-    const destinationRoot = path.join(fakeHome, "codex-homes", "destination", "sessions");
+    const sourceRoot = path.join(fake.home, "codex-homes", "source", "sessions");
+    const destinationRoot = path.join(fake.home, "codex-homes", "destination", "sessions");
     const sourceFile = seedSource(srcId, JSON.stringify({
       type: "session_meta",
       timestamp: "2025-01-02T00:00:00.000Z",

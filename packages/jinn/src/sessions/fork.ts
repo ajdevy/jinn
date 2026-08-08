@@ -13,6 +13,7 @@ import * as pty from "node-pty";
 import { v4 as uuidv4 } from "uuid";
 import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
+import { findCodexSessionFile } from "../engines/codex-rollout.js";
 import type { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { HermesRpc } from "../engines/hermes-jsonrpc.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
@@ -360,27 +361,3 @@ export async function forkEngineSession(
 }
 
 // --- Helpers ---
-
-function findCodexSessionFile(root: string, sessionId: string): string | null {
-  // Codex filenames contain the UUID: rollout-<ts>-<uuid>.jsonl
-  // Walk year/month/day directories
-  if (!fs.existsSync(root)) return null;
-  for (const year of fs.readdirSync(root)) {
-    const yearDir = path.join(root, year);
-    if (!fs.statSync(yearDir).isDirectory()) continue;
-    for (const month of fs.readdirSync(yearDir)) {
-      const monthDir = path.join(yearDir, month);
-      if (!fs.statSync(monthDir).isDirectory()) continue;
-      for (const day of fs.readdirSync(monthDir)) {
-        const dayDir = path.join(monthDir, day);
-        if (!fs.statSync(dayDir).isDirectory()) continue;
-        for (const file of fs.readdirSync(dayDir)) {
-          if (file.endsWith(".jsonl") && file.includes(sessionId)) {
-            return path.join(dayDir, file);
-          }
-        }
-      }
-    }
-  }
-  return null;
-}

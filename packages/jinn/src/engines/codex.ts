@@ -247,7 +247,7 @@ function safeSessionDirName(sessionId: string): string {
   return sessionId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 120) || "session";
 }
 
-function codexSessionHomeDir(sessionId: string, baseDir: string = CODEX_HOMES_DIR): string {
+export function codexSessionHomeDir(sessionId: string, baseDir: string = CODEX_HOMES_DIR): string {
   return path.join(baseDir, safeSessionDirName(sessionId));
 }
 
