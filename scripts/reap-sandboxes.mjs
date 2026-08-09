@@ -14,12 +14,12 @@
 //   pnpm reap --apply                  # act on it
 //   pnpm reap --apply --min-age-min 360
 //   pnpm reap --json                   # machine-readable plan
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { parsePsDump, planProcessReap } from "./reap/gateways.mjs"
+import { parentlessWorkerPids, parsePsDump, planProcessReap } from "./reap/gateways.mjs"
 import { buildContext, gatewayEndpoint, resolveDefaultHome, readRegisteredInstances } from "./reap/protected.mjs"
 import {
   classifyWorktree,
@@ -72,6 +72,39 @@ function psDump(env) {
     maxBuffer: 32 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   })
+}
+
+/**
+ * `pid → cwd` for the PIDs given. macOS has no `/proc` and `ps` has no cwd
+ * column, so lsof is the answer. A PID that died between the dump and the probe
+ * makes lsof exit non-zero with the rest of its output intact, so the status is
+ * ignored and stdout is read either way.
+ */
+function workingDirectories(pids) {
+  if (pids.length === 0) return {}
+  const probe = spawnSync("/usr/sbin/lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fpn"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  })
+  const byPid = {}
+  let pid = null
+  for (const line of (probe.stdout ?? "").split("\n")) {
+    if (line.startsWith("p")) pid = Number(line.slice(1))
+    else if (line.startsWith("n") && pid !== null) byPid[pid] = line.slice(1)
+  }
+  return byPid
+}
+
+/**
+ * A parentless worker's command line need not name the tree it belongs to, so
+ * its working directory is asked as well. Only those workers are probed: they
+ * are the only PIDs the answer can decide anything about.
+ */
+function withWorkingDirectories(processes) {
+  const cwdByPid = workingDirectories(parentlessWorkerPids(processes))
+  return processes.map((candidate) =>
+    cwdByPid[candidate.pid] ? { ...candidate, cwd: cwdByPid[candidate.pid] } : candidate,
+  )
 }
 
 /** Every registered home, plus the default one, as spared entries a reader can check. */
@@ -189,7 +222,7 @@ async function buildPlan(options, env, git) {
     selfPids: [process.pid, process.ppid],
     pruningWorktrees: worktrees.targets.map((target) => target.label),
   })
-  const processes = planProcessReap(parsePsDump(psDump(env)), context)
+  const processes = planProcessReap(withWorkingDirectories(parsePsDump(psDump(env))), context)
   return {
     processes,
     worktrees,

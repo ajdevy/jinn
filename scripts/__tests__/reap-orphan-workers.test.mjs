@@ -55,6 +55,21 @@ test("a sibling tree whose name merely starts with a removed one's is spared", (
   assert.deepEqual(orphanTargets([orphan(9304, workerIn(sibling))], [REMOVED_TREE]), [])
 })
 
+// A worker launched from inside its own tree names no path at all, so its
+// command line cannot settle ownership either way and its working directory is
+// the only claim there is.
+test("a worker whose cwd is inside a tree this run removes is reaped", () => {
+  const relative = { ...orphan(9308, "node ./vitest-worker.js"), cwd: REMOVED_TREE }
+  assert.deepEqual(orphanTargets([relative], [REMOVED_TREE]), [9308])
+  const nested = { ...relative, cwd: path.join(REMOVED_TREE, "packages", "jinn") }
+  assert.deepEqual(orphanTargets([nested], [REMOVED_TREE]), [9308])
+})
+
+test("a worker whose cwd is inside a tree nobody is removing is spared", () => {
+  const elsewhere = { ...orphan(9309, "node ./vitest-worker.js"), cwd: ACTIVE_TREE }
+  assert.deepEqual(orphanTargets([elsewhere], [REMOVED_TREE]), [])
+})
+
 test("a worker that is not a test runner is spared even inside a removed tree", () => {
   assert.deepEqual(orphanTargets([orphan(9305, `node ${path.join(REMOVED_TREE, "server.js")}`)], [REMOVED_TREE]), [])
 })
