@@ -1098,12 +1098,11 @@ function ChatPage() {
             </div>
           )}
 
-          <div
-            className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}
-          >
+          <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
             {/* Mobile: the chat list is the full-width body; the bottom tab bar
                 (rendered below) is the persistent nav. */}
             <ChatSidebar
+              variant="mobile"
               selectedId={selectedId}
               onSelect={handleSelect}
               onNewChat={handleNewChat}

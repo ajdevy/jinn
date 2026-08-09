@@ -1108,9 +1108,6 @@
     "packages/web/src/components/chat/__tests__/chat-messages-tool-group.test.tsx": {
       "lines": 527
     },
-    "packages/web/src/components/chat/__tests__/chat-sidebar-helpers.test.ts": {
-      "lines": 439
-    },
     "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": {
       "lines": 862,
       "exempt": [
@@ -1185,7 +1182,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 2180,
+      "lines": 1925,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1574,7 +1571,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1211,
+      "lines": 1210,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
