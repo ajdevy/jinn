@@ -273,13 +273,12 @@ export function StatusDot({
 }) {
   return (
     <span
-      className={cn("shrink-0 rounded-full", className)}
+      className={cn("shrink-0 rounded-full", pulse && "animate-sidebar-pulse", className)}
       title={title}
       role={title ? "img" : undefined}
       aria-label={title}
       style={{
         background: color,
-        animation: pulse ? "sidebar-pulse 2s ease-in-out infinite" : "none",
         boxShadow: pulse ? `0 0 8px ${color}` : "none",
       }}
     />

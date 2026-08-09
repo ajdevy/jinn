@@ -119,6 +119,7 @@
   --animate-pulse-red: pulse-red 1.5s ease-in-out infinite;
   --animate-blink: blink-cursor 1s step-end infinite;
   --animate-float-hint: float-hint 2s ease-in-out infinite;
+  --animate-sidebar-pulse: sidebar-pulse 2s ease-in-out infinite;
 
   /* Duration scale — the single source for how long anything takes. Easing
      stays in the [data-theme] blocks, where the sandboxed-surface law puts it;
@@ -555,6 +556,11 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes float-hint {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(-3px, -3px); }
+}
+
+@keyframes sidebar-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
 }
 
 @keyframes shimmer {
