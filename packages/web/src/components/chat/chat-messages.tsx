@@ -15,6 +15,12 @@ import { FoldRegion, type FoldSummaryData } from './fold-region'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
+import {
+  captureVisibleAnchor,
+  OLDER_LOAD_THRESHOLD_PX,
+  restoreVisibleAnchor,
+  type ScrollAnchor,
+} from './scroll-anchor'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 
@@ -1206,15 +1212,6 @@ function latestTurnId(messages: Message[]): string | null {
 }
 
 const JUMP_EXIT_MS = 140
-const OLDER_LOAD_THRESHOLD_PX = 900
-
-interface ScrollAnchor {
-  id: string | null
-  offset: number
-  scrollHeight: number
-  scrollTop: number
-  token: number
-}
 
 function JumpToLatestButton({
   show,
@@ -1279,44 +1276,6 @@ function JumpToLatestButton({
   )
 }
 
-function captureVisibleAnchor(node: HTMLDivElement, token: number): ScrollAnchor {
-  const containerRect = node.getBoundingClientRect()
-  const rows = Array.from(node.querySelectorAll<HTMLElement>('[data-message-id]'))
-  for (const row of rows) {
-    const rect = row.getBoundingClientRect()
-    if (rect.bottom >= containerRect.top && rect.top <= containerRect.bottom) {
-      return {
-        id: row.getAttribute('data-message-id'),
-        offset: rect.top - containerRect.top,
-        scrollHeight: node.scrollHeight,
-        scrollTop: node.scrollTop,
-        token,
-      }
-    }
-  }
-  return {
-    id: null,
-    offset: 0,
-    scrollHeight: node.scrollHeight,
-    scrollTop: node.scrollTop,
-    token,
-  }
-}
-
-function restoreVisibleAnchor(node: HTMLDivElement, anchor: ScrollAnchor) {
-  if (anchor.id) {
-    const target = Array.from(node.querySelectorAll<HTMLElement>('[data-message-id]'))
-      .find((row) => row.getAttribute('data-message-id') === anchor.id)
-    if (target) {
-      const containerRect = node.getBoundingClientRect()
-      const rect = target.getBoundingClientRect()
-      node.scrollTop += rect.top - containerRect.top - anchor.offset
-      return
-    }
-  }
-  node.scrollTop = anchor.scrollTop + (node.scrollHeight - anchor.scrollHeight)
-}
-
 export function ChatMessages({
   messages,
   loading,
@@ -1344,7 +1303,8 @@ export function ChatMessages({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const pendingAnchorRef = useRef<ScrollAnchor | null>(null)
-  const anchorTokenRef = useRef(0)
+  const firstMessageIdRef = useRef<string | null>(null)
+  firstMessageIdRef.current = messages[0]?.id ?? null
   const olderRequestInFlightRef = useRef(false)
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     scrollContainerRef.current = node
@@ -1356,23 +1316,24 @@ export function ChatMessages({
     olderRequestInFlightRef.current = loadingOlderMessages
   }, [loadingOlderMessages])
 
+  // `MessageRow` is memoised, so a caller that rebuilds `onRetry` on every render
+  // re-renders the entire transcript on every streaming token. Hand the rows one
+  // identity and read the live callback through a ref.
+  const onRetryRef = useRef(onRetry)
+  onRetryRef.current = onRetry
+  const stableRetry = useCallback((text: string) => onRetryRef.current?.(text), [])
+  const retry = onRetry ? stableRetry : undefined
+
   const requestOlderMessages = useCallback(() => {
     const node = scrollContainerRef.current
     if (!node || !hasOlderMessages || !onLoadOlderMessages || olderRequestInFlightRef.current) return
-    const token = ++anchorTokenRef.current
-    pendingAnchorRef.current = captureVisibleAnchor(node, token)
+    pendingAnchorRef.current = captureVisibleAnchor(node, firstMessageIdRef.current)
     olderRequestInFlightRef.current = true
+    // No restore here: the anchor is only correct once the prepended rows are in
+    // the DOM, and the layout effect below is the one place that is true.
     Promise.resolve(onLoadOlderMessages())
       .catch(() => { /* hook owns the visible error state */ })
-      .finally(() => {
-        olderRequestInFlightRef.current = false
-        requestAnimationFrame(() => {
-          if (pendingAnchorRef.current?.token !== token) return
-          const currentNode = scrollContainerRef.current
-          if (currentNode) restoreVisibleAnchor(currentNode, pendingAnchorRef.current)
-          if (pendingAnchorRef.current?.token === token) pendingAnchorRef.current = null
-        })
-      })
+      .finally(() => { olderRequestInFlightRef.current = false })
   }, [hasOlderMessages, onLoadOlderMessages])
 
   useEffect(() => {
@@ -1384,10 +1345,14 @@ export function ChatMessages({
     return () => scrollEl.removeEventListener('scroll', onScroll)
   }, [requestOlderMessages, scrollEl])
 
+  // Only the prepend the anchor was taken for may spend it. A reply arriving
+  // below while the page is still in flight also changes `messages`, and
+  // correcting for that commit — which moved nothing above the read position —
+  // used to consume the anchor and leave the real prepend uncorrected.
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current
     const node = scrollContainerRef.current
-    if (!anchor || !node) return
+    if (!anchor || !node || messages[0]?.id === anchor.firstMessageId) return
     restoreVisibleAnchor(node, anchor)
     pendingAnchorRef.current = null
   }, [messages])
@@ -1549,7 +1514,7 @@ export function ChatMessages({
                   index={i}
                   messages={messages}
                   loading={loading}
-                  onRetry={onRetry}
+                  onRetry={retry}
                   onPeek={onPeek}
                   arrival={arrivalFor(msg.id)}
                   blockArrivals={blockArrivals}

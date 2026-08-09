@@ -60,7 +60,7 @@ export function MediaPreview({ attachments, onRemove }: MediaPreviewProps) {
                 </svg>
               )}
               <span style={{
-                fontSize: 8,
+                fontSize: 'var(--text-caption2)',
                 color: 'var(--text-quaternary)',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',

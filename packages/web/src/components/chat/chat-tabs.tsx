@@ -2,7 +2,6 @@
 import { type ReactNode } from 'react'
 import { ChevronLeft, SquarePen } from 'lucide-react'
 import { type ChatTab } from '@/hooks/use-chat-tabs'
-import { cn } from '@/lib/utils'
 // Frosted pill primitives now live in the shared cross-page pill system.
 import { PILL_CLASS, PillButton } from '@/components/pill-nav'
 
@@ -103,7 +102,11 @@ export function ChatHeaderPills({
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
           style={{ paddingTop: 'max(var(--safe-top), 0px)' }}
         >
-          <div className="relative flex h-12 items-center gap-1 bg-[var(--material-thick)] px-1.5 [backdrop-filter:blur(20px)_saturate(1.3)] [-webkit-backdrop-filter:blur(20px)_saturate(1.3)]">
+          {/* Three tracks, not an absolutely-centered title: the side controls
+              are sized in rem, so at a large browser text size a viewport-capped
+              centred title grows straight under the action buttons. The middle
+              track truncates against its real neighbours at any text size. */}
+          <div className="relative grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 bg-[var(--material-thick)] px-1.5 [backdrop-filter:blur(20px)_saturate(1.3)] [-webkit-backdrop-filter:blur(20px)_saturate(1.3)]">
             {/* Back control. A drill-in reads `‹ Parent` and returns to the
                 parent thread (iOS previous-screen-title idiom); otherwise the
                 bare chevron pops to the chat list (accessible name in
@@ -128,15 +131,10 @@ export function ChatHeaderPills({
                 <ChevronLeft size={24} className="shrink-0" />
               </button>
             )}
-            <span
-              className={cn(
-                "pointer-events-none absolute left-1/2 -translate-x-1/2 truncate text-center text-[length:var(--text-body)] font-[var(--weight-semibold)] text-[var(--text-primary)]",
-                backTo ? "max-w-[30vw]" : "max-w-[48vw]",
-              )}
-            >
+            <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
               {title}
             </span>
-            <div className="ml-auto flex shrink-0 items-center">
+            <div className="flex shrink-0 items-center">
               <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
                 <SquarePen size={18} />
               </PillButton>

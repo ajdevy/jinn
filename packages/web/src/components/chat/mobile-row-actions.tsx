@@ -14,7 +14,7 @@ import { type SwipeSide } from "@/components/chat/use-swipe-actions"
 export const ACTION_WIDTH = 78
 
 const ACTION_CLASS =
-  "flex h-full w-[78px] shrink-0 flex-col items-center justify-center gap-1 text-[length:var(--text-caption2)] font-[var(--weight-medium)] [&_svg]:size-[18px]"
+  "flex h-full w-[78px] shrink-0 flex-col items-center justify-center gap-1 text-caption2 font-[var(--weight-medium)] [&_svg]:size-[18px]"
 
 export interface RowActions {
   onRename: () => void

@@ -67,22 +67,73 @@
    Tailwind v4 Theme Tokens
    ============================================ */
 
+/* Typography Scale — Apple HIG. One definition per step, and the only place a
+   font size is authored.
+
+   Every step is fluid between a 390px phone and a 1024px desktop, and every step
+   is rem, so the OS/browser text-size preference moves the whole UI. The middle
+   clamp term keeps a rem component on purpose: a vw-only term ignores text-size
+   entirely, which is the exact failure this scale exists to fix. Small steps
+   travel ~1px; display steps travel up to 6px, because a caption that shrinks
+   stops being readable while a title that doesn't shrink stops fitting.
+
+   Leading and tracking are bound to each step rather than left as free families.
+   A size chosen without its matched leading is why the UI read unbalanced.
+   Tracking is em so it follows the fluid size instead of drifting tighter as the
+   step grows, and the values are Apple's own at each point size.
+
+   `static` because a scale is only one scale if it ships whole: Tailwind emits a
+   step's bound leading and tracking only where that step's utility appears in
+   source, which would silently leave `text-[length:var(--text-…)]` call sites
+   holding a size with no leading — the exact defect this replaces. */
+@theme static {
+  --text-caption2: clamp(0.625rem, 0.5866rem + 0.1577vw, 0.6875rem);
+  --text-caption2--line-height: 1.35;
+  --text-caption2--letter-spacing: 0.006em;
+
+  --text-caption1: clamp(0.6875rem, 0.6491rem + 0.1577vw, 0.75rem);
+  --text-caption1--line-height: 1.35;
+  --text-caption1--letter-spacing: 0em;
+
+  --text-footnote: clamp(0.75rem, 0.7116rem + 0.1577vw, 0.8125rem);
+  --text-footnote--line-height: 1.4;
+  --text-footnote--letter-spacing: -0.006em;
+
+  --text-subheadline: clamp(0.875rem, 0.8366rem + 0.1577vw, 0.9375rem);
+  --text-subheadline--line-height: 1.45;
+  --text-subheadline--letter-spacing: -0.016em;
+
+  --text-body: clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem);
+  --text-body--line-height: 1.47;
+  --text-body--letter-spacing: -0.024em;
+
+  /* Same size as body, per HIG — the difference is weight, which call sites set. */
+  --text-headline: clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem);
+  --text-headline--line-height: 1.4;
+  --text-headline--letter-spacing: -0.024em;
+
+  --text-title3: clamp(1.125rem, 1.0481rem + 0.3155vw, 1.25rem);
+  --text-title3--line-height: 1.3;
+  --text-title3--letter-spacing: -0.019em;
+
+  --text-title2: clamp(1.1875rem, 1.0722rem + 0.4732vw, 1.375rem);
+  --text-title2--line-height: 1.25;
+  --text-title2--letter-spacing: -0.019em;
+
+  --text-title1: clamp(1.5rem, 1.3462rem + 0.6309vw, 1.75rem);
+  --text-title1--line-height: 1.2;
+  --text-title1--letter-spacing: -0.021em;
+
+  --text-large-title: clamp(1.75rem, 1.5193rem + 0.9464vw, 2.125rem);
+  --text-large-title--line-height: 1.12;
+  --text-large-title--letter-spacing: -0.024em;
+}
+
 @theme {
   /* Theme-driven font stacks (overridden per [data-theme]; defaults below in :root) */
   --font-sans: var(--font-ui);
   --font-serif: var(--font-display);
   --font-mono: var(--font-code);
-
-  /* Typography Scale — Apple HIG */
-  --text-caption2: 11px;
-  --text-caption1: 12px;
-  --text-footnote: 13px;
-  --text-subheadline: 15px;
-  --text-body: 17px;
-  --text-title3: 20px;
-  --text-title2: 22px;
-  --text-title1: 28px;
-  --text-large-title: 34px;
 
   /* Leading */
   --leading-tight: 1.15;
@@ -451,10 +502,13 @@ html {
   touch-action: manipulation;
 }
 
-/* Prevent iOS Safari zoom on input focus (requires font-size >= 16px) */
+/* Prevent iOS Safari zoom on input focus (requires font-size >= 16px). The body
+   step bottoms out at 1rem and only grows from there, so it clears the threshold
+   across this whole range while still following the user's text-size setting —
+   which a flat 16px would not. */
 @media screen and (max-width: 768px) {
   input, select, textarea, .apple-input {
-    font-size: 16px !important;
+    font-size: var(--text-body) !important;
   }
 }
 
@@ -944,7 +998,7 @@ h1, h2, h3, h4, h5, h6 {
   border: none;
   border-radius: var(--radius-md);
   padding: 11px 16px;
-  font-size: 15px;
+  font-size: var(--text-subheadline);
   color: var(--text-primary);
   outline: none;
   transition: box-shadow 200ms var(--ease-smooth);
@@ -963,7 +1017,7 @@ h1, h2, h3, h4, h5, h6 {
   border: none;
   border-radius: var(--radius-md);
   padding: 14px 20px;
-  font-size: 15px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   cursor: pointer;
   transition: all 150ms var(--ease-spring);
@@ -978,7 +1032,7 @@ h1, h2, h3, h4, h5, h6 {
   border: none;
   border-radius: var(--radius-md);
   padding: 14px 20px;
-  font-size: 15px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   cursor: pointer;
   transition: all 150ms var(--ease-spring);
@@ -1092,15 +1146,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Notes — keep the note title at display size even on mobile, where the global
-   iOS zoom-guard forces inputs to 16px. The title is not a zoom risk (≥16px),
-   so it opts out with a higher-specificity !important. */
+   iOS zoom-guard pushes inputs up to the body step. The title is not a zoom risk
+   (well over 16px), so it opts out with a higher-specificity !important. The
+   step is fluid, so no desktop-width override is needed on top. */
 .notes-title {
   font-size: var(--text-title1) !important;
-}
-@media (min-width: 1024px) {
-  .notes-title {
-    font-size: 30px !important;
-  }
 }
 
 /* Rendered GFM task lists (shared markdown-view — notes, files, skills). The

@@ -170,7 +170,7 @@ export function ChatEmployeePicker({
 
   return (
     <div className="flex flex-col items-center gap-3 px-4 w-full max-w-md mx-auto">
-      <p className="text-sm text-[var(--text-secondary)]">
+      <p className="text-subheadline text-[var(--text-secondary)]">
         Who do you want to talk to?
       </p>
 
@@ -244,7 +244,7 @@ export function ChatEmployeePicker({
               : ''
           )}
         >
-          <span className="text-xl shrink-0">🧞</span>
+          <span className="text-title3 shrink-0">🧞</span>
           <div className="flex-1 min-w-0">
             <span className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
               {portalName}
@@ -295,7 +295,7 @@ export function ChatEmployeePicker({
                     </span>
                   )}
                   {isSelected && (
-                    <span className="text-[var(--accent)] text-[13px] shrink-0">&#10003;</span>
+                    <span className="text-[var(--accent)] text-footnote shrink-0">&#10003;</span>
                   )}
                 </div>
               )

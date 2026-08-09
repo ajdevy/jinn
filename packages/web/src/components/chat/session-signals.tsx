@@ -243,7 +243,7 @@ export function SessionAttentionChips({ session }: { session: Session }) {
               : `The turn is still in flight but has produced no output for ${formatStallAge(stall.stalledForMs)}.`
           }
           style={{ background: "color-mix(in srgb, var(--system-orange) 14%, transparent)" }}
-          className="shrink-0 rounded-sm px-1 text-[10px] font-medium tabular-nums text-[var(--system-orange)]"
+          className="shrink-0 rounded-sm px-1 text-caption2 font-medium tabular-nums text-[var(--system-orange)]"
         >
           {stall.awaitingSubmit ? "not accepted" : `stalled ${formatStallAge(stall.stalledForMs)}`}
         </span>
@@ -251,7 +251,7 @@ export function SessionAttentionChips({ session }: { session: Session }) {
       {queued > 0 ? (
         <span
           title={`${queued} queued message${queued === 1 ? "" : "s"} waiting on this session`}
-          className="shrink-0 rounded-sm bg-[var(--fill-secondary)] px-1 text-[10px] font-medium tabular-nums text-[var(--text-secondary)]"
+          className="shrink-0 rounded-sm bg-[var(--fill-secondary)] px-1 text-caption2 font-medium tabular-nums text-[var(--text-secondary)]"
         >
           {queued} queued
         </span>

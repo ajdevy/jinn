@@ -73,24 +73,24 @@ function RowSummary({ session, avatarName, displayName, title, strong, showPin, 
         <span className="mb-0.5 flex items-baseline gap-2">
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-[length:var(--text-subheadline)] tracking-[-0.2px] text-foreground",
+              "min-w-0 flex-1 truncate text-subheadline text-foreground",
               strong ? "font-[var(--weight-semibold)]" : "font-[var(--weight-medium)]",
             )}
           >
             {displayName}
           </span>
           {isArchived ? (
-            <span className="shrink-0 text-[length:var(--text-caption2)] font-[var(--weight-medium)] text-[var(--text-tertiary)]">
+            <span className="shrink-0 text-caption2 font-[var(--weight-medium)] text-[var(--text-tertiary)]">
               Archived
             </span>
           ) : null}
           {showPin ? <Pin className="size-3 shrink-0 text-[var(--text-tertiary)]" /> : null}
-          <span className="shrink-0 text-[length:var(--text-caption1)] tabular-nums text-[var(--text-quaternary)]">
+          <span className="shrink-0 text-caption1 tabular-nums text-[var(--text-quaternary)]">
             {formatTime(getSessionActivity(session))}
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">{title}</span>
+          <span className="min-w-0 truncate text-footnote text-[var(--text-tertiary)]">{title}</span>
           <SessionAttentionChips session={session} />
         </span>
       </span>
@@ -117,7 +117,7 @@ function RowRenameInput({
       maxLength={200}
       defaultValue={title}
       aria-label="Rename chat"
-      className="absolute bottom-2.5 left-4 right-16 h-9 rounded-[var(--radius-sm)] bg-[var(--fill-secondary)] px-2 text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none"
+      className="absolute bottom-2.5 left-4 right-16 h-9 rounded-[var(--radius-sm)] bg-[var(--fill-secondary)] px-2 text-footnote text-[var(--text-primary)] outline-none"
       onFocus={(e) => e.target.select()}
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {

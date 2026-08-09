@@ -300,8 +300,8 @@ export function pickDeleteFallbackId(
 // tracking and the count as a plain trailing number — no shouty uppercase, no
 // filled chip. Keep these constants the single source so the headers can't drift.
 const SECTION_LABEL_CLASS =
-  "text-[11px] font-[var(--weight-medium)] tracking-[0.06em] text-[var(--text-tertiary)]"
-const SECTION_COUNT_CLASS = "text-[10px] tabular-nums text-[var(--text-quaternary)]"
+  "text-caption2 font-[var(--weight-medium)] tracking-[0.06em] text-[var(--text-tertiary)]"
+const SECTION_COUNT_CLASS = "text-caption2 tabular-nums text-[var(--text-quaternary)]"
 
 function SectionLabel({
   label,
@@ -402,7 +402,7 @@ const SessionRow = React.memo(function SessionRow({
               maxLength={200}
               defaultValue={displayTitle}
               className={cn(
-                "min-w-0 flex-1 truncate border-none bg-transparent text-xs outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
+                "min-w-0 flex-1 truncate border-none bg-transparent text-caption1 outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
               onFocus={(e) => e.target.select()}
@@ -430,7 +430,7 @@ const SessionRow = React.memo(function SessionRow({
           ) : (
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-xs",
+                "min-w-0 flex-1 truncate text-caption1",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
             >
@@ -441,7 +441,7 @@ const SessionRow = React.memo(function SessionRow({
           {isPinned ? (
             <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0" />
           ) : null}
-          <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0">{sessionTime}</span>
+          <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0">{sessionTime}</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -583,23 +583,23 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
               <div className="mb-0.5 flex items-baseline gap-2">
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-[13px] tracking-[-0.2px] text-foreground",
+                    "min-w-0 flex-1 truncate text-footnote text-foreground",
                     isUnread || isActive ? "font-semibold" : "font-medium"
                   )}
                 >
                   {displayName}
                 </span>
                 {isArchived ? (
-                  <span className="shrink-0 text-[10px] font-medium text-[var(--text-tertiary)]">Archived</span>
+                  <span className="shrink-0 text-caption2 font-medium text-[var(--text-tertiary)]">Archived</span>
                 ) : null}
-                <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/flat:lg:opacity-0 group-has-[[data-state=open]]/flat:lg:opacity-0">{time}</span>
+                <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/flat:lg:opacity-0 group-has-[[data-state=open]]/flat:lg:opacity-0">{time}</span>
               </div>
               {isRenaming ? (
                 <input
                   autoFocus
                   maxLength={200}
                   defaultValue={displayTitle}
-                  className="min-w-0 w-full truncate rounded border-none bg-transparent px-0.5 text-[11px] text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
+                  className="min-w-0 w-full truncate rounded border-none bg-transparent px-0.5 text-caption2 text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
                   onFocus={(e) => e.target.select()}
                   onClick={(e) => { e.stopPropagation(); e.preventDefault() }}
                   onKeyDown={(e) => {
@@ -615,7 +615,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
                 />
               ) : (
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 truncate text-[11px] text-[var(--text-tertiary)]">{displayTitle}</span>
+                  <span className="min-w-0 truncate text-caption2 text-[var(--text-tertiary)]">{displayTitle}</span>
                   <SessionAttentionChips session={session} />
                 </div>
               )}
@@ -790,13 +790,13 @@ const EmployeeRow = React.memo(function EmployeeRow({
               <div className="mb-0.5 flex items-baseline gap-2 pr-9 lg:pr-0">
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-[13px] tracking-[-0.2px] text-foreground",
+                    "min-w-0 flex-1 truncate text-footnote text-foreground",
                     hasUnread || isActive ? "font-semibold" : "font-medium"
                   )}
                 >
                   {displayName}
                 </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/emp:lg:opacity-0 group-has-[[data-state=open]]/emp:lg:opacity-0">{timeLabel}</span>
+                <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/emp:lg:opacity-0 group-has-[[data-state=open]]/emp:lg:opacity-0">{timeLabel}</span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -824,7 +824,7 @@ const EmployeeRow = React.memo(function EmployeeRow({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="flex items-center gap-1.5 overflow-hidden text-[11px] text-[var(--text-tertiary)]">
+              <div className="flex items-center gap-1.5 overflow-hidden text-caption2 text-[var(--text-tertiary)]">
                 {department ? <span className="truncate">{department}</span> : null}
                 {department && sessionCount > 1 ? (
                   <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">·</span>
@@ -872,7 +872,7 @@ const EmployeeRow = React.memo(function EmployeeRow({
         <button
           onClick={() => onLoadMore(groupKey, loadedCount)}
           disabled={isLoadingMore}
-          className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-[10px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
+          className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-caption2 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
         >
           {isLoadingMore ? "Loading…" : `+${sessionCount - loadedCount} more`}
         </button>
@@ -1611,7 +1611,7 @@ export function ChatSidebar({
         return (
           <button
             onClick={toggleOlderExpanded}
-            className="mt-1 flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
+            className="mt-1 flex w-full items-center gap-2 px-4 py-2.5 text-left text-caption1 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
           >
             <Clock3 className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{olderLineLabel}</span>
@@ -1659,7 +1659,7 @@ export function ChatSidebar({
           <button
             onClick={() => handleLoadMore(CRON_GROUP, cronSessions.length)}
             disabled={loadingMore.has(CRON_GROUP)}
-            className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-[10px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
+            className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-caption2 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
           >
             {loadingMore.has(CRON_GROUP) ? "Loading…" : `+${cronTotal - cronSessions.length} more`}
           </button>
@@ -1769,7 +1769,7 @@ export function ChatSidebar({
               placeholder="Search chats"
               aria-label="Search chats"
               tabIndex={searchOpen ? 0 : -1}
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-[var(--text-tertiary)]"
+              className="min-w-0 flex-1 bg-transparent text-subheadline text-foreground outline-none placeholder:text-[var(--text-tertiary)]"
             />
             <button
               onClick={closeSearch}
@@ -1793,11 +1793,11 @@ export function ChatSidebar({
         />
         <div ref={scrollContainerRef} data-chat-list-scroll onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
         {loading ? (
-          <div className="px-4 py-8 text-center text-xs text-[var(--text-quaternary)]">
+          <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             Loading chats…
           </div>
         ) : virtualItems.length === 0 ? (
-          <div className="px-4 py-8 text-center text-xs text-[var(--text-quaternary)]">
+          <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             {search.trim() ? (
               "No matching chats"
             ) : focusMode === "focused" && hiddenAutomated > 0 ? (
@@ -1857,11 +1857,11 @@ export function ChatSidebar({
                   <EmployeeAvatar name={emp.name} size={36} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className="block min-w-0 truncate text-[13px] font-medium tracking-[-0.2px] text-foreground">
+                  <span className="block min-w-0 truncate text-footnote font-medium tracking-[-0.2px] text-foreground">
                     {emp.displayName || titleCase(emp.name)}
                   </span>
                   {emp.department ? (
-                    <span className="block truncate text-[11px] text-[var(--text-tertiary)]">{emp.department}</span>
+                    <span className="block truncate text-caption2 text-[var(--text-tertiary)]">{emp.department}</span>
                   ) : null}
                 </div>
                 <Plus className="size-3.5 shrink-0 text-[var(--text-quaternary)] transition-colors group-hover/contact:text-[var(--accent)]" />

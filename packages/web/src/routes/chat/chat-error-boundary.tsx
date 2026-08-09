@@ -12,13 +12,13 @@ export class ChatErrorBoundary extends React.Component<{ children: React.ReactNo
       return (
         <PageLayout>
           <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-            <p className="text-lg font-semibold text-[var(--system-red)]">Chat crashed</p>
-            <pre className="max-w-lg overflow-auto rounded-lg bg-[var(--bg-tertiary)] p-4 text-left text-xs text-muted-foreground">
+            <p className="text-headline font-semibold text-[var(--system-red)]">Chat crashed</p>
+            <pre className="max-w-lg overflow-auto rounded-lg bg-[var(--bg-tertiary)] p-4 text-left text-caption1 text-muted-foreground">
               {this.state.error.message}{'\n'}{this.state.error.stack?.split('\n').slice(0, 5).join('\n')}
             </pre>
             <button
               onClick={() => { this.setState({ error: null }); window.location.reload() }}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+              className="rounded-md bg-[var(--accent)] px-4 py-2 text-subheadline font-medium text-white"
             >
               Reload
             </button>

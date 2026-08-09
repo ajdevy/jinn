@@ -82,8 +82,8 @@ export function MarkdownView({
     <div
       className={
         compact
-          ? "jinn-markdown min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-[15px] leading-[1.55] text-[var(--text-secondary)]"
-          : "jinn-markdown min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-[length:var(--text-body)] leading-[1.7] text-[var(--text-secondary)]"
+          ? "jinn-markdown min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-subheadline leading-[1.55] text-[var(--text-secondary)]"
+          : "jinn-markdown min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-body leading-[1.7] text-[var(--text-secondary)]"
       }
     >
       <ReactMarkdown
@@ -95,8 +95,8 @@ export function MarkdownView({
             <h1
               className={
                 compact
-                  ? "mb-[var(--space-2)] mt-[var(--space-3)] text-[length:var(--text-title3)] font-[var(--weight-bold)]"
-                  : "text-[length:var(--text-title1)] font-[var(--weight-bold)] mt-[var(--space-6)] mb-[var(--space-3)]"
+                  ? "mb-[var(--space-2)] mt-[var(--space-3)] text-title3 font-[var(--weight-bold)]"
+                  : "text-title1 font-[var(--weight-bold)] mt-[var(--space-6)] mb-[var(--space-3)]"
               }
               style={{ color: "var(--text-primary)" }}
             >
@@ -107,8 +107,8 @@ export function MarkdownView({
             <h2
               className={
                 compact
-                  ? "mb-[var(--space-2)] mt-[var(--space-3)] text-[length:var(--text-headline)] font-[var(--weight-semibold)]"
-                  : "text-[length:var(--text-title2)] font-[var(--weight-semibold)] mt-[var(--space-6)] mb-[var(--space-2)] pb-[var(--space-1)]"
+                  ? "mb-[var(--space-2)] mt-[var(--space-3)] text-headline font-[var(--weight-semibold)]"
+                  : "text-title2 font-[var(--weight-semibold)] mt-[var(--space-6)] mb-[var(--space-2)] pb-[var(--space-1)]"
               }
               style={
                 compact
@@ -126,8 +126,8 @@ export function MarkdownView({
             <h3
               className={
                 compact
-                  ? "mb-[var(--space-1)] mt-[var(--space-3)] text-[length:var(--text-subheadline)] font-[var(--weight-semibold)]"
-                  : "text-[length:var(--text-title3)] font-[var(--weight-semibold)] mt-[var(--space-5)] mb-[var(--space-2)]"
+                  ? "mb-[var(--space-1)] mt-[var(--space-3)] text-subheadline font-[var(--weight-semibold)]"
+                  : "text-title3 font-[var(--weight-semibold)] mt-[var(--space-5)] mb-[var(--space-2)]"
               }
               style={{ color: "var(--text-primary)" }}
             >
@@ -138,8 +138,8 @@ export function MarkdownView({
             <h4
               className={
                 compact
-                  ? "mb-[var(--space-1)] mt-[var(--space-2)] text-[length:var(--text-footnote)] font-[var(--weight-semibold)]"
-                  : "text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] mt-[var(--space-4)] mb-[var(--space-1)]"
+                  ? "mb-[var(--space-1)] mt-[var(--space-2)] text-footnote font-[var(--weight-semibold)]"
+                  : "text-subheadline font-[var(--weight-semibold)] mt-[var(--space-4)] mb-[var(--space-1)]"
               }
               style={{ color: "var(--text-primary)" }}
             >
@@ -204,7 +204,7 @@ export function MarkdownView({
           table: ({ children }) => (
             <div className={compact ? "mb-[var(--space-2)] overflow-x-auto" : "overflow-x-auto mb-[var(--space-4)]"}>
               <table
-                className="border-collapse w-full text-[length:var(--text-subheadline)]"
+                className="border-collapse w-full text-subheadline"
                 style={{ border: "1px solid var(--separator)" }}
               >
                 {children}
@@ -258,7 +258,7 @@ export function MarkdownView({
                     color: "var(--accent)",
                     padding: "2px 6px",
                     borderRadius: "6px",
-                    fontSize: "13px",
+                    fontSize: "var(--text-footnote)",
                     fontFamily: "var(--font-mono)",
                   }}
                   {...rest}
@@ -279,7 +279,7 @@ export function MarkdownView({
                   customStyle={{
                     margin: 0,
                     maxWidth: "100%",
-                    fontSize: "13px",
+                    fontSize: "var(--text-footnote)",
                     fontFamily: "var(--font-mono)",
                   }}
                   codeTagProps={{ style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }}
