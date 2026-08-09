@@ -1,6 +1,7 @@
 // Ownership of a parentless test worker, which the sweep has to prove rather
 // than recognise. Every case here is the same question asked differently: does
-// this run hold the authority to kill this PID, and can it show it?
+// this run hold the authority to kill this PID, and can it show it? No fixture
+// tree is ever created on disk, because the answer may never depend on one.
 import assert from "node:assert/strict"
 import os from "node:os"
 import path from "node:path"
@@ -30,54 +31,51 @@ function context(pruningWorktrees, overrides = {}) {
 }
 
 const orphan = (pid, args, ageMinutes = 300) => ({ pid, ppid: 1, ageMinutes, rssKiB: 900, args })
+const runningIn = (candidate, cwd) => ({ ...candidate, cwd })
 
 function orphanTargets(processes, pruningWorktrees, overrides) {
   const plan = planProcessReap(processes, context(pruningWorktrees, overrides))
   return plan.targets.filter((target) => target.kind === "orphan-test-worker").map((target) => target.pid)
 }
 
-// The one the verifier demonstrated: a real parentless worker whose argv sits
-// under the worktrees root but inside a tree nobody is deleting.
-test("a worker under the worktrees root is spared when its tree is not being removed", () => {
-  assert.deepEqual(orphanTargets([orphan(9301, workerIn(ACTIVE_TREE))], [REMOVED_TREE]), [])
+// The one the verifier demonstrated: a real parentless worker whose command
+// line names a path inside the tree being removed — a path that does not even
+// exist — and which nothing can place anywhere.
+test("a worker naming a removed tree is spared when nobody can say where it runs", () => {
+  assert.deepEqual(orphanTargets([orphan(9301, workerIn(REMOVED_TREE))], [REMOVED_TREE]), [])
 })
 
-test("a worker whose path resolves inside a tree this run removes is reaped", () => {
-  assert.deepEqual(orphanTargets([orphan(9302, workerIn(REMOVED_TREE))], [REMOVED_TREE]), [9302])
+test("a worker that names a removed tree but runs somewhere else is spared", () => {
+  const elsewhere = runningIn(orphan(9302, workerIn(REMOVED_TREE)), ACTIVE_TREE)
+  assert.deepEqual(orphanTargets([elsewhere], [REMOVED_TREE]), [])
 })
 
-test("no worktree is being removed, so no orphan can be owned", () => {
-  assert.deepEqual(orphanTargets([orphan(9303, workerIn(REMOVED_TREE))], []), [])
+test("a worker running inside a tree this run removes is reaped", () => {
+  const inside = runningIn(orphan(9303, "node ./vitest-worker.js"), REMOVED_TREE)
+  assert.deepEqual(orphanTargets([inside], [REMOVED_TREE]), [9303])
+  const nested = runningIn(inside, path.join(REMOVED_TREE, "packages", "jinn"))
+  assert.deepEqual(orphanTargets([nested], [REMOVED_TREE]), [9303])
 })
 
 test("a sibling tree whose name merely starts with a removed one's is spared", () => {
   const sibling = path.join(WORKTREES_ROOT, "jinn-build-TEST-12")
-  assert.deepEqual(orphanTargets([orphan(9304, workerIn(sibling))], [REMOVED_TREE]), [])
+  assert.deepEqual(orphanTargets([runningIn(orphan(9304, workerIn(sibling)), sibling)], [REMOVED_TREE]), [])
 })
 
-// A worker launched from inside its own tree names no path at all, so its
-// command line cannot settle ownership either way and its working directory is
-// the only claim there is.
-test("a worker whose cwd is inside a tree this run removes is reaped", () => {
-  const relative = { ...orphan(9308, "node ./vitest-worker.js"), cwd: REMOVED_TREE }
-  assert.deepEqual(orphanTargets([relative], [REMOVED_TREE]), [9308])
-  const nested = { ...relative, cwd: path.join(REMOVED_TREE, "packages", "jinn") }
-  assert.deepEqual(orphanTargets([nested], [REMOVED_TREE]), [9308])
+test("no worktree is being removed, so no orphan can be owned", () => {
+  assert.deepEqual(orphanTargets([runningIn(orphan(9305, workerIn(REMOVED_TREE)), REMOVED_TREE)], []), [])
 })
 
-test("a worker whose cwd is inside a tree nobody is removing is spared", () => {
-  const elsewhere = { ...orphan(9309, "node ./vitest-worker.js"), cwd: ACTIVE_TREE }
-  assert.deepEqual(orphanTargets([elsewhere], [REMOVED_TREE]), [])
-})
-
-test("a worker that is not a test runner is spared even inside a removed tree", () => {
-  assert.deepEqual(orphanTargets([orphan(9305, `node ${path.join(REMOVED_TREE, "server.js")}`)], [REMOVED_TREE]), [])
+test("a worker that is not a test runner is spared even from inside a removed tree", () => {
+  const server = runningIn(orphan(9306, `node ${path.join(REMOVED_TREE, "server.js")}`), REMOVED_TREE)
+  assert.deepEqual(orphanTargets([server], [REMOVED_TREE]), [])
 })
 
 test("the age guard and every untouchable reason still outrank a proven tree", () => {
-  assert.deepEqual(orphanTargets([orphan(9306, workerIn(REMOVED_TREE), 4)], [REMOVED_TREE]), [])
-  const owned = orphan(9307, workerIn(REMOVED_TREE))
-  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { protectedPortPids: [9307] }), [])
-  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { selfPids: [9307] }), [])
-  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { homeByPid: { 9307: path.join(TEMP, "registered") }, registeredHomes: [path.join(TEMP, "registered")] }), [])
+  const young = runningIn(orphan(9307, workerIn(REMOVED_TREE), 4), REMOVED_TREE)
+  assert.deepEqual(orphanTargets([young], [REMOVED_TREE]), [])
+  const owned = runningIn(orphan(9308, workerIn(REMOVED_TREE)), REMOVED_TREE)
+  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { protectedPortPids: [9308] }), [])
+  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { selfPids: [9308] }), [])
+  assert.deepEqual(orphanTargets([owned], [REMOVED_TREE], { homeByPid: { 9308: path.join(TEMP, "registered") }, registeredHomes: [path.join(TEMP, "registered")] }), [])
 })

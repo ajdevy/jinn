@@ -84,17 +84,6 @@ export function classifyGateway(candidate, context) {
   return { reap: true, reason: "throwaway-home" }
 }
 
-/**
- * Every path a worker names: the absolute tokens of its command line, plus the
- * working directory a caller was able to look up. A relative argv such as
- * `node ./worker.js` names no tree at all, so the command line alone leaves
- * ownership undecided rather than disproven.
- */
-function claimedPaths(candidate) {
-  const tokens = candidate.args.split(/\s+/).filter((token) => token.startsWith(path.sep))
-  return candidate.cwd ? [...tokens, candidate.cwd] : tokens
-}
-
 /** A parentless test runner: necessary for orphan ownership, never sufficient. */
 function isParentlessWorker(candidate) {
   return candidate.ppid === 1 && TEST_WORKER.test(candidate.args)
@@ -107,17 +96,20 @@ export function parentlessWorkerPids(processes) {
 
 /**
  * A worker orphaned by a killed run. It has no `gateway.json` to claim it, so
- * the only thing that can claim it is a worktree this same sweep is deleting —
- * a tree git listed and the plan already resolved to remove, not a path that
- * reads like one. Ownership is proven or the worker is left alone: an
- * operator's own `vitest --watch` reparents to PID 1 the moment its shell
- * closes, and nothing about its name makes it ours.
+ * the one thing that can claim it is where the kernel says it is running: a
+ * working directory inside a worktree this same sweep is deleting — a tree git
+ * listed and the plan already resolved to remove, not a path that reads like
+ * one. What a process calls itself proves nothing about where it belongs, so a
+ * worker whose directory could not be read stays unclaimed. An operator's own
+ * `vitest --watch` reparents to PID 1 the moment its shell closes, and unproven
+ * has to mean untouched.
  */
 function isOrphanedTestWorker(candidate, context) {
   if (!isParentlessWorker(candidate)) return false
-  const pruning = context.pruningWorktrees ?? []
-  const owned = claimedPaths(candidate).some((claim) =>
-    pruning.some((tree) => claim === path.resolve(tree) || isInside(claim, tree)),
+  if (!candidate.cwd) return false
+  const runningIn = path.resolve(candidate.cwd)
+  const owned = (context.pruningWorktrees ?? []).some(
+    (tree) => runningIn === path.resolve(tree) || isInside(runningIn, tree),
   )
   if (!owned) return false
   if (untouchableReason(candidate.pid, context)) return false

@@ -131,7 +131,7 @@ test("parsePsDump keeps the whole command line as one field", () => {
   ])
 })
 
-/** A test worker's argv, running out of a build worktree this sweep is removing. */
+/** A test worker's argv. Only the cwd paired with it decides whose worker it is. */
 const REMOVED_WORKTREE = path.join(WORKTREES_ROOT, "jinn-build-TEST-1")
 const WORKER_IN_WORKTREE = `node ${path.join(REMOVED_WORKTREE, "node_modules", "vitest", "dist", "worker.js")}`
 
@@ -141,8 +141,8 @@ test("planProcessReap sweeps a reaped gateway's children and orphaned test worke
     gateway(9102),
     { pid: 9103, ppid: 9101, ageMinutes: 300, rssKiB: 900, args: "node /repo/worker.js" },
     { pid: 9104, ppid: 9102, ageMinutes: 300, rssKiB: 900, args: "node /repo/worker.js" },
-    { pid: 9105, ppid: 1, ageMinutes: 300, rssKiB: 900, args: WORKER_IN_WORKTREE },
-    { pid: 9106, ppid: 1, ageMinutes: 4, rssKiB: 900, args: WORKER_IN_WORKTREE },
+    { pid: 9105, ppid: 1, ageMinutes: 300, rssKiB: 900, args: WORKER_IN_WORKTREE, cwd: REMOVED_WORKTREE },
+    { pid: 9106, ppid: 1, ageMinutes: 4, rssKiB: 900, args: WORKER_IN_WORKTREE, cwd: REMOVED_WORKTREE },
     // The operator's own `vitest --watch`, reparented to PID 1 when its shell
     // closed. Nothing but the name says it is ours, so it is not ours.
     { pid: 9107, ppid: 1, ageMinutes: 300, rssKiB: 900, args: "node /elsewhere/node_modules/vitest/dist/worker.js" },

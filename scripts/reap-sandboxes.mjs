@@ -96,9 +96,10 @@ function workingDirectories(pids) {
 }
 
 /**
- * A parentless worker's command line need not name the tree it belongs to, so
- * its working directory is asked as well. Only those workers are probed: they
- * are the only PIDs the answer can decide anything about.
+ * Where a parentless worker is running is the only thing that can claim it, and
+ * `ps` cannot say. Only those workers are probed: they are the only PIDs the
+ * answer can decide anything about, and one whose directory does not come back
+ * stays unclaimed.
  */
 function withWorkingDirectories(processes) {
   const cwdByPid = workingDirectories(parentlessWorkerPids(processes))
