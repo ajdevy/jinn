@@ -140,9 +140,16 @@ export function useStickToBottom({
       const movedAway = dist > prevDistRef.current
       prevDistRef.current = dist
       if (animatingRef.current) {
-        // Our own smooth scroll is still running; only clear once it reaches bottom.
-        if (dist <= threshold) animatingRef.current = false
-        return
+        // Our own smooth scroll only ever closes the gap to the bottom. Reaching
+        // it ends the animation; an event that widens the gap cannot be ours, so
+        // the suppression stops there and the event is handled normally. Without
+        // that second exit the flag latched whenever the animation was outrun by
+        // growing content, and every later scroll the user made was swallowed.
+        if (dist <= threshold || !movedAway) {
+          if (dist <= threshold) animatingRef.current = false
+          return
+        }
+        animatingRef.current = false
       }
       const follow = movedAway ? false : shouldFollow(dist, threshold)
       followRef.current = follow
