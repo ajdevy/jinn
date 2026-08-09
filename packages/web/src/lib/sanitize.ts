@@ -54,25 +54,25 @@ export const DEFAULT_MARKDOWN_RULES: MarkdownRule[] = [
     name: "h4",
     pattern: /^#### (.+)$/gm,
     replacement:
-      '<h4 class="text-[15px] font-semibold" style="color:var(--text-primary);margin-top:1rem;margin-bottom:0.25rem">$1</h4>',
+      '<h4 class="text-subheadline font-semibold" style="color:var(--text-primary);margin-top:1rem;margin-bottom:0.25rem">$1</h4>',
   },
   {
     name: "h3",
     pattern: /^### (.+)$/gm,
     replacement:
-      '<h3 class="text-[17px] font-semibold" style="color:var(--text-primary);margin-top:1.25rem;margin-bottom:0.375rem">$1</h3>',
+      '<h3 class="text-headline font-semibold" style="color:var(--text-primary);margin-top:1.25rem;margin-bottom:0.375rem">$1</h3>',
   },
   {
     name: "h2",
     pattern: /^## (.+)$/gm,
     replacement:
-      '<h2 class="text-[22px] font-semibold" style="color:var(--text-primary);margin-top:1.5rem;margin-bottom:0.5rem;padding-bottom:0.25rem;border-bottom:1px solid var(--separator)">$1</h2>',
+      '<h2 class="text-title2 font-semibold" style="color:var(--text-primary);margin-top:1.5rem;margin-bottom:0.5rem;padding-bottom:0.25rem;border-bottom:1px solid var(--separator)">$1</h2>',
   },
   {
     name: "h1",
     pattern: /^# (.+)$/gm,
     replacement:
-      '<h1 class="text-[28px] font-bold" style="color:var(--text-primary);margin-top:1rem;margin-bottom:0.75rem">$1</h1>',
+      '<h1 class="text-title1 font-bold" style="color:var(--text-primary);margin-top:1rem;margin-bottom:0.75rem">$1</h1>',
   },
   {
     name: "bold",
@@ -84,19 +84,19 @@ export const DEFAULT_MARKDOWN_RULES: MarkdownRule[] = [
     name: "inline-code",
     pattern: /`([^`]+)`/g,
     replacement:
-      '<code style="background:var(--fill-secondary);color:var(--accent);padding:2px 6px;border-radius:6px;font-size:13px;font-family:var(--font-mono)">$1</code>',
+      '<code style="background:var(--fill-secondary);color:var(--accent);padding:2px 6px;border-radius:6px;font-size:var(--text-footnote);font-family:var(--font-mono)">$1</code>',
   },
   {
     name: "unordered-list",
     pattern: /^- (.+)$/gm,
     replacement:
-      '<li class="ml-4 text-[15px] leading-[1.7] list-disc" style="color:var(--text-secondary)">$1</li>',
+      '<li class="ml-4 text-subheadline leading-[1.7] list-disc" style="color:var(--text-secondary)">$1</li>',
   },
   {
     name: "ordered-list",
     pattern: /^(\d+)\. (.+)$/gm,
     replacement:
-      '<li class="ml-4 text-[15px] leading-[1.7] list-decimal" style="color:var(--text-secondary)">$2</li>',
+      '<li class="ml-4 text-subheadline leading-[1.7] list-decimal" style="color:var(--text-secondary)">$2</li>',
   },
   {
     name: "paragraph-break",

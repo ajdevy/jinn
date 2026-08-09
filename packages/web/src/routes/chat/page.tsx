@@ -909,11 +909,11 @@ function ChatPage() {
           {/* D4: Search lives at the very top — the only visible ⌘K entry point on desktop. */}
           <button
             onClick={openGlobalSearch}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
           >
             <Search className="size-3.5" />
             <span className="flex-1">Search…</span>
-            <kbd className="font-mono text-[10px] text-[var(--text-quaternary)]">⌘K</kbd>
+            <kbd className="font-mono text-caption2 text-[var(--text-quaternary)]">⌘K</kbd>
           </button>
           {/* Chat/CLI view toggle (moved here from the old tab bar so it stays
               reachable now that the header is a pill). */}
@@ -923,7 +923,7 @@ function ChatPage() {
               disabled={viewSwitchLocked}
               title={viewSwitchLocked ? cliTitle : undefined}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                "flex-1 rounded-md px-2 py-1 text-caption1 font-medium transition-colors",
                 effectiveViewMode === 'chat' ? "bg-[var(--accent-fill)] text-[var(--accent)]" : "text-muted-foreground hover:bg-accent",
                 viewSwitchLocked && "opacity-60 cursor-not-allowed"
               )}
@@ -935,7 +935,7 @@ function ChatPage() {
               disabled={!cliModeAvailable || viewSwitchLocked}
               title={cliTitle}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 font-mono text-xs font-medium transition-colors",
+                "flex-1 rounded-md px-2 py-1 font-mono text-caption1 font-medium transition-colors",
                 effectiveViewMode === 'cli' ? "bg-[var(--accent-fill)] text-[var(--accent)]" : "text-muted-foreground hover:bg-accent",
                 (!cliModeAvailable || viewSwitchLocked) && "opacity-45 cursor-not-allowed"
               )}
@@ -947,7 +947,7 @@ function ChatPage() {
             <button
               onClick={() => { if (selectedId) handleDuplicate(selectedId) }}
               disabled={duplicateSessionMutation.isPending}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent disabled:opacity-50"
             >
               <Copy className="size-3.5" />
               <span className="flex-1">{duplicateSessionMutation.isPending ? 'Duplicating...' : 'Duplicate...'}</span>
@@ -963,19 +963,19 @@ function ChatPage() {
                   if (sessionMeta?.archivedAt) handleUnarchiveSession(selectedId)
                   else handleArchiveSession(selectedId)
                 }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
               >
                 {sessionMeta?.archivedAt ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />}
                 <span className="flex-1">{sessionMeta?.archivedAt ? 'Unarchive chat' : 'Archive chat'}</span>
               </button>
               {/* DEVELOPER cluster */}
               <div className="my-0.5 border-t border-border" />
-              <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              <div className="px-3 pb-1 pt-2 text-caption2 font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                 Developer
               </div>
               <button
                 onClick={() => copyToClipboard(selectedId, 'id')}
-                className="block w-full px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+                className="block w-full px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
               >
                 Copy Session ID
               </button>
@@ -985,21 +985,21 @@ function ChatPage() {
                     const cli = sessionMeta.engine === 'codex' ? 'codex' : 'claude'
                     copyToClipboard(`${cli} --resume ${sessionMeta.engineSessionId}`, 'cli')
                   }}
-                  className="block w-full px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+                  className="block w-full px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
                 >
                   Copy CLI Resume Command
                 </button>
               )}
               <button
                 onClick={() => { setShowMoreMenu(false); shareDebugLog() }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
               >
                 <Share2 className="size-3.5" />
                 <span className="flex-1">Share debug log</span>
               </button>
               <button
                 onClick={() => { setShowMoreMenu(false); clearDebugLog() }}
-                className="block w-full px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent"
+                className="block w-full px-3 py-2 text-left text-caption1 text-muted-foreground transition-colors hover:bg-accent"
               >
                 Clear debug log
               </button>
@@ -1008,11 +1008,11 @@ function ChatPage() {
               <div className="my-0.5 border-t border-border" />
               <button
                 onClick={() => { setShowMoreMenu(false); if (selectedId && window.confirm('Delete this session?')) handleDeleteSession(selectedId) }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--system-red)] transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-[var(--system-red)] transition-colors hover:bg-accent"
               >
                 <Trash2 className="size-3.5" />
                 <span className="flex-1">Delete Session</span>
-                <kbd className="font-mono text-[10px] text-[var(--text-quaternary)]">⌫</kbd>
+                <kbd className="font-mono text-caption2 text-[var(--text-quaternary)]">⌫</kbd>
               </button>
             </>
           )}
@@ -1093,7 +1093,7 @@ function ChatPage() {
           />
 
           {copiedField && (
-            <div className="absolute right-4 top-[58px] z-10 flex items-center gap-1 rounded-full bg-[var(--material-thick)] px-2.5 py-1 text-xs font-medium text-[var(--accent)] shadow-[var(--shadow-overlay)]">
+            <div className="absolute right-4 top-[58px] z-10 flex items-center gap-1 rounded-full bg-[var(--material-thick)] px-2.5 py-1 text-caption1 font-medium text-[var(--accent)] shadow-[var(--shadow-overlay)]">
               <Check className="size-3" /> Copied!
             </div>
           )}

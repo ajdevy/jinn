@@ -58,7 +58,6 @@ export function CallbackBurst({ entries, onPeek, arrivals }: CallbackBurstProps)
               key={entry.messageId}
               name={entry.data.employee}
               size={18}
-              fontSize={10}
               className={`bg-[var(--fill-secondary)] ${index > 0 ? '-ml-1.5' : ''}`}
               style={{ boxShadow: '0 0 0 2px var(--bg)' }}
             />

@@ -257,7 +257,7 @@ export function FileView({
               margin: 0,
               maxWidth: "100%",
               borderRadius: "var(--radius-md, 12px)",
-              fontSize: "13px",
+              fontSize: "var(--text-footnote)",
               fontFamily: "var(--font-mono)",
               border: "1px solid var(--separator)",
             }}

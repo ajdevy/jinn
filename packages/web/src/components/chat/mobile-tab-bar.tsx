@@ -73,14 +73,17 @@ export function MobileTabBar() {
               }
             }}
             className={cn(
-              "min-h-[49px] flex-1 flex items-center justify-center",
+              // min-w-0 so flex-1 can shrink past the tap pill's own 3.5rem: at a
+              // large browser text size four rem-wide pills outrun a phone
+              // viewport and the last tab lands off-screen.
+              "min-h-[49px] min-w-0 flex-1 flex items-center justify-center",
               "transition-colors",
               isActive
                 ? "text-[var(--accent)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
             )}
           >
-            <span className="flex h-9 w-14 items-center justify-center rounded-full">
+            <span className="flex h-9 w-14 max-w-full items-center justify-center rounded-full">
               <Icon size={25} className="shrink-0" />
             </span>
           </Link>

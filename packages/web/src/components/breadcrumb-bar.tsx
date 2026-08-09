@@ -10,14 +10,14 @@ export function BreadcrumbBar() {
 
   if (items.length === 1) {
     return (
-      <h1 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight">
+      <h1 className="text-headline font-semibold text-[var(--text-primary)]">
         {items[0].label}
       </h1>
     )
   }
 
   return (
-    <nav className="flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+    <nav className="flex items-center gap-1.5 text-subheadline" aria-label="Breadcrumb">
       {items.map((item, i) => {
         const isLast = i === items.length - 1
         return (
