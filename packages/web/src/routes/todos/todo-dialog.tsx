@@ -39,7 +39,7 @@ export function TodoDialog({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           data-testid={overlayTestId}
-          className="fixed inset-0 z-50 bg-[var(--scrim)] motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 md:bg-transparent"
+          className="fixed inset-0 z-50 bg-[var(--scrim)] motion-safe:data-[state=closed]:animate-overlay-out motion-safe:data-[state=open]:animate-overlay-in md:bg-transparent"
         />
         <DialogPrimitive.Content
           ref={contentRef}

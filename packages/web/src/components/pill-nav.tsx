@@ -92,7 +92,7 @@ export function NavList({
         return (
           <Link
             key={item.href}
-            to={item.href}
+            to={item.href} viewTransition
             onClick={onNavigate}
             onPointerEnter={() => prefetchRoute(item.href)}
             onFocus={() => prefetchRoute(item.href)}
@@ -209,7 +209,7 @@ function RibbonRow({
   if (href) {
     return (
       <Link
-        to={href}
+        to={href} viewTransition
         onClick={onClick}
         onPointerEnter={() => prefetchRoute(href)}
         onFocus={() => prefetchRoute(href)}
@@ -271,9 +271,9 @@ export function NavRibbon({
     // real rail floats above it so the per-icon label pills can escape to the
     // right (over the list / thread) without widening the rail or reflowing it.
     <div className="relative hidden h-full w-14 shrink-0 lg:block">
-      <nav
-        aria-label="Primary"
-        className="absolute inset-y-0 left-0 z-30 flex w-14 flex-col items-center gap-0.5 bg-[var(--ribbon-bg)] px-1.5 pb-2.5 pt-3.5"
+      {/* Named so a route change snapshots the rail apart from the page — globals.css. */}
+      <nav aria-label="Primary"
+        className="absolute inset-y-0 left-0 z-30 flex w-14 flex-col items-center gap-0.5 bg-[var(--ribbon-bg)] px-1.5 pb-2.5 pt-3.5 [view-transition-name:jinn-nav-rail]"
       >
         {/* Top slot — a plain, button-sized Jinn brand mark that fills the rail
             top (no frosted-pill chrome). It morphs to the sidebar.left toggle
@@ -314,7 +314,7 @@ export function NavRibbon({
             // brand mark that links home. Same full-strength color + forced
             // color-emoji presentation as the chat variant — no toggle/morph.
             <Link
-              to="/"
+              to="/" viewTransition
               onPointerEnter={() => prefetchRoute("/")}
               onFocus={() => prefetchRoute("/")}
               aria-label={portalName}
@@ -374,7 +374,7 @@ export function NavPopover({ open, onClose }: { open: boolean; onClose: () => vo
           "absolute left-[max(var(--safe-left),12px)] top-[calc(max(var(--safe-top),12px)+46px)] z-50 w-[244px] lg:left-4 lg:top-[52px]",
           POPOVER_CLASS,
         )}
-        style={{ animation: "pillNavIn 160ms var(--ease-smooth)" }}
+        style={{ animation: "pillNavIn var(--duration-fast) var(--ease-smooth)" }}
         role="menu"
       >
         <NavList pathname={pathname} onNavigate={onClose} />

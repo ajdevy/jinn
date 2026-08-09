@@ -53,7 +53,7 @@ export function TodoFilterSheet({
       label="Filter todos"
       onRequestClose={onClose}
       testId="todo-filter-sheet"
-      className="inset-x-0 bottom-0 flex max-h-[82vh] min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-2xl)] bg-[var(--bg-secondary)] p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-bottom-4"
+      className="inset-x-0 bottom-0 flex max-h-[82vh] min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-2xl)] bg-[var(--bg-secondary)] p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=closed]:animate-sheet-out motion-safe:data-[state=open]:animate-sheet-in"
     >
       <div className="flex justify-center py-1.5">
         <span className="h-[5px] w-9 rounded-full bg-[var(--fill-primary)]" aria-hidden />

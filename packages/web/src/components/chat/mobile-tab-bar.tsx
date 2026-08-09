@@ -44,6 +44,9 @@ export function MobileTabBar() {
       className={cn(
         "fixed inset-x-0 bottom-0 z-40 lg:hidden",
         "flex items-stretch",
+        // Named so a route change snapshots the bar on its own rather than
+        // cross-fading the one surface that is on both sides of every tap.
+        "[view-transition-name:jinn-tab-bar]",
         "border-t-[0.5px] border-[var(--separator)] bg-[var(--material-thick)]",
         "[backdrop-filter:blur(20px)_saturate(1.3)] [-webkit-backdrop-filter:blur(20px)_saturate(1.3)]",
         "py-1.5 pb-[max(var(--safe-bottom),6px)]",
@@ -56,6 +59,7 @@ export function MobileTabBar() {
           <Link
             key={item.href}
             to={item.href}
+            viewTransition
             aria-label={item.label}
             aria-current={isActive ? "page" : undefined}
             onClick={() => {

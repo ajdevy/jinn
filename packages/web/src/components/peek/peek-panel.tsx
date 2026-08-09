@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronLeft, X } from 'lucide-react'
@@ -31,6 +31,44 @@ function useSheetLayout(): boolean {
   }, [])
 
   return sheet
+}
+
+/** Radix keeps its own surfaces mounted until their exit animation ends. The
+ *  peek stack is plain state, so the panel needs the same courtesy: the entry
+ *  that just left stays rendered under `data-state="closed"` until the animation
+ *  reports back through `onExitEnd`. When the panel is running no exit animation
+ *  — reduced motion switches it off — the entry goes in the same commit, because
+ *  nothing would ever fire the event that releases it. */
+export function usePeekPresence(open: PeekEntry | undefined, panel: HTMLElement | null): {
+  entry: PeekEntry | undefined
+  state: 'open' | 'closed'
+  onExitEnd: () => void
+} {
+  const [leaving, setLeaving] = useState<PeekEntry | undefined>(undefined)
+  const [previous, setPrevious] = useState<PeekEntry | undefined>(open)
+
+  // Derived while rendering rather than in an effect. An effect would leave one
+  // commit where the panel is neither open nor leaving, and React would unmount
+  // it and mount a second one closed — a visible flash, and the modality hooks
+  // would lose the element they hold.
+  if (open !== previous) {
+    setPrevious(open)
+    setLeaving(open ? undefined : previous)
+  }
+
+  const closing = !open && leaving !== undefined
+
+  useEffect(() => {
+    if (!closing || !panel) return
+    const { animationName } = window.getComputedStyle(panel)
+    if (!animationName || animationName === 'none') setLeaving(undefined)
+  }, [closing, panel])
+
+  return {
+    entry: open ?? leaving,
+    state: open ? 'open' : 'closed',
+    onExitEnd: useCallback(() => setLeaving(undefined), []),
+  }
 }
 
 function useEscapeToClose(open: boolean, close: (() => void) | undefined): void {
@@ -127,11 +165,11 @@ function PeekHeader({ stack, entry, sheet }: { stack: PeekStack; entry: PeekEntr
 }
 
 const SHELL =
-  'flex flex-col gap-[var(--space-3)] overflow-hidden bg-[var(--bg-secondary)] shadow-[var(--shadow-card)] motion-reduce:animate-none'
+  'flex flex-col gap-[var(--space-3)] overflow-hidden bg-[var(--bg-secondary)] shadow-[var(--shadow-card)]'
 
-const RAIL = `${SHELL} m-[var(--space-3)] ml-0 w-[372px] flex-none rounded-[var(--radius-xl)] px-[var(--space-4)] pb-[var(--space-5)] pt-[var(--space-4)] animate-[peek-rail-in_220ms_var(--ease-snappy)_both]`
+const RAIL = `${SHELL} m-[var(--space-3)] ml-0 w-[372px] flex-none rounded-[var(--radius-xl)] px-[var(--space-4)] pb-[var(--space-5)] pt-[var(--space-4)] motion-safe:data-[state=closed]:animate-rail-out motion-safe:data-[state=open]:animate-rail-in`
 
-const SHEET = `${SHELL} absolute inset-x-0 bottom-0 h-[78vh] rounded-t-[var(--radius-2xl)] px-[var(--space-4)] pb-[calc(var(--space-5)+var(--safe-bottom))] pt-[10px] animate-[peek-sheet-in_240ms_var(--ease-snappy)_both]`
+const SHEET = `${SHELL} absolute inset-x-0 bottom-0 h-[78vh] rounded-t-[var(--radius-2xl)] px-[var(--space-4)] pb-[calc(var(--space-5)+var(--safe-bottom))] pt-[10px] motion-safe:data-[state=closed]:animate-sheet-out motion-safe:data-[state=open]:animate-sheet-in`
 
 export function PeekPanel() {
   const stack = usePeekStack()
@@ -140,13 +178,28 @@ export function PeekPanel() {
   // A picker opened from inside the panel owns Escape and the focus ring until
   // it closes: the operator is answering the picker, not the preview.
   const [pickerOpen, setPickerOpen] = useState(false)
-  const entry = stack?.entries[stack.entries.length - 1]
+  const open = stack?.entries[stack.entries.length - 1]
+  const presence = usePeekPresence(open, panel)
+  const entry = presence.entry
 
-  useSheetModality(panel, Boolean(entry) && sheet)
-  useSheetTabTrap(panel, Boolean(entry) && sheet && !pickerOpen)
-  useEscapeToClose(Boolean(entry) && !pickerOpen, stack?.close)
+  // Modality follows the LIVE stack, not what is still on screen: the scroll
+  // lock and the inert app root have to lift the moment the panel starts
+  // leaving, or the provider cannot put focus back where it came from.
+  useSheetModality(panel, Boolean(open) && sheet)
+  useSheetTabTrap(panel, Boolean(open) && sheet && !pickerOpen)
+  useEscapeToClose(Boolean(open) && !pickerOpen, stack?.close)
 
   if (!stack || !entry) return null
+
+  const layer: PeekLayerProps = {
+    id: entry.id,
+    state: presence.state,
+    onPanel: setPanel,
+    // A child's own animation ending is not this panel leaving.
+    onAnimationEnd: (event) => {
+      if (event.target === event.currentTarget) presence.onExitEnd()
+    },
+  }
 
   const body = (
     <>
@@ -157,22 +210,38 @@ export function PeekPanel() {
     </>
   )
 
-  if (!sheet) {
-    return (
-      <aside ref={setPanel} role="dialog" aria-label={`Preview of ${entry.id}`} data-testid="peek-rail" className={RAIL}>
-        {body}
-        <style>{PEEK_KEYFRAMES}</style>
-      </aside>
-    )
-  }
-  return <PeekSheetLayer id={entry.id} onScrimClick={stack.close} onPanel={setPanel}>{body}</PeekSheetLayer>
+  return sheet
+    ? <PeekSheetLayer {...layer} onScrimClick={stack.close}>{body}</PeekSheetLayer>
+    : <PeekRail {...layer}>{body}</PeekRail>
 }
 
-function PeekSheetLayer({ id, onScrimClick, onPanel, children }: {
+/** What both forms need to render themselves and to report their exit. */
+interface PeekLayerProps {
   id: string
-  onScrimClick: () => void
+  state: 'open' | 'closed'
   onPanel: (panel: HTMLElement | null) => void
-  children: ReactNode
+  onAnimationEnd: (event: { target: EventTarget; currentTarget: EventTarget }) => void
+  children?: ReactNode
+}
+
+function PeekRail({ id, state, onPanel, onAnimationEnd, children }: PeekLayerProps) {
+  return (
+    <aside
+      ref={onPanel}
+      role="dialog"
+      aria-label={`Preview of ${id}`}
+      data-testid="peek-rail"
+      data-state={state}
+      onAnimationEnd={onAnimationEnd}
+      className={RAIL}
+    >
+      {children}
+    </aside>
+  )
+}
+
+function PeekSheetLayer({ id, state, onScrimClick, onPanel, onAnimationEnd, children }: PeekLayerProps & {
+  onScrimClick: () => void
 }) {
   return createPortal(
     <div className="fixed inset-0 z-[100]">
@@ -182,19 +251,23 @@ function PeekSheetLayer({ id, onScrimClick, onPanel, children }: {
       <div
         aria-hidden
         data-testid="peek-scrim"
-        className="absolute inset-0 bg-[var(--scrim)]"
+        data-state={state}
+        className="absolute inset-0 bg-[var(--scrim)] motion-safe:data-[state=closed]:animate-overlay-out motion-safe:data-[state=open]:animate-overlay-in"
         onClick={onScrimClick}
       />
-      <aside ref={onPanel} role="dialog" aria-modal="true" aria-label={`Preview of ${id}`} data-testid="peek-sheet" className={SHEET}>
+      <aside
+        ref={onPanel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Preview of ${id}`}
+        data-testid="peek-sheet"
+        data-state={state}
+        onAnimationEnd={onAnimationEnd}
+        className={SHEET}
+      >
         {children}
       </aside>
-      <style>{PEEK_KEYFRAMES}</style>
     </div>,
     document.body,
   )
 }
-
-const PEEK_KEYFRAMES = `
-  @keyframes peek-rail-in { from { opacity: 0; transform: translateX(16px); } }
-  @keyframes peek-sheet-in { from { transform: translateY(100%); } }
-`

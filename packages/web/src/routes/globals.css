@@ -119,6 +119,29 @@
   --animate-pulse-red: pulse-red 1.5s ease-in-out infinite;
   --animate-blink: blink-cursor 1s step-end infinite;
   --animate-float-hint: float-hint 2s ease-in-out infinite;
+
+  /* Duration scale — the single source for how long anything takes. Easing
+     stays in the [data-theme] blocks, where the sandboxed-surface law puts it;
+     a duration is theme-independent, so it belongs here with the other
+     build-time scales. Collapsed to --duration-instant under reduced motion. */
+  --duration-instant: 1ms;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  /* Enter/exit pairs for every timed surface. CSS only, no motion library:
+     Radix keeps a node mounted until its animation ends, so data-state drives
+     the exit as well as the entrance, and --ease-spring already carries the
+     overshoot a spring config would buy — at zero bundle cost. Each exit is
+     quicker than its entrance; leaving should read as getting out of the way. */
+  --animate-overlay-in: jinn-overlay-in var(--duration-base) var(--ease-smooth) both;
+  --animate-overlay-out: jinn-overlay-out var(--duration-fast) var(--ease-smooth) both;
+  --animate-pop-in: jinn-pop-in var(--duration-base) var(--ease-spring) both;
+  --animate-pop-out: jinn-pop-out var(--duration-fast) var(--ease-smooth) both;
+  --animate-sheet-in: jinn-sheet-in var(--duration-slow) var(--ease-snappy) both;
+  --animate-sheet-out: jinn-sheet-out var(--duration-base) var(--ease-snappy) both;
+  --animate-rail-in: jinn-rail-in var(--duration-base) var(--ease-snappy) both;
+  --animate-rail-out: jinn-rail-out var(--duration-fast) var(--ease-snappy) both;
 }
 
 /* ============================================
@@ -563,6 +586,55 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes bounce-dot {
   0%, 60%, 100% { transform: translateY(0); }
   30% { transform: translateY(-4px); }
+}
+
+/* ============================================
+   Motion system — overlay enter/exit + route transitions
+   Every surface below animates on `opacity` and on the INDEPENDENT `scale` /
+   `translate` properties rather than on `transform`, because the surfaces that
+   use these are centred with a Tailwind `transform` utility and a keyframe
+   writing `transform` would throw them into a corner mid-animation.
+   ============================================ */
+
+@keyframes jinn-overlay-in { from { opacity: 0; } }
+@keyframes jinn-overlay-out { to { opacity: 0; } }
+@keyframes jinn-pop-in { from { opacity: 0; scale: 0.96; } }
+@keyframes jinn-pop-out { to { opacity: 0; scale: 0.96; } }
+@keyframes jinn-sheet-in { from { translate: 0 100%; } }
+@keyframes jinn-sheet-out { to { translate: 0 100%; } }
+@keyframes jinn-rail-in { from { opacity: 0; translate: 16px 0; } }
+@keyframes jinn-rail-out { to { opacity: 0; translate: 16px 0; } }
+
+/* Route changes. React Router drives the native View Transition; all we own is
+   its timing, so the cross-fade is the same length as everything else. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-base);
+  animation-timing-function: var(--ease-smooth);
+}
+
+/* The nav chrome is the one thing that must NOT cross-fade: it is present on
+   both sides of every navigation, so fading it out and back in would read as a
+   flash. Naming it lifts it out of the root snapshot, and an instant swap holds
+   it still while the content underneath transitions. */
+::view-transition-old(jinn-nav-rail),
+::view-transition-new(jinn-nav-rail),
+::view-transition-old(jinn-tab-bar),
+::view-transition-new(jinn-tab-bar) {
+  animation-duration: var(--duration-instant);
+}
+
+/* Reduced motion. The Radix surfaces opt out at the class level with
+   `motion-safe:`, so they carry no animation at all and Radix unmounts them on
+   the spot. Everything still driven by the scale collapses to the instant token
+   rather than switching off: a view transition with `animation: none` never
+   ends, and its snapshot stays frozen over the live page. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: var(--duration-instant);
+    --duration-base: var(--duration-instant);
+    --duration-slow: var(--duration-instant);
+  }
 }
 
 /* ============================================
