@@ -1001,7 +1001,7 @@
       "lines": 371
     },
     "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": {
-      "lines": 771
+      "lines": 768
     },
     "packages/jinn/src/workflows/bindings.ts": {
       "exempt": [
