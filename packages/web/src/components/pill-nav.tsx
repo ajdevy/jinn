@@ -8,7 +8,6 @@ import { navigationFor } from "@/lib/nav"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { cn } from "@/lib/utils"
 import { useFeatures } from "@/hooks/use-features"
-import { WorkspaceSwitcher } from "@/components/workspaces/workspace-menu"
 import { prefetchRoute } from "@/lib/route-prefetch"
 
 // ---------------------------------------------------------------------------
@@ -119,8 +118,8 @@ function ThemeIcon({ theme }: { theme: ThemeId }) {
   return <Palette size={18} />
 }
 
-/** Footer for compact nav surfaces. Workspace switching lives in the desktop
- *  ribbon and in the mobile More screen, so this remains a focused theme row. */
+/** Footer for compact nav surfaces. Workspace switching lives in the status bar
+ *  and in the mobile More screen, so this remains a focused theme row. */
 export function NavFooter() {
   const { theme, setTheme } = useTheme()
 
@@ -242,17 +241,12 @@ export function NavRibbon({
   const { data: features } = useFeatures()
   const navItems = navigationFor(features?.notesEnabled === true).items
   const pathname = useLocation().pathname
-  const { theme, setTheme } = useTheme()
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Jinn"
   // Default brand mark carries U+FE0F so the genie always renders as a COLOR
   // emoji (never a text-presentation glyph that would inherit the slot's text
   // color and look faded — see the brand-mark color note below).
   const emoji = settings.portalEmoji ?? "\u{1F9DE}\u{FE0F}"
-  const cycleTheme = () => {
-    const ids = THEMES.map((t) => t.id)
-    setTheme(ids[(ids.indexOf(theme) + 1) % ids.length])
-  }
   // The Chat icon is OPEN-ONLY. While already on the chat route ("/") with the
   // list collapsed, a plain click reveals the list instead of firing a dead
   // same-route navigation. Not on "/" → the Link navigates as before; list
@@ -342,22 +336,9 @@ export function NavRibbon({
             onClick={item.href === "/" ? onChatIconClick : undefined}
           />
         ))}
-
-        {/* Footer — the neutral workspace launcher sits immediately above the
-            theme toggle, with the pair pinned to the bottom of the rail. */}
-        <div className="mt-auto flex flex-col items-center gap-0.5 pt-1">
-          <WorkspaceSwitcher />
-          <RibbonRow Icon={themeGlyph(theme)} label={`Theme: ${theme}`} onClick={cycleTheme} />
-        </div>
       </nav>
     </div>
   )
-}
-
-function themeGlyph(theme: ThemeId): ComponentType<{ size?: number | string; className?: string }> {
-  if (theme === "light") return Sun
-  if (theme === "dark") return Moon
-  return Palette
 }
 
 /** Frosted nav popover anchored under the left pill — non-chat pages reach the
