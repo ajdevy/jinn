@@ -14,6 +14,8 @@ import {
   normalizeBaseline,
   normalizeHorizon,
   normalizeMetrics,
+  normalizeOwner,
+  normalizeTodoId,
   requiredText,
   HYPOTHESIS_MAX,
   METRIC_NAME_MAX,
@@ -30,14 +32,19 @@ export interface CreateExperimentInput {
   baseline: Record<string, number>;
   metrics: ExperimentMetric[];
   horizonDays: number;
+  todoId?: string | null;
+  owner?: string | null;
 }
 
+/** An absent field is left as it stands; `null` clears it. */
 export interface UpdateExperimentInput {
   name?: string;
   hypothesis?: string;
   metrics?: ExperimentMetric[];
   baseline?: Record<string, number>;
   horizonDays?: number;
+  todoId?: string | null;
+  owner?: string | null;
 }
 
 export interface RecordReadingInput {
@@ -76,6 +83,25 @@ function boundedLimit(limit: number | undefined): number {
   return Math.min(Math.floor(limit), LIST_LIMIT_MAX);
 }
 
+// A link that names no Todo is worse than a rejected write: it renders as a dead
+// link on the detail page and nothing ever repairs it. The ledger is in this same
+// database file, so the check is one statement.
+function normalizeTodoLink(value: unknown): string | ReturnType<typeof failure> {
+  const id = normalizeTodoId(value);
+  if (typeof id !== "string") return id;
+  const exists = initDb().prepare("SELECT 1 FROM work_items WHERE id = ?").pluck().get(id);
+  return exists === undefined ? failure("invalid", `todoId "${id}" does not name a Todo`) : id;
+}
+
+/** `undefined` and `null` both mean no link; anything else must be valid. */
+function optionalTodoLink(value: unknown): string | null | ReturnType<typeof failure> {
+  return value === undefined || value === null ? null : normalizeTodoLink(value);
+}
+
+function optionalOwner(value: unknown): string | null | ReturnType<typeof failure> {
+  return value === undefined || value === null ? null : normalizeOwner(value);
+}
+
 export function getExperiment(id: string): ExperimentStoreResult<HydratedExperiment> {
   const row = initDb().prepare("SELECT * FROM experiments WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   return row
@@ -105,6 +131,10 @@ export function createExperiment(
   if (typeof horizonDays !== "number") return horizonDays;
   const baseline = normalizeBaseline(input.baseline, metrics);
   if (isFailure(baseline)) return baseline;
+  const todoId = optionalTodoLink(input.todoId);
+  if (isFailure(todoId)) return todoId;
+  const owner = optionalOwner(input.owner);
+  if (isFailure(owner)) return owner;
 
   const id = internal.id ?? experimentId();
   const startedAt = internal.startedAt ?? new Date().toISOString();
@@ -112,9 +142,9 @@ export function createExperiment(
   const insert = db.transaction(() => {
     db.prepare(
       `INSERT INTO experiments
-        (id, name, hypothesis, status, started_at, horizon_days, baseline_json, check_in_cron_job_id)
-       VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`,
-    ).run(id, name, hypothesis, startedAt, horizonDays, JSON.stringify(baseline), internal.checkInCronJobId ?? null);
+        (id, name, hypothesis, status, started_at, horizon_days, baseline_json, check_in_cron_job_id, todo_id, owner)
+       VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)`,
+    ).run(id, name, hypothesis, startedAt, horizonDays, JSON.stringify(baseline), internal.checkInCronJobId ?? null, todoId, owner);
     const insertMetric = db.prepare(
       `INSERT INTO experiment_metrics (experiment_id, ordinal, name, unit, how_to_measure)
        VALUES (?, ?, ?, ?, ?)`,
@@ -179,7 +209,8 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
   if (!existing.ok) return existing;
   if (existing.value.status !== "running") return failure("conflict", "concluded experiments cannot be edited");
   if (input.name === undefined && input.hypothesis === undefined && input.horizonDays === undefined
-    && input.metrics === undefined && input.baseline === undefined) {
+    && input.metrics === undefined && input.baseline === undefined
+    && input.todoId === undefined && input.owner === undefined) {
     return failure("invalid", "at least one editable field is required");
   }
   const name = input.name === undefined ? existing.value.name : requiredText(input.name, "name", NAME_MAX);
@@ -194,6 +225,10 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
   if (!Array.isArray(metrics)) return metrics;
   const baseline = nextBaseline(existing.value.baseline, input.baseline, metrics);
   if (isFailure(baseline)) return baseline;
+  const todoId = input.todoId === undefined ? existing.value.todoId ?? null : optionalTodoLink(input.todoId);
+  if (isFailure(todoId)) return todoId;
+  const owner = input.owner === undefined ? existing.value.owner ?? null : optionalOwner(input.owner);
+  if (isFailure(owner)) return owner;
 
   if (input.metrics !== undefined) {
     const nextNames = new Set(metrics.map((metric) => metric.name));
@@ -209,8 +244,11 @@ export function updateExperiment(id: string, input: UpdateExperimentInput): Expe
 
   const db = initDb();
   db.transaction(() => {
-    db.prepare("UPDATE experiments SET name = ?, hypothesis = ?, horizon_days = ?, baseline_json = ? WHERE id = ?")
-      .run(name, hypothesis, horizonDays, JSON.stringify(baseline), id);
+    db.prepare(
+      `UPDATE experiments
+          SET name = ?, hypothesis = ?, horizon_days = ?, baseline_json = ?, todo_id = ?, owner = ?
+        WHERE id = ?`,
+    ).run(name, hypothesis, horizonDays, JSON.stringify(baseline), todoId, owner, id);
     if (input.metrics !== undefined) {
       const nextNames = new Set(metrics.map((metric) => metric.name));
       for (const metric of existing.value.metrics) {

@@ -1,4 +1,5 @@
 import type { ExperimentMetric, ExperimentStoreResult } from "../shared/types.js";
+import { isTodoId } from "../work-items/id.js";
 
 type Failure = Extract<ExperimentStoreResult<never>, { ok: false }>;
 
@@ -8,6 +9,7 @@ export const METRIC_NAME_MAX = 120;
 export const UNIT_MAX = 64;
 export const MEASUREMENT_MAX = 4_000;
 export const NOTE_MAX = 8_000;
+export const OWNER_MAX = 120;
 
 export function failure(reason: Failure["reason"], detail: string): Failure {
   return { ok: false, reason, detail };
@@ -22,6 +24,19 @@ export function requiredText(value: unknown, field: string, max: number): string
   const normalized = value.trim();
   if (normalized.length > max) return failure("invalid", `${field} is too long (${normalized.length} chars, max ${max})`);
   return normalized;
+}
+
+/** The Todo id's shape only. Whether that Todo exists is the store's question,
+ *  because only the store holds the ledger to ask. */
+export function normalizeTodoId(value: unknown): string | Failure {
+  if (!isTodoId(value)) return failure("invalid", "todoId must be a Todo id such as ABC-12");
+  return value;
+}
+
+/** Free-form, like work_items.assignee: employees are files that can be renamed
+ *  or removed, and a stored experiment must not become unwritable when they are. */
+export function normalizeOwner(value: unknown): string | Failure {
+  return requiredText(value, "owner", OWNER_MAX);
 }
 
 function normalizeMetric(raw: unknown): ExperimentMetric | Failure {

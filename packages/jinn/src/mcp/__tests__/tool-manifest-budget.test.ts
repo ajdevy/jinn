@@ -4,10 +4,10 @@ import { buildTools } from "../server.js";
 import { projectPiToolManifest } from "../../engines/pi-mcp.js";
 import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-manifest-expectations.js";
 
-// Fixed provider budget. Rebased for the Experiments audit fixes with the same
+// Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5669;
+const MAX_MANIFEST_TOKENS = 5704;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -58,9 +58,17 @@ const ATTESTED = {
   // status" on list_experiments, whose property carries its own enum and now
   // sits beside `limit`, and "'s definition"/"here" on update_experiment. The
   // remaining 17 are the fixes' honest cost. Pi stays five under the ceiling.
-  rpc: { tokens: 5166, sha256: "2d83d158e633d430bda233a77774f143fe5db1ae083c9b235fe7c6bcaf83d4cb" },
-  pi: { tokens: 5664, sha256: "709a6e96469873cb6b89e8b14c7dd135e0609981b4507d5d75bac6a30dbafc31" },
-  openai: { tokens: 5368, sha256: "db754caad64a95843462ce50cd05c373e5d913cf19c56530f04021f761e00bdb" },
+  // Rebased for `todoId` and `owner` on create_experiment and update_experiment:
+  // the fields that stop an experiment being an island with no owner and no link
+  // to the work it informs. Four schema properties and not one word of prose —
+  // both tool descriptions are byte-for-byte what they were, because the property
+  // names say what they are and `["string","null"]` on the update pair says that
+  // null clears them. Create declares plain strings: there is nothing to clear at
+  // creation. That leaves 35 tokens with nothing dead left in this group to buy
+  // them back from, so the ceiling moves by exactly that. Pi stays five under it.
+  rpc: { tokens: 5201, sha256: "748a5a621a84c53ad0cdb0be77aabb8528040bd20cdc4018d1d0ec60e912dde9" },
+  pi: { tokens: 5699, sha256: "9897ee6255ba7088092e0e4f98c8308695af64a8c64edee0245ae9fcdb619e53" },
+  openai: { tokens: 5403, sha256: "7f2136214e7308e0c9807538869ba7ddd23339aec17bfbb725bf11575a9a1e20" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

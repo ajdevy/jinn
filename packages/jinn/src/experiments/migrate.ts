@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS experiments (
   verdict_outcome TEXT CHECK (verdict_outcome IN ('win', 'loss', 'inconclusive')),
   verdict_note TEXT,
   concluded_at TEXT,
-  check_in_cron_job_id TEXT
+  check_in_cron_job_id TEXT,
+  todo_id TEXT,
+  owner TEXT
 );
 
 CREATE TABLE IF NOT EXISTS experiment_metrics (
@@ -67,8 +69,21 @@ function rebuildReadingsWithCascade(db: Database.Database): void {
   `);
 }
 
+// todo_id and owner arrived after experiments shipped, and CREATE TABLE IF NOT
+// EXISTS leaves an existing table exactly as it found it. Both are nullable,
+// which is what an unlinked experiment stores anyway, so existing rows need no
+// backfill — only the columns.
+function addLinkColumns(db: Database.Database): void {
+  const present = new Set(
+    (db.prepare("PRAGMA table_info(experiments)").all() as { name: string }[]).map((column) => column.name),
+  );
+  if (!present.has("todo_id")) db.exec("ALTER TABLE experiments ADD COLUMN todo_id TEXT");
+  if (!present.has("owner")) db.exec("ALTER TABLE experiments ADD COLUMN owner TEXT");
+}
+
 export function migrateExperimentsSchema(db: Database.Database): void {
   db.exec(EXPERIMENTS_TABLES_DDL);
+  addLinkColumns(db);
   // Before the indexes: the rebuild drops the table they cover with it.
   rebuildReadingsWithCascade(db);
   db.exec(EXPERIMENTS_INDEXES_DDL);

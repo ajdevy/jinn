@@ -1,11 +1,19 @@
-import { ArrowLeft, CalendarDays } from "lucide-react"
+import { useMemo, useState } from "react"
+import { ArrowLeft, CalendarDays, CheckSquare2 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
+import { EmployeeChip } from "@/components/ui/employee-chip"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { api } from "@/lib/api"
+import { ConcludeDialog } from "./conclude-dialog"
 import { OverduePill } from "./overdue-pill"
 import { formatMetricValue, ReadingChart } from "./reading-chart"
+import { RecordReadingDialog } from "./record-reading-dialog"
 import { useExperiment } from "./use-experiments"
 import type { Experiment, ExperimentMetric } from "./types"
+
+type OpenDialog = "reading" | "conclude" | null
 
 function latestFor(experiment: Experiment, metric: ExperimentMetric) {
   return experiment.readings.filter((reading) => reading.metric === metric.name).at(-1)
@@ -51,10 +59,58 @@ function verdictLabel(outcome: NonNullable<Experiment["verdict"]>["outcome"]): s
   return outcome === "win" ? "Win" : outcome === "loss" ? "Loss" : "Inconclusive"
 }
 
+function ActionButton({ label, onClick, testId }: { label: string; onClick: () => void; testId: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className="focus-ring min-h-9 rounded-full bg-[var(--fill-tertiary)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-secondary)] outline-none transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
+    >
+      {label}
+    </button>
+  )
+}
+
+/** The Todo this experiment informs and the person watching it. Both are
+ *  optional, so each renders only when set and the row disappears with them. */
+function ExperimentLinks({ experiment }: { experiment: Experiment }) {
+  const org = useQuery({ queryKey: ["org"], queryFn: api.getOrg, staleTime: 60_000 })
+  // The owner is stored as free text, so the registry may not know the name.
+  // Showing it as typed beats showing nothing.
+  const ownerDisplayName = useMemo(
+    () => org.data?.employees.find((employee) => employee.name === experiment.owner)?.displayName,
+    [org.data, experiment.owner],
+  )
+  if (!experiment.todoId && !experiment.owner) return null
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+      {experiment.todoId && (
+        <Link
+          to={`/todos/${experiment.todoId}`}
+          data-testid="experiment-todo-link"
+          className="focus-ring inline-flex min-h-[34px] items-center gap-1.5 rounded-full bg-[var(--fill-tertiary)] px-3 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-secondary)] outline-none transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
+        >
+          <CheckSquare2 className="size-3.5" aria-hidden />
+          {experiment.todoId}
+        </Link>
+      )}
+      {experiment.owner && (
+        <EmployeeChip
+          employee={experiment.owner}
+          displayName={ownerDisplayName ?? experiment.owner}
+          className="min-h-[34px]"
+        />
+      )}
+    </div>
+  )
+}
+
 export default function ExperimentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const query = useExperiment(id)
   const experiment = query.data?.experiment
+  const [openDialog, setOpenDialog] = useState<OpenDialog>(null)
   useBreadcrumbs([{ label: "Experiments", href: "/experiments" }, { label: experiment?.name ?? "Experiment" }])
 
   return (
@@ -80,13 +136,22 @@ export default function ExperimentDetailPage() {
                   {experiment.status === "running" ? "Running" : "Concluded"}
                   {experiment.overdue && <OverduePill id={experiment.id} />}
                 </div>
-                <h1 className="mt-2 font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-                  {experiment.name}
-                </h1>
+                <div className="mt-2 flex flex-wrap items-start justify-between gap-x-5 gap-y-3">
+                  <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
+                    {experiment.name}
+                  </h1>
+                  {experiment.status === "running" && (
+                    <div className="flex shrink-0 gap-2">
+                      <ActionButton label="Record reading" testId="experiment-record-reading-open" onClick={() => setOpenDialog("reading")} />
+                      <ActionButton label="Conclude" testId="experiment-conclude-open" onClick={() => setOpenDialog("conclude")} />
+                    </div>
+                  )}
+                </div>
                 <div className="mt-2 flex items-center gap-1.5 text-[length:var(--text-footnote)] text-[var(--text-quaternary)]">
                   <CalendarDays className="size-3.5" aria-hidden />
                   Started {new Date(experiment.startedAt).toLocaleDateString()} · {experiment.horizonDays}-day horizon
                 </div>
+                <ExperimentLinks experiment={experiment} />
               </header>
 
               <section className="mt-7">
@@ -114,6 +179,17 @@ export default function ExperimentDetailPage() {
                     Concluded {new Date(experiment.verdict.concludedAt).toLocaleDateString()}
                   </div>
                 </section>
+              )}
+
+              {openDialog === "reading" && (
+                <RecordReadingDialog
+                  experimentId={experiment.id}
+                  metrics={experiment.metrics}
+                  onClose={() => setOpenDialog(null)}
+                />
+              )}
+              {openDialog === "conclude" && (
+                <ConcludeDialog experimentId={experiment.id} onClose={() => setOpenDialog(null)} />
               )}
             </>
           )}

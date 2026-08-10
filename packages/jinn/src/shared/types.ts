@@ -4,6 +4,14 @@ export type StreamDeltaType = "text" | "text_snapshot" | "tool_use" | "tool_resu
 
 export type { CompanyChangedEvent } from "./gateway-events.js";
 
+export type {
+  Experiment,
+  ExperimentMetric,
+  ExperimentReading,
+  ExperimentVerdict,
+  HydratedExperiment,
+} from "./gateway-events.js";
+
 export interface NoteSummary {
   /** Public path below JINN_HOME, for example knowledge/product/brief.md. */
   path: string;
@@ -485,41 +493,6 @@ export interface SessionDelivery extends SessionDeliveryIdentity {
 export interface SessionDeliveryDeadLetter extends Omit<SessionDelivery, "payload"> {
   payload: SessionDeliveryPayload | null;
   payloadError: string | null;
-}
-
-export interface ExperimentMetric {
-  name: string;
-  unit?: string;
-  howToMeasure: string;
-}
-
-export interface ExperimentReading {
-  id: string;
-  experimentId: string;
-  at: string;
-  metric: string;
-  value: number;
-  note?: string;
-}
-
-export interface ExperimentVerdict {
-  outcome: "win" | "loss" | "inconclusive";
-  note: string;
-  concludedAt: string;
-}
-
-export interface Experiment {
-  id: string;
-  name: string;
-  hypothesis: string;
-  status: "running" | "concluded";
-  startedAt: string;
-  horizonDays: number;
-  baseline: Record<string, number>;
-  metrics: ExperimentMetric[];
-  readings: ExperimentReading[];
-  verdict?: ExperimentVerdict;
-  checkInCronJobId?: string;
 }
 
 export type ExperimentStoreFailureReason = "invalid" | "not-found" | "conflict";

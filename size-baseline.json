@@ -16,7 +16,7 @@
       "lines": 625
     },
     "packages/gateway-events/src/index.ts": {
-      "lines": 345
+      "lines": 332
     },
     "packages/jinn/scripts/instance-migration-bundle.mjs": {
       "exempt": [
@@ -856,7 +856,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 1020
+      "lines": 993
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1517,7 +1517,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1279,
+      "lines": 1272,
       "exempt": [
         "complexity"
       ]
