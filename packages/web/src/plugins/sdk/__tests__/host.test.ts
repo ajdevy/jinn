@@ -157,6 +157,19 @@ describe('host.notify', () => {
     expect(sink).toHaveBeenCalledWith('the watcher started', 'info')
   })
 
+  it('does not surface a throwing sink to the plugin that called it', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    registerHostNotificationSink(() => {
+      throw new Error('the notification surface blew up')
+    })
+
+    expect(() => host.notify('the watcher stopped', 'error')).not.toThrow()
+
+    expect(consoleError).toHaveBeenCalled()
+    expect(String(consoleError.mock.calls[0]?.[0])).toContain('[plugin-sdk]')
+    consoleError.mockRestore()
+  })
+
   it('falls back to a tagged console.warn when no surface is mounted, without throwing', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 

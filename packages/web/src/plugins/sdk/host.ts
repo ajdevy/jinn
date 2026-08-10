@@ -50,7 +50,13 @@ function notify(message: string, level: HostNotifyLevel = 'info'): void {
     console.warn(`[plugin-sdk] no notification surface is mounted; dropping ${level}: ${message}`)
     return
   }
-  sink(message, level)
+  try {
+    sink(message, level)
+  } catch (error) {
+    // A notification surface that throws is the host's bug, and the plugin that
+    // asked for the notification is the wrong place for it to land.
+    console.error(`[plugin-sdk] the notification surface threw on ${level}: ${message}`, error)
+  }
 }
 
 export const host: PluginHost = {

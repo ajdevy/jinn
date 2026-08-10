@@ -30,11 +30,21 @@ function barrelTypeExports(barrel: string): string[] {
   )
 }
 
-/** Every module specifier the contract names. */
+/** Every module specifier the contract names, in either quote style. */
 function importedSpecifiers(contract: string): string[] {
-  return [...contract.matchAll(/from '([^']+)'|import\('([^']+)'\)/g)].map(
-    (match) => (match[1] ?? match[2])!,
+  return [...contract.matchAll(/from (['"])([^'"]+)\1|import\((['"])([^'"]+)\3\)/g)].map(
+    (match) => (match[2] ?? match[4])!,
   )
+}
+
+/** Whether a relative specifier lands outside the sdk directory. Resolving it
+ *  rather than reading its first characters is the point: `./../../lib/x` walks
+ *  out just as surely as `../../lib/x` does. */
+function escapesSdkDirectory(specifier: string): boolean {
+  if (!specifier.startsWith('.')) return false
+
+  const resolved = path.resolve(SDK_DIR, specifier)
+  return resolved !== SDK_DIR && !resolved.startsWith(SDK_DIR + path.sep)
 }
 
 describe('the SDK re-exports the app’s own instances', () => {
@@ -87,8 +97,19 @@ describe('sdk.d.ts is the public contract and cannot drift from it', () => {
   it('names no module a plugin author could not resolve', () => {
     for (const specifier of importedSpecifiers(CONTRACT)) {
       expect(specifier.startsWith('@/'), `${specifier} is an app-internal path`).toBe(false)
-      expect(specifier.startsWith('..'), `${specifier} escapes the sdk directory`).toBe(false)
+      expect(escapesSdkDirectory(specifier), `${specifier} escapes the sdk directory`).toBe(false)
     }
+  })
+
+  /* The firewall above is only worth as much as the two helpers underneath it,
+   * and both had a hole a plausible edit walks straight through: a double quote,
+   * and a relative path that leaves the directory without opening on `..`. */
+  it('catches the app-internal forms a prefix check misses', () => {
+    const evasions = ['import type { X } from "@/lib/x"', "import type { Y } from './../../lib/y'"]
+
+    expect(importedSpecifiers(evasions.join('\n'))).toEqual(['@/lib/x', './../../lib/y'])
+    expect(escapesSdkDirectory('./../../lib/y')).toBe(true)
+    expect(escapesSdkDirectory('./host-state')).toBe(false)
   })
 
   it('carries the version the SDK itself exports', () => {
