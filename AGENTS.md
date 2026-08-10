@@ -104,9 +104,10 @@ company until personas scope it out. Documented in
 `packages/jinn/template/docs/mcp.md:27`. Either way it costs this repo nothing: the server
 lives outside it entirely.
 
-*There is no in-repo plugin system.* Skills are Markdown with no plugin API, and plugins are a
-roadmap line (`README.md:307`), not a thing you can build against today. `mcp.custom` is the
-extension point that exists.
+*There is no in-repo plugin system **yet**.* Skills are Markdown with no plugin API, and plugins
+are a roadmap line (`README.md:307`) with an accepted design (`.plans/plugins.md`) and nothing
+built against it today. Until that design lands, `mcp.custom` is the extension point that
+exists, and a plugin is not something you can pick off this ladder.
 
 **Rung 5 — a new core MCP tool.** The last resort, and the only rung that taxes every session
 in the company. To take it, show the token arithmetic against the budget above, and show why
