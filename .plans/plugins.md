@@ -66,7 +66,7 @@ anywhere else.
 ```
 ~/.jinn/plugins/<id>/
   plugin.json      required   manifest
-  client.js        optional   plain ESM, loaded in the dashboard
+  client.js        required   plain ESM, loaded in the dashboard
   server.js        optional   plain ESM, loaded in the gateway
 ```
 
@@ -80,20 +80,22 @@ not a silent preference for one. This follows the reserved-name precedent at
 | `id` | yes | | matches folder name, matches `/^[a-z0-9][a-z0-9-]{1,38}$/`, not `jinn` |
 | `name` | no | `id` | string |
 | `version` | no | `"0.0.0"` | string |
-| `defaultEnabled` | no | `false` | boolean. See §8: a plugin does not get to opt itself in. |
-| `client` | no | `"client.js"` | relative path, contained (§9) |
+| `client` | no | `"client.js"` | relative path, contained (§9). The field is optional; the file it names is not — a plugin with no loadable client half is an `error` record. |
 | `server` | no | none | relative path, contained (§9) |
 
+There is no manifest field that enables a plugin. §8 explains why: the manifest is written by the
+plugin, and a plugin does not get to opt itself in.
+
 Discovery produces an inventory record per directory, `{id, name, version, kind, status, error}`,
-where `kind` is which halves exist and `status` is one of `loaded`, `disabled`, `error`. A
+where `kind` is `client` or `client+server` and `status` is one of `loaded`, `disabled`, `error`. A
 directory that fails validation still gets a record carrying its error, because a plugin that
 vanishes from the settings list when it breaks is a plugin nobody can fix.
 
 Both halves are plain ESM with no build step. That is the point: it is what lets an agent
 write a working plugin by writing one file. The cost is stated in §4.
 
-`client.js` default-exports `{ id, name?, defaultEnabled?, register(ctx) }`. `server.js`
-default-exports a route registrar and may additionally export `watcher` (§7).
+`client.js` default-exports `{ id, name?, register(ctx) }`. `server.js` default-exports a route
+registrar and may additionally export `watcher` (§7).
 
 ---
 
@@ -195,9 +197,11 @@ pretty.
 
 ## 5. The host API
 
-Plugins do not get raw RPC. Upstream exposes `host.request(method, params)` and calls it
-"the plugin's real power"; it is also the reason a permission model there has to be retrofitted
-against an untyped surface. Jinn ships typed verbs from day one:
+Plugins do not get raw RPC. **"Upstream" throughout this document is Hermes, and every upstream
+citation is a path relative to the Hermes repository root, never to this one.** Hermes exposes
+`host.request(method, params)` and calls it "the plugin's real power"
+(`apps/desktop/src/sdk/index.ts:16`); it is also the reason a permission model there has to be
+retrofitted against an untyped surface. Jinn ships typed verbs from day one:
 
 ```
 host.todos.list(query) / .create(input) / .comment(id, body)
@@ -238,8 +242,9 @@ in `handleApiRequest` as one more link. No new dispatch mechanism, no route tabl
 
 **Hot reload.** The registrar is re-imported with a cache-busting query on file change, and the
 previous incarnation's routes are dropped. This is a strict improvement over upstream, where the
-backend is imported once at process start and a code change needs a restart. Jinn gets it for
-free by being one language on both sides.
+plugin backends are mounted once from module scope at process start
+(`hermes_cli/web_server.py:17315`), so a code change needs a restart and a rescan will not do it.
+Jinn gets it for free by being one language on both sides.
 
 **Namespacing by construction.** The client-side helper takes a path relative to the plugin's own
 prefix and builds `/api/plugins/<id><suffix>`. A `..` segment in the path (checked on the portion
@@ -248,15 +253,25 @@ bug that reaches production and a thrown error is one that does not. Today the n
 boundary; §9 says what that does and does not mean.
 
 **Assets.** Plugin assets are served at `/api/plugins/<id>/assets/*`, not at a top-level
-`/plugin-assets/` route.
+`/plugin-assets/` route. **The root of that route is the plugin's `assets/` subdirectory, not the
+plugin directory.** A request for `/api/plugins/<id>/assets/logo.svg` resolves under
+`<plugin>/assets/`, and no path under the route can name the plugin root. The client half has its
+own path, `/api/plugins/<id>/client`, which takes no caller-supplied path at all: it resolves to
+exactly one file, the manifest's `client` entry (§2).
+
+`server.js` lives in the plugin root beside `client.js` (§2) and is addressable by neither route.
+That routing, not the suffix allowlist in §9, is what keeps backend source off the wire — an
+allowlist that has to contain `.js` so the client half can load cannot also be the thing that
+withholds a `.js` backend.
 
 This is a correction to the shape ICI-723 currently describes, and the reason is concrete:
 `authRequiredForRequest` (`packages/jinn/src/gateway/auth.ts:251`) returns `true` only for paths
 under `/api/` (`:264`) or `/ws` (`:265`), and `false` otherwise (`:266`). A `/plugin-assets/...`
 route therefore never reaches the auth gate at `packages/jinn/src/gateway/server.ts:1098` and
-would be served to anyone who can reach the port. Upstream accepts an unauthenticated asset path
-because its SPA loads plugin code through `<script src>` and `<link href>`, neither of which can
-attach a header. Jinn's loader (§4) `fetch`es the module and imports a blob URL, so it *can*
+would be served to anyone who can reach the port. Upstream accepts an asset path that is
+unauthenticated in its default loopback mode, and says why in the route's own docstring: its SPA
+loads plugin code through `<script src>` and `<link href>`, neither of which can attach a header
+(`hermes_cli/web_server.py:17121`). Jinn's loader (§4) `fetch`es the module and imports a blob URL, so it *can*
 attach the gateway token, and the namespace that gets auth for free is the one under `/api/`.
 
 The suffix allowlist in §9 stays regardless. Auth and the allowlist answer different questions:
@@ -274,8 +289,10 @@ to see an event.
 ## 7. Supervised watcher lifecycle
 
 The mailbox use case needs something watching a folder when no page is open. This is the
-capability upstream lacks entirely: plugins there hand-roll threads, and the flagship's
-dispatcher ended up in gateway core because there was nowhere else for it to live.
+capability upstream lacks entirely: its plugin contract is `register(ctx)` and nothing else
+(`apps/desktop/src/contrib/plugin.ts:100`), so plugins there hand-roll their own threads, and the
+flagship plugin's dispatcher ended up in gateway core (`gateway/kanban_watchers.py:953`) because
+there was nowhere else for it to live.
 
 `server.js` may export `watcher: { start(ctx), stop() }`. The contract is deliberately the one
 already in the tree at `packages/jinn/src/shared/types.ts:268`: `start()` `:272`, `stop()`
@@ -324,9 +341,12 @@ plugins:
   disabled: []
 ```
 
-**Absence is not enabled.** The two lists are the operator's explicit decisions; a plugin named
-in neither falls back to its own `defaultEnabled`, which itself defaults to `false` (§2). This
-deliberately inverts `packages/jinn/src/mcp/resolver.ts:177`, where `enabled === false` means
+**Absence is not enabled.** The two lists are the operator's explicit decisions, and they are the
+only input to the decision: a plugin named in neither is disabled. Nothing the plugin ships can
+change that, which is why §2 has no `defaultEnabled` field — a manifest value that flipped an
+unlisted plugin to enabled would be the plugin opting itself in, and the whole point of this
+section is that only the operator can do that. This deliberately inverts
+`packages/jinn/src/mcp/resolver.ts:177`, where `enabled === false` means
 absence is enabled. The difference is that an MCP server is something the operator already wrote
 into their config by hand, whereas a plugin directory can arrive by being copied. `disabled`
 wins over `enabled` when a plugin somehow appears in both, because the fail-closed reading is
@@ -342,7 +362,7 @@ different window:
 | --- | --- |
 | Discovery and mount | A disabled plugin's `server.js` is never imported. Import is execution; gating any later is gating after the code has already run. |
 | Request time (§9) | A plugin disabled *while the gateway is running* has routes already mounted. Only a per-request check makes a live toggle real. |
-| Asset serving | A disabled plugin's `client.js` is not fetchable, so a stale dashboard tab cannot resurrect it by reloading the module. |
+| Asset serving | Neither route in §6 answers for a disabled plugin: its client entry and its assets are both 404, so a stale dashboard tab cannot resurrect it by reloading the module. |
 
 The web-side store keeps the same decisions map and the same rule, so the settings toggle and
 `config.yaml` cannot disagree about what "unset" means. A disabled plugin still appears in the
@@ -370,29 +390,38 @@ or worker, a CSP, and capability gating, and it is a different pipeline, not a f
 Three lessons carried over from upstream's actual incidents. Each is a rule plus the concrete
 thing it prevents.
 
-**1. Asset suffix allowlist.** Serve only `.js`, `.mjs`, `.css`, `.json`, `.svg`, `.png`, and
-`.woff2`. Everything else is a 404, not a 403, so the response does not confirm the file exists.
-*Prevents:* reading a plugin's own `server.js` source, and anything else that happens to sit in
-the directory, over the asset route. Upstream shipped an asset route that returned 200 for any
-file inside the plugin directory, including its backend source, and the fix was to restrict the
-suffix rather than to add auth, because their route could not carry a header. Add to the set
-deliberately when a new asset type comes up; never change the default fallback.
+**1. Asset suffix allowlist.** Under `/api/plugins/<id>/assets/*`, serve only `.js`, `.mjs`,
+`.css`, `.json`, `.svg`, `.png`, and `.woff2`. Everything else is a 404, not a 403, so the
+response does not confirm the file exists.
+*Prevents:* handing out whatever else ends up in a plugin's `assets/` directory — a dropped
+`.env`, a key, an editor backup, a `.map` pointing at unminified source. It is deliberately not
+what protects `server.js`: `.js` has to be on this list for the client half to load, so backend
+source is kept unreachable by the asset root in §6 instead. Upstream shipped an asset route
+rooted at the whole plugin directory, which returned 200 for any file in it including the Python
+backend module, and the fix there was to restrict the suffix rather than to add auth, because
+that route could not carry a header (`hermes_cli/web_server.py:17125`). We take the suffix rule
+and the narrower root both. Add to the set deliberately when a new asset type comes up; never
+change the default fallback.
 
 **2. Traversal and absolute-path guard, at discovery and again at mount.** The manifest's
 `client` and `server` fields are attacker-influenced input. Reject a non-string or blank value,
 reject `path.isAbsolute()`, then `path.resolve()` and require the result to be *contained within*
 the plugin directory using a separator-aware check, not the string prefix used at
 `packages/jinn/src/gateway/server.ts:282`. Re-resolve at mount time as well.
-*Prevents:* the exact upstream RCE. An absolute path swallows the base entirely, because
-`join("plugins/safe", "/tmp/evil.js")` resolves to `/tmp/evil.js`, and the mount imports whatever
-it is handed. A `../..` climbs into a neighbouring directory. Re-checking at mount covers the
+*Prevents:* the exact upstream RCE (`hermes_cli/web_server.py:16566`). An absolute path swallows
+the base entirely, because `join("plugins/safe", "/tmp/evil.js")` resolves to `/tmp/evil.js`, and
+the mount imports whatever it is handed. A `../..` climbs into a neighbouring directory. Upstream
+was hit through its single manifest backend-path field; the guard here covers `client` as well,
+because both fields reach a resolver and only one of them being validated is how the second one
+gets forgotten. Re-checking at mount covers the
 window where the cached directory was tampered with after validation, or where a future caller
 reaches the mount without passing through the validator. A plugin whose `server` path is rejected
 still loads its client half, with the rejection recorded on its inventory row.
 
-The enabling bug upstream is worth carrying too: the opt-in env var was read with a plain
-truthiness test, so `=0`, `=false`, and `=no` all *enabled* the untrusted source. Any boolean
-that gates plugin loading parses against an explicit true set, never truthiness.
+The enabling bug upstream is worth carrying too (`hermes_cli/web_server.py:16617`): the opt-in env
+var that unlocked untrusted project plugins was read with a plain truthiness test, so `=0`,
+`=false`, and `=no` all *enabled* the untrusted source. Any boolean that gates plugin loading
+parses against an explicit true set, never truthiness.
 
 **3. The runtime enable gate runs strictly after auth.** The per-request check from §8 is
 positioned so that an unauthenticated request receives auth's 401 and never the gate's 404.
@@ -407,10 +436,13 @@ also fails closed on an unknown plugin id, which is a 404 for the same reason.
 Two attributions, corrected here because ICI-723's body has them the other way round and copying
 a wrong citation into shipped code comments is how the next reader gets misled:
 
-- `GHSA-5qr3-c538-wm9j` is the manifest path traversal and absolute-path RCE (lesson 2).
-- `GHSA-mcfc-hp25-cjv7` is the enable-gate bypass, where assets were served and backend code
-  imported without checking the enabled allowlist (lesson 3's first half).
-- The asset suffix allowlist (lesson 1) has **no advisory id**; it came from a pentest self-test.
+- `GHSA-5qr3-c538-wm9j` is the manifest path traversal and absolute-path RCE (lesson 2), named in
+  upstream's own guard at `hermes_cli/web_server.py:16571`.
+- `GHSA-mcfc-hp25-cjv7` is the enable-gate bypass, where assets were served
+  (`hermes_cli/web_server.py:17131`) and backend code imported (`:17217`) without checking the
+  enabled allowlist (lesson 3's first half).
+- The asset suffix allowlist (lesson 1) has **no advisory id**; it came from a pentest self-test,
+  which upstream's own regression test records as such (`tests/hermes_cli/test_web_server.py:3748`).
   It is a real fix and not a real CVE, and the spec should not inflate it into one.
 
 ---
