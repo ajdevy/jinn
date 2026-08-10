@@ -80,8 +80,24 @@ not a silent preference for one. This follows the reserved-name precedent at
 | `id` | yes | | matches folder name, matches `/^[a-z0-9][a-z0-9-]{1,38}$/`, not `jinn` |
 | `name` | no | `id` | string |
 | `version` | no | `"0.0.0"` | string |
-| `client` | no | `"client.js"` | relative path, contained (§9). The field is optional; the file it names is not — a plugin with no loadable client half is an `error` record. |
-| `server` | no | none | relative path, contained (§9) |
+| `client` | no | `"client.js"` | relative path, contained, distinct from `server` (§9). The field is optional; the file it names is not — a plugin with no loadable client half is an `error` record. |
+| `server` | no | none | relative path, contained, distinct from `client` (§9) |
+
+**The resolved `client` and `server` entries must be two different files.** Sameness is decided
+after containment and by resolved path, not by the string the author wrote: resolve each entry
+against the plugin directory with `path.resolve()` and compare the two absolute results. Equal
+means the same file, whatever spelling got there — `server.js`, `./server.js`, and
+`assets/../server.js` all resolve alike.
+
+An equal pair is an `error` record for the whole plugin, naming both fields. It is deliberately
+not the partial load that a rejected `server` path gets (§9 guard 2): a plugin that points both
+halves at one file has no half that is safe to keep.
+
+So the manifest `{"client": "server.js", "server": "server.js"}` never loads. Both entries are
+relative, both are contained, and both resolve to `<plugin>/server.js`; the comparison finds them
+equal and discovery stops there with an error naming `client` and `server`. Without this rule
+that manifest would be valid, and `GET /api/plugins/<id>/client` would serve the gateway-side
+source verbatim — the one thing §6 says that route cannot do.
 
 There is no manifest field that enables a plugin. §8 explains why: the manifest is written by the
 plugin, and a plugin does not get to opt itself in.
@@ -260,6 +276,12 @@ own path, `/api/plugins/<id>/client`, which takes no caller-supplied path at all
 exactly one file, the manifest's `client` entry (§2).
 
 `server.js` lives in the plugin root beside `client.js` (§2) and is addressable by neither route.
+The assets route cannot name it because that route's root is `<plugin>/assets/` and the plugin
+root is above it. `/client` cannot name it because §9's guard 2 rejects any plugin whose `client`
+and `server` entries resolve to the same file, so the single file `/client` resolves to is, by
+construction, not the one the gateway imported. Neither half of that is an assertion about
+authors behaving; both are checks that run before the plugin loads.
+
 That routing, not the suffix allowlist in §9, is what keeps backend source off the wire — an
 allowlist that has to contain `.js` so the client half can load cannot also be the thing that
 withholds a `.js` backend.
@@ -403,11 +425,13 @@ that route could not carry a header (`hermes_cli/web_server.py:17125`). We take 
 and the narrower root both. Add to the set deliberately when a new asset type comes up; never
 change the default fallback.
 
-**2. Traversal and absolute-path guard, at discovery and again at mount.** The manifest's
-`client` and `server` fields are attacker-influenced input. Reject a non-string or blank value,
-reject `path.isAbsolute()`, then `path.resolve()` and require the result to be *contained within*
-the plugin directory using a separator-aware check, not the string prefix used at
-`packages/jinn/src/gateway/server.ts:282`. Re-resolve at mount time as well.
+**2. Traversal, absolute-path, and distinct-entry guard, at discovery and again at mount.** The
+manifest's `client` and `server` fields are attacker-influenced input. Reject a non-string or
+blank value, reject `path.isAbsolute()`, then `path.resolve()` and require the result to be
+*contained within* the plugin directory using a separator-aware check, not the string prefix used
+at `packages/jinn/src/gateway/server.ts:282`. Then, when both fields are present, compare the two
+resolved paths and reject the plugin outright if they are equal (§2). Re-resolve at mount time as
+well — containment and the comparison both, on the same re-resolved paths, for the same reason.
 *Prevents:* the exact upstream RCE (`hermes_cli/web_server.py:16566`). An absolute path swallows
 the base entirely, because `join("plugins/safe", "/tmp/evil.js")` resolves to `/tmp/evil.js`, and
 the mount imports whatever it is handed. A `../..` climbs into a neighbouring directory. Upstream
@@ -415,8 +439,18 @@ was hit through its single manifest backend-path field; the guard here covers `c
 because both fields reach a resolver and only one of them being validated is how the second one
 gets forgotten. Re-checking at mount covers the
 window where the cached directory was tampered with after validation, or where a future caller
-reaches the mount without passing through the validator. A plugin whose `server` path is rejected
-still loads its client half, with the rejection recorded on its inventory row.
+reaches the mount without passing through the validator.
+
+*The comparison prevents* a second exposure the containment check cannot see, because the path is
+contained and legal: `{"client": "server.js", "server": "server.js"}`, where the plugin publishes
+its own backend as its client half and `GET /api/plugins/<id>/client` hands the gateway-side
+source to any authenticated caller (§6). Every entry that reaches a resolver here is compared
+against the other one for the same reason both are containment-checked.
+
+A plugin whose `server` path fails containment still loads its client half, with the rejection
+recorded on its inventory row. That partial load is for containment failures only: an equal pair
+fails as a whole plugin (§2), since keeping the client half is precisely what would serve the
+backend file.
 
 The enabling bug upstream is worth carrying too (`hermes_cli/web_server.py:16617`): the opt-in env
 var that unlocked untrusted project plugins was read with a plain truthiness test, so `=0`,
