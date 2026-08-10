@@ -136,7 +136,7 @@ import { handleOrgApi } from "./org-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
-import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename } from "./files.js";
+import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename, isFileNotModified } from "./files.js";
 import { streamFile } from "./byte-range.js";
 import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
@@ -4283,16 +4283,16 @@ export async function handleApiRequest(
       const download = reqUrl.searchParams.get("download") === "1";
       const selected = await selectAttachmentVariant(attachment, reqUrl.searchParams, download);
       if (!selected) return notFound(res);
+      const etag = `"${attachment.sha256}-${selected.variant}-${selected.size}"`;
+      if (!selected.isFallback && isFileNotModified(req.headers, etag, Number.NaN))
+        return void res.writeHead(304, { "Cache-Control": "public, max-age=31536000, immutable", ETag: etag }).end();
       await streamFile(req, res, selected.path, {
         mime: selected.mime,
         filename: selected.filename,
         disposition: download || !attachment.mime.startsWith("video/") ? "attachment" : "inline",
         cacheHeaders: selected.isFallback
           ? { "Cache-Control": "no-store" }
-          : {
-              "Cache-Control": "public, max-age=31536000, immutable",
-              ETag: `"${attachment.sha256}-${selected.variant}-${selected.size}"`,
-            },
+          : { "Cache-Control": "public, max-age=31536000, immutable", ETag: etag },
       });
       return;
     }

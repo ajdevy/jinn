@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   listExperiments: vi.fn(),
   getExperiment: vi.fn(),
+  getOrg: vi.fn(),
 }))
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       ...actual.api,
       listExperiments: mocks.listExperiments,
       getExperiment: mocks.getExperiment,
+      getOrg: mocks.getOrg,
     },
   }
 })
@@ -89,6 +91,7 @@ function client() {
 beforeEach(() => {
   mocks.listExperiments.mockReset().mockResolvedValue({ experiments: [running, concluded] })
   mocks.getExperiment.mockReset().mockResolvedValue({ experiment: concluded })
+  mocks.getOrg.mockReset().mockResolvedValue({ departments: [], employees: [], hierarchy: {} })
 })
 
 describe("Experiments list", () => {

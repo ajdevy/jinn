@@ -61,7 +61,7 @@ export function ShortcutOverlay({ shortcuts, onClose }: ShortcutOverlayProps) {
       className={`fixed bottom-4 right-4 z-40 w-[280px] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-[var(--material-thick)] shadow-[var(--shadow-overlay)] backdrop-blur-xl transition-opacity duration-150 ${isClosing ? 'opacity-0' : 'animate-fade-in'}`}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">Keyboard Shortcuts</span>
+        <span className="text-subheadline font-semibold text-foreground">Keyboard Shortcuts</span>
         <button
           onClick={handleClose}
           className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground"
@@ -74,16 +74,16 @@ export function ShortcutOverlay({ shortcuts, onClose }: ShortcutOverlayProps) {
       <div className="px-3 py-2 max-h-[60vh] overflow-y-auto">
         {grouped.map((group, gi) => (
           <div key={group.category} className={gi > 0 ? 'mt-3' : ''}>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="mb-1.5 text-caption2 font-medium uppercase tracking-wider text-muted-foreground">
               {group.category}
             </div>
             <div className="space-y-1">
               {group.items.map(s => (
                 <div key={s.key + (s.modifiers?.join('') ?? '')} className="flex items-center gap-2 py-0.5">
-                  <kbd className="inline-flex min-w-[24px] items-center justify-center rounded-[var(--radius-sm)] bg-[var(--fill-tertiary)] px-1.5 py-0.5 font-mono text-xs font-medium text-foreground">
+                  <kbd className="inline-flex min-w-[24px] items-center justify-center rounded-[var(--radius-sm)] bg-[var(--fill-tertiary)] px-1.5 py-0.5 font-mono text-caption1 font-medium text-foreground">
                     {formatKeyLabel(s)}
                   </kbd>
-                  <span className="text-xs text-muted-foreground">{s.description}</span>
+                  <span className="text-caption1 text-muted-foreground">{s.description}</span>
                 </div>
               ))}
             </div>

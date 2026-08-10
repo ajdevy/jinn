@@ -42,6 +42,25 @@ function stringFieldError(body: Record<string, unknown>, field: string): string 
   return body[field] === undefined || typeof body[field] === "string" ? null : `${field} must be a string`;
 }
 
+/** `null` when the clearable field is absent, explicitly cleared, or a string. */
+function clearableStringFieldError(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field];
+  return value === undefined || value === null || typeof value === "string" ? null : `${field} must be a string or null`;
+}
+
+function linkFieldsError(body: Record<string, unknown>): string | null {
+  return clearableStringFieldError(body, "todoId") ?? clearableStringFieldError(body, "owner");
+}
+
+/** The link fields as the store reads them: absent when the caller omitted them,
+ *  so an update leaves a stored link alone instead of clearing it. */
+function linkFields(body: Record<string, unknown>): { todoId?: string | null; owner?: string | null } {
+  return {
+    ...(body.todoId !== undefined ? { todoId: body.todoId as string | null } : {}),
+    ...(body.owner !== undefined ? { owner: body.owner as string | null } : {}),
+  };
+}
+
 /** The first thing wrong with the body, or null when it is well formed. */
 function createBodyError(body: Record<string, unknown>): string | null {
   if (typeof body.name !== "string") return "name is required and must be a string";
@@ -50,7 +69,7 @@ function createBodyError(body: Record<string, unknown>): string | null {
   if (!Array.isArray(body.metrics)) return "metrics is required and must be an array";
   if (typeof body.horizonDays !== "number") return "horizonDays is required and must be a number";
   if (body.checkIn !== undefined && !isPlainObject(body.checkIn)) return "checkIn must be an object";
-  return null;
+  return linkFieldsError(body);
 }
 
 function updateBodyError(body: Record<string, unknown>): string | null {
@@ -59,7 +78,7 @@ function updateBodyError(body: Record<string, unknown>): string | null {
   if (body.horizonDays !== undefined && typeof body.horizonDays !== "number") return "horizonDays must be a number";
   if (body.metrics !== undefined && !Array.isArray(body.metrics)) return "metrics must be an array";
   if (body.baseline !== undefined && !isPlainObject(body.baseline)) return "baseline must be an object";
-  return null;
+  return linkFieldsError(body);
 }
 
 function readingBodyError(body: Record<string, unknown>): string | null {
@@ -105,6 +124,7 @@ async function createFromBody(req: HttpRequest, res: ServerResponse, context: Ap
     baseline: body.baseline as Record<string, number>,
     metrics: body.metrics as CreateExperimentInput["metrics"],
     horizonDays: body.horizonDays as number,
+    ...linkFields(body),
   };
   const result = createExperimentWithCheckIn(input, body.checkIn as ExperimentCheckInInput | undefined);
   if (!result.ok) return experimentStoreFailureResponse(res, result);
@@ -123,6 +143,7 @@ async function updateFromBody(req: HttpRequest, res: ServerResponse, id: string,
     ...(typeof body.horizonDays === "number" ? { horizonDays: body.horizonDays } : {}),
     ...(Array.isArray(body.metrics) ? { metrics: body.metrics as CreateExperimentInput["metrics"] } : {}),
     ...(body.baseline !== undefined ? { baseline: body.baseline as Record<string, number> } : {}),
+    ...linkFields(body),
   });
   if (!result.ok) return experimentStoreFailureResponse(res, result);
   context.emit("experiments:changed", { id: result.value.id, action: "updated" });

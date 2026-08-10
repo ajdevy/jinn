@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { ArrowLeft, Check, ChevronRight, X } from "lucide-react"
 import type { Employee } from "@/lib/api"
 import { activeFilterCount, type TodoFilters } from "@/lib/todos"
@@ -41,6 +41,10 @@ export function TodoFilterSheet({
   showLabelDue?: boolean
 }) {
   const [panel, setPanel] = useState<FilterPanel>("root")
+  // Every way out runs through the sheet's own exit first; the board is told to
+  // drop it once the animation is over.
+  const [leaving, setLeaving] = useState(false)
+  const leave = useCallback(() => setLeaving(true), [])
   const labelRegistry = useLabelRegistry(!!showLabelDue)
   const title = panel === "root" ? "Filter" : panel.charAt(0).toUpperCase() + panel.slice(1)
   const choose = (next: TodoFilters) => {
@@ -51,9 +55,11 @@ export function TodoFilterSheet({
   return (
     <TodoDialog
       label="Filter todos"
-      onRequestClose={onClose}
+      open={!leaving}
+      onRequestClose={leave}
+      onClosed={onClose}
       testId="todo-filter-sheet"
-      className="inset-x-0 bottom-0 flex max-h-[82vh] min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-2xl)] bg-[var(--bg-secondary)] p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-bottom-4"
+      className="inset-x-0 bottom-0 flex max-h-[82vh] min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-2xl)] bg-[var(--bg-secondary)] p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=closed]:animate-sheet-out motion-safe:data-[state=open]:animate-sheet-in"
     >
       <div className="flex justify-center py-1.5">
         <span className="h-[5px] w-9 rounded-full bg-[var(--fill-primary)]" aria-hidden />
@@ -65,7 +71,7 @@ export function TodoFilterSheet({
           </button>
         ) : <span className="min-w-11" aria-hidden />}
         <h2 className="min-w-0 flex-1 text-center text-[length:var(--text-headline)] font-semibold text-[var(--text-primary)]">{title}</h2>
-        <button type="button" aria-label="Close filters" onClick={onClose} className="grid min-h-11 min-w-11 place-items-center rounded-full bg-[var(--fill-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)]">
+        <button type="button" aria-label="Close filters" onClick={leave} className="grid min-h-11 min-w-11 place-items-center rounded-full bg-[var(--fill-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)]">
           <X size={14} strokeWidth={2.2} aria-hidden />
         </button>
       </div>

@@ -164,6 +164,8 @@ export function NewTodoDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // The exit plays before the board is told, so which ending it was has to survive the animation.
+  const [leaving, setLeaving] = useState<"closed" | "created" | null>(null)
 
   const selectedLabels = useMemo(
     () => labelIds.map((id) => ({ id, name: id, color: null, department: null, createdAt: "" })),
@@ -226,13 +228,13 @@ export function NewTodoDialog({
         setBusy(false)
         requestAnimationFrame(() => titleRef.current?.focus())
       } else {
-        onCreated()
+        setLeaving("created")
       }
     } catch (caught) {
       setBusy(false)
       setError(operatorSafeTodoError(caught, "Failed to create"))
     }
-  }, [acceptance, assignee, body, busy, department, dueAt, labelIds, onCreated, parentId, priority, reset, title, defaults?.askAssignee])
+  }, [acceptance, assignee, body, busy, department, dueAt, labelIds, parentId, priority, reset, title, defaults?.askAssignee])
 
   const closePicker = () => setPicker(null)
   const togglePicker = (next: CreatePicker) => setPicker((current) => current === next ? null : next)
@@ -268,12 +270,10 @@ export function NewTodoDialog({
   return (
     <TodoDialog
       label="New todo"
-      onRequestClose={() => {
-        if (busy) return
-        if (dirty) setConfirmDiscard(true)
-        else onClose()
-      }}
-      className="inset-x-3 bottom-3 max-h-[calc(100dvh-24px)] overflow-y-auto rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] px-5 py-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-bottom-3 sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(620px,calc(100vw-32px))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:px-7 sm:py-6 sm:motion-safe:data-[state=open]:zoom-in-95"
+      open={leaving === null}
+      onRequestClose={() => { if (busy) return; if (dirty) setConfirmDiscard(true); else setLeaving("closed") }}
+      onClosed={leaving === "created" ? onCreated : onClose}
+      className="inset-x-3 bottom-3 max-h-[calc(100dvh-24px)] overflow-y-auto rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] px-5 py-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] motion-safe:data-[state=closed]:animate-sheet-out motion-safe:data-[state=open]:animate-sheet-in sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(620px,calc(100vw-32px))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:px-7 sm:py-6 sm:motion-safe:data-[state=closed]:animate-pop-out sm:motion-safe:data-[state=open]:animate-pop-in"
     >
       <div
         onKeyDown={(event) => {
@@ -419,7 +419,7 @@ export function NewTodoDialog({
           <div className="mt-3 rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] p-3 text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
             <p>Discard this Todo draft?</p>
             <div className="mt-2 flex gap-2">
-              <button type="button" onClick={onClose} className="min-h-11 rounded-full px-3 font-semibold text-[var(--system-red)]">Discard</button>
+              <button type="button" onClick={() => setLeaving("closed")} className="min-h-11 rounded-full px-3 font-semibold text-[var(--system-red)]">Discard</button>
               <button type="button" onClick={() => setConfirmDiscard(false)} className="min-h-11 rounded-full px-3 text-[var(--text-secondary)]">Keep editing</button>
             </div>
           </div>
@@ -437,7 +437,7 @@ export function NewTodoDialog({
           <span className="flex-1" />
           <button
             type="button"
-            onClick={() => { if (dirty) setConfirmDiscard(true); else onClose() }}
+            onClick={() => { if (dirty) setConfirmDiscard(true); else setLeaving("closed") }}
             className="focus-ring min-h-11 rounded-full px-4 text-[length:var(--text-subheadline)] font-medium text-[var(--text-secondary)] outline-none transition-colors hover:bg-[var(--fill-secondary)]"
           >
             Cancel

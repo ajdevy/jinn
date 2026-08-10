@@ -44,6 +44,9 @@ export function MobileTabBar() {
       className={cn(
         "fixed inset-x-0 bottom-0 z-40 lg:hidden",
         "flex items-stretch",
+        // Named so a route change snapshots the bar on its own rather than
+        // cross-fading the one surface that is on both sides of every tap.
+        "[view-transition-name:jinn-tab-bar]",
         "border-t-[0.5px] border-[var(--separator)] bg-[var(--material-thick)]",
         "[backdrop-filter:blur(20px)_saturate(1.3)] [-webkit-backdrop-filter:blur(20px)_saturate(1.3)]",
         "py-1.5 pb-[max(var(--safe-bottom),6px)]",
@@ -56,6 +59,7 @@ export function MobileTabBar() {
           <Link
             key={item.href}
             to={item.href}
+            viewTransition
             aria-label={item.label}
             aria-current={isActive ? "page" : undefined}
             onClick={() => {
@@ -69,14 +73,17 @@ export function MobileTabBar() {
               }
             }}
             className={cn(
-              "min-h-[49px] flex-1 flex items-center justify-center",
+              // min-w-0 so flex-1 can shrink past the tap pill's own 3.5rem: at a
+              // large browser text size four rem-wide pills outrun a phone
+              // viewport and the last tab lands off-screen.
+              "min-h-[49px] min-w-0 flex-1 flex items-center justify-center",
               "transition-colors",
               isActive
                 ? "text-[var(--accent)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
             )}
           >
-            <span className="flex h-9 w-14 items-center justify-center rounded-full">
+            <span className="flex h-9 w-14 max-w-full items-center justify-center rounded-full">
               <Icon size={25} className="shrink-0" />
             </span>
           </Link>

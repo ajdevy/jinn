@@ -1,10 +1,10 @@
 
-import React, { useEffect, useState, useRef, useCallback, useMemo, useSyncExternalStore, startTransition } from "react"
+import React, { useEffect, useState, useRef, useCallback, useMemo, startTransition } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import { ChevronDown, Clock3, EllipsisVertical, Focus, Layers, Pin, Plus, Search, SquarePen, Trash2, Workflow as WorkflowIcon, X } from "lucide-react"
-import { api, type BackgroundActivity, type DelegatedActivity, type Employee, type SessionsResponse } from "@/lib/api"
+import { api, type Employee, type SessionsResponse } from "@/lib/api"
 import { useOrg } from "@/hooks/use-employees"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { useSettings } from "@/routes/settings-provider"
@@ -37,6 +37,17 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { mergeSidebarEmployees, bucketByDay, summarizeOlder, isFocusedSession } from "@/components/chat/chat-route-helpers"
+import { MobileSessionRow } from "@/components/chat/mobile-session-row"
+import {
+  formatTime,
+  getSessionActivity,
+  getStatusDot,
+  isArchivedSession,
+  SessionAttentionChips,
+  StatusDot,
+  useStallClock,
+  type Session,
+} from "@/components/chat/session-signals"
 import {
   SESSION_MENU_CONTENT_CLASS,
   SESSION_MENU_ITEM_CLASS,
@@ -44,34 +55,6 @@ import {
   SessionRowMenu,
   workflowRunPath,
 } from "@/components/chat/session-row-menu"
-
-interface Session {
-  id: string
-  connector?: string | null
-  employee?: string
-  title?: string
-  status?: string
-  source?: string
-  sourceRef?: string
-  sessionKey?: string
-  /** Set on delegated/spawned child sessions; null/empty for top-level chats. */
-  parentSessionId?: string | null
-  transportState?: string
-  queueDepth?: number
-  lastActivity?: string
-  createdAt?: string
-  archivedAt?: string | null
-  /** Background work (subagents/background tasks) still running while the
-   *  session is officially idle. null/absent = none. Kept live via the
-   *  session:background WS event (cache patch in useQueryInvalidation). */
-  backgroundActivity?: BackgroundActivity | null
-  /** Active descendant employee sessions; derived by the gateway. */
-  delegatedActivity?: DelegatedActivity | null
-  /** The in-flight turn has produced nothing for a while; derived by the gateway.
-   *  A running session and a wedged one are otherwise indistinguishable. */
-  turnProgress?: { lastProgressAt: number; awaitingSubmit: boolean } | null
-  [key: string]: unknown
-}
 
 export interface SidebarOrder {
   sessionIds: string[]
@@ -95,6 +78,10 @@ interface ChatSidebarProps {
   onOrderComputed?: (order: SidebarOrder) => void
   /** Start a new chat with a session-less roster employee (contactable list). */
   onContactEmployee?: (name: string) => void
+  /** "mobile" swaps every session row for the touch-native one. The chat route
+   *  mounts this list twice — a desktop column and a phone body — so the row
+   *  shape is chosen by the mount, not by a media query inside the row. */
+  variant?: "desktop" | "mobile"
 }
 
 interface FlatItem {
@@ -123,11 +110,6 @@ interface FlatRow {
 // backend registry (sessions are bounded per group; "load more" fetches the rest).
 const DIRECT_GROUP = "__direct__"
 const CRON_GROUP = "__cron__"
-const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000
-// A red error dot is only worth surfacing while the failure is fresh; older
-// errored sessions fall back to the normal idle/unread treatment so the list
-// isn't littered with stale red dots.
-const RECENT_ERROR_WINDOW_MS = 24 * 60 * 60 * 1000
 
 const COLLAPSE_STORAGE_KEY = "jinn-sidebar-collapsed"
 const EXPANDED_STORAGE_KEY = "jinn-sidebar-expanded"
@@ -136,37 +118,6 @@ const FOCUS_MODE_STORAGE_KEY = "jinn-sidebar-focus-mode"
 const EMPTY_PINNED_SESSIONS = new Set<string>()
 
 type FocusMode = "focused" | "all"
-
-/** An archived search result is intentionally selectable so its transcript can
- * be reviewed and restored, despite being absent from default browse lists. */
-export function isArchivedSession(session: Pick<Session, "archivedAt"> | { archivedAt?: unknown }): boolean {
-  return typeof session.archivedAt === "string" && session.archivedAt.length > 0
-}
-
-const formatTimeCache = new Map<string, string>()
-const FORMAT_TIME_CACHE_MAX = 200
-
-function formatTime(dateStr?: string): string {
-  if (!dateStr) return ""
-  const cached = formatTimeCache.get(dateStr)
-  if (cached !== undefined) return cached
-  const d = new Date(dateStr)
-  const now = Date.now()
-  const diff = now - d.getTime()
-  let result: string
-  if (diff < 60_000) result = "now"
-  else if (diff < 3_600_000) result = `${Math.floor(diff / 60_000)}m`
-  else if (diff < 86_400_000) {
-    result = new Date(dateStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
-  } else if (diff < 172_800_000) result = "yesterday"
-  else result = new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-  if (formatTimeCache.size >= FORMAT_TIME_CACHE_MAX) {
-    const oldest = formatTimeCache.keys().next().value
-    if (oldest !== undefined) formatTimeCache.delete(oldest)
-  }
-  formatTimeCache.set(dateStr, result)
-  return result
-}
 
 function getReadSessions(): Set<string> {
   try {
@@ -309,44 +260,10 @@ export function WorkflowSessionChip({
   )
 }
 
-function getSessionActivity(session: Session): string {
-  return session.lastActivity || session.createdAt || ""
-}
-
 function sortSessionsByActivity(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => getSessionActivity(b).localeCompare(getSessionActivity(a)))
 }
 
-/** Idle-but-busy: the session's turn ended but subagents/background tasks are
- *  still making API calls. Running/error status always wins over this. */
-export function hasBackgroundActivity(session: Pick<Session, "status" | "backgroundActivity" | "delegatedActivity">): boolean {
-  const activity = session.backgroundActivity
-  const lastActivityAt = activity?.lastActivityAt ? new Date(activity.lastActivityAt).getTime() : 0
-  const stale = lastActivityAt > 0 && Date.now() - lastActivityAt > BACKGROUND_ACTIVITY_STALE_MS
-  const runtimeActive = (
-    session.status !== "running" &&
-    session.status !== "error" &&
-    !stale &&
-    (activity?.activeStreams ?? 0) > 0
-  )
-  const delegatedActive =
-    session.status !== "running" &&
-    session.status !== "error" &&
-    (session.delegatedActivity?.activeSessions ?? 0) > 0
-  return runtimeActive || delegatedActive
-}
-
-interface StatusDotState {
-  color: string
-  label: string
-  pulse: boolean
-}
-
-/** A red error dot fires only for a *recently* errored session — `status` is
- *  "error" AND its last activity is inside the recency window. `nowMs` is passed
- *  in (rather than read at module load) so the window is evaluated at call time
- *  and the helper stays pure/testable. A missing or unparseable timestamp is
- *  treated as not-recent so the row falls through to the quiet treatment. */
 /**
  * The session to fall back to after deleting the ACTIVE session: its
  * neighbour in the visible order — the next row, else the previous, else
@@ -378,203 +295,13 @@ export function pickDeleteFallbackId(
   return allIdsByRecency.find((id) => id !== deletedId) ?? null
 }
 
-export function isRecentError(
-  status: string | undefined,
-  lastActivityISO: string,
-  nowMs: number,
-): boolean {
-  if (status !== "error") return false
-  if (!lastActivityISO) return false
-  const ts = new Date(lastActivityISO).getTime()
-  if (Number.isNaN(ts)) return false
-  return nowMs - ts < RECENT_ERROR_WINDOW_MS
-}
-
-/** How long a live turn may produce nothing before the row says so. Well below the
- *  gateway reconciler's kill threshold on purpose: the operator should see a session
- *  go amber — and get the chance to interrupt or resend it themselves — long before
- *  anything is reclaimed automatically. */
-export const TURN_STALL_VISIBLE_MS = 90_000
-
-/** Read stall state off a session, tolerating older payloads (a gateway that
- *  predates the field simply never reports progress).
- *
- *  The staleness verdict lives HERE, not on the server. A stalled session emits no
- *  events, so nothing invalidates the sessions query — a server-side verdict would
- *  only arrive if something unrelated triggered a refetch, and the whole point is
- *  to surface a session that generates no signals. The client receives the progress
- *  instant at turn start, while the session is still healthy, and `useStallClock`
- *  re-renders on a timer so this crosses the threshold with no network round-trip. */
-export function getTurnStall(
-  session: Session,
-  now: number = Date.now(),
-): { stalledForMs: number; awaitingSubmit: boolean } | null {
-  const progress = session.turnProgress
-  const at = progress?.lastProgressAt
-  if (!progress || typeof at !== "number" || !Number.isFinite(at) || at <= 0) return null
-  const stalledForMs = now - at
-  if (stalledForMs < TURN_STALL_VISIBLE_MS) return null
-  return { stalledForMs, awaitingSubmit: !!progress.awaitingSubmit }
-}
-
-/** One interval for the whole sidebar, shared via an external store.
- *
- *  A per-row timer would mean one interval per session; this keeps a single timer
- *  that only runs while something is subscribed, and only exists to re-render so
- *  getTurnStall can re-evaluate its own clock. */
-const stallClock = (() => {
-  const listeners = new Set<() => void>()
-  let now = Date.now()
-  let timer: ReturnType<typeof setInterval> | undefined
-  return {
-    subscribe(listener: () => void) {
-      listeners.add(listener)
-      if (!timer) {
-        // The clock stops with the last listener, so the cached value can be
-        // arbitrarily old by the time the sidebar mounts again. React re-reads the
-        // snapshot right after subscribing, so refreshing here is picked up.
-        now = Date.now()
-        timer = setInterval(() => {
-          now = Date.now()
-          for (const l of listeners) l()
-        }, 15_000)
-      }
-      return () => {
-        listeners.delete(listener)
-        if (listeners.size === 0 && timer) {
-          clearInterval(timer)
-          timer = undefined
-        }
-      }
-    },
-    get: () => now,
-  }
-})()
-
-/** Ticks only for rows that could actually stall. A row with nothing in flight has
- *  no age to advance, so it stays out of the listener set entirely and the interval
- *  does not exist at all while the list is quiet. */
-const noStallClock = () => () => {}
-export function useStallClock(active = true): number {
-  return useSyncExternalStore(active ? stallClock.subscribe : noStallClock, stallClock.get, stallClock.get)
-}
-
-/** Coarse elapsed label — "2m", "51m", "1h 4m". Deliberately low-precision: the
- *  operator needs to know it has been too long, not the exact second. */
-export function formatStallAge(ms: number): string {
-  const totalMinutes = Math.floor(ms / 60_000)
-  if (totalMinutes < 1) return "under a minute"
-  if (totalMinutes < 60) return `${totalMinutes}m`
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`
-}
-
-// Resolve the attention-state dot for a session. Returns null for the resting
-// "read" state so no dot is painted (quiet at rest). Optionally treat the row
-// as unread even when this session is read (e.g. a grouped employee row whose
-// other chats are unread).
-export function getStatusDot(
-  session: Session,
-  readSet: Set<string>,
-  forceUnread = false,
-  now: number = Date.now(),
-): StatusDotState | null {
-  if (session.status === "running") {
-    // A stalled turn must not look like a working one. Same blue-dot spinner for
-    // both is exactly why a 51-minute hang can sit unnoticed: amber + an elapsed
-    // count is the difference between "thinking" and "go look at this".
-    const stall = getTurnStall(session, now)
-    if (stall) {
-      return {
-        color: "var(--system-orange)",
-        label: stall.awaitingSubmit
-          ? `prompt not accepted by the engine (stuck ${formatStallAge(stall.stalledForMs)})`
-          : `no output for ${formatStallAge(stall.stalledForMs)}`,
-        pulse: false, // a still dot reads as stuck; pulsing reads as working
-      }
-    }
-    return { color: "var(--system-blue)", label: "running", pulse: true }
-  }
-  if (isRecentError(session.status, getSessionActivity(session), Date.now())) {
-    return { color: "var(--system-red)", label: "error", pulse: false }
-  }
-  if (hasBackgroundActivity(session)) return { color: "var(--system-orange)", label: "background work running", pulse: true }
-  // Unread uses a NEUTRAL dot (not --accent): accent is user-set and may be red,
-  // which would read like an error. Calm grey stays visible without alarming.
-  if (forceUnread || !readSet.has(session.id)) return { color: "var(--text-secondary)", label: "unread", pulse: false }
-  return null
-}
-
-/** Row-level "this needs a look" chips.
- *
- *  Both facts here were previously unobservable: a wedged session rendered exactly
- *  like a working one indefinitely, and the queue piling up behind it was not shown
- *  at all — so the only way to find a stuck employee was to go looking for one. */
-function SessionAttentionChips({ session }: { session: Session }) {
-  const stall = session.status === "running" ? getTurnStall(session) : null
-  const queued = typeof session.queueDepth === "number" ? session.queueDepth : 0
-  if (!stall && queued <= 0) return null
-  return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      {stall ? (
-        <span
-          title={
-            stall.awaitingSubmit
-              ? "The engine never accepted this prompt. Open the CLI view to resend it, or interrupt the session."
-              : `The turn is still in flight but has produced no output for ${formatStallAge(stall.stalledForMs)}.`
-          }
-          style={{ background: "color-mix(in srgb, var(--system-orange) 14%, transparent)" }}
-          className="shrink-0 rounded-sm px-1 text-[10px] font-medium tabular-nums text-[var(--system-orange)]"
-        >
-          {stall.awaitingSubmit ? "not accepted" : `stalled ${formatStallAge(stall.stalledForMs)}`}
-        </span>
-      ) : null}
-      {queued > 0 ? (
-        <span
-          title={`${queued} queued message${queued === 1 ? "" : "s"} waiting on this session`}
-          className="shrink-0 rounded-sm bg-[var(--fill-secondary)] px-1 text-[10px] font-medium tabular-nums text-[var(--text-secondary)]"
-        >
-          {queued} queued
-        </span>
-      ) : null}
-    </span>
-  )
-}
-
-function StatusDot({
-  color,
-  pulse = false,
-  className,
-  title,
-}: {
-  color: string
-  pulse?: boolean
-  className?: string
-  title?: string
-}) {
-  return (
-    <span
-      className={cn("shrink-0 rounded-full", className)}
-      title={title}
-      role={title ? "img" : undefined}
-      aria-label={title}
-      style={{
-        background: color,
-        animation: pulse ? "sidebar-pulse 2s ease-in-out infinite" : "none",
-        boxShadow: pulse ? `0 0 8px ${color}` : "none",
-      }}
-    />
-  )
-}
-
 // One quiet, unified treatment for every sidebar section header
 // (Today/Yesterday, Older, Scheduled, Team): muted medium label with light
 // tracking and the count as a plain trailing number — no shouty uppercase, no
 // filled chip. Keep these constants the single source so the headers can't drift.
 const SECTION_LABEL_CLASS =
-  "text-[11px] font-[var(--weight-medium)] tracking-[0.06em] text-[var(--text-tertiary)]"
-const SECTION_COUNT_CLASS = "text-[10px] tabular-nums text-[var(--text-quaternary)]"
+  "text-caption2 font-[var(--weight-medium)] tracking-[0.06em] text-[var(--text-tertiary)]"
+const SECTION_COUNT_CLASS = "text-caption2 tabular-nums text-[var(--text-quaternary)]"
 
 function SectionLabel({
   label,
@@ -675,7 +402,7 @@ const SessionRow = React.memo(function SessionRow({
               maxLength={200}
               defaultValue={displayTitle}
               className={cn(
-                "min-w-0 flex-1 truncate border-none bg-transparent text-xs outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
+                "min-w-0 flex-1 truncate border-none bg-transparent text-caption1 outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
               onFocus={(e) => e.target.select()}
@@ -703,7 +430,7 @@ const SessionRow = React.memo(function SessionRow({
           ) : (
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-xs",
+                "min-w-0 flex-1 truncate text-caption1",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
             >
@@ -714,7 +441,7 @@ const SessionRow = React.memo(function SessionRow({
           {isPinned ? (
             <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0" />
           ) : null}
-          <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0">{sessionTime}</span>
+          <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0">{sessionTime}</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -856,23 +583,23 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
               <div className="mb-0.5 flex items-baseline gap-2">
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-[13px] tracking-[-0.2px] text-foreground",
+                    "min-w-0 flex-1 truncate text-footnote text-foreground",
                     isUnread || isActive ? "font-semibold" : "font-medium"
                   )}
                 >
                   {displayName}
                 </span>
                 {isArchived ? (
-                  <span className="shrink-0 text-[10px] font-medium text-[var(--text-tertiary)]">Archived</span>
+                  <span className="shrink-0 text-caption2 font-medium text-[var(--text-tertiary)]">Archived</span>
                 ) : null}
-                <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/flat:lg:opacity-0 group-has-[[data-state=open]]/flat:lg:opacity-0">{time}</span>
+                <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/flat:lg:opacity-0 group-has-[[data-state=open]]/flat:lg:opacity-0">{time}</span>
               </div>
               {isRenaming ? (
                 <input
                   autoFocus
                   maxLength={200}
                   defaultValue={displayTitle}
-                  className="min-w-0 w-full truncate rounded border-none bg-transparent px-0.5 text-[11px] text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
+                  className="min-w-0 w-full truncate rounded border-none bg-transparent px-0.5 text-caption2 text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
                   onFocus={(e) => e.target.select()}
                   onClick={(e) => { e.stopPropagation(); e.preventDefault() }}
                   onKeyDown={(e) => {
@@ -888,7 +615,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
                 />
               ) : (
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 truncate text-[11px] text-[var(--text-tertiary)]">{displayTitle}</span>
+                  <span className="min-w-0 truncate text-caption2 text-[var(--text-tertiary)]">{displayTitle}</span>
                   <SessionAttentionChips session={session} />
                 </div>
               )}
@@ -966,10 +693,12 @@ interface EmployeeRowProps {
   handleDuplicate: (sessionId: string) => void
   handleStop: (sessionId: string) => void
   handleArchive: (session: Session) => void
+  variant: "desktop" | "mobile"
 }
 
 const EmployeeRow = React.memo(function EmployeeRow({
   item,
+  variant,
   selectedId,
   readSessions,
   pinnedSessions,
@@ -1061,13 +790,13 @@ const EmployeeRow = React.memo(function EmployeeRow({
               <div className="mb-0.5 flex items-baseline gap-2 pr-9 lg:pr-0">
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-[13px] tracking-[-0.2px] text-foreground",
+                    "min-w-0 flex-1 truncate text-footnote text-foreground",
                     hasUnread || isActive ? "font-semibold" : "font-medium"
                   )}
                 >
                   {displayName}
                 </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/emp:lg:opacity-0 group-has-[[data-state=open]]/emp:lg:opacity-0">{timeLabel}</span>
+                <span className="shrink-0 text-caption2 tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover/emp:lg:opacity-0 group-has-[[data-state=open]]/emp:lg:opacity-0">{timeLabel}</span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1095,7 +824,7 @@ const EmployeeRow = React.memo(function EmployeeRow({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="flex items-center gap-1.5 overflow-hidden text-[11px] text-[var(--text-tertiary)]">
+              <div className="flex items-center gap-1.5 overflow-hidden text-caption2 text-[var(--text-tertiary)]">
                 {department ? <span className="truncate">{department}</span> : null}
                 {department && sessionCount > 1 ? (
                   <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">·</span>
@@ -1132,14 +861,18 @@ const EmployeeRow = React.memo(function EmployeeRow({
 
       {isExpanded && loadedCount > 1 ? (
         empSessions.map((session) => (
-          <SessionRow key={session.id} session={session} parentSessions={empSessions} {...sessionRowProps} />
+          variant === "mobile" ? (
+            <MobileSessionRow key={session.id} session={session} avatarName={empName} displayName={displayName} {...sessionRowProps} />
+          ) : (
+            <SessionRow key={session.id} session={session} parentSessions={empSessions} {...sessionRowProps} />
+          )
         ))
       ) : null}
       {isExpanded && loadedCount < sessionCount ? (
         <button
           onClick={() => onLoadMore(groupKey, loadedCount)}
           disabled={isLoadingMore}
-          className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-[10px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
+          className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-caption2 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
         >
           {isLoadingMore ? "Loading…" : `+${sessionCount - loadedCount} more`}
         </button>
@@ -1160,6 +893,7 @@ export function ChatSidebar({
   onEmployeeSessionsAvailable,
   onOrderComputed,
   onContactEmployee,
+  variant = "desktop",
 }: ChatSidebarProps) {
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Jinn"
@@ -1861,9 +1595,10 @@ export function ChatSidebar({
             )}
           </div>
         )
-      case "flat":
+      case "flat": {
+        const Row = variant === "mobile" ? MobileSessionRow : FlatSessionRow
         return (
-          <FlatSessionRow
+          <Row
             session={vi.row.session}
             avatarName={vi.row.avatarName}
             displayName={vi.row.displayName}
@@ -1871,11 +1606,12 @@ export function ChatSidebar({
             {...sharedRowProps}
           />
         )
+      }
       case "older-line":
         return (
           <button
             onClick={toggleOlderExpanded}
-            className="mt-1 flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
+            className="mt-1 flex w-full items-center gap-2 px-4 py-2.5 text-left text-caption1 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
           >
             <Clock3 className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{olderLineLabel}</span>
@@ -1897,6 +1633,7 @@ export function ChatSidebar({
         return (
           <EmployeeRow
             item={vi.item}
+            variant={variant}
             expanded={expanded}
             handleEmployeeClick={handleEmployeeClick}
             handleMarkAllRead={handleMarkAllRead}
@@ -1908,13 +1645,21 @@ export function ChatSidebar({
       case "cron-header":
         return <div className={cn(virtualItems[0]?.kind === "cron-header" && "mt-0")}>{cronHeader}</div>
       case "cron-session":
-        return <SessionRow session={vi.session} {...sharedRowProps} />
+        return variant === "mobile" ? (
+          <MobileSessionRow
+            session={vi.session}
+            {...resolveRowIdentity(vi.session, { portalSlug, portalName, employeeData })}
+            {...sharedRowProps}
+          />
+        ) : (
+          <SessionRow session={vi.session} {...sharedRowProps} />
+        )
       case "cron-more":
         return (
           <button
             onClick={() => handleLoadMore(CRON_GROUP, cronSessions.length)}
             disabled={loadingMore.has(CRON_GROUP)}
-            className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-[10px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
+            className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-caption2 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50"
           >
             {loadingMore.has(CRON_GROUP) ? "Loading…" : `+${cronTotal - cronSessions.length} more`}
           </button>
@@ -2024,7 +1769,7 @@ export function ChatSidebar({
               placeholder="Search chats"
               aria-label="Search chats"
               tabIndex={searchOpen ? 0 : -1}
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-[var(--text-tertiary)]"
+              className="min-w-0 flex-1 bg-transparent text-subheadline text-foreground outline-none placeholder:text-[var(--text-tertiary)]"
             />
             <button
               onClick={closeSearch}
@@ -2048,11 +1793,11 @@ export function ChatSidebar({
         />
         <div ref={scrollContainerRef} data-chat-list-scroll onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
         {loading ? (
-          <div className="px-4 py-8 text-center text-xs text-[var(--text-quaternary)]">
+          <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             Loading chats…
           </div>
         ) : virtualItems.length === 0 ? (
-          <div className="px-4 py-8 text-center text-xs text-[var(--text-quaternary)]">
+          <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             {search.trim() ? (
               "No matching chats"
             ) : focusMode === "focused" && hiddenAutomated > 0 ? (
@@ -2112,11 +1857,11 @@ export function ChatSidebar({
                   <EmployeeAvatar name={emp.name} size={36} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className="block min-w-0 truncate text-[13px] font-medium tracking-[-0.2px] text-foreground">
+                  <span className="block min-w-0 truncate text-footnote font-medium tracking-[-0.2px] text-foreground">
                     {emp.displayName || titleCase(emp.name)}
                   </span>
                   {emp.department ? (
-                    <span className="block truncate text-[11px] text-[var(--text-tertiary)]">{emp.department}</span>
+                    <span className="block truncate text-caption2 text-[var(--text-tertiary)]">{emp.department}</span>
                   ) : null}
                 </div>
                 <Plus className="size-3.5 shrink-0 text-[var(--text-quaternary)] transition-colors group-hover/contact:text-[var(--accent)]" />
@@ -2161,20 +1906,6 @@ export function ChatSidebar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <style>{`
-        @keyframes sidebar-pulse {
-          0%,
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-          50% {
-            opacity: 0.55;
-            transform: scale(0.85);
-          }
-        }
-      `}</style>
     </div>
   )
 }

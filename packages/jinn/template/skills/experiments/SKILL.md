@@ -13,6 +13,8 @@ Use an Experiment when a decision depends on a testable hypothesis, measurable b
 - `get_experiment`: read one experiment with its metrics and readings.
 - `create_experiment`: define the name, hypothesis, baseline, metrics, horizon, and optional check-in schedule.
 - `update_experiment`: edit the definition of a running experiment.
+
+Both accept an optional `todoId` naming the Todo the experiment informs, and an optional `owner` naming who is watching it. `update_experiment` clears either one when passed `null`. A `todoId` that names no Todo is rejected rather than stored.
 - `record_reading`: append a dated metric value and optional note.
 - `conclude_experiment`: finish with a win, loss, or inconclusive verdict and supporting note.
 

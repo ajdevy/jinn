@@ -16,7 +16,7 @@
       "lines": 625
     },
     "packages/gateway-events/src/index.ts": {
-      "lines": 345
+      "lines": 332
     },
     "packages/jinn/scripts/instance-migration-bundle.mjs": {
       "exempt": [
@@ -856,7 +856,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 1020
+      "lines": 993
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1108,9 +1108,6 @@
     "packages/web/src/components/chat/__tests__/chat-messages-tool-group.test.tsx": {
       "lines": 527
     },
-    "packages/web/src/components/chat/__tests__/chat-sidebar-helpers.test.ts": {
-      "lines": 439
-    },
     "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": {
       "lines": 862,
       "exempt": [
@@ -1169,7 +1166,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1668,
+      "lines": 1633,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1185,7 +1182,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 2180,
+      "lines": 1911,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1520,7 +1517,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1279,
+      "lines": 1272,
       "exempt": [
         "complexity"
       ]
@@ -1574,7 +1571,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1211,
+      "lines": 1210,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

@@ -1,18 +1,15 @@
 import { initDb } from "../shared/db.js";
-import type { Experiment, ExperimentMetric, ExperimentReading, ExperimentVerdict } from "../shared/types.js";
+import type {
+  Experiment,
+  ExperimentMetric,
+  ExperimentReading,
+  ExperimentVerdict,
+  HydratedExperiment,
+} from "../shared/types.js";
 
 const DAY_MS = 86_400_000;
 
-/**
- * A stored experiment with the two horizon facts computed from it. They are read
- * off `startedAt` and `horizonDays` on every hydration rather than written to a
- * column, so they belong to this module and not to the stored shape in
- * shared/types.ts. Every store read returns this; the wire payload carries both.
- */
-export interface HydratedExperiment extends Experiment {
-  horizonEndsAt: string;
-  overdue: boolean;
-}
+export type { HydratedExperiment } from "../shared/types.js";
 
 interface MetricRow {
   experiment_id: string;
@@ -69,6 +66,12 @@ export function readReadings(id: string): ExperimentReading[] {
   return rows.map(toReading);
 }
 
+/** A nullable text column as an optional field: absent rather than empty, so a
+ *  cleared link does not reach the wire as `""`. */
+function optionalField<K extends string>(key: K, value: unknown): { [P in K]?: string } {
+  return typeof value === "string" && value ? { [key]: value } as { [P in K]?: string } : {};
+}
+
 export function rowToExperiment(
   row: Record<string, unknown>,
   metrics: ExperimentMetric[],
@@ -96,9 +99,9 @@ export function rowToExperiment(
     ...(outcome && concludedAt && verdictNote !== null
       ? { verdict: { outcome, note: verdictNote, concludedAt } }
       : {}),
-    ...(typeof row.check_in_cron_job_id === "string" && row.check_in_cron_job_id
-      ? { checkInCronJobId: row.check_in_cron_job_id }
-      : {}),
+    ...optionalField("checkInCronJobId", row.check_in_cron_job_id),
+    ...optionalField("todoId", row.todo_id),
+    ...optionalField("owner", row.owner),
   };
 }
 

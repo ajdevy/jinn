@@ -9,6 +9,7 @@ process.env.JINN_HOME = home;
 type Store = typeof import("../store.js");
 let store: Store;
 let db: import("better-sqlite3").Database;
+let createWorkItem: typeof import("../../work-items/store.js").createWorkItem;
 
 const metrics = [
   { name: "activation", unit: "%", howToMeasure: "Read the activation dashboard." },
@@ -18,16 +19,22 @@ const metrics = [
 beforeAll(async () => {
   store = await import("../store.js");
   db = (await import("../../shared/db.js")).initDb();
+  ({ createWorkItem } = await import("../../work-items/store.js"));
 });
 
-function createFixture(name: string) {
-  const result = store.createExperiment({
+function attemptCreate(name: string, extra: Partial<import("../store.js").CreateExperimentInput> = {}) {
+  return store.createExperiment({
     name,
     hypothesis: "A smaller first step will improve activation.",
     baseline: { activation: 21, retention: 38 },
     metrics,
     horizonDays: 30,
+    ...extra,
   });
+}
+
+function createFixture(name: string, extra: Partial<import("../store.js").CreateExperimentInput> = {}) {
+  const result = attemptCreate(name, extra);
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.detail);
   return result.value;
@@ -218,6 +225,36 @@ describe("experiment store", () => {
     expect(store.listExperiments().length).toBeLessThanOrEqual(100);
     expect(store.listExperiments(undefined, 99_999).length).toBeLessThanOrEqual(500);
     expect(store.listExperiments(undefined, Number.NaN).length).toBeLessThanOrEqual(100);
+  });
+
+  it("links an existing Todo and an owner, and clears the link with null", () => {
+    const todo = createWorkItem({ title: "Owning Todo", createdBy: "operator" });
+    const experiment = createFixture("Linked experiment", { todoId: todo.id, owner: "growth-lead" });
+
+    expect(experiment).toMatchObject({ todoId: todo.id, owner: "growth-lead" });
+    expect(store.getExperiment(experiment.id)).toEqual({ ok: true, value: experiment });
+
+    const cleared = store.updateExperiment(experiment.id, { todoId: null });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.value.todoId).toBeUndefined();
+    expect(cleared.value.owner).toBe("growth-lead");
+  });
+
+  it("refuses a malformed Todo id and one that names no row", () => {
+    expect(attemptCreate("Malformed link", { todoId: "nope" })).toMatchObject({ ok: false, reason: "invalid" });
+    const missing = attemptCreate("Dangling link", { todoId: "ZZZ-1" });
+    expect(missing).toMatchObject({ ok: false, reason: "invalid" });
+    if (!missing.ok) expect(missing.detail).toContain("ZZZ-1");
+  });
+
+  it("refuses to relink a concluded experiment", () => {
+    const todo = createWorkItem({ title: "Late link", createdBy: "operator" });
+    const experiment = createFixture("Concluded link");
+    store.concludeExperiment(experiment.id, { outcome: "loss", note: "Not worth continuing." });
+
+    expect(store.updateExperiment(experiment.id, { todoId: todo.id })).toMatchObject({ ok: false, reason: "conflict" });
+    expect(store.updateExperiment(experiment.id, { todoId: null })).toMatchObject({ ok: false, reason: "conflict" });
   });
 
   it("concludes with a verdict and refuses later edits", () => {

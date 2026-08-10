@@ -40,6 +40,7 @@ function Harness(props: { streamingText?: string; messageCount: number; latestMe
       <span data-testid="jump">{showJump ? 'show' : 'hide'}</span>
       <span data-testid="unread">{unreadCount}</span>
       <button data-testid="btn" onClick={() => scrollToBottom('auto')}>jump</button>
+      <button data-testid="btn-smooth" onClick={() => scrollToBottom('smooth')}>jump smoothly</button>
     </div>
   )
 }
@@ -246,5 +247,49 @@ describe('useStickToBottom — behaviour', () => {
     setMetrics(el, 1100, 200, el.scrollTop)
     act(() => { rerender(<Harness messageCount={6} />) })
     expect(dist(el)).toBe(0)
+  })
+
+  it('within the threshold: a new message pins the reader to the bottom', () => {
+    const { getByTestId, rerender } = render(<Harness messageCount={0} />)
+    const el = getByTestId('scroller')
+    setMetrics(el, 1000, 200, 0)
+    act(() => { rerender(<Harness messageCount={5} />) })
+    // Read up, then scroll back down and stop just inside the band — the way a
+    // user actually arrives within STICK_THRESHOLD_PX of the bottom.
+    act(() => { el.scrollTop = 200; fireEvent.scroll(el) })
+    act(() => { el.scrollTop = 1000 - 200 - (STICK_THRESHOLD_PX - 1); fireEvent.scroll(el) })
+    expect(dist(el)).toBe(STICK_THRESHOLD_PX - 1)
+
+    setMetrics(el, 1300, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} latestMessageKey="m6" />) })
+
+    expect(dist(el)).toBe(0)
+    expect(getByTestId('jump').textContent).toBe('hide')
+    expect(getByTestId('unread').textContent).toBe('0')
+  })
+
+  it('an unfinished smooth jump does not swallow the user\'s next scroll', () => {
+    const { getByTestId, rerender } = render(<Harness messageCount={0} />)
+    const el = getByTestId('scroller')
+    el.scrollTo = () => {} // jsdom has none; the hook takes the smooth branch when it exists
+    setMetrics(el, 1000, 200, 0)
+    act(() => { rerender(<Harness messageCount={5} />) })
+    act(() => { el.scrollTop = 100; fireEvent.scroll(el) }) // detach, seen=5
+    act(() => { fireEvent.click(getByTestId('btn-smooth')) })
+
+    // The animation is still short of the bottom when content grows past its
+    // target, so it never reports arrival. Suppression used to latch on there and
+    // every later scroll event returned early — leaving the reader permanently
+    // followed, with no jump affordance and no unread count.
+    setMetrics(el, 1600, 200, 700)
+    act(() => { fireEvent.scroll(el) })
+    act(() => { el.scrollTop = 300; fireEvent.scroll(el) }) // user reads up again
+    const readingPos = el.scrollTop
+
+    expect(getByTestId('jump').textContent).toBe('show')
+    setMetrics(el, 1900, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} latestMessageKey="m6" />) })
+    expect(el.scrollTop).toBe(readingPos)
+    expect(getByTestId('unread').textContent).toBe('1')
   })
 })

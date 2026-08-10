@@ -58,6 +58,17 @@ fs.writeFileSync(embeddedGatewayEventsRuntime, runtimeText);
 fs.writeFileSync(embeddedGatewayEventsDeclaration, declarationText);
 fs.rmSync(`${embeddedGatewayEventsRuntime}.map`, { force: true });
 fs.rmSync(`${embeddedGatewayEventsDeclaration}.map`, { force: true });
+// The protocol is more than one module now — index re-exports ./payloads.js —
+// so its siblings travel with it or the embedded declaration points at nothing.
+// A name that collides with jinn's own shared/ module would silently overwrite
+// it, which is worth stopping the build over rather than shipping.
+const sharedDir = path.join(dist, "src", "shared");
+for (const sibling of fs.readdirSync(path.join(gatewayEventsRoot, "dist"))) {
+  if (sibling.startsWith("index.") || sibling.endsWith(".map")) continue;
+  const target = path.join(sharedDir, sibling);
+  if (fs.existsSync(target)) throw new Error(`gateway protocol module "${sibling}" collides with jinn's own src/shared/${sibling}`);
+  fs.copyFileSync(path.join(gatewayEventsRoot, "dist", sibling), target);
+}
 
 // 5. Copy the Talk assets tsc does not emit (Markdown + Python live beside the
 //    TypeScript). Missing files are not an error: they are optional extras.
