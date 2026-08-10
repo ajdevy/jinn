@@ -98,13 +98,14 @@ import { startWsHeartbeat, trackHeartbeat } from "./ws-heartbeat.js";
 import { ensureFilesDir, cleanupOldUploads } from "./files.js";
 import { initStt } from "../stt/stt.js";
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
+import { gatewayWatchCallbacks } from "./watch-callbacks.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
 import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
-import { startScheduler, reloadScheduler, stopScheduler } from "../cron/scheduler.js";
+import { startScheduler, stopScheduler } from "../cron/scheduler.js";
 import { scanOrg } from "./org.js";
 
 
@@ -1254,20 +1255,7 @@ export async function startGateway(
   }
 
   // Start file watchers
-  startWatchers({
-    onConfigReload: reloadConfig,
-    onCronReload: () => {
-      const updatedJobs = loadJobs();
-      reloadScheduler(updatedJobs);
-      logger.info(`Cron jobs reloaded (${updatedJobs.length} job(s))`);
-      emit("cron:reloaded", {});
-    },
-    onOrgChange: reloadOrg,
-    onSkillsChange: () => {
-      logger.info("Skills changed, notifying clients");
-      emit("skills:changed", {});
-    },
-  });
+  startWatchers(gatewayWatchCallbacks({ reloadConfig, reloadOrg, emit }));
 
   // Start listening (port/host resolved earlier at boot). During `jinn restart`
   // the replacement daemon can race the old process' graceful shutdown; retry

@@ -83,6 +83,7 @@ export const CRON_JOBS = path.join(JINN_HOME, "cron", "jobs.json");
 export const CRON_RUNS = path.join(JINN_HOME, "cron", "runs");
 export const ORG_DIR = path.join(JINN_HOME, "org");
 export const SKILLS_DIR = path.join(JINN_HOME, "skills");
+export const PLUGINS_DIR = path.join(JINN_HOME, "plugins");
 export const DOCS_DIR = path.join(JINN_HOME, "docs");
 export const LOGS_DIR = path.join(JINN_HOME, "logs");
 export const TMP_DIR = path.join(JINN_HOME, "tmp");

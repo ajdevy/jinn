@@ -95,7 +95,6 @@ import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
   CONFIG_PATH,
   ORG_DIR,
-  SKILLS_DIR,
   LOGS_DIR,
   TMP_DIR,
   FILES_DIR,
@@ -133,6 +132,8 @@ import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncodi
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
+import { handleSkillsApi } from "./skills-api.js";
+import { handlePluginsApi } from "./plugins-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
@@ -287,7 +288,6 @@ import {
   restartDetached,
   type RestartDetachedOptions,
 } from "./lifecycle.js";
-import { updateSkillContent } from "./skills.js";
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
 import { handleHeartbeatApi } from "./heartbeat-api.js";
@@ -300,8 +300,6 @@ const AUTH_BODY_MAX_BYTES = 16 * 1024;
 export const TODO_EDIT_BODY_MAX_BYTES = 64 * 1024;
 /** HTTP parity with the MCP label_work_item cap (slice-3 review N1). */
 export const TODO_LABELS_MAX = 100;
-/** Cap for editable SKILL.md bodies. */
-const SKILL_CONTENT_BODY_MAX_BYTES = 2 * 1024 * 1024;
 const SESSION_LIST_PER_GROUP = 50;
 const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000;
 function headerValue(req: HttpRequest, name: string): string | undefined {
@@ -694,43 +692,6 @@ function dispatchWebSessionRun(
   } else {
     launch();
   }
-}
-
-/**
- * GET /api/skills description cache, keyed by skill dir name and invalidated
- * by SKILL.md mtime (statSync is far cheaper than re-reading + re-parsing ~70
- * files per request).
- */
-const skillDescriptionCache = new Map<string, { mtimeMs: number; description: string }>();
-
-/** Extract a skill description from YAML frontmatter, ## Trigger section, or first paragraph. */
-function parseSkillDescription(content: string): string {
-  let description = "";
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (frontmatterMatch) {
-    const descMatch = frontmatterMatch[1].match(/^description:\s*(.+)$/m);
-    if (descMatch) {
-      description = descMatch[1].trim();
-    }
-  }
-  if (!description) {
-    const triggerMatch = content.match(/##\s*Trigger\s*\n+([^\n#]+)/);
-    if (triggerMatch) {
-      description = triggerMatch[1].trim();
-    } else {
-      // Use first non-heading, non-empty, non-frontmatter line
-      const bodyContent = frontmatterMatch ? content.slice(frontmatterMatch[0].length) : content;
-      const lines = bodyContent.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith("#")) {
-          description = trimmed;
-          break;
-        }
-      }
-    }
-  }
-  return description;
 }
 
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */
@@ -1628,6 +1589,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) return "legacy org board write";
   if (method === "DELETE" && matchRoute("/api/skills/:name", pathname)) return "skill removal";
   if (method === "PUT" && matchRoute("/api/skills/:name", pathname)) return "skill update";
+  if (method === "POST" && pathname === "/api/plugins/rescan") return "plugin rescan";
   return null;
 }
 
@@ -5609,62 +5571,8 @@ export async function handleApiRequest(
 
     if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
     if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
-
-    // GET /api/skills
-    if (method === "GET" && pathname === "/api/skills") {
-      if (!fs.existsSync(SKILLS_DIR)) return json(res, []);
-      const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
-      const skills = entries.filter((e) => e.isDirectory()).map((e) => {
-        const skillMdPath = path.join(SKILLS_DIR, e.name, "SKILL.md");
-        const st = fs.statSync(skillMdPath, { throwIfNoEntry: false });
-        if (!st) {
-          skillDescriptionCache.delete(e.name);
-          return { name: e.name, description: "" };
-        }
-        const hit = skillDescriptionCache.get(e.name);
-        if (hit && hit.mtimeMs === st.mtimeMs) return { name: e.name, description: hit.description };
-        const description = parseSkillDescription(fs.readFileSync(skillMdPath, "utf-8"));
-        skillDescriptionCache.set(e.name, { mtimeMs: st.mtimeMs, description });
-        return { name: e.name, description };
-      });
-      return json(res, skills);
-    }
-
-    // GET /api/skills/:name
-    params = matchRoute("/api/skills/:name", pathname);
-    if (method === "GET" && params) {
-      const skillMd = path.join(SKILLS_DIR, params.name, "SKILL.md");
-      if (!fs.existsSync(skillMd)) return notFound(res);
-      const content = fs.readFileSync(skillMd, "utf-8");
-      return json(res, { name: params.name, content });
-    }
-
-    // PUT /api/skills/:name — replace an existing skill's SKILL.md
-    params = matchRoute("/api/skills/:name", pathname);
-    if (method === "PUT" && params) {
-      const parsed = await readJsonBody(req, res, { maxBytes: SKILL_CONTENT_BODY_MAX_BYTES });
-      if (!parsed.ok) return;
-      const body = parsed.body && typeof parsed.body === "object" && !Array.isArray(parsed.body)
-        ? parsed.body as Record<string, unknown>
-        : {};
-      const result = updateSkillContent(params.name, body.content);
-      if (!result.ok) return json(res, { error: result.error }, result.status);
-      skillDescriptionCache.delete(params.name);
-      logger.info(`Skill updated via API: ${params.name}`);
-      return json(res, { status: "updated", name: params.name, content: result.content });
-    }
-
-    // DELETE /api/skills/:name — remove a skill
-    params = matchRoute("/api/skills/:name", pathname);
-    if (method === "DELETE" && params) {
-      const skillDir = path.join(SKILLS_DIR, params.name);
-      if (!fs.existsSync(skillDir)) return notFound(res);
-      fs.rmSync(skillDir, { recursive: true, force: true });
-      const { removeFromManifest } = await import("../cli/skills.js");
-      removeFromManifest(params.name);
-      logger.info(`Skill removed via API: ${params.name}`);
-      return json(res, { status: "removed", name: params.name });
-    }
+    if (await handleSkillsApi(req, res, { method, pathname, url }, context)) return;
+    if (await handlePluginsApi(req, res, { method, pathname, url }, context)) return;
 
     // GET /api/engines — resolved model + capability registry (single source of truth
     // for the UI model/effort selectors). Synthesized from engines.<name>.model
