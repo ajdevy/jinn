@@ -1,18 +1,21 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { call, install, pluginsDir, resetPlugins, startHarness, writeConfig } from "./plugins-api-harness.js";
 
 let authRequiredForRequest: (typeof import("../auth.js"))["authRequiredForRequest"];
+let onConfigReload: () => void;
 let routePrefix: string;
 
 beforeAll(async () => {
-  ({ authRequiredForRequest, routePrefix } = await startHarness());
+  ({ authRequiredForRequest, onConfigReload, routePrefix } = await startHarness());
 });
 
 beforeEach(() => {
   resetPlugins();
   writeConfig({ enabled: ["inbox"] });
+  onConfigReload();
   install("inbox", { id: "inbox", name: "Inbox", version: "2.0.0", server: "server.js" }, {
     "server.js": "// gateway-side source",
     "assets/logo.svg": "<svg/>",
@@ -39,6 +42,7 @@ describe("GET /api/plugins", () => {
 
   it("keeps a plugin listed in both lists disabled", async () => {
     writeConfig({ enabled: ["inbox"], disabled: ["inbox"] });
+    onConfigReload();
     const listed = await call("GET", "/api/plugins");
     expect(listed.body.plugins).toEqual([]);
     expect(listed.body.inventory[0].status).toBe("disabled");
@@ -98,7 +102,51 @@ describe("GET /api/plugins/:id/client", () => {
   it("serves the entry the manifest names, not the conventional filename", async () => {
     install("named", { id: "named", client: "ui.js" }, { "ui.js": "export const ui = 1", "client.js": "export const wrong = 1" });
     writeConfig({ enabled: ["named"] });
+    onConfigReload();
     expect((await call("GET", "/api/plugins/named/client")).bodyText).toBe("export const ui = 1");
+  });
+
+  it("keeps a client symlink escaping its plugin as an inventory error", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-client-outside-"));
+    try {
+      const target = path.join(outside, "client.js");
+      fs.writeFileSync(target, "export const outside = true");
+      fs.rmSync(path.join(pluginsDir, "inbox", "client.js"));
+      fs.symlinkSync(target, path.join(pluginsDir, "inbox", "client.js"));
+
+      const inventory = (await call("GET", "/api/plugins")).body.inventory;
+      const inbox = inventory.find((row: { id: string }) => row.id === "inbox");
+      expect(inbox.status).toBe("error");
+      expect(inbox.error).toContain("client");
+      expect((await call("GET", "/api/plugins/inbox/client")).status).toBe(404);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers a symlinked plugin directory and serves its own files", async () => {
+    const checkout = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-checkout-"));
+    try {
+      fs.writeFileSync(path.join(checkout, "plugin.json"), JSON.stringify({ id: "linked" }));
+      fs.writeFileSync(path.join(checkout, "client.js"), "export const linked = true");
+      fs.mkdirSync(path.join(checkout, "assets"));
+      fs.writeFileSync(path.join(checkout, "assets", "logo.svg"), "<linked/>");
+      fs.symlinkSync(checkout, path.join(pluginsDir, "linked"), "dir");
+      writeConfig({ enabled: ["linked"] });
+      onConfigReload();
+
+      expect((await call("GET", "/api/plugins")).body.inventory).toContainEqual({
+        id: "linked",
+        name: "linked",
+        version: "0.0.0",
+        kind: "client",
+        status: "loaded",
+      });
+      expect((await call("GET", "/api/plugins/linked/client")).bodyText).toBe("export const linked = true");
+      expect((await call("GET", "/api/plugins/linked/assets/logo.svg")).bodyText).toBe("<linked/>");
+    } finally {
+      fs.rmSync(checkout, { recursive: true, force: true });
+    }
   });
 });
 
@@ -152,18 +200,62 @@ describe("GET /api/plugins/:id/assets/*", () => {
     // the suffix did not become forbidden.
     expect((await call("GET", "/api/plugins/inbox/assets/server.js")).bodyText).toBe("// an asset that shares a name");
   });
+
+  it("does not serve an asset symlink whose target escapes the assets directory", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-asset-outside-"));
+    try {
+      const target = path.join(outside, "secret.svg");
+      fs.writeFileSync(target, "asset symlink secret");
+      fs.symlinkSync(target, path.join(pluginsDir, "inbox", "assets", "secret.svg"));
+
+      const served = await call("GET", "/api/plugins/inbox/assets/secret.svg");
+      expect(served.status).toBe(404);
+      expect(served.bodyText).not.toContain("asset symlink secret");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let an asset symlink expose a plugin server entry", async () => {
+    fs.symlinkSync(
+      path.join(pluginsDir, "inbox", "server.js"),
+      path.join(pluginsDir, "inbox", "assets", "server-entry.js"),
+    );
+
+    const served = await call("GET", "/api/plugins/inbox/assets/server-entry.js");
+    expect(served.status).toBe(404);
+    expect(served.bodyText).not.toContain("gateway-side source");
+  });
+
+  it("does not follow an assets directory symlink outside the plugin", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-assets-root-outside-"));
+    try {
+      fs.writeFileSync(path.join(outside, "logo.svg"), "assets root secret");
+      fs.rmSync(path.join(pluginsDir, "inbox", "assets"), { recursive: true, force: true });
+      fs.symlinkSync(outside, path.join(pluginsDir, "inbox", "assets"), "dir");
+
+      const served = await call("GET", "/api/plugins/inbox/assets/logo.svg");
+      expect(served.status).toBe(404);
+      expect(served.bodyText).not.toContain("assets root secret");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("the enable gate on both routes", () => {
   it.each(["/api/plugins/inbox/client", "/api/plugins/inbox/assets/logo.svg"])(
-    "404s %s once the plugin is disabled while the gateway is running",
+    "404s %s after config reload disables the plugin",
     async (urlPath) => {
       expect((await call("GET", urlPath)).status).toBe(200);
 
       writeConfig({ enabled: [] });
+      expect((await call("GET", urlPath)).status).toBe(200);
+      onConfigReload();
       expect((await call("GET", urlPath)).status).toBe(404);
 
       writeConfig({ enabled: ["inbox"], disabled: ["inbox"] });
+      onConfigReload();
       expect((await call("GET", urlPath)).status).toBe(404);
     },
   );
@@ -179,6 +271,7 @@ describe("the enable gate on both routes", () => {
   it("404s a plugin whose manifest never loaded, even while it is enabled", async () => {
     install("broken", { id: "elsewhere" });
     writeConfig({ enabled: ["broken"] });
+    onConfigReload();
     expect((await call("GET", "/api/plugins/broken/client")).status).toBe(404);
   });
 

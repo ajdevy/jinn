@@ -139,9 +139,9 @@ export function startWatchers(callbacks: WatcherCallbacks): void {
   );
 
   // Plugins arrive by having a directory dropped into the instance home, so the
-  // watch is on the directory itself at depth 0, like skills/. A home with no
-  // plugins/ directory yet has nothing to watch: POST /api/plugins/rescan is the
-  // way in until the gateway next starts.
+  // watch is on the directory itself at depth 0, like skills/. Make the root so
+  // a new instance can discover its first plugin.
+  fs.mkdirSync(PLUGINS_DIR, { recursive: true });
   const pluginsWatcher = watch(PLUGINS_DIR, {
     ignoreInitial: true,
     depth: 0,

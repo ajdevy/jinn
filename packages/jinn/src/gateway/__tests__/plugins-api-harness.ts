@@ -25,6 +25,14 @@ fs.mkdirSync(path.join(tmpHome, "org"), { recursive: true });
 
 type Api = typeof import("../api.js");
 let api: Api;
+let loadConfigFromDisk: (() => import("../../shared/types.js").JinnConfig) | null = null;
+let currentConfig: import("../../shared/types.js").JinnConfig;
+
+function reloadConfig(): void {
+  if (!loadConfigFromDisk) throw new Error("plugin API harness has not started");
+  currentConfig = loadConfigFromDisk();
+  apiCtx.config = currentConfig;
+}
 
 /** The operator's lists, as `config.yaml` carries them. */
 export function writeConfig(plugins?: { enabled?: string[]; disabled?: string[] }): void {
@@ -43,8 +51,8 @@ export function writeConfig(plugins?: { enabled?: string[]; disabled?: string[] 
 }
 
 const apiCtx = {
-  getConfig: () => yaml.load(fs.readFileSync(configPath, "utf-8")),
-  reloadConfig: () => {},
+  getConfig: () => currentConfig,
+  reloadConfig,
   reloadOrg: () => {},
   connectors: new Map(),
   startTime: Date.now(),
@@ -118,18 +126,23 @@ export function install(id: string, manifest: unknown, files: Record<string, str
   }
 }
 
-/** Boot the gateway modules against the private home, and hand back the two the
- *  auth-namespace assertion needs. */
+/** Boot the gateway modules against the private home, and hand back the hooks
+ *  the auth-namespace and config-reload assertions need. */
 export async function startHarness(): Promise<{
   authRequiredForRequest: (typeof import("../auth.js"))["authRequiredForRequest"];
+  onConfigReload: () => void;
   routePrefix: string;
 }> {
   writeConfig();
+  ({ loadConfig: loadConfigFromDisk } = await import("../../shared/config.js"));
+  reloadConfig();
   api = await import("../api.js");
   (await import("../../shared/db.js")).initDb();
   const { authRequiredForRequest } = await import("../auth.js");
+  const { gatewayWatchCallbacks } = await import("../watch-callbacks.js");
   const { PLUGIN_ROUTE_PREFIX } = await import("../plugins-api.js");
-  return { authRequiredForRequest, routePrefix: PLUGIN_ROUTE_PREFIX };
+  const { onConfigReload } = gatewayWatchCallbacks({ reloadConfig, reloadOrg: () => {}, emit: () => {} });
+  return { authRequiredForRequest, onConfigReload, routePrefix: PLUGIN_ROUTE_PREFIX };
 }
 
 /** An empty plugins directory, the state every case starts from. */

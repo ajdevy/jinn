@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PLUGINS_DIR } from "../shared/paths.js";
-import { validateManifest } from "./manifest.js";
+import { resolveContainedPath, validateManifest, type PluginManifest } from "./manifest.js";
 
 /** `disabled` is applied by the caller that knows the operator's lists, not here. */
 export type PluginStatus = "loaded" | "disabled" | "error";
@@ -52,6 +52,15 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
+async function isPresent(target: string): Promise<boolean> {
+  try {
+    await fs.lstat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** An unloadable directory, recorded under its folder name. `kind` states the
  *  minimum a plugin is made of, since a row that never loaded declared nothing. */
 function errorRow(dir: string, error: string): DiscoveredPlugin {
@@ -68,14 +77,16 @@ function errorRow(dir: string, error: string): DiscoveredPlugin {
   };
 }
 
-async function readPlugin(dir: string): Promise<DiscoveredPlugin | null> {
+type ManifestRead = { dir: string; manifest: PluginManifest };
+
+async function readManifest(dir: string): Promise<ManifestRead | DiscoveredPlugin | null> {
   let raw: unknown;
   try {
     raw = JSON.parse(await fs.readFile(path.join(dir, "plugin.json"), "utf-8"));
   } catch (err) {
     // The folder can vanish between the scan listing it and this read. Gone is
     // "not installed", not a load error; still there with no manifest is an error.
-    if (isMissing(err) && !(await exists(dir))) return null;
+    if (isMissing(err) && !(await isPresent(dir))) return null;
     if (isMissing(err)) return errorRow(dir, "plugin.json is missing");
     return errorRow(dir, `plugin.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -83,20 +94,46 @@ async function readPlugin(dir: string): Promise<DiscoveredPlugin | null> {
   const result = validateManifest(raw, dir);
   if (!result.ok) return errorRow(dir, result.error);
 
-  const manifest = result.manifest;
+  const resolvedDir = await fs.realpath(dir).catch(() => null);
+  if (!resolvedDir) return errorRow(dir, "plugin directory is unavailable");
+  return { dir: resolvedDir, manifest: result.manifest };
+}
+
+async function readPlugin(dir: string): Promise<DiscoveredPlugin | null> {
+  const loaded = await readManifest(dir);
+  if (!loaded || "status" in loaded) return loaded;
+
+  const { manifest, dir: resolvedDir } = loaded;
   if (!(await exists(manifest.client))) {
     return errorRow(dir, `client entry "${path.relative(dir, manifest.client)}" is missing`);
   }
+  const client = await resolveContainedPath(resolvedDir, manifest.client);
+  if (!client) {
+    return errorRow(dir, `client entry "${path.relative(resolvedDir, manifest.client)}" resolves outside the plugin directory`);
+  }
+
+  const declaredServer = manifest.server;
+  let server = declaredServer;
+  let serverError = manifest.serverError;
+  if (declaredServer && (await exists(declaredServer))) {
+    const resolvedServer = await resolveContainedPath(resolvedDir, declaredServer);
+    if (resolvedServer) server = resolvedServer;
+    else {
+      server = null;
+      serverError = `server entry "${path.relative(resolvedDir, declaredServer)}" resolves outside the plugin directory`;
+    }
+  }
+
   return {
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
-    kind: manifest.server ? "client+server" : "client",
+    kind: server ? "client+server" : "client",
     status: "loaded",
-    ...(manifest.serverError ? { error: manifest.serverError } : {}),
-    dir,
-    client: manifest.client,
-    server: manifest.server,
+    ...(serverError ? { error: serverError } : {}),
+    dir: resolvedDir,
+    client,
+    server,
   };
 }
 
@@ -109,7 +146,20 @@ async function readInstalledPlugins(): Promise<DiscoveredPlugin[]> {
     if (isMissing(err)) return [];
     throw err;
   }
-  const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(PLUGINS_DIR, entry.name));
+  const dirs = (
+    await Promise.all(
+      entries.map(async (entry) => {
+        const dir = path.join(PLUGINS_DIR, entry.name);
+        if (entry.isDirectory()) return dir;
+        if (!entry.isSymbolicLink()) return null;
+        try {
+          return (await fs.stat(dir)).isDirectory() ? dir : null;
+        } catch {
+          return dir;
+        }
+      }),
+    )
+  ).filter((dir): dir is string => dir !== null);
   const plugins = await Promise.all(dirs.map(readPlugin));
   return plugins
     .filter((plugin): plugin is DiscoveredPlugin => plugin !== null)

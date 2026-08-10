@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -41,6 +42,17 @@ export function isContainedIn(root: string, target: string): boolean {
     && relative !== ".."
     && !relative.startsWith(`..${path.sep}`)
     && !path.isAbsolute(relative);
+}
+
+/** Resolve both paths before testing containment, so a symlink cannot turn a
+ * lexically-contained entry into one that reaches outside its permitted root. */
+export async function resolveContainedPath(root: string, target: string): Promise<string | null> {
+  try {
+    const [resolvedRoot, resolvedTarget] = await Promise.all([fs.realpath(root), fs.realpath(target)]);
+    return isContainedIn(resolvedRoot, resolvedTarget) ? resolvedTarget : null;
+  } catch {
+    return null;
+  }
 }
 
 type EntryResult = { ok: true; path: string } | { ok: false; error: string };

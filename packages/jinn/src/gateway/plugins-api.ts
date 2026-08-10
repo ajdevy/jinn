@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { inventoryRow, loadPlugin, scanPlugins, type DiscoveredPlugin } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
-import { isContainedIn, PLUGIN_ID_PATTERN } from "../plugins/manifest.js";
+import { isContainedIn, PLUGIN_ID_PATTERN, resolveContainedPath } from "../plugins/manifest.js";
 import { json, notFound, type ParsedRoute } from "./route-helpers.js";
 import type { ApiContext } from "./api.js";
 
@@ -117,7 +117,12 @@ async function serveAsset(res: ServerResponse, id: string, raw: string, context:
   const root = path.join(plugin.dir, "assets");
   const file = path.resolve(root, asset);
   if (!isContainedIn(root, file)) return notFound(res);
-  await serveFile(res, file, contentType);
+
+  const assetsRoot = await resolveContainedPath(plugin.dir, root);
+  if (!assetsRoot) return notFound(res);
+  const resolvedFile = await resolveContainedPath(assetsRoot, file);
+  if (!resolvedFile) return notFound(res);
+  await serveFile(res, resolvedFile, contentType);
 }
 
 /** `/api/plugins*` routes. See route-helpers.ts for the domain-module contract. */

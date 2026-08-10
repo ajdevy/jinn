@@ -103,11 +103,29 @@ describe("a broken plugin keeps its row", () => {
     expect(row.error).toMatch(/client/);
   });
 
+  it("records an external client symlink as an error with no client half", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-client-outside-"));
+    try {
+      install("broken", { id: "broken" });
+      const client = path.join(pluginsDir, "broken", "client.js");
+      fs.rmSync(client);
+      fs.writeFileSync(path.join(outside, "client.js"), "export const outside = true");
+      fs.symlinkSync(path.join(outside, "client.js"), client);
+
+      const row = await rowFor("broken");
+      expect(row.status).toBe("error");
+      expect(row.client).toBeNull();
+      expect(row.error).toMatch(/client/);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("loads the client half when only the server entry is rejected", async () => {
     install("half", { id: "half", server: "../escape.js" });
     const row = await rowFor("half");
     expect(row.status).toBe("loaded");
-    expect(row.client).toBe(path.join(pluginsDir, "half", "client.js"));
+    expect(row.client).toBe(fs.realpathSync(path.join(pluginsDir, "half", "client.js")));
     expect(row.server).toBeNull();
     expect(row.error).toMatch(/server/);
   });
