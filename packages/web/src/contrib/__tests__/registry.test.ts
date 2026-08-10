@@ -103,8 +103,14 @@ describe("ContributionRegistry resolution", () => {
   it("stamps provenance instead of accepting it", () => {
     const area = freshArea()
     // An author cannot type `source`, but a plugin is untyped JavaScript by the
-    // time it reaches here, so the cast is the honest shape of the attack.
-    const dispose = contributions.register({ id: "liar", area, source: "core" } as Contribution)
+    // time it reaches here, so the cast is the honest shape of the attack. The
+    // value has to be one the registry would never stamp itself, or a registry
+    // that passed the author's object straight through would pass this too.
+    const dispose = contributions.register({
+      id: "liar",
+      area,
+      source: "plugin:evil",
+    } as Contribution)
 
     expect(contributions.getArea(area)[0].source).toBe("core")
 
@@ -126,6 +132,18 @@ describe("ContributionRegistry disposal", () => {
     expect(contributions.getArea(area).map((c) => c.id)).toEqual(["theirs"])
 
     disposeOther()
+  })
+
+  it("leaves a replacement alone when the disposer it replaced runs", () => {
+    const area = freshArea()
+    const disposeOriginal = contributions.register({ id: "same", area, data: "original" })
+    const disposeReplacement = contributions.register({ id: "same", area, data: "replacement" })
+
+    disposeOriginal()
+
+    expect(contributions.getArea(area).map((c) => c.data)).toEqual(["replacement"])
+
+    disposeReplacement()
   })
 
   it("notifies nobody when a disposer runs a second time", () => {

@@ -31,10 +31,12 @@ class ContributionRegistry {
    * A batch notifies each area it touched exactly once, not once per entry.
    */
   registerMany = (contributions: readonly Contribution[]): (() => void) => {
-    for (const contribution of contributions) this.put(contribution)
+    // The disposer closes over the entries themselves, not their ids: an id that
+    // has since been re-registered belongs to somebody else's entry, and a stale
+    // disposer that removed it would take down the live registration instead.
+    const registered = contributions.map((contribution) => this.put(contribution))
     this.invalidate(contributions.map((contribution) => contribution.area))
 
-    const registered = contributions.map(({ area, id }) => ({ area, id }))
     return () => this.remove(registered)
   }
 
@@ -66,7 +68,7 @@ class ContributionRegistry {
   }
 
   /** Insert or replace one entry, without notifying — `registerMany` batches that. */
-  private put(contribution: Contribution): void {
+  private put(contribution: Contribution): ResolvedContribution {
     const registered = this.byArea.get(contribution.area) ?? []
     // Provenance is stamped here and never read off the author's object: a
     // contribution that could name its own source could claim to be core.
@@ -75,27 +77,28 @@ class ContributionRegistry {
       ...registered.filter((entry) => entry.id !== contribution.id),
       stamped,
     ])
+    return stamped
   }
 
-  private remove(entries: readonly { area: string; id: string }[]): void {
+  private remove(entries: readonly ResolvedContribution[]): void {
     const emptied: string[] = []
-    for (const { area, id } of entries) {
-      if (this.take(area, id)) emptied.push(area)
+    for (const entry of entries) {
+      if (this.take(entry)) emptied.push(entry.area)
     }
     // Nothing left to take means a second disposal, which notifies nobody.
     if (emptied.length > 0) this.invalidate(emptied)
   }
 
   /** Drop one entry without notifying. Answers whether it was there to drop. */
-  private take(area: string, id: string): boolean {
-    const registered = this.byArea.get(area)
+  private take(entry: ResolvedContribution): boolean {
+    const registered = this.byArea.get(entry.area)
     if (!registered) return false
 
-    const remaining = registered.filter((entry) => entry.id !== id)
+    const remaining = registered.filter((candidate) => candidate !== entry)
     if (remaining.length === registered.length) return false
 
-    if (remaining.length > 0) this.byArea.set(area, remaining)
-    else this.byArea.delete(area)
+    if (remaining.length > 0) this.byArea.set(entry.area, remaining)
+    else this.byArea.delete(entry.area)
     return true
   }
 

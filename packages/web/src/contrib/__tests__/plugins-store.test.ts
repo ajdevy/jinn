@@ -50,12 +50,12 @@ describe("plugin decisions", () => {
     expect(store.pluginActive("anything")).toBe(false)
   })
 
-  it("keeps the readable decisions out of a map that also holds junk", () => {
+  it("drops the whole map when one value in it is not a boolean", () => {
     const store = new PluginStore(
       fakeStore({ "jinn-plugin-decisions": '{"good":true,"bad":"yes"}' }),
     )
 
-    expect(store.pluginActive("good")).toBe(true)
+    expect(store.pluginActive("good")).toBe(false)
     expect(store.pluginActive("bad")).toBe(false)
   })
 })
@@ -64,13 +64,34 @@ describe("live toggle", () => {
   it("awaits activate() when enabling", async () => {
     const store = new PluginStore(fakeStore())
     let activated = false
-    const activate = vi.fn(async () => {
-      await Promise.resolve()
-      activated = true
-    })
+    // activate() stays pending until this test releases it, so the enable can
+    // only settle by waiting. A store that called activate() without awaiting
+    // it would settle at the checkpoint below, while `activated` is still false.
+    let release = () => {}
+    const activate = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => {
+            activated = true
+            resolve()
+          }
+        }),
+    )
     store.publishPlugin(record({ status: "disabled" }), { activate, deactivate: vi.fn() })
 
-    await store.setPluginEnabled("demo", true)
+    let settled = false
+    const enabling = store.setPluginEnabled("demo", true).then(() => {
+      settled = true
+    })
+    // A macrotask boundary flushes every microtask an unawaited enable would
+    // have resolved through.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(settled).toBe(false)
+    expect(activated).toBe(false)
+
+    release()
+    await enabling
 
     expect(activate).toHaveBeenCalledTimes(1)
     expect(activated).toBe(true)

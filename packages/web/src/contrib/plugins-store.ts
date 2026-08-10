@@ -38,9 +38,13 @@ function readDecisions(store: KVStore | null): Record<string, boolean> {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {}
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, enabled]) => typeof enabled === "boolean"),
-    ) as Record<string, boolean>
+
+    // One unreadable value condemns the whole map rather than being dropped from
+    // it. Keeping the readable half would mean trusting a record we have already
+    // caught being wrong to still be right about which plugins may run.
+    const entries = Object.entries(parsed)
+    if (entries.some(([, enabled]) => typeof enabled !== "boolean")) return {}
+    return Object.fromEntries(entries) as Record<string, boolean>
   } catch {
     // Storage we cannot read is read as no decisions at all. That is also the
     // fail-closed answer, because absence disables — a corrupt map can lose an
