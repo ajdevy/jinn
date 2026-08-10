@@ -15,9 +15,6 @@
     "e2e/workflow-layout/workflow-layout.spec.ts": {
       "lines": 625
     },
-    "packages/gateway-events/src/index.ts": {
-      "lines": 332
-    },
     "packages/jinn/scripts/instance-migration-bundle.mjs": {
       "exempt": [
         "complexity"
@@ -351,7 +348,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6468,
+      "lines": 6376,
       "exempt": [
         "complexity",
         "max-depth",
@@ -449,7 +446,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1479,
+      "lines": 1467,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -856,7 +853,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 993
+      "lines": 967
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314

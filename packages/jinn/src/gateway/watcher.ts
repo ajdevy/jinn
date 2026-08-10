@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
-import { CONFIG_PATH, CRON_JOBS, ORG_DIR, SKILLS_DIR, CLAUDE_SKILLS_DIR, AGENTS_SKILLS_DIR } from "../shared/paths.js";
+import { CONFIG_PATH, CRON_JOBS, ORG_DIR, PLUGINS_DIR, SKILLS_DIR, CLAUDE_SKILLS_DIR, AGENTS_SKILLS_DIR } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
 
 export interface WatcherCallbacks {
@@ -9,16 +9,26 @@ export interface WatcherCallbacks {
   onCronReload: () => void;
   onOrgChange: () => void;
   onSkillsChange: () => void;
+  onPluginsChange: () => void;
 }
 
 let watchers: FSWatcher[] = [];
+let pluginsDebounce: Debounced | null = null;
 
-function debounce(fn: () => void, ms: number): () => void {
+/** A debounced call whose pending timer can be cancelled from outside the closure. */
+export type Debounced = (() => void) & { cancel: () => void };
+
+export function debounce(fn: () => void, ms: number): Debounced {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return () => {
+  const schedule = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(fn, ms);
   };
+  schedule.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return schedule;
 }
 
 /**
@@ -128,11 +138,30 @@ export function startWatchers(callbacks: WatcherCallbacks): void {
     }, DEBOUNCE_MS),
   );
 
-  watchers = [configWatcher, cronWatcher, orgWatcher, skillsWatcher];
+  // Plugins arrive by having a directory dropped into the instance home, so the
+  // watch is on the directory itself at depth 0, like skills/. A home with no
+  // plugins/ directory yet has nothing to watch: POST /api/plugins/rescan is the
+  // way in until the gateway next starts.
+  const pluginsWatcher = watch(PLUGINS_DIR, {
+    ignoreInitial: true,
+    depth: 0,
+  });
+  pluginsDebounce = debounce(() => {
+    logger.info("plugins/ directory changed, rescanning...");
+    callbacks.onPluginsChange();
+  }, DEBOUNCE_MS);
+  pluginsWatcher.on("all", pluginsDebounce);
+
+  watchers = [configWatcher, cronWatcher, orgWatcher, skillsWatcher, pluginsWatcher];
   logger.info("File watchers started");
 }
 
 export async function stopWatchers(): Promise<void> {
+  // Closing a chokidar watcher does not disarm a debounce already counting down,
+  // so without this a change landing inside the window fires a rescan into a
+  // torn-down gateway and keeps the event loop alive.
+  pluginsDebounce?.cancel();
+  pluginsDebounce = null;
   await Promise.all(watchers.map((w) => w.close()));
   watchers = [];
   logger.info("File watchers stopped");

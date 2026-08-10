@@ -12,37 +12,7 @@ export type {
   HydratedExperiment,
 } from "./gateway-events.js";
 
-export interface NoteSummary {
-  /** Public path below JINN_HOME, for example knowledge/product/brief.md. */
-  path: string;
-  title: string;
-  preview: string;
-  /** Knowledge-relative directory; the root folder is an empty string. */
-  folder: string;
-  updatedAt: string;
-  /** SHA-256 of the exact file bytes. */
-  revision: string;
-}
-
-export interface NoteDocument extends NoteSummary {
-  /** Editable content after the first Markdown heading. */
-  body: string;
-}
-
-export interface NoteFolder {
-  path: string;
-  name: string;
-  count: number;
-}
-
-export type NoteStoreResult<T> =
-  | { ok: true; value: T }
-  | {
-      ok: false;
-      reason: "invalid-path" | "forbidden" | "not-found" | "conflict" | "too-large" | "already-exists";
-      detail: string;
-      currentRevision?: string;
-    };
+export type { NoteDocument, NoteFolder, NoteStoreResult, NoteSummary } from "./note-types.js";
 
 /** Generous but bounded body size for durable communication-card metadata. */
 export const STRUCTURED_MESSAGE_BODY_MAX_CHARS = 16_000;
@@ -944,6 +914,10 @@ export interface JinnConfig {
   };
   logging: { file: boolean; stdout: boolean; level: string };
   mcp?: McpGlobalConfig;
+  /** Installed plugins the operator has explicitly decided on. Absence is not
+   *  enabled — a plugin named in neither list is disabled — and `disabled` wins
+   *  over `enabled`. See src/plugins/enablement.ts. */
+  plugins?: { enabled?: string[]; disabled?: string[] };
   /** Spend caps keyed by employee name: a USD cap on that employee's total spend across the
    *  current calendar month — NOT a per-session cap. At or above it, their turns are blocked. */
   budgets?: { employees?: Record<string, number> };
