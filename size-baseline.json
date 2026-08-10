@@ -351,7 +351,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6469,
+      "lines": 6468,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1082,7 +1082,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 485,
+      "lines": 484,
       "exempt": [
         "complexity"
       ]
@@ -1962,7 +1962,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 538,
+      "lines": 531,
       "exempt": [
         "complexity",
         "max-lines-per-function"

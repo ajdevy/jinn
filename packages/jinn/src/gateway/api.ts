@@ -1973,18 +1973,17 @@ function nearestEmployee(name: string, names: string[]): string | undefined {
     .sort((a, b) => a.d - b.d || a.n.localeCompare(b.n))[0]?.n;
 }
 
+/** Sessions already holding engine capacity: mid-turn, queued behind one, or parked on a gate.
+ *  The delegated-activity index and a Workflow fan-out's ceiling both count exactly these. */
+export function sessionsHoldingEngineCapacity(sessions: readonly Session[], context: ApiContext): Session[] {
+  return sessions.filter((session) => session.status === "waiting" || ["running", "queued"].includes(getSessionTransportState(session, context)));
+}
+
 export function buildSessionDelegatedActivityIndex(
   sessions: readonly Session[],
   context: ApiContext,
 ): Map<string, DelegatedActivity> {
-  const activeSessionIds = new Set<string>();
-  for (const session of sessions) {
-    const transport = getSessionTransportState(session, context);
-    if (transport === "running" || transport === "queued" || session.status === "waiting") {
-      activeSessionIds.add(session.id);
-    }
-  }
-  return buildDelegatedActivityIndex(sessions, activeSessionIds);
+  return buildDelegatedActivityIndex(sessions, new Set(sessionsHoldingEngineCapacity(sessions, context).map((session) => session.id)));
 }
 
 /** The in-flight turn's progress instant, for the UI to age itself.

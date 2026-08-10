@@ -10,32 +10,7 @@ import { useTheme } from "@/routes/providers"
 import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
-import { StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
-
-/* ── small read-only primitives ───────────────────────────────────────────── */
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h3 className="mb-1 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
-}
-
-function Note({ children }: { children: React.ReactNode }) {
-  return <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{children}</p>
-}
-
-function ErrorNote({ message }: { message: string }) {
-  return (
-    <p className="rounded-[10px] bg-[color-mix(in_srgb,var(--system-red)_10%,transparent)] px-3 py-2.5 text-[length:var(--text-caption1)] text-[var(--system-red)]">
-      {message}
-    </p>
-  )
-}
+import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
 
 function formatFieldValue(value: unknown): string {
   if (typeof value === "string") return value
@@ -385,6 +360,23 @@ function commentWaitTodoId(nodeRun: WorkflowNodeRunV2Wire | undefined): string |
   return typeof todoId === "string" ? todoId : null
 }
 
+/** What the fan-out was told to run at once, and the narrower number the machine
+ *  allowed — so a planner's degree is never implied to have been honoured. */
+function FanoutSection({ nodeRun }: { nodeRun: WorkflowNodeRunV2Wire | undefined }) {
+  const requested = nodeRun?.resolvedConfig?.["concurrency"]
+  const effective = nodeRun?.resolvedConfig?.["concurrencyEffective"]
+  if (typeof requested !== "number") return null
+  return (
+    <Section title="Fan-out">
+      <Note>
+        {typeof effective === "number" && effective < requested
+          ? `${requested} requested · ${effective} at a time (system ceiling)`
+          : `${requested} at a time`}
+      </Note>
+    </Section>
+  )
+}
+
 function triggerCaption(node: WorkflowNodeWire): string {
   const config = node.config as { kind?: unknown; cron?: unknown }
   switch (config.kind) {
@@ -494,6 +486,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           )}
           {node.type === "workflow-call" && (
             <>
+              <FanoutSection nodeRun={nodeRun} />
               <OutputSection output={nodeRun?.output} isDark={isDark} />
               <ChildRunsSection detail={detail} nodeId={node.id} />
             </>

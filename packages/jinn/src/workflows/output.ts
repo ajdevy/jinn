@@ -6,6 +6,7 @@ import {
   type WorkflowNodeOutput,
   type WorkflowOutputSchema,
 } from './model.js';
+import type { WorkflowChildRunSummary } from './runtime.js';
 
 type WorkflowOutputCode =
   | 'multiple-blocks'
@@ -214,4 +215,22 @@ export function parseWorkflowOutput(finalText: string, schema?: WorkflowOutputSc
     text = finalText.slice(0, scan.blockStart) + finalText.slice(scan.blockEnd);
   }
   return { text, fields: validateSubmittedFields(fields, schema) };
+}
+
+/** The other way a node output comes to exist: a Workflow Call node joins its
+ *  children into one, so a downstream Condition can route on the batch. */
+export function fanoutOutput(children: readonly WorkflowChildRunSummary[]): WorkflowNodeOutput {
+  const outcomes = children.map((child) => ({
+    index: child.itemIndex,
+    runId: child.runId,
+    workflowId: child.workflowId,
+    status: child.status === 'completed' ? 'succeeded' : child.status,
+    fields: child.endOutput ?? {},
+  }));
+  const succeeded = outcomes.filter((outcome) => outcome.status === 'succeeded').length;
+  const failed = outcomes.filter((outcome) => outcome.status === 'failed').length;
+  const cancelled = outcomes.filter((outcome) => outcome.status === 'cancelled').length;
+  const total = outcomes.length;
+  const summary = total > 0 && succeeded === total ? 'all-succeeded' : succeeded > 0 ? 'partial' : 'none-succeeded';
+  return { text: '', fields: { total, succeeded, failed, cancelled, summary, outcomes } };
 }

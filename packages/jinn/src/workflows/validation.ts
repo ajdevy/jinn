@@ -169,8 +169,7 @@ function addNodeBindingIssues(node: WorkflowNode, nodeIndex: number, context: Bi
     const continued = record(config?.continueFrom)?.nodeId;
     if (typeof continued === 'string' && !context.known.has(continued)) context.add({ code: 'unknown-continue-node', message: 'Continuation references an unknown node.', nodeId: id, path: `${base}.continueFrom.nodeId` });
   } else if (value?.type === 'workflow-call') {
-    checkBinding(config?.workflowId, `${base}.workflowId`, id, context);
-    checkBinding(config?.items, `${base}.items`, id, context);
+    for (const key of ['workflowId', 'items', 'concurrency']) checkBinding(config?.[key], `${base}.${key}`, id, context);
     for (const [key, binding] of Object.entries(record(config?.input) ?? {})) checkBinding(binding, `${base}.input.${key}`, id, context);
   } else if (value?.type === 'condition') {
     const cases = Array.isArray(config?.cases) ? config.cases : [];

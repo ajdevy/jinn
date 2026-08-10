@@ -172,3 +172,28 @@ export function formatStarted(iso: string): string {
     && date.getMonth() === today.getMonth() && date.getDate() === today.getDate()
   return sameDay ? CLOCK.format(date) : DATE_CLOCK.format(date)
 }
+
+/* ── small read-only primitives, shared by the run inspector's sections ────── */
+
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
+        {title}
+      </h3>
+      {children}
+    </section>
+  )
+}
+
+export function Note({ children }: { children: React.ReactNode }) {
+  return <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{children}</p>
+}
+
+export function ErrorNote({ message }: { message: string }) {
+  return (
+    <p className="rounded-[10px] bg-[color-mix(in_srgb,var(--system-red)_10%,transparent)] px-3 py-2.5 text-[length:var(--text-caption1)] text-[var(--system-red)]">
+      {message}
+    </p>
+  )
+}

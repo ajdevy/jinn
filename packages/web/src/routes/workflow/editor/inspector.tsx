@@ -627,13 +627,18 @@ function BindingEditor({
   )
 }
 
+/** A written-in number and a `fixed` binding of it mean the same thing; the control shows one shape, so an authored planner binding survives being looked at. */
+function concurrencyBinding(value: unknown): BindingWire {
+  return value !== null && typeof value === "object" ? value as BindingWire : { source: "fixed", value: value ?? 2 }
+}
+
 function WorkflowCallForm({ node, update }: FormProps) {
   const nodeIds = useEditor(useShallow((state) => state.nodes.map((item) => item.id))).filter((id) => id !== node.id)
   const config = node.config as {
     workflowId?: BindingWire
     items?: BindingWire
     input?: Record<string, BindingWire>
-    concurrency?: number
+    concurrency?: number | BindingWire
   }
   const input = config.input ?? {}
   const inputEntries = Object.entries(input)
@@ -664,16 +669,11 @@ function WorkflowCallForm({ node, update }: FormProps) {
         />
       </Field>
       <Field label="Concurrency">
-        <TextInput
-          type="number"
-          min={1}
-          max={16}
-          step={1}
-          value={String(config.concurrency ?? 2)}
-          onChange={(event) => update({
-            ...config,
-            concurrency: Math.max(1, Math.min(16, Math.round(Number(event.target.value)) || 1)),
-          })}
+        <BindingEditor
+          value={concurrencyBinding(config.concurrency)}
+          onChange={(concurrency) => update({ ...config, concurrency })}
+          nodeIds={nodeIds}
+          fixedParser={(text) => Math.max(1, Math.min(16, Math.round(Number(text)) || 1))}
         />
       </Field>
       <section className="space-y-2 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">

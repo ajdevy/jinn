@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -276,9 +276,9 @@ describe("workflow-call inspector", () => {
     }
     const store = renderWorkflowCall(config)
 
-    expect((screen.getByLabelText("Concurrency") as HTMLInputElement).value).toBe("3")
+    expect((within(screen.getByText("Concurrency").parentElement!).getByLabelText("Fixed value") as HTMLInputElement).value).toBe("3")
     expect(screen.getAllByLabelText("Fixed value").map((input) => (input as HTMLInputElement).value))
-      .toEqual(["publish-item", '[{"topic":"one"},{"topic":"two"}]'])
+      .toEqual(["publish-item", "3", '[{"topic":"one"},{"topic":"two"}]'])
     expect(store.getState().nodes[0]!.data.node.config).toEqual(config)
     expect(store.getState().serial).toBe(0)
   })
@@ -290,12 +290,12 @@ describe("workflow-call inspector", () => {
       concurrency: 2,
     })
 
-    fireEvent.change(screen.getByLabelText("Concurrency"), { target: { value: "4" } })
+    fireEvent.change(within(screen.getByText("Concurrency").parentElement!).getByLabelText("Fixed value"), { target: { value: "4" } })
     fireEvent.click(screen.getByRole("button", { name: "Remove items binding" }))
 
     expect(store.getState().nodes[0]!.data.node.config).toEqual({
       workflowId: { source: "fixed", value: "publish-item" },
-      concurrency: 4,
+      concurrency: { source: "fixed", value: 4 },
     })
   })
 })

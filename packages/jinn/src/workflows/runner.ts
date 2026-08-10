@@ -20,7 +20,8 @@ import type {
   WorkflowNodeOutput,
 } from "./model.js";
 import { dispatchFailure, interruptedAttemptFailure, workflowError } from "./failure.js";
-import { parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
+import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
+import { fanoutConcurrencyRecord, readCapacitySnapshot, resolveFanoutConcurrency, type FanoutConcurrency } from "./capacity.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
@@ -59,6 +60,10 @@ export interface WorkflowRunnerOptions {
    *  has to write `update_work_item` into a phase prompt for the board to be
    *  honest. Absent = no reflection (the run still executes). */
   todoLifecycle?: WorkflowTodoLifecycle;
+  /** Engine sessions across the whole gateway that already hold the machine,
+   *  read fresh whenever a fan-out asks for room. Absent = no system ceiling:
+   *  the authored concurrency stands, bounded only by its schema maximum. */
+  activeEngineSessions?: () => number;
 }
 
 /** Where a bound Todo sits when a run is reporting its own lifecycle. */
@@ -151,19 +156,20 @@ function bindingContext(run: WorkflowRunDetail): WorkflowBindingContext {
 
 interface FanoutPlan {
   workflowId: string;
-  concurrency: number;
+  concurrency: FanoutConcurrency;
   items: JsonValue[];
   hasItems: boolean;
 }
 
-function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode): FanoutPlan {
+function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode, capacity: WorkflowRunnerOptions["activeEngineSessions"]): FanoutPlan {
   const context = bindingContext(run);
   const workflowId = resolveString(node.config.workflowId, context, "Workflow Call target");
-  if (!node.config.items) return { workflowId, concurrency: node.config.concurrency, items: [null], hasItems: false };
+  const concurrency = resolveFanoutConcurrency(node, context, capacity ? readCapacitySnapshot(capacity()) : null);
+  if (!node.config.items) return { workflowId, concurrency, items: [null], hasItems: false };
   const items = resolveBinding(node.config.items, context);
   if (!Array.isArray(items)) throw new Error(`Workflow Call ${node.id} items must resolve to an array.`);
   if (items.length > 100) throw new Error(`Workflow Call ${node.id} items may contain at most 100 entries.`);
-  return { workflowId, concurrency: node.config.concurrency, items, hasItems: true };
+  return { workflowId, concurrency, items, hasItems: true };
 }
 
 function fanoutInput(run: WorkflowRunDetail, node: WorkflowCallNode, plan: FanoutPlan, index: number): Record<string, JsonValue> {
@@ -194,21 +200,6 @@ function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, childr
   }
 }
 
-function fanoutOutput(children: WorkflowChildRunSummary[]): WorkflowNodeOutput {
-  const outcomes = children.map((child) => ({
-    index: child.itemIndex,
-    runId: child.runId,
-    workflowId: child.workflowId,
-    status: child.status === "completed" ? "succeeded" : child.status,
-    fields: child.endOutput ?? {},
-  }));
-  const succeeded = outcomes.filter((outcome) => outcome.status === "succeeded").length;
-  const failed = outcomes.filter((outcome) => outcome.status === "failed").length;
-  const cancelled = outcomes.filter((outcome) => outcome.status === "cancelled").length;
-  const total = outcomes.length;
-  const summary = total > 0 && succeeded === total ? "all-succeeded" : succeeded > 0 ? "partial" : "none-succeeded";
-  return { text: "", fields: { total, succeeded, failed, cancelled, summary, outcomes } };
-}
 function composeEmployeePrompt(run: WorkflowRunDetail, node: EmployeeNode, continued: boolean): string {
   const prompt = interpolateWorkflowPrompt(continuationPrompt(node, continued), bindingContext(run));
   return `${prompt}\n\n---\n${buildNodeContract(node, upstreamSessions(run, node.id))}`;
@@ -431,12 +422,12 @@ export class WorkflowRunner {
       }
       if (node.type === "workflow-call") {
         try {
-          const plan = fanoutPlan(run, node);
+          const plan = fanoutPlan(run, node, this.options.activeEngineSessions);
           const children = fanoutChildren(run, node.id);
           validateFanoutChildren(node, plan, children);
           const active = children.filter((child) => !childTerminal(child)).length;
           if (runtime.status === "pending" || (children.length === plan.items.length && active === 0)
-            || (children.length < plan.items.length && active < plan.concurrency)) {
+            || (children.length < plan.items.length && active < plan.concurrency.effective)) {
             return { kind: "fanout", node };
           }
         } catch (error) {
@@ -500,14 +491,22 @@ export class WorkflowRunner {
     this.changed(run);
   }
 
+  /** Keep the node's account of its own fan-out width true: the ceiling is read again on every
+   *  reconcile, so a record frozen at the first wave would claim a width the run stopped using. */
+  private recordFanoutWidth(run: WorkflowRunDetail, node: WorkflowCallNode, runtime: WorkflowNodeRunRecord, plan: FanoutPlan): void {
+    this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+      tx.setNodeStatus(node.id, runtime.status, { resolvedConfig: { ...runtime.resolvedConfig, ...fanoutConcurrencyRecord(plan.concurrency) } });
+    });
+  }
+
   private async reconcileFanout(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
-    const plan = fanoutPlan(run, node);
+    const plan = fanoutPlan(run, node, this.options.activeEngineSessions);
     const runtime = nodeRun(run, node.id);
     if (runtime.status === "pending") {
       const at = this.now();
       this.options.repository.mutateRun(run.id, run.revision, (tx) => {
         tx.setNodeStatus(node.id, "running", {
-          resolvedConfig: { workflowId: plan.workflowId, concurrency: plan.concurrency, total: plan.items.length },
+          resolvedConfig: { workflowId: plan.workflowId, total: plan.items.length, ...fanoutConcurrencyRecord(plan.concurrency) },
           startedAt: at,
         });
       });
@@ -526,10 +525,11 @@ export class WorkflowRunner {
       return;
     }
 
+    this.recordFanoutWidth(run, node, runtime, plan);
     const active = children.filter((child) => !childTerminal(child)).length;
     const started = new Set(children.map((child) => child.itemIndex));
     const indexes = plan.items.map((_, index) => index).filter((index) => !started.has(index));
-    const capacity = Math.max(0, plan.concurrency - active);
+    const capacity = Math.max(0, plan.concurrency.effective - active);
     try {
       for (const index of indexes.slice(0, capacity)) {
         const input = fanoutInput(run, node, plan, index);

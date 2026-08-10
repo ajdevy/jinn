@@ -119,7 +119,7 @@ function bindingWithFixed<T extends z.ZodType>(fixedValueSchema: T) {
 export const bindingSchema = bindingWithFixed(jsonValueSchema);
 const stringBindingSchema = bindingWithFixed(z.string());
 const effortBindingSchema = bindingWithFixed(z.enum(['low', 'medium', 'high', 'xhigh']));
-
+const concurrencySchema = finiteNumberSchema.int().min(1).max(16);
 type InferredBinding = z.infer<typeof bindingSchema>;
 export type Binding<T extends JsonValue = JsonValue> =
   | (Omit<Extract<InferredBinding, { source: 'fixed' }>, 'value'> & { value: T })
@@ -200,7 +200,7 @@ const workflowCallNodeSchema = z.strictObject({
     workflowId: stringBindingSchema,
     items: bindingSchema.optional(),
     input: z.record(pathSegmentSchema, bindingSchema).optional(),
-    concurrency: finiteNumberSchema.int().min(1).max(16).default(2),
+    concurrency: z.union([concurrencySchema, bindingWithFixed(concurrencySchema)]).default(2), // children at once: a number, or a binding a planner node fills in; clamped at run time by `systemConcurrencyCeiling` (capacity.ts)
   }),
 });
 const conditionPredicateSchema = z.strictObject({

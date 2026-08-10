@@ -15,7 +15,7 @@ import {
   type WorkflowRunSummary,
 } from "./repository.js";
 import type { WorkflowError, WorkflowRunDetail } from "./runtime.js";
-import { WorkflowRunner, type WorkflowTodoApprovalMirror, type WorkflowTodoLifecycle, type WorkflowTodoSessionLink } from "./runner.js";
+import { WorkflowRunner, type WorkflowRunnerOptions, type WorkflowTodoApprovalMirror, type WorkflowTodoLifecycle, type WorkflowTodoSessionLink } from "./runner.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { WorkflowTriggerService, type FireWorkflowEventInput } from "./trigger-service.js";
 import {
@@ -89,7 +89,7 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 export interface WorkflowTodoCommentFeed {
   firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
 }
-export interface WorkflowServiceOptions {
+export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;

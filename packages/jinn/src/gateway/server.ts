@@ -51,7 +51,7 @@ import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js"
 import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
-import { handleApiRequest, isSameOriginBrowserRequest, resumePendingWebQueueItems, type ApiContext } from "./api.js";
+import { handleApiRequest, isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
 import { resolveCallerIdentity, sessionCommGuards, LATERAL_MAX_HOPS, type CallerIdentityOptions } from "./session-comm-guards.js";
 import { UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
@@ -872,7 +872,7 @@ export async function startGateway(
     todoSessions: { link: ({ todoId, sessionId }) => linkSession(todoId, sessionId) },
     // A parked Wait node listens for the operator's reply on the bound Todo.
     todoComments: { firstOperatorCommentAfter },
-    sessionSpend: getSessionSpend,
+    sessionSpend: getSessionSpend, activeEngineSessions: () => sessionsHoldingEngineCapacity(listSessions(), apiContext).length,
     // A Todo-bound run reflects its own lifecycle onto that Todo — no phase
     // prompt has to say so, and a dead run leaves its reason behind.
     todoLifecycle: workflowTodoLifecycle,
