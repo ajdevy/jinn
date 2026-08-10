@@ -34,6 +34,7 @@ import {
   runWithLabCleanup,
   quiesceAndRemoveLabRoot,
 } from "../run.mjs"
+import { EXTERNAL_WAIT_CEILING_MS, external } from "./external-ceilings.mjs"
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex")
 
@@ -48,15 +49,15 @@ test("captures desktop light, desktop dark, and a true 390px mobile viewport", (
   )
 })
 
-test("loads Chromium from the repository's installed Playwright package", async () => {
+test("loads Chromium from the repository's installed Playwright package", external, async () => {
   const chromium = await loadPlaywrightChromium()
   assert.equal(typeof chromium.launch, "function")
 })
 
-test("finds the visible migration dialog when Radix aria-hides the background reminder", async () => {
+test("finds the visible migration dialog when Radix aria-hides the background reminder", external, async () => {
   const chromium = await loadPlaywrightChromium()
   const executablePath = resolvePlaywrightChromiumExecutable()
-  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) })
+  const browser = await chromium.launch({ headless: true, timeout: EXTERNAL_WAIT_CEILING_MS, ...(executablePath ? { executablePath } : {}) })
   try {
     const page = await browser.newPage()
     await page.setContent(`
@@ -223,7 +224,7 @@ test("self-restart preflight never invokes a restart against a PID outside the l
   }
 })
 
-test("simulated self-restart leaves a foreign listener alive", async () => {
+test("simulated self-restart leaves a foreign listener alive", external, async () => {
   const root = createLabRoot()
   let listener = null
   try {
@@ -384,11 +385,10 @@ test("native dependency rebuild enables scripts only for better-sqlite3 inside t
   })
 })
 
-test("accepts pnpm's argument separator for the documented dry-run command", () => {
+test("accepts pnpm's argument separator for the documented dry-run command", external, () => {
   const runner = path.resolve("scripts/upgrade-lab/run.mjs")
   const result = spawnSync(process.execPath, [runner, "--", "--scenario", "stock", "--dry-run"], {
-    cwd: path.resolve("."),
-    encoding: "utf8",
+    cwd: path.resolve("."), encoding: "utf8", timeout: EXTERNAL_WAIT_CEILING_MS,
   })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /"isolation": "PASS"/)
@@ -416,7 +416,7 @@ test("candidate state probing uses the v2 Workflow repository and import report"
   assert.match(probe, /legacy-v1-import-report\.json/)
 })
 
-test("state probing seeds and reads a v2 Workflow baseline", () => {
+test("state probing seeds and reads a v2 Workflow baseline", external, () => {
   const root = createLabRoot()
   try {
     const layout = assertIsolatedLayout(root)
@@ -430,8 +430,7 @@ test("state probing seeds and reads a v2 Workflow baseline", () => {
     const packageRoot = path.resolve("packages/jinn")
     const evidenceRoot = path.join(layout.home, "workflow-evidence")
     const seeded = spawnSync(process.execPath, [probe, "seed-old", packageRoot, evidenceRoot], {
-      env,
-      encoding: "utf8",
+      env, encoding: "utf8", timeout: EXTERNAL_WAIT_CEILING_MS,
     })
     assert.equal(seeded.status, 0, seeded.stderr)
     const before = JSON.parse(seeded.stdout)
@@ -445,8 +444,7 @@ test("state probing seeds and reads a v2 Workflow baseline", () => {
     })
 
     const queried = spawnSync(process.execPath, [probe, "query-candidate", packageRoot, evidenceRoot], {
-      env,
-      encoding: "utf8",
+      env, encoding: "utf8", timeout: EXTERNAL_WAIT_CEILING_MS,
     })
     assert.equal(queried.status, 0, queried.stderr)
     assert.deepEqual(JSON.parse(queried.stdout).workflow, before.workflow)
@@ -712,7 +710,7 @@ test("representative state comparison requires real semantic identities and cont
   assert.throws(() => assertRepresentativeStateSurvived(before, unsafeWorkflow), /workflow.*changed/i)
 })
 
-test("cleanup waits for a lab-home descendant that recreates .hermes before removing the nonce root", async () => {
+test("cleanup waits for a lab-home descendant that recreates .hermes before removing the nonce root", external, async () => {
   const root = createLabRoot()
   const layout = assertIsolatedLayout(root)
   const source = `
@@ -759,7 +757,7 @@ test("process cleanup filters to lab-owned PIDs before Node receives the process
   }
 })
 
-test("process cleanup does not classify its short-lived scanner helpers as lab processes", async () => {
+test("process cleanup does not classify its short-lived scanner helpers as lab processes", external, async () => {
   const root = createLabRoot()
   try {
     const layout = assertIsolatedLayout(root)

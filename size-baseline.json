@@ -1001,7 +1001,7 @@
       "lines": 371
     },
     "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": {
-      "lines": 773
+      "lines": 768
     },
     "packages/jinn/src/workflows/bindings.ts": {
       "exempt": [
@@ -2004,7 +2004,7 @@
       ]
     },
     "scripts/upgrade-lab/__tests__/guards.test.mjs": {
-      "lines": 822
+      "lines": 820
     },
     "scripts/upgrade-lab/run.mjs": {
       "lines": 1198,
