@@ -30,9 +30,13 @@ import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
+import { SETTLE_TEST_TIMEOUT_MS, waitForSettle, waitForTurnDrained } from "./helpers/settle-waits.js";
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-workflow-vertical-sessions-"));
 process.env.JINN_HOME = home;
+
+// A bare `vitest run` gives this file the 5 s local default, under the settle ceiling.
+vi.setConfig({ testTimeout: SETTLE_TEST_TIMEOUT_MS });
 
 const employee: Employee = {
   name: "writer", displayName: "Writer", department: "content", rank: "employee",
@@ -264,7 +268,7 @@ describe("first Workflow vertical", () => {
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "release" }, idempotencyKey: "manual-1" });
     expect(started).toMatchObject({ definition: authored, input: { topic: "release" }, trigger: { nodeId: "start", kind: "manual", payload: {} } });
     expect(started.nodeRuns).toHaveLength(3);
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     expect(attemptWasDurable).toBe(true);
     const attempt = repository.getRun(authored.id, started.id)!.attempts[0]!;
     expect(getSession(attempt.sessionId!)).toMatchObject({
@@ -274,7 +278,7 @@ describe("first Workflow vertical", () => {
     expect(listSessions().map((session) => session.id)).not.toContain(attempt.sessionId);
 
     engine.resolve({ sessionId: "native-1", result: "Done.\n```jinn-output\n{\"result\":\"published\"}\n```", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.status).toBe("completed"));
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.status).toBe("completed"));
     const completed = service.getRun(authored.id, started.id)!;
     expect(completed.attempts[0]).toMatchObject({ status: "completed", output: { text: "Done.\n", fields: { result: "published" }, employeeId: "writer", sessionId: attempt.sessionId } });
     expect(completed.nodeRuns.map((node) => node.status)).toEqual(["completed", "completed", "completed"]);
@@ -285,16 +289,16 @@ describe("first Workflow vertical", () => {
   it("persists failed history and recovery settles a lost live completion exactly once", async () => {
     const authored = definition({ id: "failure-flow" });
     const failed = await service.startManual({ workflowId: authored.id, input: { topic: "failure" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     engine.resolve({ sessionId: "", result: "", error: "provider failed", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, failed.id)?.status).toBe("failed"));
+    await waitForSettle(() => expect(service.getRun(authored.id, failed.id)?.status).toBe("failed"));
     expect(service.getRun(authored.id, failed.id)!.attempts[0]).toMatchObject({ status: "failed", error: { message: "provider failed" } });
 
     const lost = await service.startManual({ workflowId: authored.id, input: { topic: "recover" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
     service.dispose();
     engine.resolve({ sessionId: "native-recovered", result: "Recovered.\n```jinn-output\n{\"result\":\"ok\"}\n```", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(repository.getRun(authored.id, lost.id)!.attempts[0]!.sessionId!)?.attemptOutcome).toBe("succeeded"));
+    await waitForSettle(() => expect(getSession(repository.getRun(authored.id, lost.id)!.attempts[0]!.sessionId!)?.attemptOutcome).toBe("succeeded"));
 
     manager = new SessionManager(config, new Map([["claude", engine], ["codex", engine]]), "reconstructed", (id) => id === employee.name ? employee : undefined);
     service = createService();
@@ -309,7 +313,7 @@ describe("first Workflow vertical", () => {
   ])("keeps cancellation first across %s without duplicate durable effects", async (_label, lateResult) => {
     const authored = definition({ id: `cancel-${"error" in lateResult ? "failure" : "success"}-flow` });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "cancel" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     const cancelled = await service.cancelRun({ workflowId: authored.id, runId: started.id, reason: "operator cancelled" });
@@ -323,8 +327,7 @@ describe("first Workflow vertical", () => {
     const terminalChanges = changes.length;
 
     engine.resolve(lateResult);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitForTurnDrained(manager, sessionId);
 
     expect(service.getRun(authored.id, started.id)).toMatchObject({ status: "cancelled", revision: terminalRevision });
     expect(service.getRun(authored.id, started.id)!.nodeRuns.map((node) => node.status)).toEqual(["completed", "cancelled", "cancelled"]);
@@ -343,9 +346,9 @@ describe("first Workflow vertical", () => {
   ] as const)("keeps terminal %s first when cancellation arrives later", async (_label, result, expectedStatus) => {
     const authored = definition({ id: `terminal-${expectedStatus}-flow` });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "terminal" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     engine.resolve(result);
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.status).toBe(expectedStatus));
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.status).toBe(expectedStatus));
     const terminal = service.getRun(authored.id, started.id)!;
     const terminalChanges = changes.length;
 
@@ -366,7 +369,7 @@ describe("first Workflow vertical", () => {
       { engine: "claude", model: "sonnet", effort: "medium" }, "Handle dynamic with writer."],
   ] as const)("resolves %s before dispatch", async (_label, overrides, input, expected, prompt) => {
     const authored = definition({ id: `dispatch-${_label.replaceAll(" ", "-")}`, ...overrides }); const started = await service.startManual({ workflowId: authored.id, input: { ...input } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     // composeEmployeePrompt appends the node contract after a "\n\n---\n"
     // separator; the rendered prompt is the segment before it.
     expect(engine.calls[0]!.prompt.split("\n\n---\n")[0]).toBe(prompt);
@@ -385,16 +388,16 @@ describe("first Workflow vertical", () => {
     const runs = await service.fireEvent({ eventName: "build.finished", fireId: "build-1", payload: { status: "passed" } });
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ workflowId: authored.id, trigger: { kind: "event", fireId: "build-1", payload: { status: "passed" } } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     engine.resolve({ sessionId: "native-event", result: "Event done.\n```jinn-output\n{\"result\":\"ok\"}\n```", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, runs[0]!.id)?.status).toBe("completed"));
+    await waitForSettle(() => expect(service.getRun(authored.id, runs[0]!.id)?.status).toBe("completed"));
     await expect(service.fireEvent({ eventName: "build.finished", fireId: "build-2", payload: { data: "x".repeat(70_000) } })).rejects.toThrow(/64 KiB/);
   });
 
   it("completes a full run when the active attempt submits through the route mid-turn", async () => {
     const authored = definition({ id: "route-submit-flow" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "route" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     expect(await postAttempt("submit", sessionId, {
@@ -414,14 +417,14 @@ describe("first Workflow vertical", () => {
     });
 
     engine.resolve({ sessionId: "native-route-submit", result: "Turn ended after submission.", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(sessionId)?.status).toBe("idle"));
+    await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
     expect(service.getRun(authored.id, started.id)?.attempts[0]?.output?.fields).toEqual({ result: "published" });
   });
 
   it("keeps the attempt and run active when an operator message interrupts the current turn", async () => {
     const authored = definition({ id: "operator-interruption-turn-end" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "interrupt" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     expect(await postSessionMessage(sessionId, "Please also verify the release notes."))
@@ -437,14 +440,12 @@ describe("first Workflow vertical", () => {
       error: "Interrupted: new message received",
       durationMs: 1,
     });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
-    await vi.waitFor(() => {
-      expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1);
-    });
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1));
     const afterInterruption = service.getRun(authored.id, started.id)!;
 
     engine.resolve({ sessionId: "native-follow-up", result: "Still working.", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(sessionId)?.status).toBe("idle"));
+    await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     expect(afterInterruption).toMatchObject({
       status: "running",
@@ -473,7 +474,7 @@ describe("first Workflow vertical", () => {
   ] as const)("classifies an operator interruption at the API boundary when the engine %s", async (_label, interruptedResult) => {
     const authored = definition({ id: `boundary-interruption-${interruptedResult.sessionId}` });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "boundary" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
     const completions: WorkflowAttemptCompletion[] = [];
     const unsubscribe = manager.subscribeWorkflowAttemptCompletion((event) => {
@@ -487,17 +488,15 @@ describe("first Workflow vertical", () => {
     });
 
     engine.resolve(interruptedResult);
-    await vi.waitFor(() => expect(completions).toHaveLength(1));
+    await waitForSettle(() => expect(completions).toHaveLength(1));
     expect(completions[0]).toMatchObject({
       sessionId,
       turn: 1,
       outcome: "interrupted",
       interruptionCause: "user-message",
     });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
-    await vi.waitFor(() => {
-      expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1);
-    });
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1));
     expect(service.getRun(authored.id, started.id)).toMatchObject({
       status: "running",
       attempts: [{
@@ -513,7 +512,7 @@ describe("first Workflow vertical", () => {
       summary: "Submitted after the transformed interruption.",
     })).toEqual({ status: 200, body: { ok: true } });
     engine.resolve({ sessionId: "native-hermes-follow-up", result: "Submitted.", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(sessionId)?.status).toBe("idle"));
+    await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
     expect(service.getRun(authored.id, started.id)).toMatchObject({
       status: "completed",
       attempts: [{
@@ -531,7 +530,7 @@ describe("first Workflow vertical", () => {
   it("completes after an operator interruption and additional workflow-session turns", async () => {
     const authored = definition({ id: "submit-after-operator-turns" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "continue" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     await postSessionMessage(sessionId, "Add one more verification.");
@@ -541,12 +540,12 @@ describe("first Workflow vertical", () => {
       error: "Interrupted: new message received",
       durationMs: 1,
     });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
     engine.resolve({ sessionId: "native-extra-turn", result: "Verification added.", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(sessionId)?.status).toBe("idle"));
+    await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     await postSessionMessage(sessionId, "Submit once the summary is ready.");
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(3));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(3));
     const followUpJinnServer = engine.calls[2]?.resolvedMcp?.mcpServers.jinn;
     const submission = await postAttempt("submit", sessionId, {
       fields: { result: "published" },
@@ -554,7 +553,7 @@ describe("first Workflow vertical", () => {
     });
 
     engine.resolve({ sessionId: "native-submit-turn", result: "Submitted.", durationMs: 1 });
-    await vi.waitFor(() => expect(getSession(sessionId)?.status).toBe("idle"));
+    await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     expect(followUpJinnServer).toMatchObject({
       env: expect.objectContaining({ [JINN_WORKFLOW_ATTEMPT_ENV]: "1" }),
@@ -575,7 +574,7 @@ describe("first Workflow vertical", () => {
   it("advances the turn fence without consuming reminder rungs across operator follow-ups", async () => {
     const authored = definition({ id: "operator-turn-fence" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "fence" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     await postSessionMessage(sessionId, "First follow-up.");
@@ -585,16 +584,16 @@ describe("first Workflow vertical", () => {
       error: "Interrupted: new message received",
       durationMs: 1,
     });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
     engine.resolve({ sessionId: "native-fence-two", result: "Continuing.", durationMs: 1 });
-    await vi.waitFor(() => {
+    await waitForSettle(() => {
       expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(2);
     });
 
     await postSessionMessage(sessionId, "Second follow-up.");
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(3));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(3));
     engine.resolve({ sessionId: "native-fence-three", result: "Continuing again.", durationMs: 1 });
-    await vi.waitFor(() => {
+    await waitForSettle(() => {
       expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(3);
     });
 
@@ -612,7 +611,8 @@ describe("first Workflow vertical", () => {
   it("keeps run cancellation terminal while its interrupted engine turn settles", async () => {
     const authored = definition({ id: "run-cancel-remains-terminal" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "cancel" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
+    const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     const cancelled = await service.cancelRun({
       workflowId: authored.id,
@@ -625,7 +625,7 @@ describe("first Workflow vertical", () => {
       error: "Run cancelled by operator.",
       durationMs: 1,
     });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitForTurnDrained(manager, sessionId);
 
     expect(cancelled).toMatchObject({
       status: "cancelled",
@@ -637,17 +637,15 @@ describe("first Workflow vertical", () => {
   it("keeps an explicit stopWorkflowAttempt interruption on the cancellation path", async () => {
     const authored = definition({ id: "explicit-attempt-stop" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "stop" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     await manager.stopWorkflowAttempt({ sessionId, reason: "Attempt stopped explicitly." });
-    await vi.waitFor(() => {
-      expect(service.getRun(authored.id, started.id)?.attempts[0]?.status).toBe("cancelled");
-    });
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.status).toBe("cancelled"));
     const stopped = service.getRun(authored.id, started.id)!;
 
     engine.resolve({ sessionId: "native-stopped-late", result: "Too late.", durationMs: 1 });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitForTurnDrained(manager, sessionId);
 
     expect(stopped.attempts[0]).toMatchObject({ status: "cancelled" });
     expect(service.getRun(authored.id, started.id)?.attempts[0]).toMatchObject({ status: "cancelled" });
@@ -657,7 +655,7 @@ describe("first Workflow vertical", () => {
   it("publishes the shared stopped-session lifecycle event for Workflow-internal cancellation", async () => {
     const authored = definition({ id: "internal-cancel-event" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "stop" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
     const emit = vi.fn();
     ;(manager as unknown as { setGatewayEmitter: (next: typeof emit) => void }).setGatewayEmitter?.(emit)
@@ -670,7 +668,7 @@ describe("first Workflow vertical", () => {
   it("defers the reminder rung for a running child, then accepts the parent's route submission", async () => {
     const authored = definition({ id: "delegated-route-submit-flow" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "delegated" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
     const child = createSession({
       engine: "claude",
@@ -683,7 +681,7 @@ describe("first Workflow vertical", () => {
     updateSession(child.id, { status: "running" });
 
     engine.resolve({ sessionId: "native-delegated-parent", result: "Waiting for delegated work.", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const firstDue = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     expect(manager.workflowAttemptState(sessionId)).toMatchObject({ idle: true, runningChildren: 1 });
 
@@ -717,19 +715,19 @@ describe("first Workflow vertical", () => {
   it("fails after reminder exhaustion with workflow-no-output and follows the error port", async () => {
     const authored = definition({ id: "vertical-no-output-route", errorRoute: true });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "silent" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
 
     engine.resolve({ sessionId: "native-no-output-1", result: "Still working.", durationMs: 1 });
     for (let rung = 1; rung <= 3; rung += 1) {
-      await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
+      await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
       const due = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
       await service.recover(due);
-      await vi.waitFor(() => expect(engine.calls).toHaveLength(rung + 1));
+      await waitForSettle(() => expect(engine.calls).toHaveLength(rung + 1));
       expect(service.getRun(authored.id, started.id)?.attempts[0]?.remindersSent).toBe(rung);
       engine.resolve({ sessionId: `native-no-output-${rung + 1}`, result: "Still no submission.", durationMs: 1 });
     }
 
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.status).toBe("completed"));
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.status).toBe("completed"));
     const completed = service.getRun(authored.id, started.id)!;
     expect(completed.attempts[0]).toMatchObject({
       status: "failed",
@@ -745,14 +743,14 @@ describe("first Workflow vertical", () => {
   it("resets the reminder ladder through the deadline-extension route", async () => {
     const authored = definition({ id: "vertical-extend-route" });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "extension" } });
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(1));
     const sessionId = service.getRun(authored.id, started.id)!.attempts[0]!.sessionId!;
 
     engine.resolve({ sessionId: "native-before-extension", result: "Need more time.", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const due = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     await service.recover(due);
-    await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
+    await waitForSettle(() => expect(engine.calls).toHaveLength(2));
     expect(service.getRun(authored.id, started.id)?.attempts[0]?.remindersSent).toBe(1);
 
     expect(await postAttempt("extend", sessionId, { reason: "Waiting for review." }))
@@ -766,7 +764,7 @@ describe("first Workflow vertical", () => {
     expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeUndefined();
 
     engine.resolve({ sessionId: "native-after-extension", result: "Continuing after extension.", durationMs: 1 });
-    await vi.waitFor(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
+    await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const resetDue = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     expect(Date.parse(resetDue) - Date.parse(getSession(sessionId)!.lastActivity)).toBe(5 * 60_000);
   });
