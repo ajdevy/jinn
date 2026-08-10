@@ -1414,7 +1414,7 @@
       ]
     },
     "packages/web/src/components/pill-nav.tsx": {
-      "lines": 464,
+      "lines": 445,
       "exempt": [
         "max-lines-per-function"
       ]

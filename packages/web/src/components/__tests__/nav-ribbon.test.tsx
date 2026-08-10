@@ -1,16 +1,11 @@
 import { describe, it, expect, vi } from "vitest"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { NavRibbon } from "../pill-nav"
 import { NAV_ITEMS } from "@/lib/nav"
 
 const prefetchRoute = vi.fn()
 vi.mock("@/lib/route-prefetch", () => ({ prefetchRoute: (...args: unknown[]) => prefetchRoute(...args) }))
-
-vi.mock("@/hooks/use-workspaces", () => ({
-  useWorkspaces: () => ({ data: [] }),
-  useStartWorkspace: () => ({ mutateAsync: vi.fn(), isPending: false, variables: undefined }),
-}))
 
 function renderRibbon(props: { listOpen: boolean; path?: string }) {
   return render(
@@ -71,14 +66,11 @@ describe("NavRibbon", () => {
     expect(screen.getByLabelText("Cron").getAttribute("aria-current")).toBeNull()
   })
 
-  it("keeps the workspace launcher in the bottom cluster immediately above Theme", () => {
-    const { container } = renderRibbon({ listOpen: true })
-    const launcher = screen.getByLabelText("Switch workspace")
-    const theme = screen.getByLabelText(/Theme:/)
-    expect(launcher.parentElement).toBe(theme.parentElement)
-    expect(launcher.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(launcher.parentElement?.className).toContain("mt-auto")
-    expect(container.querySelector("nav")?.lastElementChild).toBe(launcher.parentElement)
+  it("leaves the workspace and theme controls to the status bar", () => {
+    renderRibbon({ listOpen: true })
+    const nav = screen.getByRole("navigation", { name: "Primary" })
+    expect(within(nav).queryByLabelText("Switch workspace")).toBeNull()
+    expect(within(nav).queryByLabelText(/Theme:/)).toBeNull()
   })
 
   // Chat icon is OPEN-ONLY: reveals a collapsed list while already on /chat,

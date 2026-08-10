@@ -126,7 +126,9 @@ export function WorkspaceLauncher({
           )}
         >
           <Layers3 size={20} aria-hidden />
-          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-50 ml-2 flex items-center">
+          {/* The rail's piano-reveal label. Named so a host with no room to its
+              right — the status bar — can suppress it and rely on `title`. */}
+          <span aria-hidden data-rail-label className="pointer-events-none absolute inset-y-0 left-full z-50 ml-2 flex items-center">
             <span className="whitespace-nowrap rounded-full border-[0.5px] border-[var(--separator)] bg-[var(--bg-tertiary)] px-2.5 py-1 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)] opacity-0 shadow-[var(--shadow-subtle)] transition-[opacity,transform] duration-150 [transition-timing-function:var(--ease-snappy)] motion-safe:-translate-x-1.5 group-hover/row:translate-x-0 group-hover/row:opacity-100 group-focus-within/row:translate-x-0 group-focus-within/row:opacity-100 motion-reduce:transition-opacity">
               Workspaces
             </span>
@@ -180,7 +182,7 @@ export function WorkspaceLauncher({
   )
 }
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ className }: { className?: string }) {
   const { data = [] } = useWorkspaces()
   const startWorkspace = useStartWorkspace()
   const [creating, setCreating] = useState(false)
@@ -199,6 +201,7 @@ export function WorkspaceSwitcher() {
   return (
     <>
       <WorkspaceLauncher
+        className={className}
         workspaces={data}
         onAdd={() => setCreating(true)}
         onStart={(workspace) => void handleStart(workspace)}

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react"
 import { NavRibbon } from "./pill-nav"
 import { MobileTabBar } from "./chat/mobile-tab-bar"
+import { StatusBar } from "./status-bar"
 import { cn } from "@/lib/utils"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { runAfterLoad, useLoadDeferredMount } from "@/hooks/use-idle-mount"
@@ -112,13 +113,19 @@ export function ToolbarActions({ children }: { children?: React.ReactNode }) {
  * inline large-title header + top-right actions in content — no global mobile
  * chrome bar. `chromeless` routes (chat) draw their own rail + pills.
  *
+ * The StatusBar closes the column at every breakpoint — it hosts the app's
+ * persistent status affordances, which used to be pinned to the bottom of the
+ * desktop nav rail where mobile never saw them. `chromeless` routes draw their
+ * own bottom edge, so they get no bar.
+ *
  * `headerActions` is retained on the signature for callers, but no page supplies
  * one today — pages own their actions inline via ToolbarActions.
  *
  * `hideMobileTabBar` is the full-screen-push escape (Todos v2 §8): a pushed
  * detail page (the opened task) owns the bottom edge — its fixed comment bar
- * replaces the tab bar, and back is the page's own affordance. Desktop chrome
- * is untouched (the bar and its clearance are mobile-only anyway).
+ * replaces the tab bar, and back is the page's own affordance. The status bar
+ * stands down with it for the same reason: two surfaces cannot own one edge.
+ * Only mobile pushes, so desktop chrome is untouched.
  */
 export function PageLayout({ children, headerActions: _headerActions, chromeless, hideMobileTabBar }: { children: React.ReactNode; headerActions?: React.ReactNode; chromeless?: boolean; hideMobileTabBar?: boolean }) {
   return (
@@ -134,13 +141,15 @@ export function PageLayout({ children, headerActions: _headerActions, chromeless
             // Notch clearance only (mobile) — no global top chrome to clear now
             // that the hamburger pill is gone; pages own their inline headers.
             !chromeless && "pt-[var(--safe-top)] lg:pt-0",
-            // Clear the mobile bottom tab bar (mobile only; the bar is the
-            // persistent cross-route nav). Desktop has no bar.
-            !chromeless && !hideMobileTabBar && "pb-[calc(49px+var(--safe-bottom))] lg:pb-0",
           )}
         >
           {children}
         </div>
+        {/* The persistent status affordances (workspace, theme), hosted as the
+            statusbar.right contribution area. Lowest thing in the column, so it
+            carries the mobile tab bar's clearance — the bar below is `fixed`,
+            and a flow sibling without it would render underneath. */}
+        {!chromeless && !hideMobileTabBar && <StatusBar />}
         {/* Persistent mobile nav — same curated tab bar across every standard
             page so nav never disappears (Chat draws its own on the list screen). */}
         {!chromeless && !hideMobileTabBar && <MobileTabBar />}
