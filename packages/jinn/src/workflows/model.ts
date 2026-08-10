@@ -86,6 +86,7 @@ export const workflowIdSchema = z.string()
   .regex(/^[a-z][a-z0-9-]{0,63}$/, 'Invalid workflow ID')
   .refine((id) => id !== 'events', 'Reserved workflow ID');
 export const nodeIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/, 'Invalid node ID');
+const promptSchema = z.string().refine((value) => utf8Bytes(value) <= MAX_PROMPT_BYTES, 'Prompt must be at most 32 KiB');
 const edgeIdSchema = z.string().min(1).max(128);
 const portSchema = z.string().min(1);
 const pathSegmentSchema = z.string()
@@ -183,12 +184,11 @@ const employeeNodeSchema = z.strictObject({
   name: z.string().min(1).max(80),
   config: z.strictObject({
     employee: stringBindingSchema,
-    prompt: z.string().refine((value) => utf8Bytes(value) <= MAX_PROMPT_BYTES, 'Prompt must be at most 32 KiB'),
-    engine: stringBindingSchema.optional(),
-    model: stringBindingSchema.optional(),
-    effort: effortBindingSchema.optional(),
-    output: workflowOutputSchema.optional(),
-    retry: workflowRetrySchema.optional(),
+    prompt: promptSchema,
+    /** Continue the engine session of a completed attempt of `nodeId` instead of dispatching cold; naming this node itself continues its own previous run for the same Todo. Its `prompt` replaces the one above whenever a continuation is found, so it carries the delta rather than the whole brief. */
+    continueFrom: z.strictObject({ nodeId: nodeIdSchema, prompt: promptSchema }).optional(),
+    engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(),
+    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(),
     timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
   }),
 });

@@ -28,6 +28,7 @@ import { logger } from "../shared/logger.js";
 import { loadJobs } from "../cron/jobs.js";
 import { setCronJobEnabled, triggerCronJob } from "../cron/scheduler.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
+import { continueWorkflowAttemptSession } from "./attempt-continuation.js";
 import { workflowAttemptInterruptionCause } from "./workflow-interruptions.js";
 import { runTurn } from "./turn/runner.js";
 import { resolveTurnHierarchy } from "./turn/preflight.js";
@@ -176,9 +177,8 @@ export class SessionManager {
   async runWorkflowAttempt(command: WorkflowAttemptCommand): Promise<{ sessionId: string }> {
     const employee = this.employeeProvider(command.employeeId); if (!employee) throw new Error(`Workflow employee "${command.employeeId}" is not available.`);
     const key = `workflow:${command.owner.workflowId}:${command.owner.runId}:${command.owner.nodeId}:${command.owner.attempt}`;
-    const session = getOrCreateWorkflowAttemptSession({ engine: command.engine, source: "workflow", sourceRef: key, connector: "workflow", sessionKey: key, employee: command.employeeId, model: command.model,
-      effortLevel: command.effort, prompt: command.prompt, workflowProvenance: { kind: "phase", workflowId: command.owner.workflowId, workflowName: command.owner.workflowId,
-        runId: command.owner.runId, triggerSource: "workflow", phase: { nodeId: command.owner.nodeId, name: command.owner.nodeId, index: 1, round: 1, attempt: command.owner.attempt } } });
+    const session = continueWorkflowAttemptSession(getOrCreateWorkflowAttemptSession({ engine: command.engine, source: "workflow", sourceRef: key, connector: "workflow", sessionKey: key, employee: command.employeeId, model: command.model,
+      effortLevel: command.effort, prompt: command.prompt, workflowProvenance: { kind: "phase", workflowId: command.owner.workflowId, workflowName: command.owner.workflowId, runId: command.owner.runId, triggerSource: "workflow", phase: { nodeId: command.owner.nodeId, name: command.owner.nodeId, index: 1, round: 1, attempt: command.owner.attempt } } }), command.continueFrom);
     const claim = claimWorkflowAttemptDispatch(session.id, session.sessionKey, command.prompt); if (claim) this.enqueueWorkflowAttempt(session, command.prompt, employee, claim);
     return { sessionId: session.id };
   }

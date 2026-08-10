@@ -718,7 +718,7 @@
       ]
     },
     "packages/jinn/src/sessions/fork.ts": {
-      "lines": 386,
+      "lines": 363,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1049,13 +1049,13 @@
       ]
     },
     "packages/jinn/src/workflows/repository.ts": {
-      "lines": 396,
+      "lines": 394,
       "exempt": [
         "complexity"
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1191,
+      "lines": 1173,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1082,7 +1082,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 486,
+      "lines": 485,
       "exempt": [
         "complexity"
       ]

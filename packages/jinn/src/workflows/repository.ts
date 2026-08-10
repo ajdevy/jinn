@@ -8,6 +8,7 @@ import {
   type WorkflowId,
   type WorkflowNodeOutput,
 } from './model.js';
+import { readContinuationAttempt, type ContinuationAttemptQuery } from './repository-continuation.js';
 import { RunMutation } from './repository-run-transaction.js';
 import {
   equivalentRun, insertRun, listRunSummaries, readAttempt, readAttemptByRetryKey, readAttemptBySession,
@@ -366,15 +367,12 @@ export class WorkflowRepository {
     if (!Number.isInteger(attempt) || attempt < 1) repositoryError('bad-input', 'Workflow attempt number is invalid.');
     return readAttempt(this.db, run, node, attempt);
   }
-  listAttempts(runId: string, nodeId: string): WorkflowAttemptRecord[] {
-    return readAttempts(this.db, parseRunId(runId), parseNodeId(nodeId));
-  }
-  listChildRuns(parentRunId: string, nodeId: string): WorkflowChildRunSummary[] {
-    return readRunsByCaller(this.db, parseRunId(parentRunId), parseNodeId(nodeId));
-  }
+  listAttempts(runId: string, nodeId: string): WorkflowAttemptRecord[] { return readAttempts(this.db, parseRunId(runId), parseNodeId(nodeId)); }
+  listChildRuns(parentRunId: string, nodeId: string): WorkflowChildRunSummary[] { return readRunsByCaller(this.db, parseRunId(parentRunId), parseNodeId(nodeId)); }
   findAttemptBySessionId(sessionId: string): WorkflowAttemptRecord | null {
     return readAttemptBySession(this.db, parseBoundedString(sessionId as unknown as JsonValue, 'Workflow session ID')!);
   }
+  findContinuationAttempt(query: ContinuationAttemptQuery): WorkflowAttemptRecord | null { return readContinuationAttempt(this.db, query); }
   findAttemptByRetryKey(runId: string, key: string): WorkflowAttemptRecord | null {
     return readAttemptByRetryKey(this.db, parseRunId(runId),
       parseBoundedString(key as unknown as JsonValue, 'Workflow retry idempotency key', 128)!);

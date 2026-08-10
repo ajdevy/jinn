@@ -4,6 +4,8 @@ import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shar
 import { TODO_ID_PATTERN } from "../work-items/id.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
+import { continuationPrompt, resolveEmployeeContinuation } from "./employee-continuation.js";
+import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
 import type {
   ConditionNode,
   ConditionPredicate,
@@ -207,26 +209,8 @@ function fanoutOutput(children: WorkflowChildRunSummary[]): WorkflowNodeOutput {
   const summary = total > 0 && succeeded === total ? "all-succeeded" : succeeded > 0 ? "partial" : "none-succeeded";
   return { text: "", fields: { total, succeeded, failed, cancelled, summary, outcomes } };
 }
-function upstreamSessions(run: WorkflowRunDetail, nodeId: string): Array<{ nodeId: string; sessionId?: string }> {
-  const ancestors = new Set<string>();
-  const pending = incoming(run, nodeId).map((edge) => edge.from.nodeId);
-  while (pending.length > 0) {
-    const upstreamId = pending.pop()!;
-    if (ancestors.has(upstreamId)) continue;
-    ancestors.add(upstreamId);
-    pending.push(...incoming(run, upstreamId).map((edge) => edge.from.nodeId));
-  }
-  return run.definition.nodes.flatMap((authored) => {
-    const runtime = nodeRun(run, authored.id);
-    if (!ancestors.has(authored.id) || runtime.status !== "completed") return [];
-    const attempt = run.attempts.filter((candidate) => candidate.nodeId === authored.id
-      && candidate.status === "completed" && candidate.sessionId).at(-1);
-    const sessionId = runtime.output?.sessionId ?? attempt?.sessionId;
-    return [{ nodeId: authored.id, ...(sessionId ? { sessionId } : {}) }];
-  });
-}
-function composeEmployeePrompt(run: WorkflowRunDetail, node: EmployeeNode): string {
-  const prompt = interpolateWorkflowPrompt(node.config.prompt, bindingContext(run));
+function composeEmployeePrompt(run: WorkflowRunDetail, node: EmployeeNode, continued: boolean): string {
+  const prompt = interpolateWorkflowPrompt(continuationPrompt(node, continued), bindingContext(run));
   return `${prompt}\n\n---\n${buildNodeContract(node, upstreamSessions(run, node.id))}`;
 }
 function resolveString(binding: Parameters<typeof resolveBinding<string>>[0], context: WorkflowBindingContext, label: string): string {
@@ -250,21 +234,18 @@ function resolveDispatch(run: WorkflowRunDetail, node: EmployeeNode, options: Wo
   if (effort && (!modelInfo.supportsEffort || !modelInfo.effortLevels.includes(effort))) {
     throw new Error(`Workflow effort "${effort}" is not available for model "${model}".`);
   }
-  interpolateWorkflowPrompt(node.config.prompt, context);
+  const continuedFrom = resolveEmployeeContinuation(run, node, engine, {
+    repository: options.repository,
+    resumableEngineSession: (id, target) => options.executor.resumableEngineSession(id, target),
+  });
+  // Only the prompt going out: an unused delta must not fail a cold round over a binding it never reads.
+  interpolateWorkflowPrompt(continuationPrompt(node, Boolean(continuedFrom)), context);
   const config: ResolvedEmployeeConfig = {
-    employeeId, engine, model, ...(effort ? { effort } : {}),
+    employeeId, engine, model, ...(effort ? { effort } : {}), ...(continuedFrom ? { continuedFrom } : {}),
     retry: node.config.retry ?? { attempts: 1, delaySeconds: 0, backoff: "fixed" },
     timeoutMinutes: node.config.timeoutMinutes ?? DEFAULT_ATTEMPT_TIMEOUT_MINUTES,
   };
   return config;
-}
-function nodeRun(run: WorkflowRunDetail, nodeId: string): WorkflowNodeRunRecord {
-  const found = run.nodeRuns.find((node) => node.nodeId === nodeId);
-  if (!found) throw new Error(`Workflow node ${nodeId} was not found.`);
-  return found;
-}
-function incoming(run: WorkflowRunDetail, nodeId: string) {
-  return run.definition.edges.filter((edge) => edge.to.nodeId === nodeId);
 }
 function terminalNode(node: WorkflowNodeRunRecord): boolean {
   return ["completed", "failed", "skipped", "cancelled"].includes(node.status);
@@ -687,7 +668,7 @@ export class WorkflowRunner {
 
   private async dispatch(run: WorkflowRunDetail, node: EmployeeNode, config: ResolvedEmployeeConfig): Promise<void> {
     const at = this.now();
-    const promptText = composeEmployeePrompt(run, node);
+    const promptText = composeEmployeePrompt(run, node, Boolean(config.continuedFrom));
     const firstPhase = run.attempts.length === 0;
     const attempt = this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       tx.setNodeStatus(node.id, "dispatching", { resolvedConfig: config as unknown as Record<string, JsonValue>,
@@ -826,11 +807,12 @@ export class WorkflowRunner {
     // Prefer the prompt persisted at attempt creation so the session receives
     // exactly what the run detail shows; recompose only for attempts that
     // predate the column.
-    const prompt = attempt.promptText ?? composeEmployeePrompt(run, node);
     const config = attempt.resolvedConfig;
+    const prompt = attempt.promptText ?? composeEmployeePrompt(run, node, Boolean(config.continuedFrom));
     const { sessionId } = await this.options.executor.startAttempt({ owner: { workflowId, runId, nodeId, attempt: attemptNumber },
       employeeId: config.employeeId, engine: config.engine, ...(config.model ? { model: config.model } : {}),
-      ...(config.effort ? { effort: config.effort } : {}), prompt });
+      ...(config.effort ? { effort: config.effort } : {}), prompt,
+      ...(config.continuedFrom ? { continueFrom: { engine: config.engine, engineSessionId: config.continuedFrom.engineSessionId, sourceSessionId: config.continuedFrom.sessionId } } : {}) });
     const current = this.detail(workflowId, runId);
     this.options.repository.mutateRun(runId, current.revision, (tx) => {
       tx.settleAttempt(nodeId, attemptNumber, { status: "running", sessionId });
@@ -858,7 +840,7 @@ export class WorkflowRunner {
     const latest = run.attempts.filter((attempt) => attempt.nodeId === nodeId).at(-1);
     if (!latest) throw new Error(`Workflow Employee ${nodeId} has no retryable attempt.`);
     const authored = run.definition.nodes.find((item): item is EmployeeNode => item.id === nodeId && item.type === "employee");
-    const promptText = authored ? composeEmployeePrompt(run, authored) : undefined;
+    const promptText = authored ? composeEmployeePrompt(run, authored, Boolean(latest.resolvedConfig.continuedFrom)) : undefined;
     try {
       this.options.repository.mutateRun(run.id, run.revision, (tx) => {
         tx.setNodeStatus(nodeId, "dispatching", { activated: true });
