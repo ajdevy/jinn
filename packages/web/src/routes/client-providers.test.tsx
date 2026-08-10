@@ -30,7 +30,10 @@ vi.mock("@/routes/settings-provider", () => ({
   SettingsProvider: passThrough,
   DocumentTitle: () => null,
 }))
-vi.mock("@/hooks/use-gateway", () => ({ GatewayProvider: passThrough }))
+/** Stable identity: the plugin host bridge subscribes in an effect keyed on it. */
+const gateway = vi.hoisted(() => ({ connected: false, subscribe: () => () => {} }))
+
+vi.mock("@/hooks/use-gateway", () => ({ GatewayProvider: passThrough, useGateway: () => gateway }))
 vi.mock("@/hooks/use-query-invalidation", () => ({ useQueryInvalidation: () => {} }))
 vi.mock("@/components/emoji-favicon", () => ({ EmojiFavicon: () => null }))
 vi.mock("@/components/migration/instance-migration-gate", () => ({

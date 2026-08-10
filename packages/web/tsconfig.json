@@ -15,6 +15,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@jinn/plugin-sdk": [
+        "./src/plugins/sdk/index.ts"
       ]
     }
   },

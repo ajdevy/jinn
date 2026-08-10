@@ -13,6 +13,7 @@ import { InstanceMigrationGate } from "@/components/migration/instance-migration
 import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
+import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -43,6 +44,7 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                   <DocumentTitle />
                   <EmojiFavicon />
                   <QueryInvalidationBridge />
+                  <PluginHostBridge />
                 </GatewayProvider>
               </SettingsProvider>
             </AuthGate>

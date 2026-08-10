@@ -13,6 +13,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      // Kept in step with vite.config.ts: a suite that resolved the SDK by a
+      // different route would prove nothing about what the app ships.
+      '@jinn/plugin-sdk': path.resolve(__dirname, 'src/plugins/sdk/index.ts'),
     },
   },
 })

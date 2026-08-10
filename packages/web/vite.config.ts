@@ -16,6 +16,10 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        // The plugin SDK is a specifier, not a package: a real package would
+        // need its own build and its own React peer, and the singleton the SDK
+        // exists to guarantee is exactly what a second React copy would break.
+        '@jinn/plugin-sdk': path.resolve(__dirname, 'src/plugins/sdk/index.ts'),
       },
     },
     build: {

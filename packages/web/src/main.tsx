@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
 import { registerTalkNavigator } from './components/talk/tools/router-handle'
+import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
@@ -148,6 +149,12 @@ const router = createBrowserRouter([
 // handed back rather than dropped: it is what tells the tool surface the route
 // has actually landed, which is the only honest end for its latency clock.
 registerTalkNavigator((path) => router.navigate(path))
+
+// A plugin navigates from an event handler or a backend callback rather than
+// from a render, so it reaches the router through a module-level handle for the
+// same reason Talk does. The promise is dropped rather than handed back: unlike
+// the voice surface, a plugin has no latency clock to time against the landing.
+registerHostNavigator((path) => void router.navigate(path))
 
 function App() {
   return (

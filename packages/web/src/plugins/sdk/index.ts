@@ -1,0 +1,48 @@
+/**
+ * `@jinn/plugin-sdk` — the one module a Jinn plugin imports.
+ *
+ * Everything here is the app's own instance, never a copy. React in particular
+ * is the mechanism and not a convenience: a plugin that resolved a second React
+ * would get a second dispatcher, and every hook it called would throw. The
+ * bundled path reaches this file through a Vite alias; the runtime loader
+ * re-exports this same namespace off a global. Both land on this object.
+ *
+ * The public type contract is the hand-authored `sdk.d.ts` beside this file,
+ * and a test holds the two in exact two-way sync.
+ */
+import React from 'react'
+
+export { React }
+export { Fragment, jsx, jsxs } from 'react/jsx-runtime'
+
+export { queryClient } from '@/lib/query-client'
+export { cn } from '@/lib/utils'
+
+export { Button } from '@/components/ui/button'
+export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+export { Skeleton } from '@/components/ui/skeleton'
+export { Switch } from '@/components/ui/switch'
+export { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+export { Textarea } from '@/components/ui/textarea'
+
+export { AREAS } from './areas'
+export type { AreaId } from './areas'
+
+export { host, PluginSdkError } from './host'
+export type { PluginHost } from './host'
+export type { HostEvent, HostEventHandler } from './host-events'
+export type { GatewayStatus, HostState } from './host-state'
+export type { HostNotifyLevel } from './host-bridge'
+
+export { SDK_CONTRACT_VERSION } from './version'
