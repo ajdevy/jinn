@@ -15,7 +15,7 @@ const MAX_CONCURRENCY = 16;
 export interface WorkflowCapacitySnapshot {
   cpus: number;
   freeMemBytes: number;
-  /** Sessions across the whole gateway already holding an engine, whoever started them. */
+  /** Engine sessions holding the machine that the asker is not itself running. */
   activeEngineSessions: number;
 }
 
@@ -38,8 +38,20 @@ export function systemConcurrencyCeiling(snapshot: WorkflowCapacitySnapshot): nu
   return Math.min(cpuHeadroom, memoryHeadroom, sessionHeadroom, MAX_CONCURRENCY);
 }
 
-export function readCapacitySnapshot(activeEngineSessions: number): WorkflowCapacitySnapshot {
-  return { cpus: os.availableParallelism(), freeMemBytes: os.freemem(), activeEngineSessions };
+/** The machine as one fan-out's refill sees it.
+ *
+ *  `activeChildren` — the node's own children still running — comes off the gateway's
+ *  count here, because the refill subtracts them a second time when it takes the
+ *  running children off the effective width. Charged in both places the same sessions
+ *  leave the machine twice: a wave whose children have half finished then reads a
+ *  ceiling no wider than the ones still running, refills none of them, and the fan-out
+ *  stops holding items it never started. */
+export function readCapacitySnapshot(activeEngineSessions: number, activeChildren: number): WorkflowCapacitySnapshot {
+  return {
+    cpus: os.availableParallelism(),
+    freeMemBytes: os.freemem(),
+    activeEngineSessions: Math.max(0, activeEngineSessions - activeChildren),
+  };
 }
 
 /** What a fan-out asked for, what it got, and why they differ. */

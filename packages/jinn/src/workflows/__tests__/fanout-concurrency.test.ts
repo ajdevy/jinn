@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Employee,
   ModelRegistry,
@@ -95,9 +95,9 @@ function childWorkflow(): WorkflowDefinition {
   ], [edge("start-work", "start", "success", "work"), edge("work-finish", "work", "success", "finish")]);
 }
 
-/** A planner node that names the degree of parallelism, then a fan-out over five
- *  items that takes its width from what the planner emitted. */
-function plannedParent(concurrency: number | Binding<number>): WorkflowDefinition {
+/** A planner node that names the degree of parallelism, then a fan-out that takes
+ *  its width from what the planner emitted. */
+function plannedParent(concurrency: number | Binding<number>, items = 5): WorkflowDefinition {
   return save("planned-parent", [
     { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
     { id: "plan", type: "employee", name: "Plan", config: {
@@ -105,7 +105,7 @@ function plannedParent(concurrency: number | Binding<number>): WorkflowDefinitio
     } },
     { id: "children", type: "workflow-call", name: "Children", config: {
       workflowId: { source: "fixed", value: "child-flow" },
-      items: { source: "fixed", value: [1, 2, 3, 4, 5].map((topic) => ({ topic })) },
+      items: { source: "fixed", value: Array.from({ length: items }, (_, index) => ({ topic: index + 1 })) },
       input: { topic: { source: "trigger", path: "item.topic" } },
       concurrency,
     } },
@@ -143,7 +143,26 @@ afterEach(() => {
   service.dispose();
   database.close();
   fs.rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
+
+/** Fix the machine the ceiling is read from, so a scheduling test says the same
+ *  thing on a busy laptop as on a CI box. */
+function pinMachine(cpuHeadroom: number): void {
+  vi.spyOn(os, "availableParallelism").mockReturnValue(cpuHeadroom + 1);
+  vi.spyOn(os, "freemem").mockReturnValue(cpuHeadroom * 512 * 1024 * 1024);
+}
+
+function liveChildren(runId: string): number {
+  return repository.listChildRuns(runId, "children")
+    .filter((child) => !["completed", "failed", "cancelled"].includes(child.status)).length;
+}
+
+/** A child run ends by waking its caller through a fired-and-forgotten advance, so
+ *  the parent's refill lands a few ticks after the child settles. */
+async function refilled(): Promise<void> {
+  for (let tick = 0; tick < 10; tick += 1) await new Promise((resolve) => setImmediate(resolve));
+}
 
 describe("adaptive fan-out concurrency", () => {
   it("runs the number of children a planner node asked for, not the authored default", async () => {
@@ -163,6 +182,29 @@ describe("adaptive fan-out concurrency", () => {
     expect(repository.listChildRuns(runId, "children")).toHaveLength(1);
     expect(fanoutNode(runId).resolvedConfig).toMatchObject({
       concurrency: 4, concurrencyEffective: 1, concurrencyLimitedBy: "system-ceiling",
+    });
+  });
+
+  it("refills a drained wave without charging itself for its own children", async () => {
+    pinMachine(8);
+    let started: string | undefined;
+    service.dispose();
+    service = buildService(() => (started ? liveChildren(started) : 0));
+    childWorkflow();
+    const parent = plannedParent(DEGREE_FROM_PLAN, 12);
+    const run = await service.startManual({ workflowId: parent.id, input: {} });
+    started = run.id;
+    await executor.settle(executor.commands[0]!, { degree: 8 });
+    expect(repository.listChildRuns(run.id, "children")).toHaveLength(8);
+
+    // The gateway's session count is these eight children; a ceiling that reads it
+    // whole leaves the fan-out competing with itself and the last four items never start.
+    for (const command of executor.commands.slice(1, 5)) await executor.settle(command, {});
+    await refilled();
+
+    expect(repository.listChildRuns(run.id, "children")).toHaveLength(12);
+    expect(fanoutNode(run.id).resolvedConfig).toMatchObject({
+      concurrency: 8, concurrencyEffective: 8, concurrencyLimitedBy: "requested",
     });
   });
 

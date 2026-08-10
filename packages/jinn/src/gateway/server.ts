@@ -879,7 +879,6 @@ export async function startGateway(
     readTranscript: (id) => getMessages(id).map(({ id: messageId, role, content, timestamp }) => ({ id: messageId, role, content, timestamp })),
     onChange: ({ workflowId, runId }) => emit("company:changed", { entity: "workflow-run", workflowId, runId }),
     onDefinitionChange: ({ workflowId, revision }) => emit("company:changed", { entity: "workflow-definition", id: workflowId, revision }) });
-  await workflowService.recover(new Date().toISOString());
 
   // Discover dynamic engine models in the background. Fire-and-forget: the
   // registry serves known/synthesized fallbacks until the snapshots land, then
@@ -985,6 +984,7 @@ export async function startGateway(
     gatewayAuthToken,
     workflowService,
   };
+  await workflowService.recover(new Date().toISOString()); // never above apiContext: a recovered fan-out reads its ceiling through it
 
   // Re-read config.yaml into memory. Used by both the file-watcher (debounced)
   // and by API handlers that write config.yaml and need getConfig() to reflect

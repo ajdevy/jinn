@@ -161,10 +161,10 @@ interface FanoutPlan {
   hasItems: boolean;
 }
 
-function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode, capacity: WorkflowRunnerOptions["activeEngineSessions"]): FanoutPlan {
+function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode, capacity: WorkflowRunnerOptions["activeEngineSessions"], activeChildren: number): FanoutPlan {
   const context = bindingContext(run);
   const workflowId = resolveString(node.config.workflowId, context, "Workflow Call target");
-  const concurrency = resolveFanoutConcurrency(node, context, capacity ? readCapacitySnapshot(capacity()) : null);
+  const concurrency = resolveFanoutConcurrency(node, context, capacity ? readCapacitySnapshot(capacity(), activeChildren) : null);
   if (!node.config.items) return { workflowId, concurrency, items: [null], hasItems: false };
   const items = resolveBinding(node.config.items, context);
   if (!Array.isArray(items)) throw new Error(`Workflow Call ${node.id} items must resolve to an array.`);
@@ -422,10 +422,10 @@ export class WorkflowRunner {
       }
       if (node.type === "workflow-call") {
         try {
-          const plan = fanoutPlan(run, node, this.options.activeEngineSessions);
           const children = fanoutChildren(run, node.id);
-          validateFanoutChildren(node, plan, children);
           const active = children.filter((child) => !childTerminal(child)).length;
+          const plan = fanoutPlan(run, node, this.options.activeEngineSessions, active);
+          validateFanoutChildren(node, plan, children);
           if (runtime.status === "pending" || (children.length === plan.items.length && active === 0)
             || (children.length < plan.items.length && active < plan.concurrency.effective)) {
             return { kind: "fanout", node };
@@ -500,7 +500,9 @@ export class WorkflowRunner {
   }
 
   private async reconcileFanout(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
-    const plan = fanoutPlan(run, node, this.options.activeEngineSessions);
+    const children = fanoutChildren(run, node.id);
+    const active = children.filter((child) => !childTerminal(child)).length;
+    const plan = fanoutPlan(run, node, this.options.activeEngineSessions, active);
     const runtime = nodeRun(run, node.id);
     if (runtime.status === "pending") {
       const at = this.now();
@@ -514,7 +516,6 @@ export class WorkflowRunner {
       return;
     }
 
-    const children = fanoutChildren(run, node.id);
     validateFanoutChildren(node, plan, children);
     if (children.length === plan.items.length && children.every(childTerminal)) {
       const at = this.now();
@@ -526,7 +527,6 @@ export class WorkflowRunner {
     }
 
     this.recordFanoutWidth(run, node, runtime, plan);
-    const active = children.filter((child) => !childTerminal(child)).length;
     const started = new Set(children.map((child) => child.itemIndex));
     const indexes = plan.items.map((_, index) => index).filter((index) => !started.has(index));
     const capacity = Math.max(0, plan.concurrency.effective - active);
