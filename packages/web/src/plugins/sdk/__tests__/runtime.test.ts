@@ -1,0 +1,69 @@
+import { describe, expect, it } from 'vitest'
+import { installPluginSdk, sdkImportMap, shimSource } from '../runtime'
+
+describe('shim source', () => {
+  it('derives its export names from the namespace it is given', () => {
+    const source = shimSource('__TEST_NS__', { alpha: 1, beta: 2 })
+
+    expect(source).toContain('export const { alpha, beta } = m;')
+    expect(source).toContain('const m = globalThis.__TEST_NS__;')
+  })
+
+  // The whole point of deriving names: an export added to the SDK barrel has to
+  // reach a disk plugin without anyone remembering to edit the generator.
+  it('picks up a name added to the namespace with no edit here', () => {
+    expect(shimSource('__TEST_NS__', { alpha: 1, freshlyAdded: 2 })).toContain('freshlyAdded')
+  })
+
+  it('re-exports the default separately rather than as a destructured name', () => {
+    const source = shimSource('__TEST_NS__', { default: 1, alpha: 2 })
+
+    expect(source).toContain('export default m.default ?? m;')
+    expect(source).toContain('export const { alpha } = m;')
+  })
+
+  // `export const { } = m` is a syntax error, so a namespace with nothing to
+  // destructure has to emit no destructuring at all.
+  it('emits no destructuring for a namespace with no usable names', () => {
+    const source = shimSource('__TEST_NS__', {})
+
+    expect(source).not.toContain('export const')
+    expect(() => new Function(source.replace(/^export .*$/gm, ''))).not.toThrow()
+  })
+
+  it('skips names that are not valid bindings', () => {
+    expect(shimSource('__TEST_NS__', { 'not-an-identifier': 1, ok: 2 })).toContain(
+      'export const { ok } = m;',
+    )
+  })
+})
+
+describe('installPluginSdk', () => {
+  it('puts the app’s own SDK and React on the globals the shims read', async () => {
+    installPluginSdk()
+
+    const globals = globalThis as Record<string, unknown>
+    const sdk = await import('../index')
+    const react = await import('react')
+
+    expect(globals.__JINN_PLUGIN_SDK__).toBe(sdk)
+    expect(globals.__JINN_REACT__).toBe(react)
+    expect(globals.__JINN_REACT_JSX__).toBe(await import('react/jsx-runtime'))
+  })
+})
+
+describe('sdkImportMap', () => {
+  it('maps exactly the three supported specifiers', () => {
+    expect(Object.keys(sdkImportMap()).sort()).toEqual([
+      '@jinn/plugin-sdk',
+      'react',
+      'react/jsx-runtime',
+    ])
+  })
+
+  // Every rewritten plugin points at these URLs for as long as the tab lives, so
+  // a second call handing out fresh ones would strand the first plugin's imports.
+  it('hands out the same URLs on every call', () => {
+    expect(sdkImportMap()).toEqual(sdkImportMap())
+  })
+})

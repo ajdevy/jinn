@@ -1,0 +1,214 @@
+/**
+ * The no-build ESM door (`.plans/plugins.md` §4). One `client.js` takes this
+ * pipeline:
+ *
+ *   source -> reject unsupported bare specifiers -> rewrite the mapped ones to
+ *   live shim blobs -> blob `import()` -> validate the default export ->
+ *   publish an inventory record -> `register(ctx)` if the operator enabled it
+ *
+ * Loading an id that is already live disposes the previous incarnation first,
+ * so a saved edit is a clean reload rather than a second registration beside
+ * the first.
+ *
+ * SECURITY, and §9 is blunt about it: this is error isolation, not a capability
+ * boundary. A loaded plugin is evaluated as ESM in the dashboard's own realm
+ * with the app's full authority. It cannot crash the app; it can do anything the
+ * app can. That is acceptable for a local directory the operator controls, and
+ * it is exactly why a remote source may not reuse this pipeline as it stands.
+ */
+import { plugins, type PluginKind } from '@/contrib/plugins-store'
+import { installPluginSdk, sdkImportMap } from './sdk/runtime'
+import { createPluginContext, type JinnPlugin } from './plugin-context'
+
+/** Every failure this loader raises, named so a caller can tell a rejected
+ *  plugin from a bug in the loader itself. */
+export class PluginLoadError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PluginLoadError'
+  }
+}
+
+/** Live plugins: id -> the disposers of its current incarnation. */
+const loaded = new Map<string, (() => void)[]>()
+
+/**
+ * Matches the specifier of a static `from '…'`, a side-effect `import '…'`, or
+ * a dynamic `import('…')`. Byte-identical to hermes
+ * `apps/desktop/src/contrib/runtime-loader.ts:51`, and exported so a test can
+ * pin it there: the anchor is the whole safety property, and widening it is how
+ * a rewrite starts reaching text that is not an import.
+ *
+ * What the anchor buys, stated exactly: no string literal is touched, because a
+ * literal is only ever rewritten when `import` or `from` immediately precedes
+ * it — `notify('react')` and `const label = 'react'` both come through
+ * unchanged. A comment that spells the import syntax out (`// … from 'react'`)
+ * is rewritten, which changes no behaviour because a comment is not evaluated.
+ * Telling those two apart needs a tokenizer, and a second tokenizer is a worse
+ * trade than a rewritten comment.
+ */
+export const importSpecifierRe = () => /(from\s*|import\s*\(\s*|import\s+)(['"])([^'"]+)\2/g
+
+/** Rewrite ONLY mapped import specifiers to their live shim blob URLs. */
+function rewriteSpecifiers(source: string): string {
+  const map = sdkImportMap()
+
+  return source.replace(importSpecifierRe(), (whole, pre, quote, specifier) =>
+    map[specifier] ? `${pre}${quote}${map[specifier]}${quote}` : whole,
+  )
+}
+
+/** Bare specifiers this loader cannot resolve — not relative, not a URL, and
+ *  not in the SDK map. Surfaced up front so they do not arrive as a cryptic
+ *  native "Failed to resolve module specifier" from the blob import. */
+function unsupportedImports(source: string): string[] {
+  const map = sdkImportMap()
+  const bare = new Set<string>()
+
+  for (const match of source.matchAll(importSpecifierRe())) {
+    const specifier = match[3]
+    if (!specifier || map[specifier]) continue
+    // Relative and absolute paths and any URL scheme are the browser's to
+    // resolve against the blob, not ours to reject.
+    if (/^[./]/.test(specifier) || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) continue
+    bare.add(specifier)
+  }
+
+  return [...bare]
+}
+
+const reason = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
+/** Evaluate the rewritten source as a module. The URL is revoked either way —
+ *  an import that threw has still consumed it. */
+async function evaluate(source: string): Promise<unknown> {
+  const url = URL.createObjectURL(
+    new Blob([rewriteSpecifiers(source)], { type: 'text/javascript' }),
+  )
+
+  try {
+    return await import(/* @vite-ignore */ url)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** The default export, checked field by field. Everything downstream treats the
+ *  result as a plugin, so this is the only place its shape is in doubt. */
+function validate(module: unknown, origin: string): JinnPlugin {
+  const reject = (problem: string) => new PluginLoadError(`${origin}: ${problem}`)
+  const exported: unknown = (module as { default?: unknown }).default
+
+  if (typeof exported !== 'object' || exported === null) {
+    throw reject('client.js must default-export a plugin object { id, name?, register(ctx) }')
+  }
+
+  const { id, name, defaultEnabled, register } = exported as Record<string, unknown>
+  if (typeof id !== 'string' || id === '') throw reject('a plugin needs a non-empty string id')
+  if (typeof register !== 'function') {
+    throw reject(`register must be a function, not ${typeof register}`)
+  }
+  if (name !== undefined && typeof name !== 'string') {
+    throw reject(`name must be a string when present, not ${typeof name}`)
+  }
+  if (defaultEnabled !== undefined && typeof defaultEnabled !== 'boolean') {
+    throw reject(`defaultEnabled must be a boolean when present, not ${typeof defaultEnabled}`)
+  }
+
+  // The four checks above are what make this cast true; `register` needs it
+  // because `typeof x === 'function'` narrows to `Function`, which is not callable
+  // with the context type.
+  return { id, name, defaultEnabled, register: register as JinnPlugin['register'] }
+}
+
+/** Publish the inventory record and its lifecycle handles, then register if the
+ *  operator has enabled the plugin. */
+function publish(plugin: JinnPlugin, kind: PluginKind): void {
+  const record = { id: plugin.id, name: plugin.name ?? plugin.id, kind }
+
+  const activate = () => {
+    // A reload disposes the previous incarnation before the new one registers.
+    // Registering first would leave the old disposers holding entries that the
+    // new registration has already replaced.
+    unloadRuntimePlugin(plugin.id)
+    const disposers: (() => void)[] = []
+    loaded.set(plugin.id, disposers)
+
+    try {
+      plugin.register(createPluginContext(plugin.id, (dispose) => disposers.push(dispose)))
+      plugins.publishPlugin({ ...record, status: 'loaded' })
+    } catch (error) {
+      // Whatever it managed to register before it threw is already tracked
+      // above, so the half-built incarnation still comes down on the next
+      // unload. Only the record changes.
+      plugins.publishPlugin({ ...record, status: 'error', error: reason(error) })
+    }
+  }
+
+  plugins.publishPlugin(
+    { ...record, status: 'disabled' },
+    { activate, deactivate: () => unloadRuntimePlugin(plugin.id) },
+  )
+
+  // A plugin the operator has not enabled still inventories — the settings list
+  // shows it, and the handle above turns it on without a reload — it just never
+  // registers. `defaultEnabled` is deliberately not consulted: §8 says only the
+  // operator decides, and a manifest value that flipped this would be the plugin
+  // opting itself in.
+  if (plugins.pluginActive(plugin.id)) activate()
+}
+
+/** Dispose one plugin's current incarnation. */
+export function unloadRuntimePlugin(id: string): void {
+  for (const dispose of loaded.get(id) ?? []) {
+    try {
+      dispose()
+    } catch (error) {
+      // One cleanup throwing must not strand the rest of the same plugin's
+      // disposers, or a reload leaves half the previous incarnation live.
+      console.error(`[plugins] ${id} threw while disposing`, error)
+    }
+  }
+  loaded.delete(id)
+}
+
+/**
+ * Evaluate and register one plugin. Returns the id it loaded under — which is
+ * the plugin's own, not necessarily `origin` — or null if it was rejected.
+ *
+ * `origin` is the directory the source came from. It names the error record, so
+ * a plugin too broken to have an id is still something the settings list can
+ * show and somebody can fix.
+ */
+export async function loadRuntimePlugin(
+  source: string,
+  origin: string,
+  kind: PluginKind,
+): Promise<string | null> {
+  installPluginSdk()
+
+  try {
+    const unsupported = unsupportedImports(source)
+    if (unsupported.length > 0) {
+      throw new PluginLoadError(
+        `${origin} imports ${unsupported.join(', ')}, which this loader cannot resolve. ` +
+          `A plugin may import only ${Object.keys(sdkImportMap()).join(', ')}.`,
+      )
+    }
+
+    const plugin = validate(await evaluate(source), origin)
+    publish(plugin, kind)
+    return plugin.id
+  } catch (error) {
+    console.error(`[plugins] ${origin} failed to load`, error)
+    plugins.publishPlugin({
+      id: origin,
+      name: origin,
+      kind,
+      status: 'error',
+      error: reason(error),
+    })
+    return null
+  }
+}

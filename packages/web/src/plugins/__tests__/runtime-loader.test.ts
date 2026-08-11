@@ -1,0 +1,175 @@
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { plugins } from '@/contrib/plugins-store'
+import { PluginLoadError, importSpecifierRe, loadRuntimePlugin } from '../runtime-loader'
+import { useDataUrlModules, type ModuleUrls } from './data-url-modules'
+
+let urls: ModuleUrls
+let consoleError: ReturnType<typeof vi.spyOn>
+
+beforeAll(() => {
+  urls = useDataUrlModules()
+})
+
+beforeEach(() => {
+  urls.created.length = 0
+  urls.revoked.length = 0
+  consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+/** The store is a singleton, so every test loads under an id of its own. */
+let idCounter = 0
+const freshId = () => `probe-${(idCounter += 1)}`
+
+const recordFor = (id: string) => plugins.listPlugins().find((record) => record.id === id)
+
+/** The error the loader logged alongside its message. */
+const loggedError = () => consoleError.mock.calls.at(-1)?.[1]
+
+describe('unsupported specifiers', () => {
+  it('rejects a bare specifier the SDK map does not cover, before evaluating', async () => {
+    const id = freshId()
+    const source =
+      `import lodash from 'lodash';\n` +
+      `globalThis.${id.replace('-', '_')} = 'evaluated';\n` +
+      `export default { id: ${JSON.stringify(id)}, register() {} };\n`
+
+    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
+
+    // Nothing was evaluated: the module body's side effect never happened, the
+    // plugin's own source was never handed to the object-URL factory, and the
+    // revoke that only `evaluate` performs never ran either. (The SDK shims are
+    // built to answer "is this specifier supported", so they are created; the
+    // plugin is not.)
+    expect((globalThis as Record<string, unknown>)[id.replace('-', '_')]).toBeUndefined()
+    expect(urls.created.some((created) => created.includes(id))).toBe(false)
+    expect(urls.revoked).toEqual([])
+    expect(loggedError()).toBeInstanceOf(PluginLoadError)
+    expect(recordFor(id)).toEqual({
+      id,
+      name: id,
+      kind: 'client',
+      status: 'error',
+      error: expect.stringContaining('lodash'),
+    })
+  })
+
+  it('lists every offending specifier, once each', async () => {
+    const id = freshId()
+    const source =
+      `import a from 'lodash';\nimport b from 'zod';\nimport c from 'lodash';\n` +
+      `export default { id: ${JSON.stringify(id)}, register() {} };\n`
+
+    await loadRuntimePlugin(source, id, 'client')
+
+    expect(recordFor(id)?.error).toContain('lodash, zod')
+  })
+
+  it.each([
+    ['@jinn/plugin-sdk', `import { AREAS } from '@jinn/plugin-sdk';`],
+    ['react', `import React from 'react';`],
+    ['react/jsx-runtime', `import { jsx } from 'react/jsx-runtime';`],
+    ['a relative path', `import './helper.js';`],
+    ['a URL', `import 'https://example.test/m.js';`],
+  ])('does not reject %s', async (_label, statement) => {
+    const id = freshId()
+
+    await loadRuntimePlugin(
+      `${statement}\nexport default { id: ${JSON.stringify(id)}, register() {} };\n`,
+      id,
+      'client',
+    )
+
+    expect(recordFor(id)?.error ?? '').not.toContain('cannot resolve')
+  })
+})
+
+describe('specifier rewriting', () => {
+  // Pinned to hermes `apps/desktop/src/contrib/runtime-loader.ts:51`. The anchor
+  // is the whole safety property: widen it and a matching string literal starts
+  // getting rewritten.
+  it('uses the regex hermes uses, byte for byte', () => {
+    expect(importSpecifierRe().source).toBe(
+      String.raw`(from\s*|import\s*\(\s*|import\s+)(['"])([^'"]+)\2`,
+    )
+    expect(importSpecifierRe().flags).toBe('g')
+  })
+
+  it('rewrites real specifiers and leaves string literals alone', async () => {
+    const id = freshId()
+    const source =
+      `import { host } from '@jinn/plugin-sdk';\n` +
+      `const label = 'react';\n` +
+      `host.notify('react');\n` +
+      `export default { id: ${JSON.stringify(id)}, name: label, register() {} };\n`
+
+    await loadRuntimePlugin(source, id, 'client')
+
+    const rewritten = urls.created.at(-1) ?? ''
+    expect(rewritten).toContain(`import { host } from 'data:text/javascript,`)
+    expect(rewritten).not.toContain(`from '@jinn/plugin-sdk'`)
+    // The two forms a plugin can spell `react` in without meaning an import.
+    expect(rewritten).toContain(`const label = 'react';`)
+    expect(rewritten).toContain(`host.notify('react');`)
+  })
+
+  it('revokes the module URL once the import has settled', async () => {
+    const id = freshId()
+
+    await loadRuntimePlugin(
+      `export default { id: ${JSON.stringify(id)}, register() {} };\n`,
+      id,
+      'client',
+    )
+
+    expect(urls.revoked).toHaveLength(1)
+  })
+})
+
+describe('default export validation', () => {
+  it.each([
+    ['no default export', 'export const nope = 1;', 'default-export a plugin object'],
+    ['a default that is not an object', 'export default 42;', 'default-export a plugin object'],
+    ['no id', 'export default { register() {} };', 'non-empty string id'],
+    ['an empty id', 'export default { id: "", register() {} };', 'non-empty string id'],
+    ['a non-function register', 'export default { id: "x", register: 3 };', 'register must be a function'],
+    ['a non-string name', 'export default { id: "x", name: 7, register() {} };', 'name must be a string'],
+    [
+      'a non-boolean defaultEnabled',
+      'export default { id: "x", register() {}, defaultEnabled: "yes" };',
+      'defaultEnabled must be a boolean',
+    ],
+  ])('rejects %s with an error record and no throw', async (_label, body, expected) => {
+    const id = freshId()
+
+    // A comment carrying the id keeps every case a distinct module: identical
+    // sources become one data: URL, and the module cache would answer the second
+    // load from the first evaluation.
+    await expect(loadRuntimePlugin(`// ${id}\n${body}\n`, id, 'client')).resolves.toBeNull()
+
+    expect(loggedError()).toBeInstanceOf(PluginLoadError)
+    expect(recordFor(id)).toEqual({
+      id,
+      name: id,
+      kind: 'client',
+      status: 'error',
+      error: expect.stringContaining(expected),
+    })
+  })
+
+  it('records the failure under the folder it came from, not under the id it claimed', async () => {
+    const origin = freshId()
+
+    await loadRuntimePlugin(`// ${origin}\nexport default { id: "claimed" };\n`, origin, 'client')
+
+    expect(recordFor(origin)?.status).toBe('error')
+    expect(recordFor('claimed')).toBeUndefined()
+  })
+
+  it('carries the plugin kind onto the error record', async () => {
+    const id = freshId()
+
+    await loadRuntimePlugin(`// ${id}\nexport default 1;\n`, id, 'client+server')
+
+    expect(recordFor(id)?.kind).toBe('client+server')
+  })
+})
