@@ -17,7 +17,11 @@ beforeEach(() => {
   writeConfig({ enabled: ["inbox"] });
   onConfigReload();
   install("inbox", { id: "inbox", name: "Inbox", version: "2.0.0", server: "server.js" }, {
-    "server.js": "// gateway-side source",
+    // A loadable registrar that registers nothing: the backend mount now answers
+    // every path below this plugin, so a server entry that fails to import would
+    // turn these 404s into its 500 and stop testing the route. The sentinel
+    // string is what the assertions below look for on the wire.
+    "server.js": "// gateway-side source\nexport default () => ({});",
     "assets/logo.svg": "<svg/>",
     "assets/panel.css": "body{}",
     "assets/notes.txt": "not an asset type",
