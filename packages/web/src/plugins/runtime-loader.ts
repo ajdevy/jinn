@@ -42,20 +42,93 @@ const loaded = new Map<string, (() => void)[]>()
  * What the anchor buys, stated exactly: no string literal is touched, because a
  * literal is only ever rewritten when `import` or `from` immediately precedes
  * it — `notify('react')` and `const label = 'react'` both come through
- * unchanged. A comment that spells the import syntax out (`// … from 'react'`)
- * is rewritten, which changes no behaviour because a comment is not evaluated.
- * Telling those two apart needs a tokenizer, and a second tokenizer is a worse
- * trade than a rewritten comment.
+ * unchanged. What the anchor cannot tell apart is code from a comment quoting
+ * the same syntax, so every scan below runs over `codeOnly()` rather than over
+ * the raw source.
  */
 export const importSpecifierRe = () => /(from\s*|import\s*\(\s*|import\s+)(['"])([^'"]+)\2/g
+
+const QUOTES = new Set(['"', "'", '`'])
+
+/** Index just past the literal opening at `start`. */
+function literalEnd(source: string, start: number): number {
+  const quote = source[start]
+  let cursor = start + 1
+
+  while (cursor < source.length && source[cursor] !== quote) {
+    cursor += source[cursor] === '\\' ? 2 : 1
+  }
+
+  return cursor + 1
+}
+
+/** Index just past the comment opening at `start`, or -1 if none opens there. */
+function commentEnd(source: string, start: number): number {
+  if (source[start] !== '/') return -1
+
+  if (source[start + 1] === '/') {
+    const newline = source.indexOf('\n', start + 2)
+    return newline === -1 ? source.length : newline
+  }
+
+  if (source[start + 1] === '*') {
+    const close = source.indexOf('*/', start + 2)
+    return close === -1 ? source.length : close + 2
+  }
+
+  return -1
+}
+
+/**
+ * The source with comment bodies blanked to spaces. Offsets are preserved, so a
+ * match found here indexes straight back into the original — which is what lets
+ * a scan skip comments while the rewrite still edits the real text. String and
+ * template state is tracked only so that a `//` inside a literal (a URL, most
+ * often) is not read as the start of a comment.
+ */
+function codeOnly(source: string): string {
+  const masked = source.split('')
+  let cursor = 0
+
+  while (cursor < source.length) {
+    const comment = commentEnd(source, cursor)
+
+    if (comment !== -1) {
+      while (cursor < comment) masked[cursor++] = ' '
+    } else if (QUOTES.has(source[cursor])) {
+      cursor = literalEnd(source, cursor)
+    } else {
+      cursor += 1
+    }
+  }
+
+  return masked.join('')
+}
+
+/** The shim URL for a specifier, or undefined. `Object.hasOwn` rather than
+ *  truthiness: the map is an ordinary object, so `map['constructor']` answers
+ *  with a function off the prototype and would let `import 'constructor'`
+ *  through the allowlist. */
+function shimUrl(map: Record<string, string>, specifier: string): string | undefined {
+  return Object.hasOwn(map, specifier) ? map[specifier] : undefined
+}
 
 /** Rewrite ONLY mapped import specifiers to their live shim blob URLs. */
 function rewriteSpecifiers(source: string): string {
   const map = sdkImportMap()
+  let rewritten = ''
+  let cursor = 0
 
-  return source.replace(importSpecifierRe(), (whole, pre, quote, specifier) =>
-    map[specifier] ? `${pre}${quote}${map[specifier]}${quote}` : whole,
-  )
+  for (const match of codeOnly(source).matchAll(importSpecifierRe())) {
+    const [whole, pre, quote, specifier] = match
+    const url = shimUrl(map, specifier)
+    if (url === undefined) continue
+
+    rewritten += source.slice(cursor, match.index) + `${pre}${quote}${url}${quote}`
+    cursor = match.index + whole.length
+  }
+
+  return rewritten + source.slice(cursor)
 }
 
 /** Bare specifiers this loader cannot resolve — not relative, not a URL, and
@@ -65,9 +138,9 @@ function unsupportedImports(source: string): string[] {
   const map = sdkImportMap()
   const bare = new Set<string>()
 
-  for (const match of source.matchAll(importSpecifierRe())) {
+  for (const match of codeOnly(source).matchAll(importSpecifierRe())) {
     const specifier = match[3]
-    if (!specifier || map[specifier]) continue
+    if (!specifier || shimUrl(map, specifier) !== undefined) continue
     // Relative and absolute paths and any URL scheme are the browser's to
     // resolve against the blob, not ours to reject.
     if (/^[./]/.test(specifier) || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) continue

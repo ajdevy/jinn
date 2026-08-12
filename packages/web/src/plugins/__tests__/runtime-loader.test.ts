@@ -64,6 +64,48 @@ describe('unsupported specifiers', () => {
     expect(recordFor(id)?.error).toContain('lodash, zod')
   })
 
+  it('rejects a name the SDK map only inherits from Object.prototype', async () => {
+    const id = freshId()
+    const probe = id.replace('-', '_')
+    const source =
+      `import 'constructor';\n` +
+      `globalThis.${probe} = 'evaluated';\n` +
+      `export default { id: ${JSON.stringify(id)}, register() {} };\n`
+
+    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
+
+    // Membership, not truthiness: `map['constructor']` answers with a function
+    // off the prototype, which would wave the import past the allowlist and let
+    // the module body run.
+    expect((globalThis as Record<string, unknown>)[probe]).toBeUndefined()
+    expect(loggedError()).toBeInstanceOf(PluginLoadError)
+    expect(recordFor(id)?.error).toContain('constructor')
+  })
+
+  it('does not reject an import that only appears inside a comment', async () => {
+    const id = freshId()
+    const source =
+      `// import lodash from 'lodash';\n` +
+      `/* import zod from 'zod'; */\n` +
+      `export default { id: ${JSON.stringify(id)}, register() {} };\n`
+
+    expect(await loadRuntimePlugin(source, id, 'client')).toBe(id)
+  })
+
+  // The direction of the comment mask that would be a hole rather than a
+  // cosmetic slip: a regex literal carrying a quote leaves the mask mid-string,
+  // and a real import masked away is one that gets let through.
+  it('still rejects an import that follows a regex literal containing a quote', async () => {
+    const id = freshId()
+    const source =
+      `const re = /['"]/g;\n` +
+      `import x from 'lodash';\n` +
+      `export default { id: ${JSON.stringify(id)}, name: re.source + x, register() {} };\n`
+
+    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
+    expect(recordFor(id)?.error).toContain('lodash')
+  })
+
   it.each([
     ['@jinn/plugin-sdk', `import { AREAS } from '@jinn/plugin-sdk';`],
     ['react', `import React from 'react';`],
@@ -110,6 +152,23 @@ describe('specifier rewriting', () => {
     // The two forms a plugin can spell `react` in without meaning an import.
     expect(rewritten).toContain(`const label = 'react';`)
     expect(rewritten).toContain(`host.notify('react');`)
+  })
+
+  it('leaves a comment that quotes import syntax exactly as written', async () => {
+    const id = freshId()
+    const source =
+      `// docs from 'react'\n` +
+      `/* see import { jsx } from 'react/jsx-runtime' */\n` +
+      `import { host } from '@jinn/plugin-sdk';\n` +
+      `export default { id: ${JSON.stringify(id)}, name: host ? 'a' : 'b', register() {} };\n`
+
+    await loadRuntimePlugin(source, id, 'client')
+
+    const rewritten = urls.created.at(-1) ?? ''
+    expect(rewritten).toContain(`// docs from 'react'`)
+    expect(rewritten).toContain(`/* see import { jsx } from 'react/jsx-runtime' */`)
+    // The real import beyond the comments is still rewritten.
+    expect(rewritten).toContain(`import { host } from 'data:text/javascript,`)
   })
 
   it('revokes the module URL once the import has settled', async () => {
