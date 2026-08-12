@@ -1,4 +1,4 @@
-import type { Contribution, ResolvedContribution } from "./types"
+import type { Contribution, ContributionSource, ResolvedContribution } from "./types"
 
 type Listener = () => void
 
@@ -23,18 +23,30 @@ class ContributionRegistry {
   private readonly snapshots = new Map<string, readonly ResolvedContribution[]>()
   private readonly areaListeners = new Map<string, Set<Listener>>()
 
-  /** Register one contribution. Returns a disposer that removes it. */
-  register = (contribution: Contribution): (() => void) => this.registerMany([contribution])
+  /**
+   * Register one contribution. Returns a disposer that removes it.
+   *
+   * `source` is what the caller is, not what the contribution claims: the app's
+   * own surfaces leave it at `"core"`, and a plugin never calls this directly —
+   * it gets a context whose `contribute` supplies its own tag.
+   */
+  register = (
+    contribution: Contribution,
+    source: ContributionSource = "core",
+  ): (() => void) => this.registerMany([contribution], source)
 
   /**
    * Register several at once. Returns a disposer that removes all of them.
    * A batch notifies each area it touched exactly once, not once per entry.
    */
-  registerMany = (contributions: readonly Contribution[]): (() => void) => {
+  registerMany = (
+    contributions: readonly Contribution[],
+    source: ContributionSource = "core",
+  ): (() => void) => {
     // The disposer closes over the entries themselves, not their ids: an id that
     // has since been re-registered belongs to somebody else's entry, and a stale
     // disposer that removed it would take down the live registration instead.
-    const registered = contributions.map((contribution) => this.put(contribution))
+    const registered = contributions.map((contribution) => this.put(contribution, source))
     this.invalidate(contributions.map((contribution) => contribution.area))
 
     return () => this.remove(registered)
@@ -68,11 +80,11 @@ class ContributionRegistry {
   }
 
   /** Insert or replace one entry, without notifying — `registerMany` batches that. */
-  private put(contribution: Contribution): ResolvedContribution {
+  private put(contribution: Contribution, source: ContributionSource): ResolvedContribution {
     const registered = this.byArea.get(contribution.area) ?? []
     // Provenance is stamped here and never read off the author's object: a
     // contribution that could name its own source could claim to be core.
-    const stamped: ResolvedContribution = { ...contribution, source: "core" }
+    const stamped: ResolvedContribution = { ...contribution, source }
     this.byArea.set(contribution.area, [
       ...registered.filter((entry) => entry.id !== contribution.id),
       stamped,

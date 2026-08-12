@@ -14,6 +14,7 @@ import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
+import { DiskPluginsBridge } from "@/plugins/disk-plugins-bridge"
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -45,6 +46,9 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                   <EmojiFavicon />
                   <QueryInvalidationBridge />
                   <PluginHostBridge />
+                  {/* After the host bridge: a plugin's module body may read
+                      host state the moment it evaluates. */}
+                  <DiskPluginsBridge />
                 </GatewayProvider>
               </SettingsProvider>
             </AuthGate>
