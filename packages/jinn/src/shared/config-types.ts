@@ -87,9 +87,9 @@ export interface JinnConfig {
   logging: { file: boolean; stdout: boolean; level: string };
   mcp?: McpGlobalConfig;
   /** Installed plugins the operator has explicitly decided on. Absence is not
-   *  enabled — a plugin named in neither list is disabled — and `disabled` wins
-   *  over `enabled`. See src/plugins/enablement.ts. */
-  plugins?: { enabled?: string[]; disabled?: string[] };
+   *  enabled and `disabled` wins over `enabled` (src/plugins/enablement.ts);
+   *  `settings[<id>]` reaches that plugin as `ctx.settings` (plugins/backend.ts). */
+  plugins?: { enabled?: string[]; disabled?: string[]; settings?: Record<string, Record<string, unknown>> };
   /** Spend caps keyed by employee name: a USD cap on that employee's total spend across the
    *  current calendar month — NOT a per-session cap. At or above it, their turns are blocked. */
   budgets?: { employees?: Record<string, number> };

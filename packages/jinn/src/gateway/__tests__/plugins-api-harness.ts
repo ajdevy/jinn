@@ -25,6 +25,8 @@ fs.mkdirSync(path.join(tmpHome, "org"), { recursive: true });
 
 type Api = typeof import("../api.js");
 let api: Api;
+let auth: typeof import("../auth.js");
+let requestHandler: ReturnType<(typeof import("../request-handler.js"))["createGatewayRequestHandler"]>;
 let loadConfigFromDisk: (() => import("../../shared/types.js").JinnConfig) | null = null;
 let currentConfig: import("../../shared/types.js").JinnConfig;
 
@@ -35,11 +37,14 @@ function reloadConfig(): void {
 }
 
 /** The operator's lists, as `config.yaml` carries them. */
-export function writeConfig(plugins?: { enabled?: string[]; disabled?: string[] }): void {
+export function writeConfig(
+  plugins?: { enabled?: string[]; disabled?: string[]; settings?: Record<string, Record<string, unknown>> },
+  gateway: Record<string, unknown> = {},
+): void {
   fs.writeFileSync(
     configPath,
     yaml.dump({
-      gateway: {},
+      gateway,
       engines: { default: "codex", claude: {}, codex: { bin: "codex", model: "gpt-5.5" } },
       portal: { portalName: "Portal COO", setupComplete: true },
       connectors: {},
@@ -69,8 +74,16 @@ function makeRes() {
   let status = 200;
   const headers: Record<string, string> = {};
   const chunks: Buffer[] = [];
+  let headersSent = false;
   const res = {
+    get headersSent() {
+      return headersSent;
+    },
     writeHead(code: number, sent?: Record<string, string>) {
+      // Node throws ERR_HTTP_HEADERS_SENT on a second call. Mirrored, because a
+      // plugin writing and then throwing is exactly the case that would hit it.
+      if (headersSent) throw new Error("Cannot set headers after they are sent to the client");
+      headersSent = true;
       status = code;
       Object.assign(headers, sent ?? {});
       return this;
@@ -98,20 +111,35 @@ function makeRes() {
   };
 }
 
+function makeReq(method: string, urlPath: string, headers: Record<string, string>) {
+  return Object.assign(Readable.from([]), {
+    method,
+    url: urlPath,
+    headers: { host: "localhost", ...headers },
+    socket: { remoteAddress: "127.0.0.1" },
+  }) as unknown as Parameters<Api["handleApiRequest"]>[0];
+}
+
 /** A request straight into the dispatch chain, the way the server calls it. */
 export async function call(
   method: string,
   urlPath: string,
   headers: Record<string, string> = { authorization: "Bearer test-token" },
 ) {
-  const req = Object.assign(Readable.from([]), {
-    method,
-    url: urlPath,
-    headers: { host: "localhost", ...headers },
-    socket: { remoteAddress: "127.0.0.1" },
-  });
   const cap = makeRes();
-  await api.handleApiRequest(req as unknown as Parameters<Api["handleApiRequest"]>[0], cap.res, apiCtx);
+  await api.handleApiRequest(makeReq(method, urlPath, headers), cap.res, apiCtx);
+  return cap;
+}
+
+/**
+ * A request through the gateway's own request handler, so the order it runs its
+ * auth gate and its API dispatch in is executed rather than described. Nothing
+ * here re-implements that order: hoisting the dispatch above the gate in
+ * request-handler.ts is what the auth-parity case has to notice.
+ */
+export async function callThroughAuthGate(method: string, urlPath: string, headers: Record<string, string> = {}) {
+  const cap = makeRes();
+  await requestHandler(makeReq(method, urlPath, headers), cap.res);
   return cap;
 }
 
@@ -138,11 +166,26 @@ export async function startHarness(): Promise<{
   reloadConfig();
   api = await import("../api.js");
   (await import("../../shared/db.js")).initDb();
-  const { authRequiredForRequest } = await import("../auth.js");
+  auth = await import("../auth.js");
+  const { createGatewayRequestHandler } = await import("../request-handler.js");
+  requestHandler = createGatewayRequestHandler({
+    authRequired: () => auth.shouldRequireGatewayAuth(currentConfig),
+    gatewayAuthToken: "test-token",
+    home: tmpHome,
+    apiContext: apiCtx,
+    // Nothing is built into this home, so serveStatic falls through and the
+    // static branch answers the same 404 a real gateway's would.
+    webDir: path.join(tmpHome, "web"),
+  });
   const { gatewayWatchCallbacks } = await import("../watch-callbacks.js");
   const { PLUGIN_ROUTE_PREFIX } = await import("../plugins-api.js");
-  const { onConfigReload } = gatewayWatchCallbacks({ reloadConfig, reloadOrg: () => {}, emit: () => {} });
-  return { authRequiredForRequest, onConfigReload, routePrefix: PLUGIN_ROUTE_PREFIX };
+  const { onConfigReload } = gatewayWatchCallbacks({
+    reloadConfig,
+    getConfig: () => currentConfig,
+    reloadOrg: () => {},
+    emit: () => {},
+  });
+  return { authRequiredForRequest: auth.authRequiredForRequest, onConfigReload, routePrefix: PLUGIN_ROUTE_PREFIX };
 }
 
 /** An empty plugins directory, the state every case starts from. */

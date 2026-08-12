@@ -1,13 +1,19 @@
 import type { GatewayEmit } from "@jinn/gateway-events";
 import { loadJobs } from "../cron/jobs.js";
 import { reloadScheduler } from "../cron/scheduler.js";
+import { disposeUnservableBackends } from "../plugins/backend.js";
 import { scanPlugins } from "../plugins/discovery.js";
+import { isPluginEnabled } from "../plugins/enablement.js";
 import { logger } from "../shared/logger.js";
+import type { JinnConfig } from "../shared/types.js";
 import type { WatcherCallbacks } from "./watcher.js";
 
 /** The two reloads that only the server can perform, since they own state it holds. */
 export interface WatchDependencies {
   reloadConfig: () => void;
+  /** The config as it stands after `reloadConfig`, for the callbacks that have to
+   *  act on what changed rather than only announce it. */
+  getConfig: () => Pick<JinnConfig, "plugins">;
   reloadOrg: () => void;
   emit: GatewayEmit;
 }
@@ -15,9 +21,15 @@ export interface WatchDependencies {
 /** What the gateway does when a watched path changes. Each callback re-reads the
  *  thing that changed and tells connected clients, so an edit on disk takes effect
  *  without a restart. */
-export function gatewayWatchCallbacks({ reloadConfig, reloadOrg, emit }: WatchDependencies): WatcherCallbacks {
+export function gatewayWatchCallbacks({ reloadConfig, getConfig, reloadOrg, emit }: WatchDependencies): WatcherCallbacks {
   return {
-    onConfigReload: reloadConfig,
+    onConfigReload: () => {
+      reloadConfig();
+      // config.yaml is what turns a plugin off, so this is the edge a disabled
+      // plugin has to lose its loaded backend on. Waiting for a request instead
+      // means a disable and a re-enable with nothing in between never drops it.
+      disposeUnservableBackends((id) => isPluginEnabled(id, getConfig()));
+    },
     onCronReload: () => {
       const updatedJobs = loadJobs();
       reloadScheduler(updatedJobs);

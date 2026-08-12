@@ -1,10 +1,11 @@
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { dispatchPluginRequest, disposePluginBackend, pluginSettings } from "../plugins/backend.js";
 import { inventoryRow, loadPlugin, scanPlugins, type DiscoveredPlugin } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
 import { isContainedIn, PLUGIN_ID_PATTERN, resolveContainedPath } from "../plugins/manifest.js";
-import { json, notFound, type ParsedRoute } from "./route-helpers.js";
+import { json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import type { ApiContext } from "./api.js";
 
 /**
@@ -125,9 +126,47 @@ async function serveAsset(res: ServerResponse, id: string, raw: string, context:
   await serveFile(res, resolvedFile, contentType);
 }
 
+/**
+ * Everything else under `/api/plugins/<id>/` belongs to the plugin's own backend.
+ * The enable gate is the same `servablePlugin` the client and asset routes use,
+ * so a plugin the operator disabled a moment ago stops answering on the next
+ * request rather than at the next restart. It sits here, inside the dispatch
+ * chain, which the request handler reaches only after its auth gate has passed
+ * (gateway/request-handler.ts) — a caller who cannot authenticate never learns
+ * whether an id is installed.
+ */
+async function servePluginBackend(
+  req: HttpRequest,
+  res: ServerResponse,
+  method: string,
+  matched: { id: string; tail: string },
+  context: ApiContext,
+): Promise<void> {
+  const plugin = await servablePlugin(matched.id, context);
+  if (!plugin?.server) {
+    disposePluginBackend(matched.id);
+    return notFound(res);
+  }
+
+  const dispatched = await dispatchPluginRequest(req, res, {
+    id: plugin.id,
+    server: plugin.server,
+    method,
+    tail: matched.tail,
+    readSettings: () => pluginSettings(plugin.id, context.getConfig()),
+  });
+  if (dispatched.outcome === "no-route") return notFound(res);
+  if (dispatched.outcome === "failed") {
+    // A plugin that wrote a response and then threw has already sent its status;
+    // a second writeHead would throw out of the only error boundary api.ts has.
+    if (res.headersSent) return void res.end();
+    return serverError(res, dispatched.message);
+  }
+}
+
 /** `/api/plugins*` routes. See route-helpers.ts for the domain-module contract. */
 export async function handlePluginsApi(
-  _req: HttpRequest,
+  req: HttpRequest,
   res: ServerResponse,
   route: ParsedRoute,
   context: ApiContext,
@@ -143,14 +182,17 @@ export async function handlePluginsApi(
     return true;
   }
 
-  const plugin = method === "GET" ? matchPluginRoute(pathname) : null;
-  if (plugin?.tail === "client") {
+  // Every method, not just GET: the backend mount below answers all of them.
+  const plugin = matchPluginRoute(pathname);
+  if (!plugin) return false;
+  if (method === "GET" && plugin.tail === "client") {
     await serveClient(res, plugin.id, context);
     return true;
   }
-  if (plugin?.tail.startsWith(ASSETS_SEGMENT)) {
+  if (method === "GET" && plugin.tail.startsWith(ASSETS_SEGMENT)) {
     await serveAsset(res, plugin.id, plugin.tail.slice(ASSETS_SEGMENT.length), context);
     return true;
   }
-  return false;
+  await servePluginBackend(req, res, method, plugin, context);
+  return true;
 }
