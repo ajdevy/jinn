@@ -5,8 +5,10 @@ import { PageLayout } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 import { THEMES, type ThemeId } from "@/lib/themes"
-import { NAV_ITEMS, OVERFLOW_ITEMS, type NavItem } from "@/lib/nav"
+import type { NavItem } from "@/lib/nav"
+import { useNavigation } from "@/lib/use-navigation"
 import { cn } from "@/lib/utils"
+import { useFeatures } from "@/hooks/use-features"
 import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
 import { CreateWorkspaceDialog } from "@/components/workspaces/create-workspace-dialog"
 import type { WorkspaceInfo } from "@/lib/api"
@@ -16,10 +18,6 @@ import type { WorkspaceInfo } from "@/lib/api"
 // primary tab. Reachable at /more (deep-linkable); the mobile tab bar keeps its
 // More icon lit while any of these children is open. Desktop still reaches all
 // of these from the NavRibbon rail — this screen is the phone's overflow home.
-
-function itemFor(href: string): NavItem {
-  return NAV_ITEMS.find((n) => n.href === href)!
-}
 
 // Per-row icon tint — a filled rounded square (iOS Settings vibe). Theme-aware
 // via the shared system tokens; the accent square uses the on-accent contrast
@@ -32,11 +30,6 @@ const TINT: Record<string, { bg: string; fg: string }> = {
   "/limits": { bg: "var(--system-blue)", fg: "#fff" },
   "/settings": { bg: "var(--text-tertiary)", fg: "var(--bg-secondary)" },
 }
-
-// The overflow links derive from the SAME ordered nav list as the desktop and
-// chat rails (OVERFLOW_ITEMS mirrors NAV_ITEMS order) — no page-local order.
-// Settings is held out: it lives in the App group below with Appearance.
-const OVERFLOW_LINKS: NavItem[] = OVERFLOW_ITEMS.filter((item) => item.href !== "/settings")
 
 function RowIcon({ Icon, href }: { Icon: LucideIcon; href: string }) {
   const tint = TINT[href] ?? { bg: "var(--text-tertiary)", fg: "#fff" }
@@ -281,6 +274,13 @@ function WorkspacesGroup() {
 
 export default function MorePage() {
   useBreadcrumbs([{ label: "More" }])
+  const { data: features } = useFeatures()
+  // Subscribed, not a module-time snapshot: this list is the phone's only route
+  // to an overflow destination, so a sidebar.nav row from a plugin enabled after
+  // boot has to reach it. Settings is held out for the App group below.
+  const navigation = useNavigation(features?.notesEnabled === true)
+  const overflowLinks = navigation.overflowItems.filter((item) => item.href !== "/settings")
+  const settings = navigation.items.find((item) => item.href === "/settings")!
 
   return (
     <PageLayout>
@@ -292,7 +292,7 @@ export default function MorePage() {
 
           <div className="mt-5">
             <Card>
-              {OVERFLOW_LINKS.map((item, i) => (
+              {overflowLinks.map((item, i) => (
                 <LinkRow key={item.href} item={item} first={i === 0} />
               ))}
             </Card>
@@ -300,7 +300,7 @@ export default function MorePage() {
 
           <GroupLabel>App</GroupLabel>
           <Card>
-            <LinkRow item={itemFor("/settings")} first />
+            <LinkRow item={settings} first />
             <AppearanceRow />
           </Card>
 

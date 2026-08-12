@@ -101,8 +101,8 @@ export const MOBILE_TAB_ITEMS = navigationFor(false).mobileItems
 
 // Destinations that live INSIDE the More overflow screen (everything not a
 // primary tab). Derived from NAV_ITEMS so the overflow order always mirrors
-// the shared nav order — no second hardcoded list. Used both to build the More
-// screen and to keep the More tab lit while the operator is on any of its
-// children.
+// the shared nav order — no second hardcoded list. These are the core-only
+// defaults; a surface that must also show contributed rows (the More screen,
+// the mobile tab bar) reads the live list through `useNavigation` instead.
 export const OVERFLOW_ITEMS = navigationFor(false).overflowItems
 export const OVERFLOW_HREFS = navigationFor(false).overflowHrefs

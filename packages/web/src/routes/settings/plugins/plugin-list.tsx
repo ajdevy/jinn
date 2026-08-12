@@ -53,11 +53,17 @@ function EmptyState() {
 function LoadFailed({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   return (
     <div
-      className="rounded-[var(--radius-lg)] p-4 text-[length:var(--text-subheadline)] text-[var(--system-red)]"
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-[var(--radius-lg)] p-4 text-[length:var(--text-subheadline)] text-[var(--system-red)]"
       style={{ background: "color-mix(in srgb, var(--system-red) 8%, transparent)" }}
     >
-      {error instanceof Error ? error.message : "Failed to load plugins"}
-      <button type="button" onClick={onRetry} className="ml-3 font-medium underline">
+      <span>{error instanceof Error ? error.message : "Failed to load plugins"}</span>
+      {/* A full 34px pill rather than inline underlined text: this is the only
+          way back from a failed load, and on a phone it has to be thumb-sized. */}
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex h-[34px] flex-none items-center rounded-[var(--radius-md)] bg-[var(--fill-secondary)] px-3.5 text-[length:var(--text-footnote)] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--fill-tertiary)]"
+      >
         Retry
       </button>
     </div>
