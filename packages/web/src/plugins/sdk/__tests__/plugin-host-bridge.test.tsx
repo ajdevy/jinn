@@ -3,6 +3,7 @@ import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
 import { host } from '../host'
+import { clearHostBridge, registerHostNotificationSink } from '../host-bridge'
 import { resetHostEvents } from '../host-events'
 import { resetHostState } from '../host-state'
 import { PluginHostBridge } from '../plugin-host-bridge'
@@ -40,6 +41,7 @@ beforeEach(() => {
   gateway.value.connected = false
   resetHostState()
   resetHostEvents()
+  clearHostBridge()
 })
 
 afterEach(() => {
@@ -72,4 +74,46 @@ it('feeds gateway frames to host.onEvent subscribers', () => {
   gateway.emit(frame)
 
   expect(handler).toHaveBeenCalledWith(frame)
+})
+
+/* A plugin backend has no DOM, so its `host.notify` arrives as a frame. The
+ * bridge is the half that turns it back into a notification, and it must reach
+ * the same sink the browser verb writes to — otherwise one plugin speaks with
+ * two voices. */
+it('delivers a backend notice into the same notification sink host.notify uses', () => {
+  const sink = vi.fn()
+  registerHostNotificationSink(sink)
+
+  mountAt('/')
+  gateway.emit({
+    event: 'plugin:notice',
+    payload: { pluginId: 'mailbox', message: '3 new messages', level: 'warning' },
+  })
+
+  expect(sink).toHaveBeenCalledWith('3 new messages', 'warning')
+})
+
+it('leaves every other frame out of the notification sink', () => {
+  const sink = vi.fn()
+  registerHostNotificationSink(sink)
+
+  mountAt('/')
+  gateway.emit({ event: 'plugins:changed', payload: {} })
+
+  expect(sink).not.toHaveBeenCalled()
+})
+
+it('logs a notice it cannot show rather than throwing into the socket', () => {
+  const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+  mountAt('/')
+  expect(() =>
+    gateway.emit({
+      event: 'plugin:notice',
+      payload: { pluginId: 'mailbox', message: 'nobody is listening', level: 'info' },
+    }),
+  ).not.toThrow()
+
+  expect(consoleWarn).toHaveBeenCalled()
+  consoleWarn.mockRestore()
 })

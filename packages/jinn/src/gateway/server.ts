@@ -101,7 +101,7 @@ import { initStt } from "../stt/stt.js";
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
 import { gatewayWatchCallbacks } from "./watch-callbacks.js";
 import { createPluginEventsChannel, matchPluginEventsPath } from "./plugin-events-ws.js";
-import { reconcilePluginWatchers, stopAllPluginWatchers } from "../plugins/watcher-supervisor.js";
+import { startPluginRuntime, stopPluginRuntime } from "../plugins/runtime.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
 import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
@@ -1166,9 +1166,9 @@ export async function startGateway(
   // Start file watchers
   startWatchers(gatewayWatchCallbacks({ reloadConfig, getConfig: () => currentConfig, reloadOrg, emit }));
 
-  // Start the watchers of every enabled plugin. Not awaited: a plugin's module
-  // is third-party code, and boot does not wait on it to start listening.
-  void reconcilePluginWatchers(() => currentConfig);
+  // Start every enabled plugin: the typed host verbs get their gateway, then the
+  // watchers start. Not awaited — boot does not wait on third-party code.
+  void startPluginRuntime(apiContext, () => currentConfig);
 
   // Start listening (port/host resolved earlier at boot). During `jinn restart`
   // the replacement daemon can race the old process' graceful shutdown; retry
@@ -1353,7 +1353,7 @@ export async function startGateway(
 
     // Plugin watchers each carry their own stop deadline, so one that refuses to
     // stop is abandoned rather than holding shutdown open.
-    await stopAllPluginWatchers();
+    await stopPluginRuntime();
 
     // Stop the WS heartbeat sweep before tearing down the WS servers.
     stopWsHeartbeat();

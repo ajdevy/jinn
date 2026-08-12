@@ -53,7 +53,6 @@ import {
   updateSession,
   archiveSession,
   unarchiveSession,
-  beginSessionAttempt,
   recordEngineSessionId,
   switchSessionEngine,
   clearEngineSessionRefs,
@@ -113,11 +112,9 @@ import {
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { runTurn } from "../sessions/turn/runner.js";
-import { resolveTurnHierarchy } from "../sessions/turn/preflight.js";
-import { settleTurn } from "../sessions/turn/completion.js";
 import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
-import { createWebTurnSurface } from "./web-turn-surface.js";
+import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
+import { spawnSession } from "./spawn-session.js";
 export { deliverConnectorReply } from "./connector-reply.js";
 export {
   formatEngineErrorAssistantMessage,
@@ -625,96 +622,6 @@ function maybeRevertEngineOverride(session: Session): Session {
     transportMeta: nextMeta as any,
     lastError: null,
   }) ?? session;
-}
-
-function dispatchWebSessionRun(
-  session: Session,
-  prompt: string,
-  engine: Engine,
-  context: ApiContext,
-  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[] },
-): void {
-  let dispatchedAttemptToken: string | undefined;
-  const run = async () => {
-    const sessionKey = session.sessionKey || session.sourceRef;
-    try {
-      await context.sessionManager.getQueue().enqueue(sessionKey, async () => {
-        const startedAttempt = beginSessionAttempt(session.id, {
-          lastActivity: new Date().toISOString(),
-          lastError: null,
-        });
-        if (!startedAttempt?.attemptToken) {
-          logger.info(`Skipping web session ${session.id}: attempt could not be started`);
-          return;
-        }
-        dispatchedAttemptToken = startedAttempt.attemptToken;
-        context.emit("session:started", { sessionId: session.id });
-        // Item moved pending → running: refresh the queue panel.
-        if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
-        await runWebSession(startedAttempt, prompt, engine, context, startedAttempt.attemptToken, opts?.attachments);
-        if (startedAttempt.workflowProvenance?.kind === "phase") {
-          context.sessionManager.emitWorkflowAttemptTurnCompletion(session.id);
-        }
-      }, opts?.queueItemId);
-    } finally {
-      // Item settled (completed/cancelled/errored): refresh so the "N queued"
-      // panel drains. Without this the panel only refreshes on enqueue and the
-      // badge sticks at its peak. (queue.ts marks the DB row done in its finally.)
-      if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
-    }
-  };
-
-  const launch = () => {
-    run().catch(async (err) => {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`Web session ${session.id} dispatch error: ${errMsg}`);
-      if (!dispatchedAttemptToken) return;
-      const erroredOnDispatch = await settleTurn({
-        sessionId: session.id,
-        attemptToken: dispatchedAttemptToken,
-        outcome: "failed",
-        error: errMsg,
-        surface: createWebTurnSurface({
-          sessionId: session.id,
-          emit: context.emit,
-          connectors: context.connectors,
-          getConfig: context.getConfig,
-        }),
-      });
-      if (erroredOnDispatch?.workflowProvenance?.kind === "phase") {
-        context.sessionManager.emitWorkflowAttemptTurnCompletion(session.id);
-      }
-    });
-  };
-
-  if (opts?.delayMs && opts.delayMs > 0) {
-    setTimeout(launch, opts.delayMs);
-  } else {
-    launch();
-  }
-}
-
-/** Resolve an array of file IDs to local filesystem paths for engine consumption. */
-function resolveAttachmentPaths(fileIds: unknown): string[] {
-  if (!Array.isArray(fileIds)) return [];
-  const paths: string[] = [];
-  for (const id of fileIds) {
-    if (typeof id !== "string" || !id.trim()) continue;
-    const meta = getFile(id);
-    if (!meta) {
-      logger.warn(`Attachment file not found: ${id}`);
-      continue;
-    }
-    const filePath = path.join(FILES_DIR, meta.id, meta.filename);
-    if (fs.existsSync(filePath)) {
-      paths.push(filePath);
-    } else if (meta.path && fs.existsSync(meta.path)) {
-      paths.push(meta.path);
-    } else {
-      logger.warn(`Attachment file missing on disk: ${id} (${meta.filename})`);
-    }
-  }
-  return paths;
 }
 
 /** Find managed attachment IDs that have no registry row or readable file. */
@@ -5015,106 +4922,26 @@ export async function handleApiRequest(
       const employeeName = coercePortalEmployee(body.employee, config.portal?.portalName);
       const spawnAsRoot = spawnAsRootRefusal(spawnCaller, employeeName);
       if (spawnAsRoot) return json(res, { error: spawnAsRoot }, 403);
-      let employeeDefaults: { engine: string; model: string; effortLevel?: string; employee?: string } | undefined;
-      if (employeeName) {
-        const { scanOrg } = await import("./org.js");
-        const emp = scanOrg().get(employeeName);
-        // A transient org-registry/file-watcher miss must not silently turn an
-        // employee spawn into a gateway-default session. Resolve the employee
-        // first or fail closed, matching the delegation route.
-        if (!emp) return badRequest(res, `unknown employee "${employeeName}" — GET /api/org lists valid employees`);
-        // GRS-017f: carry the employee slug so an unregistered configured
-        // model produces the same actionable, employee-named error the
-        // delegation route surfaces (not a cryptic bare-engine string).
-        employeeDefaults = { engine: emp.engine, model: emp.model, employee: employeeName };
-        if (emp.effortLevel) employeeDefaults.effortLevel = emp.effortLevel;
-      }
-      const selection = validateNewSessionSelection(config, {
-        engine: body.engine,
-        model: body.model,
-        effortLevel: body.effortLevel,
-      }, employeeDefaults);
-      if (!selection.ok) return badRequest(res, selection.error || "invalid engine/model/effort");
-      const engineName = selection.engine || config.engines.default;
-      const sessionKey = `web:${Date.now()}`;
       // Opt-in SSO identity capture: when an auth proxy fronts the gateway and
       // `gateway.userHeader` is configured, persist the forwarded identity on the
       // session. Unset config → undefined → stored as NULL (single-user no-op).
       const userId = resolveUserHeader(req.headers, config.gateway.userHeader);
-      const session = createSession({
-        engine: engineName,
-        source: "web",
-        sourceRef: sessionKey,
-        connector: "web",
-        sessionKey,
-        replyContext: { source: "web" },
-        userId,
-        // A session tagged with the portal name is a direct/COO session, not a
-        // pseudo-employee (there is no org employee by the portal's name).
-        // Coerce it to null so it buckets into the direct group rather than
-        // spawning a phantom group that renders with the portal's own title.
+      const spawned = await spawnSession(context, {
+        prompt,
         employee: employeeName,
+        engine: body.engine,
+        model: body.model,
+        effortLevel: body.effortLevel,
         parentSessionId: body.parentSessionId,
-        effortLevel: selection.effortLevel,
-        // Honor body.model so API clients can pin per-employee models
-        // (e.g. MCP servers that look up org/<employee>.yaml and pass the
-        // employee's configured model). Without this, runWebSession falls
-        // back to config.engines.claude.model, breaking per-employee routing.
-        // Fixes #38.
-        model: selection.model,
-        prompt,
-        // Optional excerpt override (callers that wrap the operator's ask in a
-        // scaffolded prompt pass the verbatim ask so list UIs show that instead).
         promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : undefined,
-        portalName: config.portal?.portalName,
+        userId,
+        attachments: body.attachments,
+        interactive: body.mode === "interactive",
+        speech: body.speech === true,
       });
-      logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
-      // First-message attachments were uploaded before the session existed (FILES_DIR).
-      // Re-home them under uploads/<date>/<sessionId>/ now that we have an id, then persist
-      // the media on the user message so the bubble renders chips/thumbnails on reload.
-      rehomeAttachmentsToSession(body.attachments, session.id);
-      const newSessionMedia = fileIdsToMedia(body.attachments);
-      insertMessage(session.id, "user", prompt, newSessionMedia.length > 0 ? newSessionMedia : undefined);
+      if (!spawned.ok) return badRequest(res, spawned.error);
 
-      // Run engine asynchronously — respond immediately, push result via WebSocket.
-      // CLI-mode session creation uses the engine's PTY view when one exists
-      // (Claude, Antigravity). Engines without a PTY view fall back to normal chat.
-      const ptyEngine = body.mode === "interactive" ? context.ptyViewEngines?.[engineName] : undefined;
-      const engine = ptyEngine ?? context.sessionManager.getEngine(engineName);
-      if (!engine) {
-        updateSession(session.id, {
-          status: "error",
-          lastError: `Engine "${engineName}" not available`,
-        });
-        return json(res, { ...serializeSessionResponse({ ...session, status: "error", lastError: `Engine "${engineName}" not available` }, context) }, 201);
-      }
-
-      // Set status to "running" synchronously BEFORE returning the response.
-      // This prevents a race condition where the caller polls immediately and
-      // sees "idle" status before runWebSession has a chance to set "running".
-      updateSession(session.id, {
-        status: "running",
-        lastActivity: new Date().toISOString(),
-      });
-      session.status = "running";
-
-      const attachmentPaths = resolveAttachmentPaths(body.attachments);
-
-      const queueSessionKey = session.sessionKey || session.sourceRef || session.id;
-      const queueItemId = enqueueQueueItem(session.id, queueSessionKey, prompt);
-      context.emit("queue:updated", { sessionId: session.id, sessionKey: queueSessionKey });
-
-      // Speech-derived first messages carry a hidden context note to the engine
-      // only; the persisted/queued `prompt` above stays the operator's exact text.
-      // Interactive dispatch pastes the prompt into the visible PTY, so the note
-      // is suppressed there (ptyEngine truthy) and only rides headless dispatch.
-      const { engine: newSessionEnginePrompt } = resolveMessageAudiences(
-        prompt,
-        speechContextApplies({ speech: body.speech === true, isNotification: false, promptRendered: !!ptyEngine }),
-      );
-      dispatchWebSessionRun(session, newSessionEnginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
-
-      return json(res, serializeSessionResponse(session, context), 201);
+      return json(res, serializeSessionResponse(spawned.session, context), 201);
     }
 
     // POST /api/sessions/:id/message
@@ -6273,52 +6100,3 @@ export function resolveUserHeader(
   return undefined;
 }
 
-
-async function runWebSession(
-  session: Session,
-  prompt: string,
-  engine: Engine,
-  context: ApiContext,
-  attemptToken: string,
-  attachments?: string[],
-): Promise<void> {
-  const currentSession = getSession(session.id);
-  if (!currentSession) {
-    logger.info(`Skipping deleted web session ${session.id} before run start`);
-    return;
-  }
-
-  // CLI-mode sends run against the PTY-backed view of the engine so the user
-  // sees the turn stream into their live xterm; everything else takes the
-  // headless engine from the session manager.
-  const preferredPtyView = context.ptyViewEngines?.[session.engine] === engine;
-  const runtimeEngine = (preferredPtyView ? context.ptyViewEngines?.[currentSession.engine] : undefined)
-    ?? context.sessionManager.getEngine(currentSession.engine);
-
-  let employee: import("../shared/types.js").Employee | undefined;
-  if (currentSession.employee) {
-    const { findEmployee, scanOrg } = await import("./org.js");
-    employee = findEmployee(currentSession.employee, scanOrg(context.getConfig()));
-  }
-
-  await runTurn({
-    session: currentSession,
-    attemptToken,
-    prompt,
-    attachments: attachments ?? [],
-    employee,
-    config: context.getConfig(),
-    engines: context.sessionManager.getEngines(),
-    engineOverride: runtimeEngine,
-    gatewayBootId: context.gatewayBootId ?? "",
-    connectorNames: Array.from(context.connectors.keys()),
-    hierarchy: await resolveTurnHierarchy(context.getConfig()),
-    channel: currentSession.sourceRef,
-    user: currentSession.userId ?? "web-user",
-  }, createWebTurnSurface({
-    sessionId: currentSession.id,
-    emit: context.emit,
-    connectors: context.connectors,
-    getConfig: context.getConfig,
-  }));
-}

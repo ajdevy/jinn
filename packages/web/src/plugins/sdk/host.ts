@@ -3,22 +3,25 @@ import {
   hostNotificationSink,
   type HostNotifyLevel,
 } from './host-bridge'
+import { PluginSdkError } from './errors'
 import { onHostEvent, type HostEventHandler } from './host-events'
+import { assertVerbAllowed } from './host-permissions'
 import { getHostState, subscribeHostState, type HostState } from './host-state'
+import {
+  employees,
+  sessions,
+  todos,
+  type PluginHostEmployees,
+  type PluginHostSessions,
+  type PluginHostTodos,
+} from './host-verbs'
 
-/** Every failure the SDK raises, named so a plugin author can tell an SDK
- *  problem from one of their own. */
-export class PluginSdkError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'PluginSdkError'
-  }
-}
+export { PluginSdkError }
 
 /**
  * The host API, in the three tiers the plugin spec describes: readonly state,
- * then curated actions. The typed verbs (`todos`, `sessions`, `employees`) are
- * a later slice and are deliberately absent rather than stubbed.
+ * curated actions, then the typed verbs. Every verb below `state` passes the
+ * permission gate, so each one can be refused on its own later.
  */
 export interface PluginHost {
   readonly state: {
@@ -28,6 +31,9 @@ export interface PluginHost {
   onEvent(type: string, handler: HostEventHandler): () => void
   navigate(path: string): void
   notify(message: string, level?: HostNotifyLevel): void
+  todos: PluginHostTodos
+  sessions: PluginHostSessions
+  employees: PluginHostEmployees
 }
 
 function navigate(path: string): void {
@@ -43,6 +49,7 @@ function navigate(path: string): void {
 }
 
 function notify(message: string, level: HostNotifyLevel = 'info'): void {
+  assertVerbAllowed('notify')
   const sink = hostNotificationSink()
   if (!sink) {
     // Not silent, and not fatal either: a dropped notification is worth a line
@@ -67,4 +74,7 @@ export const host: PluginHost = {
   onEvent: onHostEvent,
   navigate,
   notify,
+  todos,
+  sessions,
+  employees,
 }

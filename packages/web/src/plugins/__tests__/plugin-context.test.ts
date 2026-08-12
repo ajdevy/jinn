@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { KVStore } from '@/lib/view-mode'
 import { contributions } from '@/contrib/registry'
-import { createPluginContext } from '../plugin-context'
+import { createPluginContext, pluginBackendPath } from '../plugin-context'
 
 // The registry is a singleton, so every test invents its own area id and
 // disposes what it registered — a shared area would leak between tests exactly
@@ -139,5 +139,36 @@ describe('plugin storage', () => {
 
     expect(() => storage.set('k', 1)).not.toThrow()
     expect(storage.get('k', 'fallback')).toBe('fallback')
+  })
+})
+
+describe('the namespaced backend path', () => {
+  it.each([
+    ['a leading slash', '/send', '/api/plugins/inbox/send'],
+    ['a nested path', '/threads/42/reply', '/api/plugins/inbox/threads/42/reply'],
+    ['a query string', '/threads?since=7', '/api/plugins/inbox/threads?since=7'],
+    ['a fragment', '/threads#top', '/api/plugins/inbox/threads#top'],
+  ])('builds the plugin prefix for %s', (_label, suffix, expected) => {
+    expect(pluginBackendPath('inbox', suffix)).toBe(expected)
+  })
+
+  // Sanitizing a traversal rewrites the caller's path into a different one and
+  // then answers it; throwing is the bug that does not reach production.
+  it.each([
+    ['a bare parent segment', '/../secrets'],
+    ['a parent segment mid-path', '/threads/../../secrets'],
+    ['a trailing parent segment', '/threads/..'],
+  ])('throws on %s', (_label, suffix) => {
+    expect(() => pluginBackendPath('inbox', suffix)).toThrow(/\.\./)
+  })
+
+  // The rule is about the path, and a query is not one. A plugin passing a
+  // relative path as a *value* has done nothing wrong.
+  it.each([
+    ['a query value', '/threads?path=../elsewhere'],
+    ['a fragment', '/threads#../elsewhere'],
+    ['two dots inside a segment', '/thre..ads'],
+  ])('does not throw on %s', (_label, suffix) => {
+    expect(() => pluginBackendPath('inbox', suffix)).not.toThrow()
   })
 })

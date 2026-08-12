@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig } from "../shared/types.js";
 import { appendPluginEvent } from "./event-log.js";
+import { createPluginHost, type PluginHost } from "./host/index.js";
 import { pluginStorage, type PluginStorage } from "./storage.js";
 
 /** One backend route. `req` and `res` are the gateway's own, unwrapped. */
@@ -14,12 +15,16 @@ export type PluginRouteHandler = (req: IncomingMessage, res: ServerResponse) => 
  *  matcher nobody uses is a matcher nobody has tested. */
 export type PluginRoutes = Record<string, PluginRouteHandler>;
 
-/** The context a plugin's `server.js` receives. `host` (ICI-726) joins it later;
- *  nothing here forecloses it. */
+/** The context a plugin's `server.js` receives. */
 export interface PluginServerContext {
   id: string;
   log: (message: string) => void;
   storage: PluginStorage;
+  /** The typed verb door: Todos, a scoped session spawn, the org, and a
+   *  dashboard notice. The same object the plugin's registrar gets is the one
+   *  its watcher starts with, so a background task and a route act as one
+   *  plugin rather than as two with the same id. */
+  host: PluginHost;
   /** Append an event to this plugin's ring, readable at `/api/plugins/<id>/events`
    *  by polling and over that path's socket. Bounded and in memory — the channel
    *  a live UI watches, not a record to depend on. */
@@ -126,6 +131,7 @@ function makeContext(id: string, readSettings: () => Record<string, unknown>): P
     id,
     log: (message) => logger.info(`[plugin:${id}] ${message}`),
     storage: pluginStorage(id),
+    host: createPluginHost(id),
     emit: (event) => appendPluginEvent(id, event),
     get settings() {
       return readSettings();

@@ -10,6 +10,7 @@
  */
 import { contributions } from '@/contrib/registry'
 import type { Contribution, ContributionSource } from '@/contrib/types'
+import { authFetch } from '@/lib/auth'
 import type { KVStore } from '@/lib/view-mode'
 
 /** Namespaced JSON persistence. Keys live under `jinn.plugin.<id>.`, so one
@@ -30,6 +31,30 @@ export interface PluginContext {
    *  a subscription — so unload and reload take it down with everything else. */
   onDispose: (dispose: () => void) => void
   storage: PluginStorage
+  /** Call this plugin's own backend, at a path relative to its mount. A plugin
+   *  cannot spell another's prefix, because it never supplies the id. */
+  backend: (suffix: string, init?: RequestInit) => Promise<Response>
+}
+
+/**
+ * `/api/plugins/<id><suffix>`, refusing rather than rewriting a suffix that
+ * walks out of the plugin's own mount.
+ *
+ * The `..` check reads the path alone — everything before `?` or `#` — because
+ * a relative path passed as a query *value* is a legitimate thing to send, and
+ * only the path decides what the request reaches. Sanitizing would answer a
+ * different request than the caller wrote, which is a bug that reaches
+ * production; throwing is one that does not.
+ */
+export function pluginBackendPath(pluginId: string, suffix: string): string {
+  const [routePath = ''] = suffix.split(/[?#]/, 1)
+  if (routePath.split('/').includes('..')) {
+    throw new Error(
+      `[plugin] "${suffix}" contains a ".." segment and would leave /api/plugins/${pluginId}/. ` +
+        'Pass a path relative to the plugin mount, without ".." segments.',
+    )
+  }
+  return `/api/plugins/${pluginId}${suffix}`
 }
 
 /** What a plugin's `client.js` default-exports. */
@@ -102,5 +127,6 @@ export function createPluginContext(
     contributeMany: (batch) => tracked(contributions.registerMany(batch.map(scope), source)),
     onDispose: (dispose) => void tracked(dispose),
     storage: createPluginStorage(pluginId, store),
+    backend: (suffix, init) => authFetch(pluginBackendPath(pluginId, suffix), init),
   }
 }

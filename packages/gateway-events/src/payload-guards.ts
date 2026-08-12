@@ -195,6 +195,11 @@ export const payloadGuards: Record<GatewayEventName, PayloadGuard> = {
   "config:reloaded": isEmptyPayload,
   "skills:changed": isEmptyPayload,
   "plugins:changed": isEmptyPayload,
+  "plugin:notice": (value) =>
+    isRecord(value)
+      && isString(value.pluginId)
+      && isString(value.message)
+      && (value.level === "info" || value.level === "warning" || value.level === "error"),
   "cron:reloaded": isEmptyPayload,
   "cron:run-finished": (value) =>
     isRecord(value) && isString(value.jobId) && (value.status === "success" || value.status === "error"),

@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import type { GatewayEvent } from '@jinn/gateway-events'
 import { parseSelectedSession } from '@/components/chat/chat-route-helpers'
 import { useGateway } from '@/hooks/use-gateway'
+import { hostNotificationSink } from './host-bridge'
 import { dispatchHostEvent } from './host-events'
 import { publishHostState } from './host-state'
 // The app has no use for the barrel — it exists for plugins to import — so
@@ -10,6 +12,27 @@ import { publishHostState } from './host-state'
 // broken or deleted alias fails our own build rather than a stranger's first
 // plugin load.
 import '@jinn/plugin-sdk'
+
+/**
+ * A plugin backend's `host.notify` arrives as a frame, because a backend has no
+ * DOM to raise a toast from. It lands in the same sink the browser verb writes
+ * to, so both halves of one plugin speak through one notification surface
+ * rather than two that look different.
+ */
+function deliverPluginNotice(frame: GatewayEvent): void {
+  if (frame.event !== 'plugin:notice') return
+  const sink = hostNotificationSink()
+  const { pluginId, message, level } = frame.payload
+  if (!sink) {
+    console.warn(`[plugin-sdk] no notification surface is mounted; dropping ${level} from ${pluginId}: ${message}`)
+    return
+  }
+  try {
+    sink(message, level)
+  } catch (error) {
+    console.error(`[plugin-sdk] the notification surface threw on ${level} from ${pluginId}: ${message}`, error)
+  }
+}
 
 /**
  * Renders nothing; keeps the host's readonly state and its event fan-out fed
@@ -29,7 +52,14 @@ export function PluginHostBridge() {
     publishHostState({ activeSession: parseSelectedSession(search) })
   }, [search])
 
-  useEffect(() => subscribe((frame) => dispatchHostEvent(frame)), [subscribe])
+  useEffect(
+    () =>
+      subscribe((frame) => {
+        dispatchHostEvent(frame)
+        deliverPluginNotice(frame)
+      }),
+    [subscribe],
+  )
 
   return null
 }

@@ -41,6 +41,21 @@ export type { AreaId } from './areas'
 
 export { host, PluginSdkError } from './host'
 export type { PluginHost } from './host'
+export { PluginHostDeniedError } from './host-permissions'
+export type { PluginHostVerb } from './host-permissions'
+export type {
+  HostEmployee,
+  HostSession,
+  HostSessionSpawn,
+  HostTodo,
+  HostTodoComment,
+  HostTodoDraft,
+  HostTodoFilter,
+  HostTodoStatus,
+  PluginHostEmployees,
+  PluginHostSessions,
+  PluginHostTodos,
+} from './host-verbs'
 export type { HostEvent, HostEventHandler } from './host-events'
 export type { GatewayStatus, HostState } from './host-state'
 export type { HostNotifyLevel } from './host-bridge'

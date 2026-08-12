@@ -55,6 +55,10 @@ export interface GatewayEventMap {
   "config:reloaded": Record<string, never>
   "skills:changed": Record<string, never>
   "plugins:changed": Record<string, never>
+  /** One plugin's backend asking the dashboard to say something. The browser
+   *  half of the same plugin can call `host.notify` directly; a backend has no
+   *  DOM, so this frame is how the two halves reach one notification surface. */
+  "plugin:notice": { pluginId: string; message: string; level: "info" | "warning" | "error" }
   "cron:reloaded": Record<string, never>
   "cron:run-finished": { jobId: string; status: "success" | "error" }
   "engines:updated": Record<string, never>
@@ -96,6 +100,7 @@ export const GATEWAY_EVENTS = {
   configReloaded: "config:reloaded",
   skillsChanged: "skills:changed",
   pluginsChanged: "plugins:changed",
+  pluginNotice: "plugin:notice",
   cronReloaded: "cron:reloaded",
   cronRunFinished: "cron:run-finished",
   enginesUpdated: "engines:updated",
