@@ -1,19 +1,23 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
+import { ClientProviders } from '@/routes/client-providers'
 import { host } from '../host'
-import { clearHostBridge } from '../host-bridge'
+import { clearHostBridge, hostNotificationSink } from '../host-bridge'
 import { resetHostEvents } from '../host-events'
 import { resetHostState } from '../host-state'
-import { PluginHostBridge } from '../plugin-host-bridge'
-import { PluginNotices } from '../plugin-notices'
 
 /**
  * The surface is what makes the sink non-null in the running app. Without it
  * mounted, both halves of `host.notify` take their "nothing is listening"
  * branch and the operator sees a console line instead of the notice.
+ *
+ * So this drives the real `ClientProviders` rather than the two host components
+ * side by side: what has to hold is that the shipped tree mounts the surface,
+ * and a hand-built pair would stay green with the production lines deleted.
  */
 
 const gateway = vi.hoisted(() => {
@@ -22,30 +26,46 @@ const gateway = vi.hoisted(() => {
     value: {
       connected: true,
       subscribe: (fn: GatewayEventListener) => {
+        gateway.onSubscribe?.()
         listeners.add(fn)
         return () => listeners.delete(fn)
       },
     },
+    /** Set by the ordering test to look at the sink at the one moment that
+     *  distinguishes the two mount orders. */
+    onSubscribe: undefined as (() => void) | undefined,
     emit: (frame: GatewayEvent) => listeners.forEach((fn) => fn(frame)),
   }
 })
 
-vi.mock('@/hooks/use-gateway', () => ({ useGateway: () => gateway.value }))
+/** Everything around the host, reduced to pass-throughs, exactly as
+ *  `client-providers.test.tsx` does — none of it is what this test is about,
+ *  and all of it wants a live gateway. */
+const passThrough = vi.hoisted(() => ({ children }: { children: ReactNode }) => children)
 
-/** Both halves of the host, in the order `client-providers.tsx` mounts them. */
+vi.mock('@/routes/providers', () => ({ ThemeProvider: passThrough }))
+vi.mock('@/routes/auth-provider', () => ({ AuthProvider: passThrough, AuthGate: passThrough }))
+vi.mock('@/routes/settings-provider', () => ({
+  SettingsProvider: passThrough,
+  DocumentTitle: () => null,
+}))
+vi.mock('@/hooks/use-gateway', () => ({
+  GatewayProvider: passThrough,
+  useGateway: () => gateway.value,
+}))
+vi.mock('@/hooks/use-query-invalidation', () => ({ useQueryInvalidation: () => {} }))
+vi.mock('@/components/emoji-favicon', () => ({ EmojiFavicon: () => null }))
+vi.mock('@/components/migration/instance-migration-gate', () => ({
+  InstanceMigrationGate: () => null,
+}))
+vi.mock('@/components/talk/talk-orb-overlay', () => ({ TalkOrbOverlay: () => null }))
+/** The disk loader subscribes to the same gateway, which would make "who
+ *  subscribed" ambiguous below — and it reads the inventory over the network. */
+vi.mock('@/plugins/disk-plugins-bridge', () => ({ DiskPluginsBridge: () => null }))
+
 function mountDashboard() {
   const router = createMemoryRouter(
-    [
-      {
-        path: '*',
-        element: (
-          <>
-            <PluginNotices />
-            <PluginHostBridge />
-          </>
-        ),
-      },
-    ],
+    [{ path: '*', element: <ClientProviders>{null}</ClientProviders> }],
     { initialEntries: ['/'] },
   )
   return render(<RouterProvider router={router} />)
@@ -55,6 +75,7 @@ beforeEach(() => {
   resetHostState()
   resetHostEvents()
   clearHostBridge()
+  gateway.onSubscribe = undefined
 })
 
 afterEach(() => {
@@ -68,6 +89,20 @@ it('registers itself as the sink, so a browser notice reaches the screen', () =>
   act(() => host.notify('the mailbox is unreachable', 'error'))
 
   expect(screen.getByText('the mailbox is unreachable')).not.toBeNull()
+})
+
+/* The surface has to be mounted ahead of the bridge, not merely alongside it:
+ * a frame that arrives on the socket the moment the bridge subscribes has
+ * nowhere to land otherwise. Subscribing is the instant the two orders differ. */
+it('registers the sink before the host bridge subscribes to the gateway', () => {
+  let sinkAtSubscribe: ReturnType<typeof hostNotificationSink> = null
+  gateway.onSubscribe = () => {
+    sinkAtSubscribe = hostNotificationSink()
+  }
+
+  mountDashboard()
+
+  expect(sinkAtSubscribe).not.toBeNull()
 })
 
 /* Acceptance criterion 8's browser half, end to end: a backend notice travels

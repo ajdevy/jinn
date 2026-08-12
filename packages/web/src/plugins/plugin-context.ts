@@ -58,10 +58,15 @@ function isParentSegment(segment: string): boolean {
  * only the path decides what the request reaches. Sanitizing would answer a
  * different request than the caller wrote, which is a bug that reaches
  * production; throwing is one that does not.
+ *
+ * Segments break on `\` as well as `/`, because for an http URL the WHATWG
+ * parser treats a backslash as a path separator too. Splitting on `/` alone
+ * reads `..\other` as one ordinary name and lets the parent segment through;
+ * `%5c` is not a separator, so it stays a literal and needs no such reading.
  */
 export function pluginBackendPath(pluginId: string, suffix: string): string {
   const [routePath = ''] = suffix.split(/[?#]/, 1)
-  if (routePath.split('/').some(isParentSegment)) {
+  if (routePath.split(/[/\\]/).some(isParentSegment)) {
     throw new Error(
       `[plugin] "${suffix}" contains a ".." segment, encoded or not, and would leave ` +
         `/api/plugins/${pluginId}/. Pass a path relative to the plugin mount, without ".." segments.`,

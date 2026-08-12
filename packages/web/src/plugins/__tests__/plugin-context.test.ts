@@ -173,12 +173,23 @@ describe('the namespaced backend path', () => {
     expect(() => pluginBackendPath('inbox', suffix)).toThrow(/\.\./)
   })
 
-  // The proof that the throw is what contains the request, rather than the
-  // prefix: what the built path resolves to is another plugin's mount.
-  it('would otherwise have reached another plugin', () => {
-    const escaped = new URL('/api/plugins/inbox/%2e%2e/other/private', 'http://gateway.test')
+  // A backslash separates path segments on an http URL just as `/` does, so a
+  // check that splits on `/` alone reads `..\other` as one ordinary name.
+  it.each([
+    ['a backslash separator', '/..\\other/private'],
+    ['a backslash after a half-encoded parent', '/.%2e\\other/private'],
+    ['a backslash on both sides', '/threads\\..\\other/private'],
+  ])('throws on %s', (_label, suffix) => {
+    expect(() => pluginBackendPath('inbox', suffix)).toThrow(/\.\./)
+  })
 
-    expect(escaped.pathname).toBe('/api/plugins/other/private')
+  // The proof that the throw is what contains the request, rather than the
+  // prefix: what each built path resolves to is another plugin's mount.
+  it.each([
+    ['an encoded parent segment', '/api/plugins/inbox/%2e%2e/other/private'],
+    ['a backslash separator', '/api/plugins/inbox/..\\other/private'],
+  ])('would otherwise have reached another plugin through %s', (_label, built) => {
+    expect(new URL(built, 'http://gateway.test').pathname).toBe('/api/plugins/other/private')
   })
 
   // The rule is about the path, and a query is not one. A plugin passing a
@@ -189,6 +200,9 @@ describe('the namespaced backend path', () => {
     ['a fragment', '/threads#../elsewhere'],
     ['two dots inside a segment', '/thre..ads'],
     ['three dots', '/%2e%2e%2e/threads'],
+    // `%5c` stays a literal in the path rather than separating segments, so
+    // `..%5cother` is one ordinary name and reaches nothing but this mount.
+    ['an encoded backslash', '/..%5cother/private'],
   ])('does not throw on %s', (_label, suffix) => {
     expect(() => pluginBackendPath('inbox', suffix)).not.toThrow()
   })
