@@ -160,6 +160,9 @@ export async function startHarness(): Promise<{
   authRequiredForRequest: (typeof import("../auth.js"))["authRequiredForRequest"];
   onConfigReload: () => void;
   routePrefix: string;
+  /** Boot's watcher pass, awaitable. `onConfigReload` starts one of its own and
+   *  does not wait on it, so a case that has to observe the result awaits this. */
+  reconcileWatchers: () => Promise<void>;
 }> {
   writeConfig();
   ({ loadConfig: loadConfigFromDisk } = await import("../../shared/config.js"));
@@ -185,7 +188,13 @@ export async function startHarness(): Promise<{
     reloadOrg: () => {},
     emit: () => {},
   });
-  return { authRequiredForRequest: auth.authRequiredForRequest, onConfigReload, routePrefix: PLUGIN_ROUTE_PREFIX };
+  const { reconcilePluginWatchers } = await import("../../plugins/watcher-supervisor.js");
+  return {
+    authRequiredForRequest: auth.authRequiredForRequest,
+    onConfigReload,
+    routePrefix: PLUGIN_ROUTE_PREFIX,
+    reconcileWatchers: () => reconcilePluginWatchers(() => currentConfig),
+  };
 }
 
 /** An empty plugins directory, the state every case starts from. */

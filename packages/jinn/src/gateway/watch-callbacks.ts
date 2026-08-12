@@ -4,6 +4,7 @@ import { reloadScheduler } from "../cron/scheduler.js";
 import { disposeUnservableBackends } from "../plugins/backend.js";
 import { scanPlugins } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
+import { reconcilePluginWatchers } from "../plugins/watcher-supervisor.js";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig } from "../shared/types.js";
 import type { WatcherCallbacks } from "./watcher.js";
@@ -29,6 +30,10 @@ export function gatewayWatchCallbacks({ reloadConfig, getConfig, reloadOrg, emit
       // plugin has to lose its loaded backend on. Waiting for a request instead
       // means a disable and a re-enable with nothing in between never drops it.
       disposeUnservableBackends((id) => isPluginEnabled(id, getConfig()));
+      // And the same edge a disabled plugin's watcher has to stop on. Not
+      // awaited: reconciling imports plugin modules, and a config reload does
+      // not wait on third-party code.
+      void reconcilePluginWatchers(getConfig);
     },
     onCronReload: () => {
       const updatedJobs = loadJobs();
@@ -49,6 +54,9 @@ export function gatewayWatchCallbacks({ reloadConfig, getConfig, reloadOrg, emit
         .then((plugins) => {
           logger.info(`Plugins rescanned (${plugins.length} installed)`);
           emit("plugins:changed", {});
+          // An edit to a plugin's server.js is a new incarnation: the watcher the
+          // old one started is stopped before the new one is asked to start.
+          return reconcilePluginWatchers(getConfig);
         })
         .catch((err) => logger.error(`Plugin rescan failed: ${err instanceof Error ? err.message : err}`));
     },

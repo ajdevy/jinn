@@ -4,8 +4,10 @@ import path from "node:path";
 import { dispatchPluginRequest, disposePluginBackend, pluginSettings } from "../plugins/backend.js";
 import { inventoryRow, loadPlugin, scanPlugins, type DiscoveredPlugin } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
+import { readPluginEvents } from "../plugins/event-log.js";
 import { isContainedIn, PLUGIN_ID_PATTERN, resolveContainedPath } from "../plugins/manifest.js";
-import { json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
+import { pluginWatcherHealth } from "../plugins/watcher-supervisor.js";
+import { badRequest, json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import type { ApiContext } from "./api.js";
 
 /**
@@ -33,6 +35,8 @@ const ASSET_TYPES: Record<string, string> = {
  *  would not, and would be served to anyone who can reach the port. */
 export const PLUGIN_ROUTE_PREFIX = "/api/plugins/";
 const ASSETS_SEGMENT = "assets/";
+const CLIENT_SEGMENT = "client";
+const EVENTS_SEGMENT = "events";
 
 /**
  * `/api/plugins/<id>/<tail>`, with the id held to exactly the shape discovery
@@ -89,14 +93,39 @@ async function servablePlugin(id: string, context: ApiContext): Promise<Discover
 }
 
 /** The inventory, plus the enabled subset the dashboard loads. A disabled plugin
- *  stays in the inventory: disabled is a state, not an absence. */
+ *  stays in the inventory: disabled is a state, not an absence.
+ *
+ *  Watcher health is merged in here rather than in `inventoryRow`, which is built
+ *  from what is on disk. Whether a background task is running is runtime state,
+ *  and discovery has no business knowing it. */
 async function listPlugins(res: ServerResponse, context: ApiContext): Promise<void> {
   const config = context.getConfig();
   const inventory = (await scanPlugins()).map((plugin) => {
     const row = inventoryRow(plugin);
-    return row.status === "loaded" && !isPluginEnabled(row.id, config) ? { ...row, status: "disabled" as const } : row;
+    const disabled = row.status === "loaded" && !isPluginEnabled(row.id, config);
+    // Absent, not a fabricated "stopped": most plugins have no watcher at all.
+    const watcher = pluginWatcherHealth(row.id);
+    return { ...row, ...(disabled ? { status: "disabled" as const } : {}), ...(watcher ? { watcher } : {}) };
   });
   json(res, { plugins: inventory.filter((row) => row.status === "loaded"), inventory });
+}
+
+/**
+ * The polling half of the events lane, and the complete one: a cursor is enough
+ * to see every event the ring still holds, so the socket is only an accelerator.
+ *
+ * It reads the ring rather than the plugin, so a plugin whose backend is broken
+ * still answers with what it emitted before it broke.
+ */
+async function servePluginEvents(res: ServerResponse, id: string, raw: string | null, context: ApiContext): Promise<void> {
+  const since = raw === null ? undefined : Number(raw);
+  if (since !== undefined && !(Number.isSafeInteger(since) && since >= 0)) {
+    return badRequest(res, "since must be a non-negative integer");
+  }
+  // The same gate the rest of the plugin API uses, so a disabled and an unknown
+  // id are one answer and neither confirms the plugin is installed.
+  if (!(await servablePlugin(id, context))) return notFound(res);
+  json(res, readPluginEvents(id, since));
 }
 
 /** Exactly one file, named by the manifest rather than by the caller. */
@@ -164,6 +193,35 @@ async function servePluginBackend(
   }
 }
 
+/**
+ * The paths below `/api/plugins/<id>/` that belong to the gateway rather than to
+ * the plugin, or false when this one does not. Matched ahead of the backend
+ * mount, which is what stops a plugin registering a route of its own over one of
+ * them: all three are how the dashboard reaches every plugin, and a plugin that
+ * could take them could answer for the gateway.
+ */
+async function serveReservedPluginRoute(
+  res: ServerResponse,
+  matched: { id: string; tail: string },
+  route: ParsedRoute,
+  context: ApiContext,
+): Promise<boolean> {
+  if (route.method !== "GET") return false;
+  if (matched.tail === CLIENT_SEGMENT) {
+    await serveClient(res, matched.id, context);
+    return true;
+  }
+  if (matched.tail.startsWith(ASSETS_SEGMENT)) {
+    await serveAsset(res, matched.id, matched.tail.slice(ASSETS_SEGMENT.length), context);
+    return true;
+  }
+  if (matched.tail === EVENTS_SEGMENT) {
+    await servePluginEvents(res, matched.id, route.url.searchParams.get("since"), context);
+    return true;
+  }
+  return false;
+}
+
 /** `/api/plugins*` routes. See route-helpers.ts for the domain-module contract. */
 export async function handlePluginsApi(
   req: HttpRequest,
@@ -185,14 +243,7 @@ export async function handlePluginsApi(
   // Every method, not just GET: the backend mount below answers all of them.
   const plugin = matchPluginRoute(pathname);
   if (!plugin) return false;
-  if (method === "GET" && plugin.tail === "client") {
-    await serveClient(res, plugin.id, context);
-    return true;
-  }
-  if (method === "GET" && plugin.tail.startsWith(ASSETS_SEGMENT)) {
-    await serveAsset(res, plugin.id, plugin.tail.slice(ASSETS_SEGMENT.length), context);
-    return true;
-  }
+  if (await serveReservedPluginRoute(res, plugin, route, context)) return true;
   await servePluginBackend(req, res, method, plugin, context);
   return true;
 }

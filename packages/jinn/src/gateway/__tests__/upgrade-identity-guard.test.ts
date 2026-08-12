@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type http from "node:http";
-import { rejectUnverifiedIdentifiedUpgradeCaller } from "../server.js";
-import * as server from "../server.js";
+import { rejectUnverifiedIdentifiedUpgradeCaller } from "../upgrade-guards.js";
+import * as guards from "../upgrade-guards.js";
 import { isSameOriginBrowserRequest } from "../api.js";
 import {
   CALLER_SESSION_CAPABILITY_HEADER,
@@ -86,7 +86,7 @@ describe("PTY WebSocket upgrade authority", () => {
   it("rejects capability-bound callers instead of letting them inject PTY stdin", () => {
     const socket = new FakeUpgradeSocket();
     const capability = ensureSessionCapability("s-1");
-    const guard = (server as any).rejectNonOperatorPtyUpgradeCaller;
+    const guard = (guards as any).rejectNonOperatorPtyUpgradeCaller;
     expect(typeof guard).toBe("function");
 
     const rejected = guard(
@@ -109,7 +109,7 @@ describe("PTY WebSocket upgrade authority", () => {
     // gateway grants operator identity via the same-origin fallback. Regression
     // guard for the empty-CLI-terminal bug (operator-only gate 403'd the view).
     const socket = new FakeUpgradeSocket();
-    const guard = (server as any).rejectNonOperatorPtyUpgradeCaller;
+    const guard = (guards as any).rejectNonOperatorPtyUpgradeCaller;
     const headers = {
       host: "127.0.0.1:7801",
       origin: "http://127.0.0.1:7801",
@@ -129,7 +129,7 @@ describe("PTY WebSocket upgrade authority", () => {
 
   it("rejects a cross-origin browser PTY upgrade (no operator trust)", () => {
     const socket = new FakeUpgradeSocket();
-    const guard = (server as any).rejectNonOperatorPtyUpgradeCaller;
+    const guard = (guards as any).rejectNonOperatorPtyUpgradeCaller;
     const headers = {
       host: "127.0.0.1:7801",
       origin: "http://evil.example",

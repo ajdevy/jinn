@@ -53,8 +53,8 @@ import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } 
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
 import { isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
 import { createGatewayRequestHandler } from "./request-handler.js";
-import { resolveCallerIdentity, sessionCommGuards, LATERAL_MAX_HOPS, type CallerIdentityOptions } from "./session-comm-guards.js";
-import { UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
+import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
+import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
 import { startStatusReconciler } from "./status-reconciler.js";
 import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
@@ -100,6 +100,8 @@ import { ensureFilesDir, cleanupOldUploads } from "./files.js";
 import { initStt } from "../stt/stt.js";
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
 import { gatewayWatchCallbacks } from "./watch-callbacks.js";
+import { createPluginEventsChannel, matchPluginEventsPath } from "./plugin-events-ws.js";
+import { reconcilePluginWatchers, stopAllPluginWatchers } from "../plugins/watcher-supervisor.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
 import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
@@ -116,11 +118,6 @@ const __dirname = path.dirname(__filename);
 /** Records that boot already tightened JINN_HOME once, so an operator who
  *  deliberately re-widens it afterwards is warned rather than silently overridden. */
 const OWNER_ONLY_HEAL_MARKER = path.join(JINN_HOME, ".owner-only-healed");
-
-type UpgradeRejectionSocket = {
-  write(chunk: string): unknown;
-  destroy(): unknown;
-};
 
 // Extract the lowercased hostname from a Host header (or any host[:port]
 // string), tolerating IPv6 brackets and missing ports. Returns null if unparseable.
@@ -154,54 +151,6 @@ export function isAllowedCorsOrigin(origin: string | undefined, requestHost?: st
   const reqHostname = hostnameOf(requestHost);
   if (reqHostname && reqHostname === host) return true;
   return false;
-}
-
-export function rejectUnverifiedIdentifiedUpgradeCaller(
-  req: http.IncomingMessage,
-  socket: UpgradeRejectionSocket,
-  options: Pick<CallerIdentityOptions, "sessionExists"> = {},
-): boolean {
-  const identity = resolveCallerIdentity(req.headers, {
-    sessionExists: options.sessionExists ?? ((sessionId) => !!getSession(sessionId)),
-    verifySessionCapability,
-    requireCapability: true,
-  });
-  if (identity.kind !== "unidentified-tool") return false;
-  socket.write(
-    "HTTP/1.1 403 Forbidden\r\n" +
-    "Connection: close\r\n" +
-    "Content-Type: application/json\r\n" +
-    "\r\n" +
-    JSON.stringify({ error: UNIDENTIFIED_TOOL_CALL_ERROR }),
-  );
-  socket.destroy();
-  return true;
-}
-
-export function rejectNonOperatorPtyUpgradeCaller(
-  req: http.IncomingMessage,
-  socket: UpgradeRejectionSocket,
-  options: Pick<CallerIdentityOptions, "sessionExists" | "operatorAuthenticated"> = {},
-): boolean {
-  const identity = resolveCallerIdentity(req.headers, {
-    sessionExists: options.sessionExists ?? ((sessionId) => !!getSession(sessionId)),
-    verifySessionCapability,
-    requireCapability: true,
-    operatorAuthenticated: options.operatorAuthenticated,
-  });
-  if (identity.kind === "operator") return false;
-  const error = identity.kind === "unidentified-tool"
-    ? UNIDENTIFIED_TOOL_CALL_ERROR
-    : "/ws/pty is operator-only; capability-bound sessions cannot attach to or inject stdin into PTY sessions";
-  socket.write(
-    "HTTP/1.1 403 Forbidden\r\n" +
-    "Connection: close\r\n" +
-    "Content-Type: application/json\r\n" +
-    "\r\n" +
-    JSON.stringify({ error }),
-  );
-  socket.destroy();
-  return true;
 }
 
 /**
@@ -1096,11 +1045,12 @@ export async function startGateway(
   // separate from the global broadcast `wss` so its connections aren't added to
   // the broadcast client set.
   const ptyWss = new WebSocketServer({ noServer: true });
+  const pluginEvents = createPluginEventsChannel(() => currentConfig);
 
   // Protocol-level ping/pong sweep across both WS servers. Terminates half-open
   // (dead but readyState===OPEN) sockets; terminating a PTY socket fires its
   // close handler -> onDisconnect -> viewerCount decrement, fixing the leak.
-  const stopWsHeartbeat = startWsHeartbeat([wss, ptyWss], {
+  const stopWsHeartbeat = startWsHeartbeat([wss, ptyWss, pluginEvents.wss], {
     onSweep: (r) => { if (r.terminated > 0) logger.info(`WS heartbeat reaped ${r.terminated} dead socket(s)`); },
   });
 
@@ -1150,6 +1100,14 @@ export async function startGateway(
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
+      return;
+    }
+    // A plugin's own event stream. It reaches here having passed the same gate
+    // `/ws` did above; plugin-events-ws.ts adds the enable gate and no auth of
+    // its own.
+    const pluginEventsId = matchPluginEventsPath(pathname);
+    if (pluginEventsId) {
+      pluginEvents.handleUpgrade(req, socket, head, pluginEventsId);
       return;
     }
     // Dedicated per-session PTY channel for the live xterm CLI view.
@@ -1207,6 +1165,10 @@ export async function startGateway(
 
   // Start file watchers
   startWatchers(gatewayWatchCallbacks({ reloadConfig, getConfig: () => currentConfig, reloadOrg, emit }));
+
+  // Start the watchers of every enabled plugin. Not awaited: a plugin's module
+  // is third-party code, and boot does not wait on it to start listening.
+  void reconcilePluginWatchers(() => currentConfig);
 
   // Start listening (port/host resolved earlier at boot). During `jinn restart`
   // the replacement daemon can race the old process' graceful shutdown; retry
@@ -1389,6 +1351,10 @@ export async function startGateway(
     // Stop watchers
     await stopWatchers();
 
+    // Plugin watchers each carry their own stop deadline, so one that refuses to
+    // stop is abandoned rather than holding shutdown open.
+    await stopAllPluginWatchers();
+
     // Stop the WS heartbeat sweep before tearing down the WS servers.
     stopWsHeartbeat();
 
@@ -1401,10 +1367,14 @@ export async function startGateway(
     for (const client of ptyWss.clients) {
       client.terminate();
     }
+    for (const client of pluginEvents.wss.clients) {
+      client.terminate();
+    }
 
     // Close WebSocket servers
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await new Promise<void>((resolve) => ptyWss.close(() => resolve()));
+    await new Promise<void>((resolve) => pluginEvents.wss.close(() => resolve()));
 
     // Close HTTP server
     await new Promise<void>((resolve, reject) => {
