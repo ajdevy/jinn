@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   api,
   ApiError,
-  type WorkItemAttachmentWire,
   type WorkItemDetailWire,
   type WorkItemRelationKindWire,
   type WorkItemRelationWire,
@@ -35,6 +34,8 @@ import { AcceptanceChecklist } from "./acceptance"
 import { SubTasksSection } from "./subtasks"
 import { RelationsSection } from "./relations"
 import { AttachmentsSection } from "./attachments"
+import { useTaskAttachments } from "./use-task-attachments"
+import { RunsSection } from "./runs"
 import { ActivitySection } from "./activity"
 
 /* Variant A reads like a work document: the editable spine is always present,
@@ -194,7 +195,7 @@ export default function TaskPage() {
     announce,
   })
 
-  // ── Section mutations (sub-tasks, relations, attachments) ────────────────
+  // ── Section mutations (sub-tasks, relations; attachments have their own hook) ──
   const qc = useQueryClient()
   const failWith = useCallback(
     (fallback: string) => (error: unknown) =>
@@ -244,30 +245,7 @@ export default function TaskPage() {
     onError: failWith("Couldn't remove the relation"),
     onSettled: invalidateTree,
   })
-  const uploadAttachments = useMutation({
-    mutationFn: async (files: File[]) => {
-      for (const file of files) await api.uploadWorkItemAttachment(id!, file)
-    },
-    onError: failWith("Couldn't attach the file"),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ["work-item-attachments", id] })
-      if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
-    },
-  })
-  const removeAttachment = useMutation({
-    mutationFn: (attachment: WorkItemAttachmentWire) => api.deleteWorkItemAttachment(id!, attachment.id),
-    onError: failWith("Couldn't remove the attachment"),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ["work-item-attachments", id] })
-      if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
-    },
-  })
-  const attachmentsQuery = useQuery({
-    queryKey: ["work-item-attachments", id],
-    queryFn: async () => (await api.listWorkItemAttachments(id!)).attachments,
-    enabled: !!id && !!item,
-    staleTime: 10_000,
-  })
+  const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith })
 
   const commitBannerReason = useCallback(
     (note: string) => {
@@ -540,11 +518,12 @@ export default function TaskPage() {
                     onRemove={(relation) => removeRelation.mutate(relation)}
                   />
                   <AttachmentsSection
-                    attachments={attachmentsQuery.data ?? []}
+                    attachments={attachments.files}
                     byName={byName}
-                    onUpload={(files) => uploadAttachments.mutate(files)}
-                    onRemove={(attachment) => removeAttachment.mutate(attachment)}
+                    onUpload={(files) => attachments.upload.mutate(files)}
+                    onRemove={(attachment) => attachments.remove.mutate(attachment)}
                   />
+                  <RunsSection runs={detail?.runs ?? []} />
                 </>
               )}
 

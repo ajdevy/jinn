@@ -61,6 +61,9 @@ function sessionIdFor(nodeId: string, attempt: number): string { return `session
 class RecordingLink implements WorkflowTodoSessionLink {
   readonly links: Array<{ todoId: string; sessionId: string }> = [];
   link(input: { todoId: string; sessionId: string }): void { this.links.push(input); }
+  // Spend attribution is what this suite is about; the run ledger has its own.
+  openRun(): void {}
+  closeRun(): void {}
 }
 
 let root: string;
@@ -179,6 +182,7 @@ describe("attributing a run's spend to the Todo it is bound to", () => {
     service.dispose();
     service = serviceWith({
       link: ({ todoId }) => { throw new Error(`linkSession: work item ${todoId} not found`); },
+      openRun: () => {}, closeRun: () => {},
     });
     const definition = twoPhaseDefinition("missing-todo");
     const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "OPS-404" });

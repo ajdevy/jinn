@@ -1,9 +1,10 @@
-import { Buffer } from "node:buffer";
 import type { Employee, ModelRegistry } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { TODO_ID_PATTERN } from "../work-items/id.js";
 import type { WorkflowTodoEventFeed } from "../work-items/workflow-event-feed.js";
-import { jsonValueSchema, nodeIdSchema, workflowIdSchema, type JsonValue, type WorkflowDefinition, type WorkflowId } from "./model.js";
+import { workflowIdSchema, type JsonValue, type WorkflowDefinition, type WorkflowId } from "./model.js";
+import { boundedRecord, callerIdentity, fail } from "./service-input.js";
+import { settleTodoRun } from "./todo-run-ledger.js";
 import {
   WorkflowRepositoryError,
   type CreateWorkflowInput,
@@ -110,24 +111,6 @@ export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "act
   todoLifecycle?: WorkflowTodoLifecycle;
   /** Live session-cost aggregate for Workflow attempt sessions. */
   sessionSpend?: (sessionIds: string[]) => number;
-}
-function fail(code: "bad-input" | "not-found", message: string): never {
-  throw new WorkflowRepositoryError(code, message);
-}
-function boundedRecord(value: unknown, subject: string): Record<string, JsonValue> {
-  const parsed = jsonValueSchema.safeParse(value);
-  if (!parsed.success || parsed.data === null || typeof parsed.data !== "object" || Array.isArray(parsed.data)) {
-    fail("bad-input", `${subject} must be a JSON object.`);
-  }
-  if (Buffer.byteLength(JSON.stringify(parsed.data), "utf8") > 64 * 1024) fail("bad-input", `${subject} is too large.`);
-  return parsed.data as Record<string, JsonValue>;
-}
-function callerIdentity(value: unknown): value is WorkflowCallInput["caller"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return workflowIdSchema.safeParse(record.workflowId).success
-    && typeof record.runId === "string" && /^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(record.runId)
-    && nodeIdSchema.safeParse(record.nodeId).success;
 }
 function assertExecutableWorkflow(definition: WorkflowDefinition): void {
   const result = validateExecutableWorkflow(definition);
@@ -365,6 +348,7 @@ export class WorkflowService {
       .map((item) => this.options.executor.stopAttempt({ sessionId: item.sessionId!, reason: input.reason || "Workflow run cancelled." })));
     run = this.requiredRun(input.workflowId, input.runId);
     const error: WorkflowError = { code: "workflow-cancelled", message: input.reason || "Workflow run cancelled.", retryable: false };
+    const cancelled = run.attempts.filter((item) => (item.status === "running" || item.status === "dispatching") && item.sessionId);
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       for (const attempt of run.attempts.filter((item) => item.status === "running" || item.status === "dispatching")) {
         tx.settleAttempt(attempt.nodeId, attempt.attempt, { status: "cancelled", ...(attempt.sessionId ? { sessionId: attempt.sessionId } : {}), error, endedAt: requestedAt });
@@ -374,6 +358,8 @@ export class WorkflowService {
       }
       tx.setRunStatus("cancelled", { cancelRequestedAt: requestedAt, endedAt: requestedAt, error });
     });
+    // This path settles its own attempts, so their run-ledger rows close here.
+    for (const attempt of cancelled) settleTodoRun(this.options.todoSessions, run, attempt, { status: "cancelled", endedAt: requestedAt });
     run = this.requiredRun(input.workflowId, input.runId); this.runChanged(run); return run;
   }
 

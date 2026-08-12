@@ -45,6 +45,58 @@ describe("GET /api/work-items/:id/sessions", () => {
   );
 });
 
+describe("GET /api/work-items/:id — the attempt ledger on the detail payload", () => {
+  it("returns every run oldest first, with outcome, timestamps, summary and handoff", async () => {
+    const runs = await import("../../work-items/runs.js");
+    const wi = store.createWorkItem({ title: "attempted twice", source: "delegation" });
+    const first = runs.openWorkItemRun({ workItemId: wi.id, sessionId: "s-attempt-1", startedAt: "2026-08-13T10:00:00.000Z" });
+    runs.closeWorkItemRun(first.id, {
+      outcome: "blocked",
+      summary: "the fixture is missing",
+      handoff: { changedFiles: ["src/one.ts"], retryNotes: "seed the fixture first" },
+      endedAt: "2026-08-13T10:30:00.000Z",
+    });
+    const second = runs.openWorkItemRun({ workItemId: wi.id, sessionId: "s-attempt-2", startedAt: "2026-08-13T11:00:00.000Z" });
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("GET", `/api/work-items/${wi.id}`), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect(cap.body.runs).toEqual([
+      {
+        id: first.id,
+        workItemId: wi.id,
+        sessionId: "s-attempt-1",
+        startedAt: "2026-08-13T10:00:00.000Z",
+        endedAt: "2026-08-13T10:30:00.000Z",
+        outcome: "blocked",
+        summary: "the fixture is missing",
+        handoff: { changedFiles: ["src/one.ts"], retryNotes: "seed the fixture first" },
+        error: null,
+      },
+      {
+        id: second.id,
+        workItemId: wi.id,
+        sessionId: "s-attempt-2",
+        startedAt: "2026-08-13T11:00:00.000Z",
+        endedAt: null,
+        outcome: null,
+        summary: null,
+        handoff: {},
+        error: null,
+      },
+    ]);
+  });
+
+  it("returns an empty ledger for a Todo nobody has attempted", async () => {
+    const wi = store.createWorkItem({ title: "never attempted" });
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("GET", `/api/work-items/${wi.id}`), cap.res, ctx);
+    expect(cap.status).toBe(200);
+    expect(cap.body.runs).toEqual([]);
+  });
+});
+
 describe("GET /api/work-items and /api/search/work-items — pagination, totals, and filters", () => {
   it("returns exact totals plus an offset page beyond the first 20 rows", async () => {
     for (let i = 0; i < 25; i++) {

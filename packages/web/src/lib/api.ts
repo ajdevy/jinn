@@ -13,6 +13,8 @@ import {
   type WorkItemEditRequest,
   type WorkItemEditResultWire,
 } from "@/lib/work-item-edit-wire"
+import type { WorkItemCommentPageWire, WorkItemCommentWire } from "@/lib/work-item-comment-wire"
+import type { WorkItemRunWire } from "@/lib/work-item-runs-wire"
 
 export interface TranscriptContentBlock {
   type: 'text' | 'tool_use' | 'tool_result' | 'thinking'
@@ -706,6 +708,14 @@ export interface WorkItemFullWire {
 export { isPositiveTodoVersion } from "./work-item-edit-wire"
 export type { VersionedWorkItemFullWire, WorkItemEditPatch, WorkItemEditRequest, WorkItemEditResultWire } from "./work-item-edit-wire"
 
+/** The run ledger's shapes and its open/settled pairing rule live in
+ *  work-item-runs-wire.ts; re-exported so the client surface stays one import. */
+export type { WorkItemRunHandoffWire, WorkItemRunOutcomeWire, WorkItemRunWire } from "./work-item-runs-wire"
+
+/** The comment thread's shapes live in work-item-comment-wire.ts; re-exported
+ *  so the client surface stays one import. */
+export type { WorkItemCommentAuthorKindWire, WorkItemCommentPageWire, WorkItemCommentWire } from "./work-item-comment-wire"
+
 export interface WorkItemEventWire {
   id: string
   workItemId: string
@@ -715,30 +725,6 @@ export interface WorkItemEventWire {
   actor: string | null
   detail: Record<string, unknown> | null
   createdAt: string
-}
-
-export type WorkItemCommentAuthorKindWire = "operator" | "employee" | "system"
-
-/** One comment row (Todos v2 slice 2). A tombstoned comment keeps its row with
- *  an empty body and a `deletedAt` stamp so the thread shape survives. */
-export interface WorkItemCommentWire {
-  id: string
-  workItemId: string
-  parentCommentId: string | null
-  authorKind: WorkItemCommentAuthorKindWire
-  author: string
-  body: string
-  createdAt: string
-  editedAt: string | null
-  deletedAt: string | null
-}
-
-/** A chronological comment page; `total` is the exact per-item count. */
-export interface WorkItemCommentPageWire {
-  comments: WorkItemCommentWire[]
-  total: number
-  limit?: number
-  offset?: number
 }
 
 /** One approval history row (Todos v2 slice 4). The legacy approval* fields on
@@ -812,6 +798,8 @@ export interface WorkItemDetailWire {
   labels?: WorkItemLabelWire[]
   /** Approval history, oldest first (optional: older gateways omit it). */
   approvals?: WorkItemApprovalWire[]
+  /** The run ledger, oldest first (optional: older gateways omit it). */
+  runs?: WorkItemRunWire[]
 }
 
 /** Lightweight batch enrichment used by board/attention rows. */

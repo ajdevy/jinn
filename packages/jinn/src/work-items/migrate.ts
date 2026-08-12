@@ -1,15 +1,14 @@
-import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import Database, { type Database as DatabaseType } from "better-sqlite3";
 import {
   resolveTodoIdPrefix,
-  parseTodoIdPrefix,
-  formatTodoId,
   isTodoId,
   todoIdOrdinal,
   todoIdPrefix,
   TODO_ID_PREFIX_PATTERN,
 } from "./id.js";
+import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
+import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { resolveDepartmentPrefix } from "./departments.js";
 import { loadConfig } from "../shared/config.js";
 import { CONFIG_PATH } from "../shared/paths.js";
@@ -573,100 +572,10 @@ const REQUIRED_TRIGGER_SQL = new Map<string, string>(
   }),
 );
 
-const activeClaims = new WeakMap<DatabaseType, string>();
-const activeClaimPrefixes = new WeakMap<DatabaseType, string>();
-const registeredDatabases = new WeakSet<DatabaseType>();
-
-function claimDigest(rawClaim: string): string {
-  return createHash("sha256").update(rawClaim).digest("hex");
-}
-
-export function registerWorkItemIdentityFunctions(db: DatabaseType): void {
-  if (registeredDatabases.has(db)) return;
-  db.function("jinn_work_item_claim_digest", () => {
-    const claim = activeClaims.get(db);
-    return claim ? claimDigest(claim) : null;
-  });
-  db.function("jinn_work_item_claim_prefix", () => activeClaimPrefixes.get(db) ?? null);
-  registeredDatabases.add(db);
-}
-
-function withClaim<T>(db: DatabaseType, rawClaim: string, prefix: string, fn: () => T): T {
-  if (activeClaims.has(db)) throw new Error("nested Todo allocation claim");
-  activeClaims.set(db, rawClaim);
-  activeClaimPrefixes.set(db, prefix);
-  try {
-    return fn();
-  } finally {
-    activeClaims.delete(db);
-    activeClaimPrefixes.delete(db);
-  }
-}
-
-export interface WorkItemAllocationClaim {
-  id: string;
-  prefix: string;
-  ordinal: number;
-  /** One-time raw claim. It is never persisted. */
-  rawClaim: string;
-}
-
-/** Commit the burn independently; a later failed create permanently leaves a gap. */
-export function allocateWorkItemId(
-  db: DatabaseType,
-  now = new Date().toISOString(),
-  prefix: string = "JIN",
-): WorkItemAllocationClaim {
-  registerWorkItemIdentityFunctions(db);
-  parseTodoIdPrefix(prefix);
-  const rawClaim = randomBytes(32).toString("hex");
-  const allocation = db.transaction(() => {
-    db.prepare(
-      "INSERT INTO work_item_id_allocator (prefix, high_water) SELECT ?, 0 WHERE NOT EXISTS (SELECT 1 FROM work_item_id_allocator WHERE prefix = ?)",
-    ).run(prefix, prefix);
-    const current = db.prepare("SELECT high_water FROM work_item_id_allocator WHERE prefix = ?")
-      .get(prefix) as { high_water: number };
-    const next = current.high_water + 1;
-    if (!Number.isSafeInteger(next)) throw new Error("Todo ID allocator exhausted");
-    return withClaim(db, rawClaim, prefix, () => {
-      db.prepare("INSERT INTO work_item_id_burns (prefix, ordinal, claim_digest, burned_at) VALUES (?, ?, ?, ?)")
-        .run(prefix, next, claimDigest(rawClaim), now);
-      db.prepare("UPDATE work_item_id_allocator SET high_water = ? WHERE prefix = ?").run(next, prefix);
-      return { prefix, ordinal: next };
-    });
-  }).immediate();
-  return { id: formatTodoId(allocation.prefix, allocation.ordinal), ...allocation, rawClaim };
-}
-
-/** @internal test fixture builder — v1 semantics, do not use in product code. */
-export function allocateWorkItemIdV1ForTest(
-  db: DatabaseType,
-  now = new Date().toISOString(),
-  companyName: unknown = "Jinn",
-  companyPrefix?: unknown,
-): WorkItemAllocationClaim {
-  registerWorkItemIdentityFunctions(db);
-  const rawClaim = randomBytes(32).toString("hex");
-  const allocation = db.transaction(() => {
-    const current = db.prepare("SELECT prefix, high_water FROM work_item_id_allocator WHERE singleton = 1")
-      .get() as { prefix: string | null; high_water: number };
-    const prefix = current.prefix ?? resolveTodoIdPrefix(companyName, companyPrefix);
-    const next = current.high_water + 1;
-    if (!Number.isSafeInteger(next)) throw new Error("Todo ID allocator exhausted");
-    return withClaim(db, rawClaim, prefix, () => {
-      db.prepare("INSERT INTO work_item_id_burns (ordinal, claim_digest, burned_at) VALUES (?, ?, ?)")
-        .run(next, claimDigest(rawClaim), now);
-      db.prepare("UPDATE work_item_id_allocator SET prefix = ?, high_water = ? WHERE singleton = 1")
-        .run(prefix, next);
-      return { prefix, ordinal: next };
-    });
-  }).immediate();
-  return { id: formatTodoId(allocation.prefix, allocation.ordinal), ...allocation, rawClaim };
-}
-
-export function useWorkItemAllocationClaim<T>(db: DatabaseType, claim: WorkItemAllocationClaim, fn: () => T): T {
-  return withClaim(db, claim.rawClaim, claim.prefix, fn);
-}
+/** The runtime half of Todo identity lives in id-allocator.ts; re-exported so
+ *  the schema module stays the one import every caller already had. */
+export { allocateWorkItemId, allocateWorkItemIdV1ForTest, registerWorkItemIdentityFunctions,
+  useWorkItemAllocationClaim, type WorkItemAllocationClaim } from "./id-allocator.js";
 
 export type WorkItemSchemaPreflight = "absent" | "empty-prerelease" | "v1" | "current";
 
@@ -690,6 +599,7 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_approval_choices", WORK_ITEM_APPROVAL_CHOICES_DDL],
   ["work_item_approval_operator_only", WORK_ITEM_APPROVAL_OPERATOR_ONLY_DDL],
   ["work_item_attachments", WORK_ITEM_ATTACHMENTS_TABLE_DDL],
+  ["work_item_runs", WORK_ITEM_RUNS_TABLE_DDL],
   ["work_item_edit_receipts", WORK_ITEM_EDIT_RECEIPTS_DDL],
   ["work_item_id_allocator", WORK_ITEM_ID_ALLOCATOR_TABLE_DDL],
   ["work_item_id_burns", WORK_ITEM_ID_BURNS_TABLE_DDL],
@@ -713,6 +623,7 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_approval_choices", ddl: WORK_ITEM_APPROVAL_CHOICES_DDL },
   { name: "work_item_approval_operator_only", ddl: WORK_ITEM_APPROVAL_OPERATOR_ONLY_DDL },
   { name: "work_item_attachments", ddl: WORK_ITEM_ATTACHMENTS_DDL },
+  { name: "work_item_runs", ddl: WORK_ITEM_RUNS_DDL },
 ];
 
 /**
@@ -992,6 +903,7 @@ export function verifyCurrentWorkItemSchema(db: DatabaseType): void {
       if (!comment || comment.work_item_id !== row.work_item_id) refusal();
     }
   }
+  if (!workItemRunRowsAreSound(db, (id) => byId.has(id))) refusal();
 }
 
 function classifyOpenWorkItemsDatabase(db: DatabaseType): WorkItemSchemaPreflight {

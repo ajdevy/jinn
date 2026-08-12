@@ -12,9 +12,10 @@ import {
 } from './store.js';
 import { transitionDerived } from './transitions.js';
 import { currentApproval } from './approval-rows.js';
+import { closeOrphanedWorkItemRuns, closeWorkItemRun, findOpenWorkItemRunBySession, type TodoRunOutcome } from './runs.js';
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { logger } from '../shared/logger.js';
-import type { SessionAttemptOutcome } from '../shared/types.js';
+import type { Session, SessionAttemptOutcome } from '../shared/types.js';
 
 /**
  * Work-item status reconciler (GRS-003a, elevated to the Todos vocabulary by
@@ -92,6 +93,37 @@ export function deriveWorkItemStatus(
   return current;
 }
 
+/** How a session's terminal receipt reads in the run ledger's vocabulary
+ *  (ICI-728). `crashed` and `timed_out` are absent because no session receipt
+ *  claims them: a vanished session is settled by the startup sweep instead. */
+const RUN_OUTCOME_BY_RECEIPT: Record<SessionAttemptOutcome, TodoRunOutcome> = {
+  succeeded: 'completed',
+  failed: 'blocked',
+  interrupted: 'abandoned',
+};
+
+/**
+ * Settle the run ledger from the same receipts the status derivation reads, so
+ * a Todo's attempt history closes the moment its attempts do. Best-effort per
+ * session: a ledger write is reporting, and reporting must never break the
+ * status the platform actually routes on.
+ *
+ * Callers pass sessions with Workflow phase sessions already filtered out — the
+ * workflow runner settles those runs itself, and racing it would close a phase
+ * attempt the run is still retrying.
+ */
+function closeRunsForSettledAttempts(sessions: readonly Session[]): void {
+  for (const session of sessions) {
+    if (!session.attemptOutcome) continue;
+    try {
+      const run = findOpenWorkItemRunBySession(session.id);
+      if (run) closeWorkItemRun(run.id, { outcome: RUN_OUTCOME_BY_RECEIPT[session.attemptOutcome] });
+    } catch (err) {
+      logger.warn(`Run ledger close for session ${session.id} skipped: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+}
+
 export interface ReconcileResult {
   item: WorkItem;
   changed: boolean;
@@ -118,12 +150,12 @@ export function reconcileWorkItem(id: string): ReconcileResult | undefined {
   // `in_review` (and TRUST-closed to `done`) with four phases still to run, and
   // `in_review` is not re-derivable, so it would stay wrong for the rest of the
   // run. Same rule the `source === 'workflow'` guard above states for items.
-  const attempts = listSessionsByWorkItem(id)
-    .filter((s) => s.workflowProvenance?.kind !== 'phase')
-    .map((s) => ({
-      status: s.status as SessionStatus,
-      outcome: s.attemptOutcome ?? null,
-    }));
+  const sessions = listSessionsByWorkItem(id).filter((s) => s.workflowProvenance?.kind !== 'phase');
+  closeRunsForSettledAttempts(sessions);
+  const attempts = sessions.map((s) => ({
+    status: s.status as SessionStatus,
+    outcome: s.attemptOutcome ?? null,
+  }));
   let derived = deriveWorkItemStatus(item.status, attempts, item.source);
   // Provenance is only needed when receipt derivation would overwrite the
   // current state. Since a Todo cannot be blocked and executing simultaneously,
@@ -204,12 +236,18 @@ export function reconcileActiveWorkItems(): ReconcileSweepResult {
 }
 
 /**
- * Startup hook: reconcile work items and log a one-line summary. Best-effort — a
- * reconcile failure must never block gateway boot (mirrors the cron consumer's
- * guard). Returns the count of items whose status changed (0 on any error).
+ * Startup hook: settle the run ledger's orphans, reconcile work items, and log a
+ * one-line summary. Best-effort — a reconcile failure must never block gateway
+ * boot (mirrors the cron consumer's guard). Returns the count of items whose
+ * status changed (0 on any error); orphaned runs are a ledger repair, not a
+ * status change, so they are deliberately not counted.
  */
 export function reconcileWorkItemsOnStartup(): number {
   try {
+    const orphaned = closeOrphanedWorkItemRuns();
+    if (orphaned > 0) {
+      logger.info(`Settled ${orphaned} run(s) as crashed: the session running them is gone`);
+    }
     const { checked, changed } = reconcileActiveWorkItems();
     if (changed > 0) {
       logger.info(`Reconciled ${changed} work item(s) from linked session state (of ${checked} non-sticky)`);

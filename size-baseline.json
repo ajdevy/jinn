@@ -348,7 +348,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6101,
+      "lines": 6033,
       "exempt": [
         "complexity",
         "max-depth",
@@ -446,7 +446,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1388,
+      "lines": 1386,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -917,7 +917,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 1168,
+      "lines": 1080,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1052,7 +1052,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1173,
+      "lines": 1130,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1061,7 +1061,7 @@
       ]
     },
     "packages/jinn/src/workflows/service.ts": {
-      "lines": 518,
+      "lines": 504,
       "exempt": [
         "complexity",
         "max-depth"
@@ -1514,7 +1514,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1272,
+      "lines": 1260,
       "exempt": [
         "complexity"
       ]
@@ -1867,7 +1867,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/task-page.tsx": {
-      "lines": 722,
+      "lines": 701,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

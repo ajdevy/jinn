@@ -32,6 +32,9 @@ import type {
 } from "./runtime.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { todoApprovalRef } from "./todo-approval-ref.js";
+import { openTodoRun, settleTodoRun } from "./todo-run-ledger.js";
+import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMirror, WorkflowTodoLifecycle,
+  WorkflowTodoSessionLink } from "./todo-ports.js";
 import { topologicalOrder, validateExecutableWorkflow } from "./validation.js";
 
 export interface WorkflowRunnerOptions {
@@ -66,63 +69,10 @@ export interface WorkflowRunnerOptions {
   activeEngineSessions?: () => number;
 }
 
-/** Where a bound Todo sits when a run is reporting its own lifecycle. */
-export type WorkflowRunReflection = "executing" | "in_review" | "blocked";
-
-export interface WorkflowTodoApprovalMirror {
-  request(input: { todoId: string; request: string; ref: string; options?: string[]; approver?: string }): void;
-  /** Wake the routed employee when a run parks on their decision. Called once,
-   *  on the transition into parked. Root and operator-only gates stay on Todos. */
-  notifyParked(input: {
-    todoId: string; workflowId: string; runId: string; nodeId: string; request: string; ref: string;
-  }): void;
-}
-
-export interface WorkflowTodoSessionLink {
-  link(input: { todoId: string; sessionId: string }): void;
-}
-
-export interface WorkflowTodoLifecycle {
-  reflect(input: { todoId: string; status: WorkflowRunReflection; workflowId: string; runId: string; nodeId: string }): void;
-  recordApprovalDecision(input: {
-    todoId: string; workflowId: string; runId: string; nodeId: string;
-    decision: "approve" | "reject"; decidedBy: string; choice?: string; note?: string;
-  }): void;
-  complete(input: {
-    todoId: string; workflowId: string; runId: string; nodeId: string;
-    approvedBy: string; approvedAt: string;
-  }): void;
-  /** Write onto the bound Todo why a run settled failed: which node died, the
-   *  error, and the run id. Factual, no LLM call. */
-  recordFailure(input: { todoId: string; workflowId: string; runId: string; nodeId: string; error: WorkflowError }): void;
-  /** Send the work round again from a rejection that carried feedback (see
-   *  `WorkflowRevisionRequest`). The run has already stopped when this is called. */
-  requestRevision(input: WorkflowRevisionRequest): void;
-}
-
-/** Where a re-armed Todo has to land for the workflow's own trigger to fire it
- *  again, or the reason no re-arm can fire at all. */
-export type WorkflowRearmTarget =
-  | { status: string; actor?: string }
-  | { unavailable: string };
-
-/**
- * A run-bound Approval gate was rejected WITH a note. A note turns "no" into
- * "not yet — do it again with this", so the Todo goes round rather than the run
- * ending: the note becomes the current requirement, and the Todo returns to the
- * status its workflow's trigger fires on.
- */
-export interface WorkflowRevisionRequest {
-  todoId: string;
-  workflowId: string;
-  runId: string;
-  nodeId: string;
-  /** The rejecter's note, trimmed and non-empty — this IS the new instruction. */
-  feedback: string;
-  /** Who rejected it. Becomes the actor of the re-arm, because they decided it. */
-  decidedBy: string;
-  rearm: WorkflowRearmTarget;
-}
+/** The Todo-facing ports live in todo-ports.ts; re-exported so the runner stays
+ *  the one import every implementer and caller already had. */
+export type { WorkflowRearmTarget, WorkflowRevisionRequest, WorkflowRunReflection, WorkflowTodoApprovalMirror,
+  WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
 
 type NodeAction =
   | { kind: "activate" | "skip" | "condition" | "merge" | "approval" | "wait" | "end"; node: WorkflowNode }
@@ -819,6 +769,7 @@ export class WorkflowRunner {
       tx.setNodeStatus(nodeId, "running");
     });
     this.attributeSession(current, sessionId);
+    openTodoRun(this.options.todoSessions, current, sessionId, this.now());
     this.changed(current);
     return true;
   }
@@ -958,6 +909,9 @@ export class WorkflowRunner {
     // A routed error edge keeps the run alive, so the Todo is not blocked yet —
     // whatever that branch reaches decides.
     if (!retry && !routed) this.reflectFailure(run, attempt.nodeId, error);
+    // The ATTEMPT is over either way: a retry opens a fresh row on the next
+    // dispatch and this one's evidence is what that retry gets to read.
+    settleTodoRun(this.options.todoSessions, run, attempt, { status, endedAt, error });
     this.changed(run);
     return routed;
   }
@@ -1064,6 +1018,7 @@ export class WorkflowRunner {
       }
       throw error;
     }
+    settleTodoRun(this.options.todoSessions, run, attempt, { status: "completed", endedAt: this.now(), output });
     this.changed(run);
     return this.advance(run.workflowId, run.id);
   }
@@ -1166,6 +1121,8 @@ export class WorkflowRunner {
         tx.setNodeStatus(attempt.nodeId, "completed", { output, endedAt });
       }
     });
+    if (cancellation) settleTodoRun(this.options.todoSessions, run, attempt, { status: "cancelled", endedAt, error: cancellation });
+    else if (output) settleTodoRun(this.options.todoSessions, run, attempt, { status: "completed", endedAt, output });
     this.changed(run);
     if (output && !cancellation) await this.advance(run.workflowId, run.id);
     return true;

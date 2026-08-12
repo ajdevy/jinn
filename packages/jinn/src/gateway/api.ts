@@ -164,11 +164,9 @@ import {
   createWorkItem,
   getWorkItem,
   getWorkItems,
-  getWorkItemSpend,
   getWorkItemTree,
   getWorkItemTrees,
   linkSession,
-  listWorkItemEvents,
   listWorkItemEventsForItems,
   queryWorkItems,
   STICKY_STATUSES,
@@ -186,7 +184,6 @@ import {
 import { isTodoId, parseTodoId, resolveTodoIdPrefix } from "../work-items/id.js";
 import {
   addComment,
-  commentsTail,
   editComment,
   getComment,
   listComments,
@@ -198,15 +195,12 @@ import {
 import {
   addRelation,
   blockedSet,
-  isBlocked,
-  listRelations,
   removeRelation,
   WorkItemRelationError,
   type RelationKind,
 } from "../work-items/relations.js";
 import {
   createLabel,
-  getWorkItemLabels,
   labelSets,
   listLabels,
   normalizeLabelName,
@@ -225,16 +219,17 @@ import {
 } from "../work-items/attachments.js";
 import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
+import { compactWorkItem, fullWorkItemPayload, openWorkItemPayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
+import { openWorkItemRun } from "../work-items/runs.js";
 import {
   archiveWorkItem,
   ApprovalChoiceError,
   currentApproval,
   decideWorkItemApproval,
   escalateApproval,
-  listApprovals,
   requestApproval,
 } from "../work-items/approvals.js";
 import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRootApprovalTarget } from "./approval-authority.js";
@@ -791,77 +786,6 @@ const WORK_ITEM_SOURCES: readonly WorkItemSource[] = ['human', 'delegation', 'cr
 const AGENT_WORK_ITEM_TARGETS: readonly WorkItemStatus[] = ['backlog', 'assigned', 'executing', 'in_review', 'blocked', 'escalated', 'done'];
 const VERIFY_MODES = ['trust', 'verify', 'thorough'] as const;
 const VERIFY_POLICY_KEYS = new Set(['mode', 'verifier', 'maxRounds']);
-
-/** Compact wire summary (Todos v2 slice 3 adds `labels` + `blocked` — the
- *  board's chip/indicator data). List callers pass the pre-batched `extras`
- *  (ONE blockedSet + ONE labelSets query per page); single-item callers omit
- *  them and pay two per-item lookups. */
-function compactWorkItem(
-  item: WorkItem,
-  extras?: { blocked: Set<string>; labels: Map<string, Label[]> },
-): Record<string, unknown> {
-  return {
-    id: item.id,
-    title: item.title,
-    status: item.status,
-    version: item.version,
-    assignee: item.assignee,
-    department: item.department,
-    createdBy: item.createdBy,
-    parentId: item.parentId,
-    rootId: item.rootId,
-    depth: item.depth,
-    dueAt: item.dueAt,
-    source: item.source,
-    sourceRef: item.sourceRef,
-    rank: item.rank,
-    labels: extras ? extras.labels.get(item.id) ?? [] : getWorkItemLabels(item.id),
-    blocked: extras ? extras.blocked.has(item.id) : isBlocked(item.id),
-    approvalState: item.approvalState,
-    approvalRequest: item.approvalRequest,
-    approvalRef: item.approvalRef,
-    approvalOptions: item.approvalOptions,
-    approvalChoice: item.approvalChoice,
-    approvalOperatorOnly: item.approvalOperatorOnly,
-    approvalTarget: item.approvalTarget,
-    approvalEscalatedAt: item.approvalEscalatedAt,
-    sessionRef: sessionRef(item),
-    updatedAt: item.updatedAt,
-  };
-}
-
-function sessionRef(item: WorkItem): Record<string, string> | null {
-  if (!item.sourceRef) return null;
-  const m = /^session:([^:]+)(?::(.+))?$/.exec(item.sourceRef);
-  if (m) return m[2] ? { sessionId: m[1], ref: m[2] } : { sessionId: m[1] };
-  const delegated = /^delegate:([^:]+)(?::(.+))?$/.exec(item.sourceRef);
-  if (delegated) return delegated[2] ? { sessionId: delegated[1], ref: delegated[2] } : { sessionId: delegated[1] };
-  return null;
-}
-
-function fullWorkItemPayload(item: WorkItem): Record<string, unknown> {
-  return {
-    workItem: item,
-    spendUsd: getWorkItemSpend(item.id),
-    events: listWorkItemEvents(item.id),
-    comments: commentsTail(item.id),
-    relations: listRelations(item.id),
-    labels: getWorkItemLabels(item.id),
-    // Slice 4 (additive): the full approval history, oldest request first. The
-    // legacy approval* fields on `workItem` remain the current row's values.
-    approvals: listApprovals(item.id),
-  };
-}
-
-/** The board/attention enrichment contract: only the two projections those
- * surfaces read. Heavy comments, relations, labels and approval history stay
- * behind the single-item detail route. */
-function openWorkItemPayload(item: WorkItem, events = listWorkItemEvents(item.id)): Record<string, unknown> {
-  return {
-    workItem: item,
-    events,
-  };
-}
 
 type TodoEditPrecondition =
   | { ok: true; expectedVersion: number }
@@ -4795,6 +4719,14 @@ export async function handleApiRequest(
           sessionId: session.id,
           hint: "nothing was dispatched: the backlog work item and the idle session row are both preserved and re-linkable",
         }, 500);
+      }
+      // The ledger row for this attempt (ICI-728). Best-effort for the same
+      // reason the derive below is: a run-ledger hiccup is a reporting gap, and
+      // undoing a correctly linked delegation over one would be a worse trade.
+      try {
+        openWorkItemRun({ workItemId: workItem.id, sessionId: session.id });
+      } catch (runErr) {
+        logger.warn(`Delegation ${workItem.id} run ledger open failed: ${runErr instanceof Error ? runErr.message : runErr}`);
       }
 
       // 4. DERIVE + DISPATCH — mark the attempt running, let the reconciler

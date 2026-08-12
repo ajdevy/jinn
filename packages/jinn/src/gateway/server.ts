@@ -44,8 +44,8 @@ import { setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
 import { firstOperatorCommentAfter, setTodoCommentListener } from "../work-items/comments.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
-import { linkSession } from "../work-items/store.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
+import { workflowTodoSessions } from "./workflow-todo-runs.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
 import { claudeJsonPath } from "../shared/home.js";
@@ -804,9 +804,7 @@ export async function startGateway(
     todoApprovals: workflowTodoApprovals(({ todoId, request, ref, options, approver }) => {
       requestApproval(todoId, { request, ref, ...(options ? { options } : {}), ...(approver ? { target: approver } : {}), actor: "workflow" });
     }),
-    // A Todo-bound run's phases are execution attempts on that Todo, so its
-    // derived spend covers the whole pipeline.
-    todoSessions: { link: ({ todoId, sessionId }) => linkSession(todoId, sessionId) },
+    todoSessions: workflowTodoSessions(),
     // A parked Wait node listens for the operator's reply on the bound Todo.
     todoComments: { firstOperatorCommentAfter },
     sessionSpend: getSessionSpend, activeEngineSessions: () => sessionsHoldingEngineCapacity(listSessions(), apiContext).length,
