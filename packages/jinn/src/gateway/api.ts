@@ -6099,4 +6099,3 @@ export function resolveUserHeader(
   }
   return undefined;
 }
-
