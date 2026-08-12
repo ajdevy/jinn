@@ -85,6 +85,21 @@ export function syncSkillSymlinks(): void {
   }
 }
 
+/** Directories a plugin carries but does not consist of: the dependencies it was
+ *  installed with, and the checkout it came from. Both are large, both change
+ *  without the plugin changing, and watching either only costs handles. */
+const UNWATCHED_PLUGIN_DIRS = new Set(["node_modules", ".git"]);
+
+/** Read relative to the plugins root, so a home that happens to sit under a path
+ *  with one of those names is still watched. Exported for the test that holds the
+ *  set to what it claims, rather than measuring it through the filesystem. */
+export function isUnwatchedPluginPath(target: string): boolean {
+  return path
+    .relative(PLUGINS_DIR, target)
+    .split(path.sep)
+    .some((segment) => UNWATCHED_PLUGIN_DIRS.has(segment));
+}
+
 export function startWatchers(callbacks: WatcherCallbacks): void {
   const DEBOUNCE_MS = 500;
 
@@ -138,13 +153,15 @@ export function startWatchers(callbacks: WatcherCallbacks): void {
     }, DEBOUNCE_MS),
   );
 
-  // Plugins arrive by having a directory dropped into the instance home, so the
-  // watch is on the directory itself at depth 0, like skills/. Make the root so
-  // a new instance can discover its first plugin.
+  // Plugins arrive by having a directory dropped into the instance home, and
+  // their code lives inside it — server.js at the plugin root, or wherever its
+  // manifest points. So this one goes the whole way down, unlike skills/: an edit
+  // to a plugin's backend is a new incarnation, and nothing else would see it.
+  // Make the root so a new instance can discover its first plugin.
   fs.mkdirSync(PLUGINS_DIR, { recursive: true });
   const pluginsWatcher = watch(PLUGINS_DIR, {
     ignoreInitial: true,
-    depth: 0,
+    ignored: isUnwatchedPluginPath,
   });
   pluginsDebounce = debounce(() => {
     logger.info("plugins/ directory changed, rescanning...");

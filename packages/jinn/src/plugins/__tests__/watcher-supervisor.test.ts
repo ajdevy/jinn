@@ -102,7 +102,7 @@ describe("startPluginWatcher", () => {
 });
 
 describe("stopPluginWatcher", () => {
-  it("stops a running watcher and forgets it", async () => {
+  it("stops a running watcher and keeps reporting it stopped", async () => {
     const id = freshId();
     const { watcher, calls } = spyWatcher();
     await startPluginWatcher(id, { version: "1", watcher, context });
@@ -110,7 +110,27 @@ describe("stopPluginWatcher", () => {
     await stopPluginWatcher(id);
 
     expect(calls.stopped).toBe(1);
-    expect(pluginWatcherHealth(id)).toBeNull();
+    // Not null: a watcher the operator turned off is a state to show, and the
+    // plugin that never had one is the case null belongs to.
+    expect(pluginWatcherHealth(id)).toEqual({ status: "stopped", restarts: 0 });
+  });
+
+  it("reports a restarted watcher's count once it is stopped", async () => {
+    vi.useFakeTimers();
+    const id = freshId();
+    let attempts = 0;
+    const { watcher } = spyWatcher({
+      start: () => {
+        attempts++;
+        if (attempts === 1) throw new Error("broken once");
+      },
+    });
+    await startPluginWatcher(id, { version: "1", watcher, context });
+    await vi.advanceTimersByTimeAsync(WATCHER_RESTART_BASE_MS);
+
+    await stopPluginWatcher(id);
+
+    expect(pluginWatcherHealth(id)).toEqual({ status: "stopped", restarts: 1 });
   });
 
   it("abandons a stop() that never resolves instead of blocking shutdown", async () => {
@@ -267,7 +287,7 @@ describe("stopAllPluginWatchers", () => {
 
     expect(first.calls.stopped).toBe(1);
     expect(second.calls.stopped).toBe(1);
-    expect(pluginWatcherHealth(firstId)).toBeNull();
-    expect(pluginWatcherHealth(secondId)).toBeNull();
+    expect(pluginWatcherHealth(firstId)).toEqual({ status: "stopped", restarts: 0 });
+    expect(pluginWatcherHealth(secondId)).toEqual({ status: "stopped", restarts: 0 });
   });
 });

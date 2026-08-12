@@ -146,6 +146,23 @@ describe("watcher lifecycle", () => {
     expect(inventory.find((row) => row.id === id)?.watcher).toEqual({ status: "running", restarts: 0 });
     expect(inventory.find((row) => row.id === "plain")).not.toHaveProperty("watcher");
   });
+
+  it("keeps reporting the watcher of a disabled plugin, stopped", async () => {
+    const id = installMailbox();
+    await reconcileWatchers();
+
+    writeConfig({ enabled: [], disabled: [id] });
+    onConfigReload();
+    await reconcileWatchers();
+
+    const row = ((await call("GET", "/api/plugins")).body.inventory as Record<string, unknown>[]).find(
+      (entry) => entry.id === id,
+    );
+    // Disabled says what the operator chose; the watcher row says what became of
+    // the background task that choice turned off.
+    expect(row?.status).toBe("disabled");
+    expect(row?.watcher).toEqual({ status: "stopped", restarts: 0 });
+  });
 });
 
 describe("GET /api/plugins/<id>/events", () => {

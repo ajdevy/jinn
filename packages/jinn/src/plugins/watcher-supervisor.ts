@@ -52,6 +52,17 @@ interface Supervised extends PluginWatcherIncarnation {
  *  recognised as stale: its entry is no longer the one under its id. */
 const supervised = new Map<string, Supervised>();
 
+/** The health of a watcher the gateway has stopped. Kept, because "stopped" is a
+ *  state an operator has to be able to read: a plugin whose watcher was running a
+ *  moment ago and is not now says so, while a plugin that never had one still
+ *  reports nothing at all. */
+const stoppedHealth = new Map<string, PluginWatcherHealth>();
+
+/** Bumped by every `stopAllPluginWatchers`. A reconcile already in flight at
+ *  shutdown still has a third-party module to finish importing, and this is what
+ *  keeps it from starting a watcher into a gateway that is gone. */
+let stopGeneration = 0;
+
 /**
  * Call `start()` and stay attached to whatever it returns.
  *
@@ -128,10 +139,15 @@ async function stopWithTimeout(id: string, watcher: PluginWatcher): Promise<void
  *  before new started. */
 export async function startPluginWatcher(id: string, incarnation: PluginWatcherIncarnation): Promise<void> {
   if (supervised.get(id)?.version === incarnation.version) return;
+  const generation = stopGeneration;
   await stopPluginWatcher(id);
+  // Stopping the old incarnation is allowed to take its whole deadline, and the
+  // gateway may shut down inside it. Nothing new starts after that.
+  if (stopGeneration !== generation) return;
 
   const entry: Supervised = { ...incarnation, status: "stopped", restarts: 0, retry: null };
   supervised.set(id, entry);
+  stoppedHealth.delete(id);
   beginStart(id, entry);
 }
 
@@ -140,6 +156,7 @@ export async function stopPluginWatcher(id: string): Promise<void> {
   const entry = supervised.get(id);
   if (!entry) return;
   supervised.delete(id);
+  stoppedHealth.set(id, { status: "stopped", restarts: entry.restarts });
   if (entry.retry) clearTimeout(entry.retry);
   await stopWithTimeout(id, entry.watcher);
 }
@@ -147,15 +164,16 @@ export async function stopPluginWatcher(id: string): Promise<void> {
 /** Every watcher stopped, for gateway shutdown. One that hangs delays the others
  *  by nothing: each carries its own deadline. */
 export async function stopAllPluginWatchers(): Promise<void> {
+  stopGeneration++;
   await Promise.all([...supervised.keys()].map((id) => stopPluginWatcher(id)));
 }
 
-/** How a plugin's watcher is doing, or null when the gateway supervises none for
- *  it — which is not the same as one that is stopped, and does not answer as if
- *  it were. */
+/** How a plugin's watcher is doing, or null when the gateway has never run one
+ *  for it — which is not the same as one that is stopped, and does not answer as
+ *  if it were. */
 export function pluginWatcherHealth(id: string): PluginWatcherHealth | null {
   const entry = supervised.get(id);
-  if (!entry) return null;
+  if (!entry) return stoppedHealth.get(id) ?? null;
   return { status: entry.status, ...(entry.detail ? { detail: entry.detail } : {}), restarts: entry.restarts };
 }
 
@@ -186,7 +204,9 @@ async function watchedPlugins(config: PluginConfig): Promise<Map<string, string>
 }
 
 async function runReconcile(getConfig: () => PluginConfig): Promise<void> {
+  const generation = stopGeneration;
   const wanted = await watchedPlugins(getConfig());
+  if (stopGeneration !== generation) return;
 
   for (const id of [...supervised.keys()]) {
     if (!wanted.has(id)) await stopPluginWatcher(id);
@@ -201,8 +221,15 @@ async function runReconcile(getConfig: () => PluginConfig): Promise<void> {
       server,
       readSettings: () => pluginSettings(id, getConfig()),
     });
+    // Importing a plugin's module is the slowest thing here, and the gateway can
+    // shut down while it runs. What it exports is no longer wanted by the time it
+    // arrives: starting it now would outlive the process that asked for it.
+    if (stopGeneration !== generation) return;
     if (!backend?.watcher) {
       await stopPluginWatcher(id);
+      // A plugin that no longer exports a watcher has none, rather than a stopped
+      // one, so the record of the incarnation that did goes with it.
+      stoppedHealth.delete(id);
       continue;
     }
     await startPluginWatcher(id, {
