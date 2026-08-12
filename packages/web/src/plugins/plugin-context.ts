@@ -37,21 +37,34 @@ export interface PluginContext {
 }
 
 /**
+ * Does this segment read as `..` to the URL parser?
+ *
+ * `%2e` decodes to `.` during path normalization, so WHATWG URL collapses four
+ * spellings — `..`, `.%2e`, `%2e.`, `%2e%2e` — and a literal-only check leaves
+ * three ways to walk out of the mount that `fetch` still honours. `%2e%2e%2e` is
+ * not one of them: three dots is an ordinary segment, and refusing it would
+ * refuse a legal path.
+ */
+function isParentSegment(segment: string): boolean {
+  return segment.toLowerCase().replaceAll('%2e', '.') === '..'
+}
+
+/**
  * `/api/plugins/<id><suffix>`, refusing rather than rewriting a suffix that
  * walks out of the plugin's own mount.
  *
- * The `..` check reads the path alone — everything before `?` or `#` — because
- * a relative path passed as a query *value* is a legitimate thing to send, and
+ * The check reads the path alone — everything before `?` or `#` — because a
+ * relative path passed as a query *value* is a legitimate thing to send, and
  * only the path decides what the request reaches. Sanitizing would answer a
  * different request than the caller wrote, which is a bug that reaches
  * production; throwing is one that does not.
  */
 export function pluginBackendPath(pluginId: string, suffix: string): string {
   const [routePath = ''] = suffix.split(/[?#]/, 1)
-  if (routePath.split('/').includes('..')) {
+  if (routePath.split('/').some(isParentSegment)) {
     throw new Error(
-      `[plugin] "${suffix}" contains a ".." segment and would leave /api/plugins/${pluginId}/. ` +
-        'Pass a path relative to the plugin mount, without ".." segments.',
+      `[plugin] "${suffix}" contains a ".." segment, encoded or not, and would leave ` +
+        `/api/plugins/${pluginId}/. Pass a path relative to the plugin mount, without ".." segments.`,
     )
   }
   return `/api/plugins/${pluginId}${suffix}`

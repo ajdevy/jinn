@@ -14,6 +14,7 @@ import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
+import { PluginNotices } from "@/plugins/sdk/plugin-notices"
 import { DiskPluginsBridge } from "@/plugins/disk-plugins-bridge"
 
 function QueryInvalidationBridge() {
@@ -45,6 +46,9 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                   <DocumentTitle />
                   <EmojiFavicon />
                   <QueryInvalidationBridge />
+                  {/* Before the host bridge, so the sink is registered by the
+                      time a frame can route into it. */}
+                  <PluginNotices />
                   <PluginHostBridge />
                   {/* After the host bridge: a plugin's module body may read
                       host state the moment it evaluates. */}

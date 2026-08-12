@@ -162,12 +162,33 @@ describe('the namespaced backend path', () => {
     expect(() => pluginBackendPath('inbox', suffix)).toThrow(/\.\./)
   })
 
+  // Every spelling `fetch` still collapses. A check that reads only the literal
+  // form builds a path that looks contained and then lands outside the mount.
+  it.each([
+    ['a fully encoded parent segment', '/%2e%2e/other/private'],
+    ['an upper-case encoding', '/threads/%2E%2E/other/private'],
+    ['a half-encoded parent segment', '/.%2e/other/private'],
+    ['the other half encoded', '/%2e./other/private'],
+  ])('throws on %s', (_label, suffix) => {
+    expect(() => pluginBackendPath('inbox', suffix)).toThrow(/\.\./)
+  })
+
+  // The proof that the throw is what contains the request, rather than the
+  // prefix: what the built path resolves to is another plugin's mount.
+  it('would otherwise have reached another plugin', () => {
+    const escaped = new URL('/api/plugins/inbox/%2e%2e/other/private', 'http://gateway.test')
+
+    expect(escaped.pathname).toBe('/api/plugins/other/private')
+  })
+
   // The rule is about the path, and a query is not one. A plugin passing a
   // relative path as a *value* has done nothing wrong.
   it.each([
     ['a query value', '/threads?path=../elsewhere'],
+    ['an encoded query value', '/threads?path=%2e%2e/elsewhere'],
     ['a fragment', '/threads#../elsewhere'],
     ['two dots inside a segment', '/thre..ads'],
+    ['three dots', '/%2e%2e%2e/threads'],
   ])('does not throw on %s', (_label, suffix) => {
     expect(() => pluginBackendPath('inbox', suffix)).not.toThrow()
   })
