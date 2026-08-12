@@ -61,6 +61,7 @@ import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
 import { pickEncoding, isCompressibleExt, compressBuffer, compressStream, type Encoding } from "./compress.js";
+import { MIME_TYPES } from "./static-mime.js";
 import { attachPtyWebSocket } from "./pty-ws.js";
 import { openWorkflowDatabase } from "../workflows/repository-migrations.js";
 import { importLegacyWorkflowDefinitions } from "../workflows/import-v1.js";
@@ -161,18 +162,6 @@ export function isAllowedCorsOrigin(origin: string | undefined, requestHost?: st
  * short-lived CLI spawns plus one Anthropic catalog GET) and bounds that staleness.
  */
 export const MODEL_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
 
 type RuntimeActivityInfo = {
   activeStreams: number;
