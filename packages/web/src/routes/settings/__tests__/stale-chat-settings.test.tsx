@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type React from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../page'
 
@@ -68,7 +69,13 @@ describe('Settings stale chat controls', () => {
   })
 
   it('writes the policy fields and disables thresholds with the toggle off', async () => {
-    render(<SettingsPage />)
+    // The page carries a Link to /settings/plugins, so it needs a router the
+    // same way any other routed surface does.
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    )
 
     const toggle = await screen.findByRole('switch', { name: 'Suggest fresh chats' })
     const tokenThreshold = screen.getByRole('spinbutton', { name: 'Context token threshold' })

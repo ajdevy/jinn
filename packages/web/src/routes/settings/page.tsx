@@ -20,6 +20,7 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
+import { PluginsEntry } from "./plugins/entry"
 import {
   CONTROL_CLASS,
   FieldRow,
@@ -1800,6 +1801,7 @@ export default function SettingsPage() {
             </>
           )}
 
+          <PluginsEntry />
           {/* -- Section 7: Reset — quiet pills; destructive reads as a red wash,
                 not a solid alarm block. */}
           <Section title="Reset">

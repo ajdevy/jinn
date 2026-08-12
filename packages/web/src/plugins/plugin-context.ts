@@ -20,6 +20,20 @@ export interface PluginStorage {
   set(key: string, value: unknown): void
 }
 
+/** One event a plugin's backend passed to `ctx.emit`. */
+export type PluginEventHandler = (event: unknown) => void
+
+export interface PluginEventsOptions {
+  /** Replay from this cursor rather than from everything the ring still holds. */
+  since?: number
+}
+
+/** A frame from `/api/plugins/<id>/events`, matching the gateway's
+ *  `PluginEventPage` (plugins/event-log.ts). */
+interface PluginEventFrame {
+  events?: { cursor: number; event: unknown }[]
+}
+
 export interface PluginContext {
   /** The tag this context stamps, e.g. `plugin:cost-meter`. */
   readonly source: ContributionSource
@@ -34,6 +48,11 @@ export interface PluginContext {
   /** Call this plugin's own backend, at a path relative to its mount. A plugin
    *  cannot spell another's prefix, because it never supplies the id. */
   backend: (suffix: string, init?: RequestInit) => Promise<Response>
+  /** Watch this plugin's own event stream — every value its backend passed to
+   *  `ctx.emit`. Returns an unsubscribe, so an effect can return it directly.
+   *  Namespaced the way `backend` is: there is nowhere in this signature to put
+   *  another plugin's id. */
+  events: (handler: PluginEventHandler, options?: PluginEventsOptions) => () => void
 }
 
 /**
@@ -73,6 +92,48 @@ export function pluginBackendPath(pluginId: string, suffix: string): string {
     )
   }
   return `/api/plugins/${pluginId}${suffix}`
+}
+
+/**
+ * The socket URL for one plugin's event stream.
+ *
+ * No token rides on it, deliberately: the path is under `/api/`, so the
+ * gateway's single upgrade gate has already authenticated the caller by the time
+ * the socket exists (gateway/server.ts), exactly as it does for `/ws`.
+ *
+ * Exported so a test can read the URL a context builds rather than infer it.
+ */
+export function pluginEventsUrl(pluginId: string, since?: number): string {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const query = since === undefined ? '' : `?since=${encodeURIComponent(String(since))}`
+  return `${protocol}//${location.host}/api/plugins/${pluginId}/events${query}`
+}
+
+function subscribeToPluginEvents(
+  pluginId: string,
+  handler: PluginEventHandler,
+  options?: PluginEventsOptions,
+): () => void {
+  const socket = new WebSocket(pluginEventsUrl(pluginId, options?.since))
+
+  socket.addEventListener('message', (frame: MessageEvent) => {
+    let page: PluginEventFrame
+    try {
+      page = JSON.parse(String(frame.data)) as PluginEventFrame
+    } catch (error) {
+      // A frame we cannot read is one we cannot deliver. Dropping it silently
+      // would leave a plugin waiting for an event that already arrived.
+      console.warn(`[plugin] ${pluginId} received an unreadable event frame`, error)
+      return
+    }
+    // The cursor stays inside the transport: a plugin is handed what it emitted,
+    // not the ring position it landed in.
+    for (const record of page.events ?? []) handler(record.event)
+  })
+
+  // Closing a socket that has not finished connecting aborts it, so an
+  // unsubscribe during mount needs no readyState dance.
+  return () => socket.close()
 }
 
 /** What a plugin's `client.js` default-exports. */
@@ -146,5 +207,6 @@ export function createPluginContext(
     onDispose: (dispose) => void tracked(dispose),
     storage: createPluginStorage(pluginId, store),
     backend: (suffix, init) => authFetch(pluginBackendPath(pluginId, suffix), init),
+    events: (handler, options) => tracked(subscribeToPluginEvents(pluginId, handler, options)),
   }
 }

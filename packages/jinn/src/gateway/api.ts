@@ -129,6 +129,7 @@ export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
 import { handleSkillsApi } from "./skills-api.js";
+import { pluginAdminAction } from "./plugins-admin-api.js";
 import { handlePluginsApi } from "./plugins-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
 import QRCode from "qrcode";
@@ -1493,8 +1494,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) return "legacy org board write";
   if (method === "DELETE" && matchRoute("/api/skills/:name", pathname)) return "skill removal";
   if (method === "PUT" && matchRoute("/api/skills/:name", pathname)) return "skill update";
-  if (method === "POST" && pathname === "/api/plugins/rescan") return "plugin rescan";
-  return null;
+  return pluginAdminAction(method, pathname);
 }
 
 function requireOperatorControlPlaneAuthority(req: HttpRequest, res: ServerResponse, action: string, context: ApiContext): boolean {

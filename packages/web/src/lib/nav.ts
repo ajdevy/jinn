@@ -11,13 +11,39 @@ import {
   MoreHorizontal,
   NotebookPen,
   FlaskConical,
+  Puzzle,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { contributions } from "@/contrib/registry"
+import { AREAS } from "@/contrib/types"
 
 export interface NavItem {
   href: string
   label: string
   icon: LucideIcon
+}
+
+/**
+ * What a `sidebar.nav` contribution declares.
+ *
+ * `icon` is optional because a disk plugin has no way to supply one: the runtime
+ * loader's allowlist is the SDK, React and the JSX runtime, so `lucide-react` is
+ * not importable from a plugin. A row without one gets the fallback glyph rather
+ * than a hole in the rail.
+ */
+export interface NavContributionData {
+  href: string
+  label: string
+  icon?: LucideIcon
+}
+
+function contributedNavItems(): NavItem[] {
+  return contributions.getArea(AREAS.sidebarNav).flatMap((contribution) => {
+    const data = contribution.data as Partial<NavContributionData> | undefined
+    if (typeof data?.href !== "string" || !data.href.startsWith("/")) return []
+    if (typeof data.label !== "string" || !data.label) return []
+    return [{ href: data.href, label: data.label, icon: data.icon ?? Puzzle }]
+  })
 }
 
 const BASE_NAV_ITEMS: NavItem[] = [
@@ -52,9 +78,13 @@ export function navigationFor(notesEnabled: boolean): {
   overflowItems: NavItem[]
   overflowHrefs: string[]
 } {
-  const items = notesEnabled
+  const base = notesEnabled
     ? [...BASE_NAV_ITEMS.slice(0, 2), NOTES_NAV_ITEM, ...BASE_NAV_ITEMS.slice(2)]
     : BASE_NAV_ITEMS
+  // Contributed rows go last, after the app's own destinations. The rail's order
+  // is the operator's mental model of their company, and a plugin does not get
+  // to insert itself into the middle of it.
+  const items = [...base, ...contributedNavItems()]
   const primaryHrefs = notesEnabled ? ["/", "/todos", "/notes", "/workflow"] : ["/", "/todos", "/workflow"]
   const mobileItems = [
     ...primaryHrefs.map((href) => items.find((item) => item.href === href)!),

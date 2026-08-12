@@ -286,6 +286,7 @@ logging:
 - **MCP servers** are optional; enable `mcp.gateway` for the built-in company tools.
 - **Cron, employees, and skills** live in `~/.jinn/cron/jobs.json`, `~/.jinn/org/`, and `~/.jinn/skills/`.
 - **Workflow evidence** defaults to `<JINN_HOME>/workflow-evidence`; `JINN_WORKFLOW_EVIDENCE_ROOT` relocates it.
+- **Plugins** live in `~/.jinn/plugins/` and only run when `plugins.enabled` names them; see [`docs/plugins.md`](docs/plugins.md) for the anatomy, lifecycle, and security posture.
 
 Everything is human-readable and yours to edit. After upgrading, run **`jinn migrate`** to merge current operating doctrine into your customized instance.
 

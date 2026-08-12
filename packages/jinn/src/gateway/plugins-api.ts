@@ -7,6 +7,7 @@ import { isPluginEnabled } from "../plugins/enablement.js";
 import { readPluginEvents } from "../plugins/event-log.js";
 import { isContainedIn, PLUGIN_ID_PATTERN, resolveContainedPath } from "../plugins/manifest.js";
 import { pluginWatcherHealth } from "../plugins/watcher-supervisor.js";
+import { handlePluginAdminApi, reconcilePluginRuntime } from "./plugins-admin-api.js";
 import { badRequest, json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import type { ApiContext } from "./api.js";
 
@@ -236,9 +237,17 @@ export async function handlePluginsApi(
   }
   // Operator-only; api.ts gates it before delegating.
   if (method === "POST" && pathname === "/api/plugins/rescan") {
+    // Re-listing is not a rescan, and the button says rescan. What it has to do
+    // is the pass the file watcher runs: drop the backends of plugins that
+    // stopped being servable, and bring the running watchers back in line.
+    await reconcilePluginRuntime(context);
     await listPlugins(res, context);
     return true;
   }
+  // Ahead of the backend mount for the same reason the reserved routes below
+  // are: the mount answers every method, so a plugin left free to register
+  // `POST /enabled` could answer for the route that turns it off.
+  if (await handlePluginAdminApi(req, res, route, context)) return true;
 
   // Every method, not just GET: the backend mount below answers all of them.
   const plugin = matchPluginRoute(pathname);

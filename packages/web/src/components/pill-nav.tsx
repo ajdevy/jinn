@@ -4,7 +4,7 @@ import { Menu, Sun, Moon, Palette, PanelLeft } from "lucide-react"
 import { useTheme } from "@/routes/providers"
 import { useSettings } from "@/routes/settings-provider"
 import { THEMES, type ThemeId } from "@/lib/themes"
-import { navigationFor } from "@/lib/nav"
+import { useNavigation } from "@/lib/use-navigation"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { cn } from "@/lib/utils"
 import { useFeatures } from "@/hooks/use-features"
@@ -82,7 +82,7 @@ export function NavList({
   onNavigate?: () => void
 }) {
   const { data: features } = useFeatures()
-  const navItems = navigationFor(features?.notesEnabled === true).items
+  const navItems = useNavigation(features?.notesEnabled === true).items
   return (
     <div className="flex flex-col gap-0.5 p-1.5">
       {navItems.map((item) => {
@@ -239,7 +239,7 @@ export function NavRibbon({
   onToggleList?: () => void
 }) {
   const { data: features } = useFeatures()
-  const navItems = navigationFor(features?.notesEnabled === true).items
+  const navItems = useNavigation(features?.notesEnabled === true).items
   const pathname = useLocation().pathname
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Jinn"
@@ -389,7 +389,7 @@ export function PillNav({ actions }: { actions?: ReactNode }) {
   const emoji = settings.portalEmoji ?? "\u{1F9DE}\u{FE0F}"
   const [navOpen, setNavOpen] = useState(false)
   const { data: features } = useFeatures()
-  const navItems = navigationFor(features?.notesEnabled === true).items
+  const navItems = useNavigation(features?.notesEnabled === true).items
 
   const title = items[0]?.label ?? ""
   const navItem = navItems.find((n) => isNavItemActive(n.href, pathname))

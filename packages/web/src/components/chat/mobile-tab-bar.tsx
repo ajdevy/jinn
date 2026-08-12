@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom"
 import { isNavItemActive } from "@/components/pill-nav"
-import { MORE_NAV_ITEM, navigationFor } from "@/lib/nav"
+import { MORE_NAV_ITEM } from "@/lib/nav"
+import { useNavigation } from "@/lib/use-navigation"
 import { cn } from "@/lib/utils"
 import { useFeatures } from "@/hooks/use-features"
 
@@ -36,7 +37,7 @@ function isTabActive(href: string, pathname: string, overflowHrefs: string[]): b
 export function MobileTabBar() {
   const pathname = useLocation().pathname
   const { data: features } = useFeatures()
-  const navigation = navigationFor(features?.notesEnabled === true)
+  const navigation = useNavigation(features?.notesEnabled === true)
 
   return (
     <nav

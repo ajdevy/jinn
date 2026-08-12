@@ -28,6 +28,33 @@ interface PluginsResponse {
 const door = new Map<string, string | null>()
 let scanning = false
 
+/**
+ * Whether the first reconcile has finished.
+ *
+ * A deep link to a contributed page is rendered before any plugin has loaded,
+ * and a host that answered "no such route" in that window would bounce every
+ * plugin bookmark to chat. This is what lets it wait instead.
+ */
+let settled = false
+const settledListeners = new Set<() => void>()
+
+export function diskPluginsSettled(): boolean {
+  return settled
+}
+
+export function subscribeDiskPluginsSettled(listener: () => void): () => void {
+  settledListeners.add(listener)
+  return () => void settledListeners.delete(listener)
+}
+
+/** Announced once. A pass that fails still settles: "we looked" is the fact the
+ *  waiting side needs, not "we found something". */
+function markSettled(): void {
+  if (settled) return
+  settled = true
+  for (const listener of [...settledListeners]) listener()
+}
+
 /** Take one directory's plugin down: its registrations, its own inventory row,
  *  and the folder-named row a failed load leaves behind. */
 function unload(gatewayId: string): void {
@@ -87,6 +114,26 @@ async function loadFromGateway(row: PluginRecord): Promise<void> {
 }
 
 /**
+ * Point the dashboard's own store at the operator's decision.
+ *
+ * The gateway's servable list IS that decision, as `config.yaml` records it, and
+ * `config.yaml` is the only place it is made. Following it here keeps the store
+ * a CACHE of the decision rather than a second one nothing ever writes: without
+ * this, a plugin the operator enabled was fetched, evaluated and published, and
+ * then never registered, because the store held no opt-in for it and absence is
+ * not enabled.
+ */
+async function followOperatorDecision(
+  inventory: readonly PluginRecord[],
+  servableIds: ReadonlySet<string>,
+): Promise<void> {
+  for (const row of inventory) {
+    const enabled = servableIds.has(row.id)
+    if (plugins.pluginActive(row.id) !== enabled) await plugins.setPluginEnabled(row.id, enabled)
+  }
+}
+
+/**
  * Reconcile the loaded plugins with what the gateway serves. Safe to call as
  * often as anything asks: a pass already in flight makes this a no-op.
  */
@@ -102,6 +149,10 @@ export async function scanDiskPlugins(): Promise<void> {
     if (!response.ok) throw new Error(`the gateway answered ${response.status}`)
     const { plugins: servable, inventory } = (await response.json()) as PluginsResponse
     const servableIds = new Set(servable.map((row) => row.id))
+
+    // Before the loads below, so the loader sees the decision when it decides
+    // whether to register.
+    await followOperatorDecision(inventory, servableIds)
 
     // Deleted, or disabled while it was running. Either way it stops being
     // registered before the inventory below says what it is now.
@@ -123,5 +174,6 @@ export async function scanDiskPlugins(): Promise<void> {
     console.warn('[plugins] could not read the plugin inventory', error)
   } finally {
     scanning = false
+    markSettled()
   }
 }

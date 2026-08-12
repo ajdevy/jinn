@@ -1,0 +1,258 @@
+# Plugins
+
+A Jinn plugin is a directory you drop into your instance home. There is no package to publish, no build to run, and no registry to talk to: the gateway finds the directory, the dashboard evaluates one JavaScript file, and the plugin starts adding pages, sidebar rows, and status chips to the app you already have running. A plugin may also ship a second file that runs inside the gateway, giving it HTTP routes and a supervised background task.
+
+The design goal is that an agent can write a working plugin by writing one file. Everything below follows from that.
+
+> **Error isolation, not a sandbox.** A loaded plugin runs with the app's full authority in both halves. The boundaries described here stop a plugin from crashing Jinn; they do not stop it from acting as Jinn. Read [Security posture](#security-posture) before you install anything you did not write.
+
+---
+
+## Anatomy
+
+A plugin is a directory under `~/.jinn/plugins/`, named for its id:
+
+```
+~/.jinn/plugins/<id>/
+  plugin.json      required   manifest
+  client.js        required   plain ESM, evaluated in the dashboard
+  server.js        optional   plain ESM, imported into the gateway
+  assets/          optional   static files served at /api/plugins/<id>/assets/*
+```
+
+The folder name is the id. `plugin.json` repeats it as a consistency check, not as a second source of truth: a manifest whose `id` disagrees with its folder is a load error naming both, rather than a silent preference for one.
+
+```json
+{
+  "id": "inbox-demo",
+  "name": "Inbox",
+  "version": "1.0.0",
+  "client": "client.js",
+  "server": "server.js"
+}
+```
+
+| Field | Required | Default | Validated at discovery |
+|-------|----------|---------|------------------------|
+| `id` | yes | | matches the folder name, matches `/^[a-z0-9][a-z0-9-]{1,38}$/`, and is not `jinn` (reserved for the gateway) |
+| `name` | no | the id | non-empty string, shown in the settings list |
+| `version` | no | `"0.0.0"` | non-empty string |
+| `client` | no | `client.js` | relative path, resolving inside the plugin directory |
+| `server` | no | none | relative path, resolving inside the plugin directory, and a different file from `client` |
+
+The `client` field is optional; the file it names is not. A directory with no loadable client half is still inventoried, with `status: "error"` and the reason on the row. That is deliberate: a plugin that disappeared from the settings list the moment it broke would be a plugin nobody could fix.
+
+Absolute paths and paths that escape the plugin directory are rejected, and containment is re-checked against the resolved real path so a symlink cannot smuggle an entry out. If only the `server` entry fails containment, the plugin still loads its client half and carries the rejection on its inventory row. A manifest that points both entries at one file fails as a whole, because keeping the client half is precisely what would publish the gateway-side source over `GET /api/plugins/<id>/client`.
+
+The worked reference plugin lives at [`examples/plugins/inbox-demo/`](../examples/plugins/inbox-demo/), with all three files in the shape described here. Copy that directory into `~/.jinn/plugins/` to start from something that runs.
+
+---
+
+## The no-build constraint
+
+`client.js` is plain ESM, fetched from the gateway and evaluated as-is. There is no transpile step anywhere in that path, which means **JSX syntax will not parse in a disk plugin**. Writing `<Card>` gets you a syntax error, not a component.
+
+Elements are built by calling the jsx runtime directly. `jsx`, `jsxs`, and `Fragment` are re-exported from `@jinn/plugin-sdk` for exactly this: `jsx(type, props)` for an element with zero or one child, `jsxs(type, props)` when `props.children` is an array, and `Fragment` when you need to return siblings without a wrapper element.
+
+```js
+import { AREAS, Card, CardContent, CardHeader, CardTitle, React, jsx, jsxs } from '@jinn/plugin-sdk'
+
+function InboxPage() {
+  const [count, setCount] = React.useState(0)
+
+  return jsxs(Card, {
+    children: [
+      jsx(CardHeader, { children: jsx(CardTitle, { children: 'Inbox' }) }),
+      jsx(CardContent, { children: `${count} messages waiting` }),
+    ],
+  })
+}
+
+export default {
+  id: 'inbox-demo',
+  name: 'Inbox',
+  register(ctx) {
+    ctx.contributeMany([
+      { id: 'page', area: AREAS.routes, data: { path: '/inbox' }, render: () => jsx(InboxPage, {}) },
+      { id: 'nav', area: AREAS.sidebarNav, data: { href: '/inbox', label: 'Inbox' } },
+    ])
+  },
+}
+```
+
+`React.createElement` works too and is equivalent. The tax is real and we took it on purpose: adding a compiler to the load path would buy nicer syntax at the cost of the property that makes this system worth having, which is that a single file dropped in a directory runs.
+
+The default export is checked field by field before anything is registered. `id` must be a non-empty string, `register` must be a function, `name` must be a string when present, and `defaultEnabled` must be a boolean when present (see [Enable and disable](#enable-and-disable) for why it is then ignored). Anything else is rejected with a `PluginLoadError` naming the directory, and the failure shows up as an error row instead of a silent no-op.
+
+---
+
+## The SDK surface
+
+`@jinn/plugin-sdk` is the app's own live namespace, not a copy that happens to look alike. That matters most for React: a plugin that resolved a second React instance would get a second dispatcher, and every hook it called would throw. The loader installs the running instances on globals and rewrites the plugin's import specifiers to small shim modules that read them back, so the bundled path and the disk path land on the same objects.
+
+What the module exports:
+
+- **React and the jsx runtime.** `React`, `jsx`, `jsxs`, `Fragment`.
+- **UI primitives.** `Button`, `Card` and its parts, `Dialog` and its parts, `Select` and its parts, `Skeleton`, `Switch`, `Tabs` and its parts, `Textarea`, plus `cn` for merging Tailwind classes.
+- **The query client.** `queryClient`, the app's single instance with its cache and defaults already set.
+- **Areas.** `AREAS`, the ids a contribution may target.
+- **The host.** `host`, plus the `PluginSdkError` and `PluginHostDeniedError` classes so a plugin can tell an SDK failure from one of its own.
+- **The contract version.** `SDK_CONTRACT_VERSION`, so a plugin can refuse to load against a contract it predates.
+
+The `host` object is three tiers of increasing authority: `host.state` (readonly snapshot of the active session and gateway status, with a `subscribe` shaped for `useSyncExternalStore`), curated actions (`host.navigate`, `host.notify`, `host.onEvent`), and the typed verb door (`host.todos.list/create/comment`, `host.sessions.spawn`, `host.employees.list`). Every verb is named and individually deniable later; v1 grants all of them. The verbs are typed rather than a generic `request(method, params)` for one reason: an untyped door cannot be narrowed afterwards without breaking every plugin at once.
+
+The `AREAS` values are the contract, and the property names are only an ergonomic alias:
+
+| Constant | Value | What it adds |
+|----------|-------|--------------|
+| `AREAS.routes` | `routes` | A full page at `data.path`, rendered by `render` |
+| `AREAS.sidebarNav` | `sidebar.nav` | A nav row (`data: { href, label, icon? }`), visible on desktop, mobile, and overflow |
+| `AREAS.statusBarRight` | `statusbar.right` | A chip in the status bar |
+| `AREAS.todoDetailActions` | `todo.detail.actions` | An action in the Todo detail header |
+| `AREAS.todoDetailSections` | `todo.detail.sections` | A section in the Todo detail body |
+
+The first three have a host today. The two Todo detail ids are declared so both sides spell them the same way, but nothing renders them yet: a contribution targeting one registers without error and appears nowhere.
+
+`data.path` on a `routes` contribution is one absolute segment, without nested segments or route parameters, and it may not be one of the app's own routes. A contribution that breaks either rule is dropped with the reason on the console rather than served, and the router matches its own routes first, so a contributed page cannot shadow one in any case. `icon` on a `sidebar.nav` row is optional because the loader's import allowlist does not reach an icon library; a row without one gets the app's fallback glyph.
+
+### Only three specifiers resolve
+
+A disk plugin may import `@jinn/plugin-sdk`, `react`, and `react/jsx-runtime`, and nothing else. Relative paths and full URLs resolve normally against the plugin's own module, but any other bare specifier is rejected **before evaluation**, with a named `PluginLoadError` that lists the offending specifiers and the three that are allowed. Failing up front is the point: the alternative is a cryptic native "Failed to resolve module specifier" arriving from inside a blob import, after the module has already started running.
+
+The rewrite is anchored to import and export syntax and runs over a comment-masked copy of the source, so a string literal that merely reads `'react'` is never touched.
+
+---
+
+## Lifecycle
+
+**Discovery.** The gateway creates `~/.jinn/plugins/` if it is absent and scans it, reading one manifest per directory (symlinked directories included). Absent is zero plugins, not an error. Every directory produces an inventory row, `{ id, name, version, kind, status }` plus `error` when something is wrong, where `kind` is `client` or `client+server`. Concurrent callers share one in-flight scan, so an inventory is never assembled from two different moments.
+
+**Enable.** Discovery says what exists. `config.yaml` says what runs. See the next section.
+
+**Mount.** For each enabled plugin the dashboard fetches `GET /api/plugins/<id>/client`, rewrites the SDK specifiers, evaluates the source as a module, validates the default export, publishes the inventory record, and calls `register(ctx)` once. The context it passes is scoped by construction:
+
+```js
+register(ctx) {
+  ctx.source                       // 'plugin:<id>', stamped by the host, not writable
+  ctx.contribute(contribution)     // returns a disposer; ids are namespaced for you
+  ctx.contributeMany([...])        // one disposer for the whole batch
+  ctx.onDispose(fn)                // clean up a timer or subscription on unload
+  ctx.storage.get(key, fallback)   // JSON persistence under jinn.plugin.<id>.
+  ctx.storage.set(key, value)
+  ctx.backend('/items')            // fetch against this plugin's own mount
+  ctx.events(handler, options)     // this plugin's own event stream
+}
+```
+
+Nothing on that context takes a plugin id, which is what makes the scoping true rather than merely stated: `ctx.backend` builds `/api/plugins/<own-id><suffix>` and throws on a `..` segment (encoded or not) instead of quietly rewriting it, `ctx.storage` keys are prefixed, and `ctx.events` subscribes to `/api/plugins/<own-id>/events` and cannot be pointed at another plugin's stream. There is no way to spell someone else's namespace.
+
+`ctx.events(handler, options?)` returns an unsubscribe function, and hands `handler` each event the plugin's own backend passed to `ctx.emit`. The gateway keeps the last 200 events per plugin in memory with a monotonically increasing cursor, so a subscriber gets a replay of what the ring still holds and then live appends, and a reader whose cursor predates the oldest survivor is told it has a gap rather than handed a silent one. Pass `{ since }` to start from a cursor you already hold. The unsubscribe is tracked for you, so a reload closes the socket with the rest of the incarnation; returning it from a React effect is still the right thing, because that is what ends the subscription when the component goes away rather than when the plugin does.
+
+**Watcher supervision.** If `server.js` exports a `watcher`, the gateway owns it end to end. Importing a module never starts anything: the supervisor calls `start(ctx)` on enable and on gateway boot, and `stop()` on disable, on reload, and on shutdown. The promise `start` returns is treated as the watcher's lifetime rather than its setup, so a task that fails an hour in is a crash the supervisor sees. A crash is retried with exponential backoff from 1 second, doubling each time, **capped at 5 restarts**; past that the watcher stays down and its health says so, because a background task that silently gave up is worse than one that is visibly dead. The restart count is never reset on a good run, so a watcher that crashes and recovers forever still reaches the cap and becomes visible. `stop()` gets 5 seconds before the gateway stops waiting on it, logs, and moves on: shutdown has to finish whether or not a plugin cooperates.
+
+**Hot reload.** The gateway watches the plugins directory (skipping `node_modules` and `.git`) and rescans on a debounce. A saved edit to `client.js` disposes the previous incarnation first, running every disposer the old `register` accumulated, and only then evaluates and registers the new one; registering first would leave stale disposers holding entries the new registration had already replaced. On the gateway side, `server.js` is re-imported with a cache-busting query keyed on the file's size and mtime plus a generation counter, so an edit, or a disable followed by a re-enable, produces a genuinely new module rather than the incarnation the operator just turned off. The watcher is restarted against that same incarnation, so the background task and the routes are never two different copies of one plugin.
+
+Editing `plugin.json` to change the id is handled too: the loader tracks which id each directory last loaded under, and disposes the previous one so its contributions and inventory row do not orphan.
+
+---
+
+## Enable and disable
+
+```yaml
+plugins:
+  enabled: [inbox-demo]
+  disabled: []
+  settings:
+    inbox-demo:
+      inboxDir: ~/inbox-drop
+```
+
+**Absence is not enabled.** The two lists are the operator's explicit decisions and the only input to the decision: a plugin named in neither is off. A plugin directory can arrive in an instance home by being copied, and it must not start running because nobody has said no to it yet. `disabled` wins over `enabled` when a plugin somehow appears in both, since the fail-closed reading is the safe one. A mistyped `plugins.enabled` that is not a list names nobody rather than enabling everything.
+
+**A plugin cannot opt itself in.** `client.js` may declare `defaultEnabled`, and the loader validates it is a boolean so an author who writes it gets told when it is the wrong type, but the value is then ignored. A manifest field that flipped an unlisted plugin on would be the plugin making the operator's decision for them.
+
+One policy, three enforcement points, each closing a different window:
+
+| Point | What it stops |
+|-------|---------------|
+| Discovery and mount | A disabled plugin's `server.js` is never imported. Import is execution, so gating any later is gating after the code has run. |
+| Every request | A plugin disabled while the gateway is running has routes already mounted. The per-request check is what makes a live toggle real. |
+| Asset and client serving | `/client` and `/assets/*` both 404 for a disabled plugin, so a stale dashboard tab cannot resurrect it by reloading the module. |
+
+`config.yaml` is watched, so a decision takes effect without a restart: disabling a plugin disposes its backend and stops its watcher on the config reload rather than waiting for a request that may never come.
+
+`plugins.settings.<id>` is that plugin's slice of configuration, reachable as `ctx.settings` on the server context. It is read through a getter rather than captured at import time, so editing `config.yaml` reaches a registrar that loaded before the edit.
+
+### Settings, Plugins
+
+The dashboard page at **`/settings/plugins`** is the same policy with a UI on it. It lists every discovered plugin, enabled, disabled, and broken alike, with its version, kind, status, and load error where there is one. Toggling a plugin writes `config.yaml`, which is the same edit you would have made by hand and takes effect the same way. The page also reveals a plugin's folder, and offers an explicit rescan for the case where the directory cannot be watched and the automatic pass will not fire.
+
+---
+
+## The server half
+
+`server.js` default-exports a registrar that receives the plugin's server context and returns a route map. Keys are `"METHOD /path"`, values are handlers taking the gateway's own `req` and `res`.
+
+```js
+export default function register(ctx) {
+  return {
+    'GET /items': async (req, res) => {
+      const items = ctx.storage.get('items') ?? []
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(items))
+    },
+  }
+}
+
+let timer = null
+
+export const watcher = {
+  start(ctx) {
+    timer = setInterval(() => {
+      ctx.log('polling')
+      ctx.emit({ type: 'tick', at: new Date().toISOString() })
+    }, 30_000)
+  },
+  stop() {
+    clearInterval(timer)
+    timer = null
+  },
+}
+```
+
+The context carries `id`, `log`, `storage` (SQLite-backed and namespaced to the plugin, no id argument anywhere in the interface), `host` (the same typed verbs the client half gets), `emit`, and `settings`. `emit` refuses a value that is not JSON-serializable at the call site, so the failure lands on the plugin's own line rather than later inside a send it cannot see. A malformed `watcher` export is a load failure rather than a background task nobody supervises.
+
+Everything under `/api/plugins/<id>/` reaches your routes except `client`, `assets/*`, and `events`, which belong to the gateway and are matched first so a plugin cannot register over them. Every call into plugin code, the registrar and the handlers both, is wrapped: a throw becomes a 500 with the gateway's own wording, and the plugin's error text and stack stay in the log rather than going out on the wire. A registrar that throws is cached as a failure, so a broken plugin is not re-imported on every request until its author fixes it.
+
+---
+
+## Security posture
+
+**This is error isolation. It is explicitly not a capability boundary.**
+
+A loaded `client.js` is evaluated as ESM in the dashboard's own realm, with the app's full authority: the React singleton, the whole SDK, the host verbs, and the gateway token the dashboard already holds. A loaded `server.js` is imported into the gateway process and can do anything the gateway can do, including reaching the filesystem, the network, and the company database. The per-contribution error boundaries, the per-listener try/catch, and the watcher supervisor stop a plugin from *crashing* Jinn. Not one of them stops a plugin from *acting as* Jinn.
+
+The namespacing is real and worth having, and it is not a security control either. `ctx.storage`, `ctx.backend`, and `ctx.events` take no plugin id, so a plugin cannot *accidentally* reach another's namespace through the SDK, and `source` is stamped by the host so a contribution cannot claim provenance it does not have. A plugin that wants to bypass all of it can simply call `fetch` directly, because it is ordinary code in the page.
+
+That posture is acceptable for exactly one threat model: plugins are local directories that the operator placed in their own instance home, and a local file on that machine can already run code. **Install a plugin the way you would run a shell script somebody sent you.** Read it first, or trust whoever wrote it. Loading plugins from a remote source is a non-goal rather than a later feature of this pipeline, because a real boundary means an iframe or a worker, a content security policy, and capability gating, which is a different pipeline and not a flag on this one.
+
+Several guards do exist, and they are worth knowing because they shape what a plugin can be:
+
+- **The plugins API lives under `/api/`**, so the gateway's single auth gate covers it. The enable check runs strictly after auth, which is what stops an unauthenticated caller from walking `/api/plugins/<guess>/` and reading installed-versus-not off the status code. An unknown id and a disabled one get the same 404.
+- **Assets are served from `<plugin>/assets/` only**, never from the plugin root, and only with the suffixes `.js`, `.mjs`, `.css`, `.json`, `.svg`, `.png`, and `.woff2`. Anything else is a 404 rather than a 403, so the answer does not confirm the file exists. This keeps a dropped `.env`, a key, or an editor backup in a plugin folder from being handed out.
+- **`server.js` is addressable by neither route.** The assets root sits below it, and `/client` resolves to exactly one manifest-named file that discovery has already proven is not the server entry.
+- **Manifest paths are attacker-influenced input** and are treated as such: no absolute paths, containment checked on resolved real paths, and re-checked at mount.
+
+---
+
+## Gotchas
+
+**Do not put a watched directory inside the plugins directory.** This is the one that catches everybody. The gateway watches `~/.jinn/plugins/` recursively, and *any* write under it triggers a rescan and a plugin reload. A file-drop inbox at `~/.jinn/plugins/inbox-demo/inbox/` therefore reloads the plugin every time a file lands in it, which at best is wasted work and at worst is a loop where the reload's own bookkeeping writes another file. Put the directory somewhere else entirely and point at it from `plugins.settings.<id>`, the way the `inboxDir` example above does. The only paths excluded from the watch are `node_modules` and `.git`, and that list is not for application data.
+
+**`when()` is not reactive.** A contribution's visibility predicate is evaluated when its area's snapshot is rebuilt, which happens on a register or a removal *in that area*, not when your external state changes. If visibility has to follow live state, contribute unconditionally and render a component that returns `null`.
+
+**A plugin id is permanent-ish.** It is the folder name, the `plugin:<id>` contribution source, the storage prefix, and the route mount. Renaming it is a new plugin as far as stored settings and `config.yaml` are concerned.
+
+**Hot reload leaks module instances, by design.** Each generation of `server.js` is imported under a new specifier, and ESM offers no way to evict the old one from Node's module cache. That is the accepted cost of reloading without a restart. If a plugin holds something heavy, restart the gateway after a long editing session.
+
+**A plugin that fails to load still has a row.** Look at `/settings/plugins` for the error text before assuming the directory was not found. The row is named for the folder when the plugin was too broken to have an id.

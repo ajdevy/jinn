@@ -57,6 +57,34 @@ function gatewayServes(inventory: PluginRecord[], clients: Record<string, string
   })
 }
 
+describe('the operator’s decision', () => {
+  // `config.yaml` is where enablement is decided, and the gateway's servable
+  // list is that decision. Before the store followed it, a plugin the operator
+  // enabled was fetched, evaluated and published, and then never registered,
+  // because nothing in the app had ever written the store's own opt-in.
+  it('registers a plugin the gateway serves without any stored decision', async () => {
+    const { folder, area } = fresh()
+    gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
+
+    await scanDiskPlugins()
+
+    expect(plugins.pluginActive(folder)).toBe(true)
+    expect(contributions.getArea(area).map((entry) => entry.id)).toEqual([`${folder}:chip`])
+  })
+
+  it('takes the decision back when the gateway stops serving it', async () => {
+    const { folder, area } = fresh()
+    gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
+    await scanDiskPlugins()
+
+    gatewayServes([row(folder, { status: 'disabled' })], { [folder]: null })
+    await scanDiskPlugins()
+
+    expect(plugins.pluginActive(folder)).toBe(false)
+    expect(contributions.getArea(area)).toEqual([])
+  })
+})
+
 describe('one pass', () => {
   it('loads what the gateway serves', async () => {
     const { folder, area } = fresh()

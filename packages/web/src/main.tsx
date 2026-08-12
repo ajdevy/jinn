@@ -1,7 +1,8 @@
 import { Component, Suspense, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Navigate, Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom'
+import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
+import { ContributedRoute, reservedSegments } from './routes/contributed-route'
 import { registerTalkNavigator } from './components/talk/tools/router-handle'
 import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
@@ -22,6 +23,7 @@ const LogsPage = lazyRoute(() => import('./routes/logs/page'), 'logs')
 const LimitsPage = lazyRoute(() => import('./routes/limits/page'), 'limits')
 const OrgPage = lazyRoute(() => import('./routes/org/page'), 'org')
 const SettingsPage = lazyRoute(() => import('./routes/settings/page'), 'settings')
+const PluginsSettingsPage = lazyRoute(() => import('./routes/settings/plugins/page'), 'settings-plugins')
 const SkillsPage = lazyRoute(() => import('./routes/skills/page'), 'skills')
 const SkillDetailPage = lazyRoute(() => import('./routes/skills/detail'), 'skill-detail')
 const FilePage = lazyRoute(() => import('./routes/file/page'), 'file')
@@ -104,42 +106,50 @@ function AppShell() {
   )
 }
 
+const appRoutes: RouteObject[] = [
+  { path: '/', element: <ChatPage /> },
+  { path: '/chat', element: <Navigate to="/" replace /> },
+  { path: '/cron', element: <CronPage /> },
+  { path: '/cron/:id', element: <CronDetailPage /> },
+  // Todos v2 slice 6 (stage-C cutover): the board IS /todos and
+  // /todos/:todoId is the full task page. The legacy list is gone.
+  { path: '/todos', element: <TodosIndexRedirect /> },
+  { path: '/todos/b/:board', element: <TodoBoardPage /> },
+  { path: '/todos/:todoId', element: <TaskPage /> },
+  { path: '/notes', element: <NotesFeatureRoute /> },
+  // Folder/note deep links: /notes/f/<folder>, /notes/n/<rel>, or both.
+  { path: '/notes/*', element: <NotesFeatureRoute /> },
+  { path: '/experiments', element: <ExperimentsPage /> },
+  { path: '/experiments/:id', element: <ExperimentDetailPage /> },
+  // GRS-021d: Kanban became Todos. Old links redirect.
+  { path: '/kanban', element: <Navigate to="/todos" replace /> },
+  { path: '/logs', element: <LogsPage /> },
+  { path: '/limits', element: <LimitsPage /> },
+  { path: '/org', element: <OrgPage /> },
+  { path: '/settings', element: <SettingsPage /> },
+  { path: '/settings/plugins', element: <PluginsSettingsPage /> },
+  { path: '/skills', element: <SkillsPage /> },
+  { path: '/skills/:name', element: <SkillDetailPage /> },
+  { path: '/file', element: <FilePage /> },
+  { path: '/more', element: <MorePage /> },
+  { path: '/workflow', element: <WorkflowListPage /> },
+  { path: '/workflow/:id', element: <WorkflowPage /> },
+  { path: '/workflow/:id/runs/:runId', element: <WorkflowRunPage /> },
+  // The orb bench is screenshot-verified on built sandboxes, never on a dev
+  // server pointed at a live gateway, so it has to survive the build. It is a
+  // lazy route: nothing of it loads until someone types the path.
+  { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
+  ...(import.meta.env.DEV ? [{ path: '/redesign', element: <RedesignPage /> }] : []),
+]
+
 const router = createBrowserRouter([
   {
     element: <AppShell />,
     children: [
-      { path: '/', element: <ChatPage /> },
-      { path: '/chat', element: <Navigate to="/" replace /> },
-      { path: '/cron', element: <CronPage /> },
-      { path: '/cron/:id', element: <CronDetailPage /> },
-      // Todos v2 slice 6 (stage-C cutover): the board IS /todos and
-      // /todos/:todoId is the full task page. The legacy list is gone.
-      { path: '/todos', element: <TodosIndexRedirect /> },
-      { path: '/todos/b/:board', element: <TodoBoardPage /> },
-      { path: '/todos/:todoId', element: <TaskPage /> },
-      { path: '/notes', element: <NotesFeatureRoute /> },
-      // Folder/note deep links: /notes/f/<folder>, /notes/n/<rel>, or both.
-      { path: '/notes/*', element: <NotesFeatureRoute /> },
-      { path: '/experiments', element: <ExperimentsPage /> },
-      { path: '/experiments/:id', element: <ExperimentDetailPage /> },
-      // GRS-021d: Kanban became Todos. Old links redirect.
-      { path: '/kanban', element: <Navigate to="/todos" replace /> },
-      { path: '/logs', element: <LogsPage /> },
-      { path: '/limits', element: <LimitsPage /> },
-      { path: '/org', element: <OrgPage /> },
-      { path: '/settings', element: <SettingsPage /> },
-      { path: '/skills', element: <SkillsPage /> },
-      { path: '/skills/:name', element: <SkillDetailPage /> },
-      { path: '/file', element: <FilePage /> },
-      { path: '/more', element: <MorePage /> },
-      { path: '/workflow', element: <WorkflowListPage /> },
-      { path: '/workflow/:id', element: <WorkflowPage /> },
-      { path: '/workflow/:id/runs/:runId', element: <WorkflowRunPage /> },
-      // The orb bench is screenshot-verified on built sandboxes, never on a dev
-      // server pointed at a live gateway, so it has to survive the build. It is a
-      // lazy route: nothing of it loads until someone types the path.
-      { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
-      ...(import.meta.env.DEV ? [{ path: '/redesign', element: <RedesignPage /> }] : []),
+      ...appRoutes,
+      // A plugin's page, last and on the splat so the app's own routes are
+      // matched first — a contribution can never shadow one of them.
+      { path: '*', element: <ContributedRoute reserved={reservedSegments(appRoutes.map((route) => route.path))} /> },
     ],
   },
 ])

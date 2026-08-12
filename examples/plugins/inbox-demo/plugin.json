@@ -1,0 +1,7 @@
+{
+  "id": "inbox-demo",
+  "name": "Inbox Demo",
+  "version": "1.0.0",
+  "client": "client.js",
+  "server": "server.js"
+}

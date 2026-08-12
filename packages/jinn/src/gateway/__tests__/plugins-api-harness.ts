@@ -18,7 +18,7 @@ import yaml from "js-yaml";
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugins-api-"));
 process.env.JINN_HOME = tmpHome;
 export const pluginsDir = path.join(tmpHome, "plugins");
-const configPath = path.join(tmpHome, "config.yaml");
+export const configPath = path.join(tmpHome, "config.yaml");
 
 fs.mkdirSync(path.join(tmpHome, "sessions"), { recursive: true });
 fs.mkdirSync(path.join(tmpHome, "org"), { recursive: true });
@@ -111,23 +111,26 @@ function makeRes() {
   };
 }
 
-function makeReq(method: string, urlPath: string, headers: Record<string, string>) {
-  return Object.assign(Readable.from([]), {
+function makeReq(method: string, urlPath: string, headers: Record<string, string>, body?: unknown) {
+  const raw = body === undefined ? [] : [Buffer.from(JSON.stringify(body))];
+  return Object.assign(Readable.from(raw), {
     method,
     url: urlPath,
-    headers: { host: "localhost", ...headers },
+    headers: { host: "localhost", ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
     socket: { remoteAddress: "127.0.0.1" },
   }) as unknown as Parameters<Api["handleApiRequest"]>[0];
 }
 
-/** A request straight into the dispatch chain, the way the server calls it. */
+/** A request straight into the dispatch chain, the way the server calls it.
+ *  `body` is serialised as JSON, for the routes that read one. */
 export async function call(
   method: string,
   urlPath: string,
   headers: Record<string, string> = { authorization: "Bearer test-token" },
+  body?: unknown,
 ) {
   const cap = makeRes();
-  await api.handleApiRequest(makeReq(method, urlPath, headers), cap.res, apiCtx);
+  await api.handleApiRequest(makeReq(method, urlPath, headers, body), cap.res, apiCtx);
   return cap;
 }
 
@@ -195,6 +198,18 @@ export async function startHarness(): Promise<{
     routePrefix: PLUGIN_ROUTE_PREFIX,
     reconcileWatchers: () => reconcilePluginWatchers(() => currentConfig),
   };
+}
+
+/**
+ * Re-read `config.yaml` and nothing else.
+ *
+ * `onConfigReload` also disposes backends and reconciles watchers, so a case
+ * that uses it can never observe a rescan doing that work. This models the state
+ * a rescan exists for: config on disk has moved on, and the runtime built from
+ * the old one is still running.
+ */
+export function reloadConfigOnly(): void {
+  reloadConfig();
 }
 
 /** An empty plugins directory, the state every case starts from. */

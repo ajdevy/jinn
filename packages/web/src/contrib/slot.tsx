@@ -16,7 +16,7 @@ interface SlotProps {
  * expression `{contribution.render?.()}` — a synchronous throw happens before
  * the boundary exists to catch it, and takes the entire slot down with it.
  */
-function ContributionOutlet({ contribution }: { contribution: ResolvedContribution }) {
+export function ContributionOutlet({ contribution }: { contribution: ResolvedContribution }) {
   return <>{contribution.render?.()}</>
 }
 
