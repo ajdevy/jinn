@@ -51,7 +51,8 @@ import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js"
 import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
-import { handleApiRequest, isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
+import { isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
+import { createGatewayRequestHandler } from "./request-handler.js";
 import { resolveCallerIdentity, sessionCommGuards, LATERAL_MAX_HOPS, type CallerIdentityOptions } from "./session-comm-guards.js";
 import { UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
@@ -201,20 +202,6 @@ export function rejectNonOperatorPtyUpgradeCaller(
   );
   socket.destroy();
   return true;
-}
-
-function setCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  const rawOrigin = req.headers.origin;
-  const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
-  const allowed = isAllowedCorsOrigin(origin, req.headers.host);
-  if (allowed && origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Jinn-Bootstrap-Grant");
-  }
-  return allowed;
 }
 
 /**
@@ -1079,49 +1066,13 @@ export async function startGateway(
   // Create HTTP server
   const authRequiredNow = (): boolean => shouldRequireGatewayAuth(currentConfig);
 
-  const server = http.createServer((req, res) => {
-    const url = req.url || "/";
-    const corsAllowed = setCorsHeaders(req, res);
-
-    if (url.startsWith("/api/") && !corsAllowed) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Origin not allowed" }));
-      return;
-    }
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    const pathname = url.split("?")[0];
-    if (authRequiredNow() && authRequiredForRequest(req.method, pathname)) {
-      const auth = authenticateGatewayRequest(req, gatewayAuthToken, JINN_HOME);
-      if (!auth.ok) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: auth.reason || "Unauthorized" }));
-        return;
-      }
-    }
-
-    // API routes
-    if (url.startsWith("/api/")) {
-      handleApiRequest(req, res, apiContext);
-      return;
-    }
-
-    // Static files for web UI
-    if (!serveStatic(req, res, webDir)) {
-      if (url === "/" || url === "/index.html") {
-        res.writeHead(503, { "Content-Type": "text/html" });
-        res.end("<html><body><h1>Web UI not built</h1><p>Run <code>pnpm build</code> from the project root to build the web UI.</p></body></html>");
-      } else {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Not found" }));
-      }
-    }
-  });
+  const server = http.createServer(createGatewayRequestHandler({
+    authRequired: authRequiredNow,
+    gatewayAuthToken,
+    home: JINN_HOME,
+    apiContext,
+    webDir,
+  }));
 
   // Node's parser rejects some malformed authorities before the request
   // handler can validate them. Keep that boundary deterministic and never
@@ -1255,7 +1206,7 @@ export async function startGateway(
   }
 
   // Start file watchers
-  startWatchers(gatewayWatchCallbacks({ reloadConfig, reloadOrg, emit }));
+  startWatchers(gatewayWatchCallbacks({ reloadConfig, getConfig: () => currentConfig, reloadOrg, emit }));
 
   // Start listening (port/host resolved earlier at boot). During `jinn restart`
   // the replacement daemon can race the old process' graceful shutdown; retry

@@ -26,6 +26,7 @@ fs.mkdirSync(path.join(tmpHome, "org"), { recursive: true });
 type Api = typeof import("../api.js");
 let api: Api;
 let auth: typeof import("../auth.js");
+let requestHandler: ReturnType<(typeof import("../request-handler.js"))["createGatewayRequestHandler"]>;
 let loadConfigFromDisk: (() => import("../../shared/types.js").JinnConfig) | null = null;
 let currentConfig: import("../../shared/types.js").JinnConfig;
 
@@ -131,23 +132,14 @@ export async function call(
 }
 
 /**
- * A request through the two gates in the order gateway/server.ts runs them: its
- * auth gate first, the API dispatch chain second. Mirrored here rather than
- * imported because the real one is closed over an `http.Server` this suite never
- * binds a port for — the ordering, which is the thing under test, is the same.
+ * A request through the gateway's own request handler, so the order it runs its
+ * auth gate and its API dispatch in is executed rather than described. Nothing
+ * here re-implements that order: hoisting the dispatch above the gate in
+ * request-handler.ts is what the auth-parity case has to notice.
  */
 export async function callThroughAuthGate(method: string, urlPath: string, headers: Record<string, string> = {}) {
   const cap = makeRes();
-  const req = makeReq(method, urlPath, headers);
-  if (auth.shouldRequireGatewayAuth(currentConfig) && auth.authRequiredForRequest(method, urlPath.split("?")[0])) {
-    const authenticated = auth.authenticateGatewayRequest(req, "test-token", tmpHome);
-    if (!authenticated.ok) {
-      cap.res.writeHead(401, { "Content-Type": "application/json" });
-      cap.res.end(JSON.stringify({ error: authenticated.reason || "Unauthorized" }));
-      return cap;
-    }
-  }
-  await api.handleApiRequest(req, cap.res, apiCtx);
+  await requestHandler(makeReq(method, urlPath, headers), cap.res);
   return cap;
 }
 
@@ -175,9 +167,24 @@ export async function startHarness(): Promise<{
   api = await import("../api.js");
   (await import("../../shared/db.js")).initDb();
   auth = await import("../auth.js");
+  const { createGatewayRequestHandler } = await import("../request-handler.js");
+  requestHandler = createGatewayRequestHandler({
+    authRequired: () => auth.shouldRequireGatewayAuth(currentConfig),
+    gatewayAuthToken: "test-token",
+    home: tmpHome,
+    apiContext: apiCtx,
+    // Nothing is built into this home, so serveStatic falls through and the
+    // static branch answers the same 404 a real gateway's would.
+    webDir: path.join(tmpHome, "web"),
+  });
   const { gatewayWatchCallbacks } = await import("../watch-callbacks.js");
   const { PLUGIN_ROUTE_PREFIX } = await import("../plugins-api.js");
-  const { onConfigReload } = gatewayWatchCallbacks({ reloadConfig, reloadOrg: () => {}, emit: () => {} });
+  const { onConfigReload } = gatewayWatchCallbacks({
+    reloadConfig,
+    getConfig: () => currentConfig,
+    reloadOrg: () => {},
+    emit: () => {},
+  });
   return { authRequiredForRequest: auth.authRequiredForRequest, onConfigReload, routePrefix: PLUGIN_ROUTE_PREFIX };
 }
 

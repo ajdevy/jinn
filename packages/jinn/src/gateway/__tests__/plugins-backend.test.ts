@@ -196,6 +196,48 @@ describe("the runtime enable gate", () => {
   });
 });
 
+/** A registrar whose module body — not its registrar — counts, and reports the
+ *  count it was evaluated under. Counting inside the registrar would not tell the
+ *  two cases apart: re-invoking the registrar of a module Node still has cached
+ *  looks exactly like evaluating the file again. */
+const EVALUATION_COUNTING_REGISTRAR = `const evaluations = (globalThis.__inboxEvaluations = (globalThis.__inboxEvaluations ?? 0) + 1);
+export default () => ({
+  "GET /ping": (req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ evaluations }));
+  },
+});`;
+
+describe("re-enabling a plugin re-evaluates its server.js", () => {
+  beforeEach(() => {
+    delete (globalThis as { __inboxEvaluations?: number }).__inboxEvaluations;
+    installBackend("inbox", EVALUATION_COUNTING_REGISTRAR);
+  });
+
+  it("evaluates the file again after a disable and a re-enable, with the file untouched", async () => {
+    expect((await call("GET", "/api/plugins/inbox/ping")).body.evaluations).toBe(1);
+
+    writeConfig({ enabled: [] });
+    onConfigReload();
+    expect((await call("GET", "/api/plugins/inbox/ping")).status).toBe(404);
+
+    writeConfig({ enabled: ["inbox"] });
+    onConfigReload();
+    expect((await call("GET", "/api/plugins/inbox/ping")).body.evaluations).toBe(2);
+  });
+
+  it("does so when no request arrives while the plugin is disabled", async () => {
+    expect((await call("GET", "/api/plugins/inbox/ping")).body.evaluations).toBe(1);
+
+    writeConfig({ enabled: [] });
+    onConfigReload();
+    writeConfig({ enabled: ["inbox"] });
+    onConfigReload();
+
+    expect((await call("GET", "/api/plugins/inbox/ping")).body.evaluations).toBe(2);
+  });
+});
+
 describe("ctx.settings", () => {
   beforeEach(() => {
     installBackend("inbox", COUNTING_REGISTRAR);

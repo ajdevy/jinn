@@ -131,9 +131,9 @@ async function serveAsset(res: ServerResponse, id: string, raw: string, context:
  * The enable gate is the same `servablePlugin` the client and asset routes use,
  * so a plugin the operator disabled a moment ago stops answering on the next
  * request rather than at the next restart. It sits here, inside the dispatch
- * chain, which the server reaches only after its auth gate has passed
- * (gateway/server.ts) — a caller who cannot authenticate never learns whether an
- * id is installed.
+ * chain, which the request handler reaches only after its auth gate has passed
+ * (gateway/request-handler.ts) — a caller who cannot authenticate never learns
+ * whether an id is installed.
  */
 async function servePluginBackend(
   req: HttpRequest,

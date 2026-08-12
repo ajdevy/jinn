@@ -53,6 +53,14 @@ interface BackendEntry {
 
 const entries = new Map<string, BackendEntry>();
 
+/** How many times a plugin's backend has been disposed. It joins the import
+ *  specifier because dropping our own entry is not enough: Node keeps its module
+ *  cache keyed on the specifier, so an unchanged file re-enabled under the same
+ *  one hands back the very incarnation the operator turned off. Each generation
+ *  leaves its predecessor in that cache, exactly as every file edit already does
+ *  — the accepted cost of hot-reloading ESM, which offers no way to evict. */
+const generations = new Map<string, number>();
+
 /**
  * The plugin's slice of `config.plugins.settings`, `{}` when the operator has
  * written none. Read through the context's getter rather than captured at import
@@ -64,9 +72,10 @@ export function pluginSettings(id: string, config: Pick<JinnConfig, "plugins">):
   return settings;
 }
 
-/** What the module cache is keyed on. Null when the file is gone, which drops the
- *  entry rather than serving the last version that happened to import. */
-async function fileVersion(file: string): Promise<string | null> {
+/** The file's half of what the module cache is keyed on. Null when the file is
+ *  gone, which drops the entry rather than serving the last version that happened
+ *  to import. */
+async function fileStamp(file: string): Promise<string | null> {
   try {
     const stat = await fs.stat(file);
     return `${stat.mtimeMs}:${stat.size}`;
@@ -90,7 +99,8 @@ function makeContext(id: string, readSettings: () => Record<string, unknown>): P
  *  gets wrong; {@link backendRoutes} is what turns that into a cached failure. */
 async function register(request: PluginDispatchRequest, version: string): Promise<PluginRoutes> {
   // The query is what defeats the ESM module cache: same path, new specifier, so
-  // an edited file is re-evaluated without a gateway restart or a plugin rescan.
+  // an edited file — or a plugin disposed and enabled again — is re-evaluated
+  // without a gateway restart or a plugin rescan.
   const specifier = `${pathToFileURL(request.server).href}?v=${encodeURIComponent(version)}`;
   const registrar = (await import(specifier)).default as unknown;
   if (typeof registrar !== "function") {
@@ -110,11 +120,12 @@ type RoutesResult = { ok: true; routes: PluginRoutes } | { ok: false; reason: "m
 
 /** This plugin's routes for the server file as it stands right now. */
 async function backendRoutes(request: PluginDispatchRequest): Promise<RoutesResult> {
-  const version = await fileVersion(request.server);
-  if (version === null) {
+  const stamp = await fileStamp(request.server);
+  if (stamp === null) {
     entries.delete(request.id);
     return { ok: false, reason: "missing" };
   }
+  const version = `${generations.get(request.id) ?? 0}:${stamp}`;
   const cached = entries.get(request.id);
   if (cached?.version === version) {
     return cached.routes ? { ok: true, routes: cached.routes } : { ok: false, reason: "failed" };
@@ -171,4 +182,16 @@ export async function dispatchPluginRequest(
  *  incarnation that was running when the operator turned it off. */
 export function disposePluginBackend(id: string): void {
   entries.delete(id);
+  generations.set(id, (generations.get(id) ?? 0) + 1);
+}
+
+/** Forget every loaded backend whose plugin is no longer servable. The request
+ *  path disposes lazily, on the first request that finds a plugin disabled — and
+ *  that request never arrives when the operator disables and re-enables in one
+ *  sitting, which would leave the plugin answering from the incarnation they
+ *  turned off. */
+export function disposeUnservableBackends(isServable: (id: string) => boolean): void {
+  for (const id of [...entries.keys()]) {
+    if (!isServable(id)) disposePluginBackend(id);
+  }
 }
