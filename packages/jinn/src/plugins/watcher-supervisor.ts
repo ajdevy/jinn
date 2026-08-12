@@ -250,7 +250,8 @@ let reconcileAgain = false;
  *
  * Calls do not overlap. A request that arrives mid-pass sets a flag and the pass
  * repeats, because a reconcile racing itself would import one plugin twice and
- * leave two watchers under one id.
+ * leave two watchers under one id. The repeat does not survive a shutdown: what
+ * that request wanted reconciled is exactly what shutdown just took down.
  */
 export function reconcilePluginWatchers(getConfig: () => PluginConfig): Promise<void> {
   if (reconciling) {
@@ -258,10 +259,14 @@ export function reconcilePluginWatchers(getConfig: () => PluginConfig): Promise<
     return reconciling;
   }
   reconciling = (async () => {
+    // Held across the whole sequence, not per pass: a queued request predates the
+    // shutdown, so starting its pass afterwards would start a watcher the gateway
+    // has already stopped waiting for.
+    const generation = stopGeneration;
     do {
       reconcileAgain = false;
       await runReconcile(getConfig);
-    } while (reconcileAgain);
+    } while (reconcileAgain && stopGeneration === generation);
   })()
     .catch((err) => logger.error(`Plugin watcher reconcile failed: ${err instanceof Error ? err.message : err}`))
     .finally(() => {

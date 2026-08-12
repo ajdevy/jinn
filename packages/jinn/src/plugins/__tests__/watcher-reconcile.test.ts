@@ -95,4 +95,22 @@ describe("reconcilePluginWatchers", () => {
     expect(calls.stopped).toBe(0);
     expect(pluginWatcherHealth(id)).toBeNull();
   });
+
+  it("starts nothing when a reconcile queued behind the import outlives the shutdown", async () => {
+    const id = freshId();
+    const { calls, finishImport } = deferredBackend();
+
+    const reconciling = reconcilePluginWatchers(() => configFor(id));
+    await untilImporting();
+    // A config reload arriving mid-import is queued behind the pass in flight,
+    // and shutdown lands before either of them gets to the plugin.
+    const queued = reconcilePluginWatchers(() => configFor(id));
+    await stopAllPluginWatchers();
+    finishImport();
+    await Promise.all([reconciling, queued]);
+
+    expect(calls.started).toBe(0);
+    expect(calls.stopped).toBe(0);
+    expect(pluginWatcherHealth(id)).toBeNull();
+  });
 });
