@@ -8,6 +8,10 @@
  */
 import { queryClient } from "@/lib/query-client"
 import { queryKeys } from "@/lib/query-keys"
+import { filtersFromSearchParams } from "@/lib/todos"
+import { parseBoardParam } from "@/routes/todos/board/board-route"
+import { BOARD_STATUS_ORDER, isColumnInStatusFilter } from "@/routes/todos/board/status-scope"
+import { boardColumnQueryKey } from "@/routes/todos/board/use-board"
 import type { PageSnapshot } from "./page-snapshot"
 
 export interface VisibleObject {
@@ -46,16 +50,25 @@ function pageItems(page: unknown): VisibleObject[] {
 }
 
 /**
- * The board is one infinite query per status column, each keyed by the board and
- * the active filters, so there is no single entry holding "the board". Matching
- * on the key prefix collects whichever columns this board has actually loaded,
- * and the same Todo can sit in two of them across a status change.
+ * The board is one infinite query per status column, each keyed by the board AND
+ * the active filters, so there is no single entry holding "the board" — and the
+ * entries a filter change left behind are still in the cache. Asking
+ * `boardColumnQueryKey` for the exact key of each column this board is showing
+ * is what keeps a search the operator has typed past off the screen; the same
+ * Todo can sit in two live columns across a status change, so ids are deduped.
  */
-function boardObjects(board: string | undefined): VisibleObject[] {
-  if (!board) return []
+function boardObjects(snapshot: PageSnapshot): VisibleObject[] {
+  const key = snapshot.params.board
+  if (!key) return []
+  const board = parseBoardParam(key)
+  // Back through the same parser the board itself reads the URL with, so the
+  // key this builds is the key the page wrote.
+  const filters = filtersFromSearchParams(new URLSearchParams(snapshot.filters))
   const seen = new Set<string>()
   const objects: VisibleObject[] = []
-  for (const [, column] of queryClient.getQueriesData({ queryKey: ["work-items", "board", board] })) {
+  for (const status of BOARD_STATUS_ORDER) {
+    if (!isColumnInStatusFilter(filters.status, status)) continue
+    const column = queryClient.getQueryData(boardColumnQueryKey(board, status, filters))
     const pages = (column as { pages?: unknown } | undefined)?.pages
     if (!Array.isArray(pages)) continue
     for (const item of pages.flatMap(pageItems)) {
@@ -79,7 +92,7 @@ function workflowRuns(snapshot: PageSnapshot): VisibleObject[] {
 export function visibleObjects(snapshot: PageSnapshot): VisibleObject[] {
   switch (snapshot.kind) {
     case "todos":
-      return boardObjects(snapshot.params.board)
+      return boardObjects(snapshot)
     case "chat":
       return rowsOf(cachedList(queryKeys.sessions.all, "sessions"), "id", "title")
     case "org":

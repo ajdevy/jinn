@@ -84,6 +84,31 @@ describe("describing the operator's location", () => {
     })
   })
 
+  it("degrades a near miss on a real surface too, rather than guessing at it", () => {
+    // A path that no declared route matches is an unknown page even when its
+    // first segment is one the parser knows: the app renders the plugin splat
+    // there, and naming a Todo the operator cannot see is worse than saying
+    // nothing about it.
+    for (const [pathname, search] of [
+      ["/todos/ABC-744/extra", "?x=1"],
+      ["/todos/b", ""],
+      ["/todos/b/platform/extra", ""],
+      ["/workflow/nightly-build/garbage", ""],
+      ["/workflow/nightly-build/runs/run_0f21c7/extra", ""],
+      ["/experiments/exp-1/readings", ""],
+      ["/cron/nightly-sync/history", ""],
+      ["/org/a-lead", ""],
+    ] as const) {
+      expect(describeLocation(pathname, search)).toEqual({
+        kind: "other",
+        path: pathname,
+        params: {},
+        filters: {},
+        selection: null,
+      })
+    }
+  })
+
   it("never throws, whatever the location says", () => {
     for (const [pathname, search] of [
       ["", ""],

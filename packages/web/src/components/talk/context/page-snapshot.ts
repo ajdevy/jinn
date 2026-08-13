@@ -53,8 +53,12 @@ export interface PageSnapshot {
   selection: PageSelection | null
 }
 
-/** Everything but the path, which `describeLocation` fills for every branch. */
-type View = Omit<PageSnapshot, "path">
+/** Everything but the path, which `describeLocation` fills for every branch.
+ *  `null` is "no declared route matches this", which the app renders as the
+ *  plugin splat and the snapshot reports as its path alone. */
+type View = Omit<PageSnapshot, "path"> | null
+
+const UNKNOWN: Omit<PageSnapshot, "path"> = { kind: "other", params: {}, filters: {}, selection: null }
 
 /** A path segment can be any bytes the operator pasted, and a lone `%` throws.
  *  A segment we cannot decode is still the segment they are looking at. */
@@ -83,8 +87,10 @@ function present(entries: Array<[string, string | undefined | null]>): Record<st
 
 function todosView(rest: string[], params: URLSearchParams): View {
   // /todos/:todoId is the task page; /todos/b/:board and bare /todos are boards.
-  const todoId = rest[0] === "b" ? undefined : rest[0]
-  if (todoId) return { kind: "todo", params: {}, filters: {}, selection: { kind: "Todo", id: todoId } }
+  if (rest.length === 1 && rest[0] !== "b") {
+    return { kind: "todo", params: {}, filters: {}, selection: { kind: "Todo", id: rest[0] } }
+  }
+  if (rest.length > 0 && !(rest.length === 2 && rest[0] === "b")) return null
 
   const filters = filtersFromSearchParams(params)
   return {
@@ -107,9 +113,10 @@ function todosView(rest: string[], params: URLSearchParams): View {
 function workflowView(rest: string[], params: URLSearchParams): View {
   const id = rest[0]
   if (!id) return { kind: "workflows", params: {}, filters: {}, selection: null }
-  if (rest[1] === "runs" && rest[2]) {
+  if (rest.length === 3 && rest[1] === "runs") {
     return { kind: "workflow-run", params: { workflow: id }, filters: {}, selection: { kind: "workflow run", id: rest[2] } }
   }
+  if (rest.length > 1) return null
   // `editor` is the page's default lens and it writes no param for it, so the
   // runs lens is the only one ever in the URL to report.
   return {
@@ -132,6 +139,7 @@ function chatView(params: URLSearchParams): View {
 }
 
 function cronView(rest: string[], params: URLSearchParams): View {
+  if (rest.length > 1) return null
   const jobId = rest[0]
   if (jobId) return { kind: "cron", params: {}, filters: {}, selection: { kind: "cron job", id: jobId } }
   return {
@@ -158,10 +166,25 @@ function listOrDetail(list: PageKind, detail: PageKind, selectionKind: string, i
   return { kind: detail, params: {}, filters: {}, selection: { kind: selectionKind, id } }
 }
 
+function experimentsView(rest: string[]): View {
+  if (rest.length > 1) return null
+  return listOrDetail("experiments", "experiment", "experiment", rest[0])
+}
+
+/** Org keeps the open employee in the query string, so it is one route deep
+ *  whether or not anything is selected. */
+function orgView(rest: string[], params: URLSearchParams): View {
+  if (rest.length > 0) return null
+  return listOrDetail("org", "org", "employee", params.get("employee")?.trim())
+}
+
 /**
  * Describe a location. Anything unrecognised comes back as its path and nothing
  * else — a route this parser has not been taught is a page the orb should name
- * the path of, not a reason to take the conversation down.
+ * the path of, not a reason to take the conversation down. That includes a path
+ * that only starts like a route it knows: the depth each branch accepts is the
+ * depth the router declares, so `/todos/ABC-744/extra` is an unknown page and
+ * not the Todo whose id it happens to contain.
  */
 export function describeLocation(pathname: string, search: string): PageSnapshot {
   const params = new URLSearchParams(search)
@@ -176,17 +199,18 @@ export function describeLocation(pathname: string, search: string): PageSnapshot
       case "workflow":
         return workflowView(rest, params)
       case "experiments":
-        return listOrDetail("experiments", "experiment", "experiment", rest[0])
+        return experimentsView(rest)
       case "cron":
         return cronView(rest, params)
       case "org":
-        return listOrDetail("org", "org", "employee", params.get("employee")?.trim())
+        return orgView(rest, params)
       case "notes":
+        // The one splat route: a folder and a note path nest to any depth.
         return notesView(pathname)
       default:
-        return { kind: "other", params: {}, filters: {}, selection: null }
+        return null
     }
   })()
 
-  return { ...view, path: pathname }
+  return { ...(view ?? UNKNOWN), path: pathname }
 }
