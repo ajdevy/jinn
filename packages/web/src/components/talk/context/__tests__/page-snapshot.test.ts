@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { filtersFromSearchParams } from "@/lib/todos"
 import { describeLocation } from "../page-snapshot"
 
 describe("describing the operator's location", () => {
@@ -10,6 +11,22 @@ describe("describing the operator's location", () => {
       filters: { status: "executing", assignee: "a-lead", q: "orb" },
       selection: null,
     })
+  })
+
+  it("round-trips its filters back through the parser the board reads the URL with", () => {
+    // The snapshot's filters are re-parsed downstream to rebuild the board's
+    // cache key, so whatever the URL was padded with has to land on the same
+    // filters either way round — otherwise the two sides key apart.
+    for (const raw of [
+      "?assignee=%20scout%20&department=%20platform%20&label=%20build%20",
+      "?q=%20orb%20",
+      "?status=all",
+      "",
+    ]) {
+      const snapshot = describeLocation("/todos/b/platform", raw)
+      expect(filtersFromSearchParams(new URLSearchParams(snapshot.filters)))
+        .toEqual(filtersFromSearchParams(new URLSearchParams(raw)))
+    }
   })
 
   it("keeps the home board's implied status filter, which is what the board shows", () => {

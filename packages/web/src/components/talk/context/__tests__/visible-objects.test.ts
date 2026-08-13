@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { queryClient } from "@/lib/query-client"
 import type { WorkItemStatusWire } from "@/lib/api"
-import type { TodoFilters } from "@/lib/todos"
+import { filtersFromSearchParams, type TodoFilters } from "@/lib/todos"
 import type { BoardId } from "@/routes/todos/board/board-route"
 import { boardColumnQueryKey } from "@/routes/todos/board/use-board"
 import { describeLocation } from "../page-snapshot"
@@ -59,6 +59,18 @@ describe("the objects on the board the operator is looking at", () => {
 
     expect(visibleObjects(describeLocation("/todos/b/platform", "?status=executing"))).toEqual([
       { id: "ABC-1", title: "Ship the orb" },
+    ])
+  })
+
+  it("finds the cards of a filter the operator typed with spaces around it", () => {
+    // The board keys its columns off the same parser, so a padded value has to
+    // canonicalize on the way in: without that the page renders these cards and
+    // the snapshot looks them up under a key nobody ever wrote.
+    const filters = filtersFromSearchParams(new URLSearchParams("assignee=%20scout%20"))
+    seedColumn("executing", filters, [{ id: "ABC-3", title: "Assigned with a stray space" }])
+
+    expect(visibleObjects(describeLocation("/todos/b/platform", "?assignee=%20scout%20"))).toEqual([
+      { id: "ABC-3", title: "Assigned with a stray space" },
     ])
   })
 
