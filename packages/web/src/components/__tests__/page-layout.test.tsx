@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router-dom"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const getOnboarding = vi.fn()
 
@@ -123,5 +124,56 @@ describe("PageLayout deferred shell widgets", () => {
     await waitFor(() => expect(getOnboarding).toHaveBeenCalledTimes(1))
     expect(screen.queryByTestId("onboarding-wizard")).toBeNull()
     await waitFor(() => expect(localStorage.getItem("jinn-onboarded")).toBe("true"))
+  })
+})
+
+describe("PageLayout edge-back arming", () => {
+  function setPointer(coarse: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => ({
+        matches: coarse && query.includes("pointer: coarse"),
+        addEventListener() {},
+        removeEventListener() {},
+      }),
+    })
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "matchMedia")
+  })
+
+  it("never mounts the gesture for a fine pointer", () => {
+    localStorage.setItem("jinn-onboarded", "true")
+    setPointer(false)
+
+    // No router in the tree at all: with a fine pointer nothing in the shell
+    // reaches for one, which is what "desktop input never arms it" means here.
+    renderLayout()
+
+    expect(screen.getByText("Page content")).toBeTruthy()
+    expect(screen.queryByTestId("edge-back-layer")).toBeNull()
+  })
+
+  it("mounts the gesture for a coarse pointer", () => {
+    localStorage.setItem("jinn-onboarded", "true")
+    setPointer(true)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PageLayout chromeless>
+            <div>Page content</div>
+          </PageLayout>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    // The layer subscribes to the router for the location it snapshots on, so a
+    // coarse-pointer shell holds a subscription that the fine-pointer one above
+    // renders entirely without. Same tree, one branch apart.
+    expect(screen.getByText("Page content")).toBeTruthy()
+    expect(() => renderLayout()).toThrow(/Router/)
   })
 })

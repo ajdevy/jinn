@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { EDGE_GUTTER_PX } from "../edge-back/use-edge-back-gesture"
 
 export type SwipeSide = "leading" | "trailing"
 
@@ -72,6 +73,9 @@ function settle(state: SwipeState, rails: SwipeRails): SwipeState {
 export function reduceSwipe(state: SwipeState, event: SwipeEvent, rails: SwipeRails): SwipeState {
   switch (event.kind) {
     case "down":
+      // A touch landing in the shell's edge gutter is the back gesture starting,
+      // not this row: one finger cannot mean two horizontal drags at once.
+      if (event.x <= EDGE_GUTTER_PX) return state
       return { ...state, axis: null, origin: { x: event.x, y: event.y, offset: state.offset } }
     case "move":
       return track(state, event.x, event.y, rails)

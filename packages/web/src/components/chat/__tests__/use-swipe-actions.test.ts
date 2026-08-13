@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { EDGE_GUTTER_PX } from '../../edge-back/use-edge-back-gesture'
 import { AXIS_LOCK_PX, CLOSED_SWIPE, COMMIT_RATIO, reduceSwipe, useSwipeActions, type SwipeRails, type SwipeState } from '../use-swipe-actions'
 
 const RAILS: SwipeRails = { leading: 80, trailing: 160 }
@@ -89,6 +90,19 @@ describe('reduceSwipe', () => {
 
   it('ignores movement that arrives without a gesture in progress', () => {
     expect(reduceSwipe(CLOSED_SWIPE, { kind: 'move', x: 0, y: 0 }, RAILS)).toEqual(CLOSED_SWIPE)
+  })
+
+  it('leaves a touch that starts in the shell back gutter to the shell', () => {
+    const armed = reduceSwipe(CLOSED_SWIPE, { kind: 'down', x: EDGE_GUTTER_PX, y: 100 }, RAILS)
+    expect(armed.origin).toBeNull()
+
+    const state = drag(CLOSED_SWIPE, [[EDGE_GUTTER_PX, 100], [EDGE_GUTTER_PX + RAILS.leading, 100]])
+    expect(state.offset).toBe(0)
+    expect(state.openSide).toBeNull()
+
+    // One pixel further in is the row's again.
+    const row = reduceSwipe(CLOSED_SWIPE, { kind: 'down', x: EDGE_GUTTER_PX + 1, y: 100 }, RAILS)
+    expect(row.origin).not.toBeNull()
   })
 })
 
