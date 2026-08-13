@@ -184,8 +184,8 @@ export class SessionManager {
   }
   private enqueueWorkflowAttempt(session: Session, prompt: string, employee: Employee, claim: string): void {
     const msg: IncomingMessage = { connector: "workflow", source: "workflow", sessionKey: session.sessionKey, replyContext: {}, channel: session.id, user: "workflow", userId: "workflow", text: prompt, attachments: [], raw: null };
-    setImmediate(() => { void this.queue.enqueue(session.sessionKey, async () => { await this.runSession(session, msg, [], WORKFLOW_CONNECTOR, { channel: session.id }, employee);
-      this.emitWorkflowAttemptTurnCompletion(session.id); }, claim).catch((error) => logger.error(`Workflow session ${session.id} dispatch failed: ${String(error)}`)); });
+    // Emitted on the enqueue promise, never inside the task: the row only reads 'completed' in enqueue's own finally, so a listener that answers the completion by dispatching again (the stop-nudge does) would claim over a row still running this prompt. It carries the state this turn settled on, because a turn already queued behind it begins before the promise does, and a turn the queue skipped or one that threw settles on nothing and stays as silent as it was.
+    setImmediate(() => { let settled: Session | undefined; void this.queue.enqueue(session.sessionKey, async () => { try { await this.runSession(session, msg, [], WORKFLOW_CONNECTOR, { channel: session.id }, employee); settled = getSession(session.id); } catch (error) { logger.error(`Workflow session ${session.id} dispatch failed: ${String(error)}`); } }, claim).then(() => { if (settled) this.emitWorkflowAttemptCompletion(settled); }); });
   }
   async remindWorkflowAttempt(sessionId: string, text: string): Promise<void> {
     const session = getSession(sessionId);
