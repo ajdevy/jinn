@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5743;
+const MAX_MANIFEST_TOKENS = 5869;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -75,9 +75,18 @@ const ATTESTED = {
   // dropping "Why blocked.", which the property name says. Nothing dead is left
   // in this group to buy the rest from, so the ceiling moves by exactly the 39.
   // Pi stays five under it.
-  rpc: { tokens: 5240, sha256: "378398b6c24f73594560a6b2ae0ebd91e45d6641bf4bd6f6226d07fbf49112b5" },
-  pi: { tokens: 5738, sha256: "6401ace1a1278ac0b1232307ff4d47f43cc33371b155ecf3a6edc985ab6f735d" },
-  openai: { tokens: 5442, sha256: "b59b7f5da754408831dc4cff9d346adf957f3021fbc33f2ea3d57e8c1af90c64" },
+  // Rebased for `set_work_item_dispatch` and `idempotencyKey` on
+  // create_work_item (ICI-733): how a Todo's next attempt runs, and a
+  // caller-supplied create key. Like the Experiments ledger and the heartbeats
+  // group before it, this is a new public capability rather than prose growth on
+  // an existing tool, and there was no dead prose left in this group to buy it
+  // back with — its own description was tightened first ("and an engine/model
+  // override" to "engine/model override", "while it is executing" to "while
+  // executing"), and the remaining 126 are the addition's honest cost. Pi stays
+  // five under the ceiling, so the next addition still has to pay its own way.
+  rpc: { tokens: 5358, sha256: "38980ff1fa1ffc772888b7cccee64a1f3b5c39215f3a4a57ceae330c797dc1a4" },
+  pi: { tokens: 5864, sha256: "cccc4acb8375ef809aa35da5c33360a1329d4216b42b92282d2622e4818d1369" },
+  openai: { tokens: 5563, sha256: "63d51cdb583a44f49efac9ea49dd2c0b91974ff1de6f81875538fecd0831e7d2" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;
@@ -144,7 +153,7 @@ describe("tool manifest budget", () => {
   it("keeps tool names, required arrays, and enum arrays stable", () => {
     const tools = buildTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
-    expect(tools).toHaveLength(72);
+    expect(tools).toHaveLength(73);
 
     const required = Object.fromEntries(tools.map((t) => [t.name, t.inputSchema.required ?? []]));
     expect(required).toEqual(EXPECTED_REQUIRED);

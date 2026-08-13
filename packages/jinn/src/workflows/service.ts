@@ -16,7 +16,7 @@ import {
   type WorkflowRunSummary,
 } from "./repository.js";
 import type { WorkflowError, WorkflowRunDetail } from "./runtime.js";
-import { WorkflowRunner, type WorkflowRunnerOptions, type WorkflowTodoApprovalMirror, type WorkflowTodoLifecycle, type WorkflowTodoSessionLink } from "./runner.js";
+import { WorkflowRunner, type WorkflowRunnerOptions, type WorkflowTodoApprovalMirror, type WorkflowTodoDispatchOverride, type WorkflowTodoLifecycle, type WorkflowTodoSessionLink } from "./runner.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { WorkflowTriggerService, type FireWorkflowEventInput } from "./trigger-service.js";
 import {
@@ -100,15 +100,15 @@ export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "act
   onChange?: (change: { workflowId: string; runId: string }) => void;
   onDefinitionChange?: (change: { workflowId: string; revision: number }) => void;
   todoEventFeed?: WorkflowTodoEventFeed;
-  /** Reads the operator side of a bound Todo's discussion, so a parked
-   *  `todo-comment` Wait node can resume on a reply (see the runner). */
+  /** The Todo-facing ports, each documented on the runner: the operator replies
+   *  a parked `todo-comment` Wait node resumes on, the Approval gates mirrored
+   *  onto the bound Todo, the phase sessions linked to it for spend, the run
+   *  lifecycle reflected onto it, and the next attempt's engine/model. */
   todoComments?: WorkflowTodoCommentFeed;
-  /** Mirrors parked Approval gates onto the run's bound Todo (see the runner). */
   todoApprovals?: WorkflowTodoApprovalMirror;
-  /** Links phase sessions to the run's bound Todo for spend (see the runner). */
   todoSessions?: WorkflowTodoSessionLink;
-  /** Reflects a bound run's own lifecycle onto its Todo (see the runner). */
   todoLifecycle?: WorkflowTodoLifecycle;
+  todoDispatch?: WorkflowTodoDispatchOverride;
   /** Live session-cost aggregate for Workflow attempt sessions. */
   sessionSpend?: (sessionIds: string[]) => number;
 }

@@ -2,7 +2,7 @@
  * One `oai-events` data-channel frame in, one thing the orb acts on out.
  *
  * The provider speaks far more events than a voice orb needs, so this narrows
- * them to the six the transport can do something about and drops the rest. It
+ * them to the seven the transport can do something about and drops the rest. It
  * is the same translation the gateway's own adapter does over its WebSocket
  * (`talk/realtime/openai.ts`), which is why the vocabulary matches: two surfaces
  * reading one provider should not describe it differently.
@@ -11,6 +11,9 @@ import { addTalkUsage, emptyTalkUsage, type TalkUsage } from "./usage-delta"
 
 export type RealtimeFrame =
   | { type: "tool_call"; callId: string; name: string; arguments: string }
+  /** An assistant response began — the driver's, or one server-side VAD made on
+   *  its own. Until it is done, the conversation holds no room for another. */
+  | { type: "turn_started" }
   /** The assistant turn finished. `usage` is the session total after it. */
   | { type: "turn_done"; usage: TalkUsage }
   | { type: "transcript"; role: "assistant" | "user"; text: string; final: boolean }
@@ -68,10 +71,11 @@ function errorMessage(error: unknown): string {
 type FrameReader = (event: Record<string, unknown>) => RealtimeFrame
 
 /** The provider's event names, mapped to what the orb does about them. A table
- *  rather than a switch so a seventh event is one line and no new branch.
+ *  rather than a switch so another event is one line and no new branch.
  *  `response.done` is not in it: that is the one frame needing the session's
  *  running total, which a table of pure readers has nowhere to keep. */
 const READERS: Readonly<Record<string, FrameReader>> = {
+  "response.created": () => ({ type: "turn_started" }),
   "response.function_call_arguments.done": (event) => ({
     type: "tool_call",
     callId: String(event.call_id),

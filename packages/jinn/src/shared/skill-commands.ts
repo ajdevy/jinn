@@ -2,8 +2,10 @@ import fs from "node:fs";
 import { SKILLS_DIR } from "./paths.js";
 
 /** Names of installed jinn skills (directories under ~/.jinn/skills).
- *  Read fresh per submitted turn — one cheap readdir, never a hot path. */
-function jinnSkillNames(): Set<string> {
+ *  Read fresh per call — one cheap readdir, never a hot path. Skills are added
+ *  and removed while the gateway runs, so a cached set would answer for a
+ *  workspace that no longer exists. */
+export function installedSkillNames(): Set<string> {
   try {
     return new Set(
       fs
@@ -29,7 +31,7 @@ export function neutralizeForPaste(text: string): string {
   if (/^[@!]/.test(text)) return " " + text;
   if (text.startsWith("/")) {
     const cmd = text.slice(1).split(/\s/, 1)[0];
-    return jinnSkillNames().has(cmd) ? " " + text : text;
+    return installedSkillNames().has(cmd) ? " " + text : text;
   }
   return text;
 }

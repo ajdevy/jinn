@@ -348,7 +348,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6026,
+      "lines": 5932,
       "exempt": [
         "complexity",
         "max-depth",
@@ -446,7 +446,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1386,
+      "lines": 1375,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -626,7 +626,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 804,
+      "lines": 778,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -917,7 +917,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 1075,
+      "lines": 975,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1052,7 +1052,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1130,
+      "lines": 1084,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1163,7 +1163,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1633,
+      "lines": 1561,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1414,7 +1414,7 @@
       ]
     },
     "packages/web/src/components/pill-nav.tsx": {
-      "lines": 445,
+      "lines": 444,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1981,7 +1981,7 @@
       "lines": 388
     },
     "scripts/check-footguns.mjs": {
-      "lines": 484
+      "lines": 435
     },
     "scripts/docker-configure.mjs": {
       "lines": 308,

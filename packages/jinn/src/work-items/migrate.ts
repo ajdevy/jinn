@@ -12,6 +12,23 @@ import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
 import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { currentTableSql, sqlShape } from "./sql-shape.js";
+import {
+  WORK_ITEM_CREATE_RECEIPTS_DDL,
+  WORK_ITEM_CREATE_RECEIPTS_TABLE_DDL,
+  WORK_ITEM_DISPATCH_DDL,
+  WORK_ITEM_DISPATCH_TABLE_DDL,
+  workItemCreateReceiptRowsAreSound,
+  workItemDispatchRowsAreSound,
+} from "./dispatch-schema.js";
+import {
+  CANONICAL_ID_SQL,
+  PRERELEASE_WORK_ITEMS_TABLE_SQL,
+  V1_WORK_ITEMS_TABLE_DDL,
+  V1_WORK_ITEM_ID_ALLOCATOR_TABLE_DDL,
+  V1_WORK_ITEM_ID_BURNS_TABLE_DDL,
+  V1_WORK_ITEM_ID_ISSUANCES_TABLE_DDL,
+  V2_APPROVAL_WORK_ITEMS_TABLE_DDL,
+} from "./frozen-schemas.js";
 import { resolveDepartmentPrefix } from "./departments.js";
 import { loadConfig } from "../shared/config.js";
 import { CONFIG_PATH } from "../shared/paths.js";
@@ -34,78 +51,6 @@ function isSqliteCorruption(message: string): boolean {
     message,
   );
 }
-
-const CANONICAL_ID_SQL = `
-  id GLOB '[A-Z][A-Z][A-Z]-[1-9]*'
-  AND substr(id, 5) NOT GLOB '*[^0-9]*'
-  AND CAST(substr(id, 5) AS INTEGER) BETWEEN 1 AND 9007199254740991
-  AND printf('%lld', CAST(substr(id, 5) AS INTEGER)) = substr(id, 5)
-`;
-
-/* ── Frozen v1 schema (recognizer for pre-migration databases) ─────────────── */
-
-/** v1 (first public Todo release) work_items shape, byte-identical to what it
- *  installed — the v1→v2 migration recognizes existing databases against it. */
-export const V1_WORK_ITEMS_TABLE_DDL = `
-CREATE TABLE IF NOT EXISTS work_items (
-  id                  TEXT PRIMARY KEY CHECK (${CANONICAL_ID_SQL}),
-  title               TEXT NOT NULL,
-  body                TEXT,
-  status              TEXT NOT NULL DEFAULT 'backlog' CHECK (status IN ('backlog','assigned','executing','in_review','done','blocked','escalated','cancelled')),
-  department          TEXT,
-  assignee            TEXT,
-  priority            INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 0 AND 3),
-  rank                REAL,
-  version             INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
-  source              TEXT NOT NULL DEFAULT 'human' CHECK (source IN ('human','delegation','cron','workflow','session','connector','goal')),
-  source_ref          TEXT,
-  acceptance          TEXT,
-  verify_policy       TEXT,
-  rounds              INTEGER NOT NULL DEFAULT 0,
-  budget_usd          REAL,
-  approval_state      TEXT CHECK (approval_state IN ('pending','approved','rejected')),
-  approval_request    TEXT,
-  approval_ref        TEXT,
-  approval_target     TEXT,
-  approval_target_kind TEXT CHECK (approval_target_kind IN ('employee','virtual','none')),
-  approval_escalated_at TEXT,
-  approval_decided_by TEXT,
-  approval_decided_at TEXT,
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL,
-  closed_at           TEXT
-)`;
-
-export const V1_WORK_ITEM_ID_ALLOCATOR_TABLE_DDL = `
-CREATE TABLE IF NOT EXISTS work_item_id_allocator (
-  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-  prefix TEXT CHECK (prefix IS NULL OR (length(prefix) = 3 AND prefix GLOB '[A-Z][A-Z][A-Z]')),
-  high_water INTEGER NOT NULL CHECK (high_water BETWEEN 0 AND 9007199254740991)
-)
-`;
-
-export const V1_WORK_ITEM_ID_BURNS_TABLE_DDL = `
-CREATE TABLE IF NOT EXISTS work_item_id_burns (
-  ordinal INTEGER PRIMARY KEY CHECK (ordinal BETWEEN 1 AND 9007199254740991),
-  claim_digest TEXT NOT NULL UNIQUE CHECK (length(claim_digest) = 64 AND claim_digest NOT GLOB '*[^0-9a-f]*'),
-  burned_at TEXT NOT NULL
-)
-`;
-
-export const V1_WORK_ITEM_ID_ISSUANCES_TABLE_DDL = `
-CREATE TABLE IF NOT EXISTS work_item_id_issuances (
-  ordinal INTEGER PRIMARY KEY CHECK (ordinal BETWEEN 1 AND 9007199254740991),
-  issued_at TEXT NOT NULL
-)
-`;
-
-export const V1_WORK_ITEM_IDENTITY_TABLES_DDL = `
-${V1_WORK_ITEM_ID_ALLOCATOR_TABLE_DDL};
-INSERT INTO work_item_id_allocator (singleton, prefix, high_water)
-  SELECT 1, NULL, 0 WHERE NOT EXISTS (SELECT 1 FROM work_item_id_allocator);
-${V1_WORK_ITEM_ID_BURNS_TABLE_DDL};
-${V1_WORK_ITEM_ID_ISSUANCES_TABLE_DDL};
-`;
 
 /* ── Current (v2) schema — Todos v2 slice 1 ────────────────────────────────── */
 
@@ -137,44 +82,7 @@ CREATE TABLE IF NOT EXISTS work_items (
   closed_at           TEXT
 )`;
 
-/** Pre-PLA-48 v2 work_items shape, when approvals were also shadowed in eight
- *  columns here. Frozen recognizer: a match is healed at boot. */
-export const V2_APPROVAL_WORK_ITEMS_TABLE_DDL = `
-CREATE TABLE IF NOT EXISTS work_items (
-  id                  TEXT PRIMARY KEY CHECK (${CANONICAL_ID_SQL}),
-  title               TEXT NOT NULL,
-  body                TEXT,
-  status              TEXT NOT NULL DEFAULT 'backlog' CHECK (status IN ('backlog','assigned','executing','in_review','done','blocked','escalated','cancelled')),
-  department          TEXT,
-  assignee            TEXT,
-  created_by          TEXT NOT NULL,
-  parent_id           TEXT REFERENCES work_items(id),
-  root_id             TEXT NOT NULL,
-  depth               INTEGER NOT NULL DEFAULT 0 CHECK ((parent_id IS NULL AND depth = 0) OR (parent_id IS NOT NULL AND depth BETWEEN 1 AND 3)),
-  due_at              TEXT,
-  priority            INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 0 AND 3),
-  rank                REAL,
-  version             INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
-  source              TEXT NOT NULL DEFAULT 'human' CHECK (source IN ('human','delegation','cron','workflow','session','connector','goal')),
-  source_ref          TEXT,
-  acceptance          TEXT,
-  verify_policy       TEXT,
-  rounds              INTEGER NOT NULL DEFAULT 0,
-  budget_usd          REAL,
-  approval_state      TEXT CHECK (approval_state IN ('pending','approved','rejected')),
-  approval_request    TEXT,
-  approval_ref        TEXT,
-  approval_target     TEXT,
-  approval_target_kind TEXT CHECK (approval_target_kind IN ('employee','virtual','none')),
-  approval_escalated_at TEXT,
-  approval_decided_by TEXT,
-  approval_decided_at TEXT,
-  created_at          TEXT NOT NULL,
-  updated_at          TEXT NOT NULL,
-  closed_at           TEXT
-)`;
-
-/** The shadow columns above, dropped once their values reach `work_item_approvals`. */
+/** The pre-PLA-48 shadow columns, dropped once their values reach `work_item_approvals`. */
 const V2_APPROVAL_COLUMNS: readonly string[] = ["approval_state", "approval_request", "approval_ref",
   "approval_target", "approval_target_kind", "approval_escalated_at", "approval_decided_by", "approval_decided_at"];
 
@@ -595,6 +503,8 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_attachments", WORK_ITEM_ATTACHMENTS_TABLE_DDL],
   ["work_item_runs", WORK_ITEM_RUNS_TABLE_DDL],
   ["work_item_blocks", WORK_ITEM_BLOCKS_DDL],
+  ["work_item_dispatch", WORK_ITEM_DISPATCH_TABLE_DDL],
+  ["work_item_create_receipts", WORK_ITEM_CREATE_RECEIPTS_TABLE_DDL],
   ["work_item_edit_receipts", WORK_ITEM_EDIT_RECEIPTS_DDL],
   ["work_item_id_allocator", WORK_ITEM_ID_ALLOCATOR_TABLE_DDL],
   ["work_item_id_burns", WORK_ITEM_ID_BURNS_TABLE_DDL],
@@ -617,6 +527,8 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_attachments", ddl: WORK_ITEM_ATTACHMENTS_DDL },
   { name: "work_item_runs", ddl: WORK_ITEM_RUNS_DDL },
   { name: "work_item_blocks", ddl: WORK_ITEM_BLOCKS_DDL },
+  { name: "work_item_dispatch", ddl: WORK_ITEM_DISPATCH_DDL },
+  { name: "work_item_create_receipts", ddl: WORK_ITEM_CREATE_RECEIPTS_DDL },
 ];
 
 /**
@@ -691,20 +603,6 @@ function hasNonNullSessionTodoRefs(db: DatabaseType): boolean {
 function refusal(): never {
   throw new Error(UNSUPPORTED_PRERELEASE_TODO_DATA);
 }
-
-const PRERELEASE_WORK_ITEMS_TABLE_SQL = `
-CREATE TABLE work_items (
-  id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT,
-  status TEXT NOT NULL DEFAULT 'backlog' CHECK (status IN ('backlog','assigned','executing','in_review','done','blocked','escalated','cancelled')),
-  department TEXT, assignee TEXT, priority INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 0 AND 3),
-  rank REAL, version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
-  source TEXT NOT NULL DEFAULT 'human' CHECK (source IN ('human','delegation','cron','workflow','session','connector','goal')),
-  source_ref TEXT, acceptance TEXT, verify_policy TEXT, rounds INTEGER NOT NULL DEFAULT 0, budget_usd REAL,
-  approval_state TEXT CHECK (approval_state IN ('pending','approved','rejected')), approval_request TEXT, approval_ref TEXT,
-  approval_target TEXT, approval_target_kind TEXT CHECK (approval_target_kind IN ('employee','virtual','none')),
-  approval_escalated_at TEXT, approval_decided_by TEXT, approval_decided_at TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT
-)`;
 
 function recognizedEmptyPrerelease(db: DatabaseType): boolean {
   if (tableCount(db, "work_items") !== 0 || tableCount(db, "work_item_events") !== 0
@@ -896,6 +794,8 @@ export function verifyCurrentWorkItemSchema(db: DatabaseType): void {
     }
   }
   if (!workItemRunRowsAreSound(db, (id) => byId.has(id))) refusal();
+  if (!workItemDispatchRowsAreSound(db, (id) => byId.has(id))) refusal();
+  if (!workItemCreateReceiptRowsAreSound(db, (id) => byId.has(id))) refusal();
 }
 
 function classifyOpenWorkItemsDatabase(db: DatabaseType): WorkItemSchemaPreflight {

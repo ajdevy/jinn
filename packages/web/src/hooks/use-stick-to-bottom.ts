@@ -56,6 +56,12 @@ export interface UseStickToBottomOptions {
   latestMessageKey?: string | null
   /** Override the at-bottom threshold (px). */
   threshold?: number
+  /**
+   * Replaces the jump control's scroll-to-bottom. A virtualised transcript's
+   * true bottom is only known once the last row has measured, so it scrolls
+   * through the virtualizer, which re-targets as that measurement lands.
+   */
+  scrollToEnd?: (behavior: ScrollBehavior) => void
 }
 
 export interface StickToBottom {
@@ -76,6 +82,7 @@ export function useStickToBottom({
   messageCount,
   latestMessageKey,
   threshold = STICK_THRESHOLD_PX,
+  scrollToEnd,
 }: UseStickToBottomOptions): StickToBottom {
   // The scroll container, tracked as state (via a callback ref) so the listener
   // effects re-run when it mounts, plus a ref mirror for imperative reads.
@@ -93,6 +100,12 @@ export function useStickToBottom({
   // Distance from the bottom at the previous scroll event — the baseline for
   // "did this event move away from the bottom?".
   const prevDistRef = useRef(0)
+  // Scroll position at the previous scroll event. A scroll event that leaves it
+  // where it was carries no user intent — see the listener below.
+  const prevTopRef = useRef(0)
+  // Fresh override for stable callbacks (avoids stale closures).
+  const scrollToEndRef = useRef(scrollToEnd)
+  scrollToEndRef.current = scrollToEnd
   // Count at the moment we were last caught up — the baseline for unreadDelta.
   const seenCountRef = useRef(messageCount)
   // Fresh message count for stable callbacks (avoids stale closures).
@@ -109,6 +122,7 @@ export function useStickToBottom({
 
   const pinNow = useCallback((node: HTMLDivElement) => {
     node.scrollTop = node.scrollHeight
+    prevTopRef.current = node.scrollTop
   }, [])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -118,7 +132,11 @@ export function useStickToBottom({
     seenCountRef.current = messageCountRef.current
     setShowJump(false)
     setUnreadCount(0)
-    if (behavior === 'smooth' && typeof node.scrollTo === 'function') {
+    const toEnd = scrollToEndRef.current
+    if (toEnd) {
+      animatingRef.current = behavior === 'smooth'
+      toEnd(behavior)
+    } else if (behavior === 'smooth' && typeof node.scrollTo === 'function') {
       animatingRef.current = true
       node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
     } else {
@@ -130,9 +148,20 @@ export function useStickToBottom({
   // Keyed on `el` so it (re)attaches when the scroller mounts in a later render.
   useEffect(() => {
     if (!el) return
+    prevTopRef.current = el.scrollTop
 
     const onScroll = () => {
       const dist = distanceFromBottom(el)
+      const top = el.scrollTop
+      // A scroll event that left the position where it was cannot be the user:
+      // it is the content re-measuring underneath them, which on the virtualised
+      // path happens whenever a row off-window resolves its real height. Take the
+      // new distance as the baseline and decide nothing.
+      if (top === prevTopRef.current) {
+        prevDistRef.current = dist
+        return
+      }
+      prevTopRef.current = top
       // Recorded before the early return below so our own scrolls keep the baseline
       // fresh. Distance, not scrollTop direction: when content above shrinks the
       // browser clamps scrollTop down while we are still at the bottom, and a

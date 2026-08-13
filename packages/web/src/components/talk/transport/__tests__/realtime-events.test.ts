@@ -102,6 +102,11 @@ describe("createFrameReader", () => {
     ).toEqual({ type: "transcript", role: "user", text: "open ABC-1", final: true })
   })
 
+  it("reads the two ends of an assistant response", () => {
+    expect(frame({ type: "response.created" })).toEqual({ type: "turn_started" })
+    expect(frame({ type: "response.done", response: {} })).toMatchObject({ type: "turn_done" })
+  })
+
   it("reads the two ends of a spoken turn", () => {
     expect(frame({ type: "input_audio_buffer.speech_started" })).toEqual({ type: "speech_started" })
     expect(frame({ type: "input_audio_buffer.speech_stopped" })).toEqual({ type: "speech_stopped" })
@@ -122,7 +127,7 @@ describe("createFrameReader", () => {
   })
 
   it("ignores the frames the orb has no use for, and a frame that is not JSON", () => {
-    expect(frame({ type: "response.created" })).toBeNull()
+    expect(frame({ type: "response.output_item.added" })).toBeNull()
     expect(frame({ type: "conversation.item.created" })).toBeNull()
     expect(createFrameReader()("not json")).toBeNull()
     expect(createFrameReader()("[]")).toBeNull()

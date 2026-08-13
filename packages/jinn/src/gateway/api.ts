@@ -174,14 +174,13 @@ import {
   WorkItemIdempotencyConflictError,
   WorkItemVersionConflictError,
   type CreateWorkItemInput,
-  type SearchWorkItemsFilter,
   type UpdateWorkItemInput,
   type VerifyPolicy,
   type WorkItem,
   type WorkItemSource,
   type WorkItemStatus,
 } from "../work-items/store.js";
-import { isTodoId, parseTodoId, resolveTodoIdPrefix } from "../work-items/id.js";
+import { isTodoId, resolveTodoIdPrefix } from "../work-items/id.js";
 import {
   addComment,
   editComment,
@@ -203,7 +202,6 @@ import {
   createLabel,
   labelSets,
   listLabels,
-  normalizeLabelName,
   setWorkItemLabels,
   type Label,
 } from "../work-items/labels.js";
@@ -238,6 +236,20 @@ import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
+import {
+  hasSupportedTodoEditContentEncoding,
+  readTodoEditPrecondition,
+  todoEditContentLength,
+  todoEditValidationError,
+} from "./todo-edit-precondition.js";
+import { createWorkItemIdempotent, WorkItemCreateIdempotencyConflictError } from "../work-items/create-idempotency.js";
+import { resolveTodoDispatch, setTodoDispatchConfig } from "../work-items/dispatch-config.js";
+import {
+  ISO_DATE_OR_INSTANT,
+  readCleanSearchParam,
+  readWorkItemQueryParams,
+  SEARCH_QUERY_ROUTE_CHAR_CAP,
+} from "./work-item-query.js";
 import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
@@ -744,22 +756,8 @@ function blocksEngineSwitch(transportState: Session["transportState"]): boolean 
   return transportState === "running" || transportState === "queued";
 }
 
-/** Route-side cap for search query/text params (GRS-020a-fix finding 3). The
- *  MCP tools cap earlier with a friendlier error; this is the substrate
- *  backstop so a hostile curl gets a clean 400, never HTTP-parser noise. */
-export const SEARCH_QUERY_ROUTE_CHAR_CAP = 1_024;
-
 /** JSON escaping can expand one byte to six characters (for example NUL). */
 const NOTES_BODY_ROUTE_MAX_BYTES = NOTE_FILE_MAX_BYTES * 6 + 64_000;
-
-/** Read a query param with NUL/control bytes stripped (GRS-020a-fix finding 2)
- *  and whitespace trimmed; empty-after-cleaning collapses to null. */
-function readCleanSearchParam(url: URL, name: string): string | null {
-  const raw = url.searchParams.get(name);
-  if (raw === null) return null;
-  const cleaned = stripControlChars(raw).trim();
-  return cleaned || null;
-}
 
 /** The compact summary shape the GRS-020 reference-layer routes return
  *  (GRS-020a-fix finding 5): only the documented fields — never the full
@@ -780,7 +778,6 @@ function compactSessionSummary(session: Session): Record<string, unknown> {
 }
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ['backlog', 'assigned', 'executing', 'in_review', 'done', 'blocked', 'escalated', 'cancelled'];
-const WORK_ITEM_SOURCES: readonly WorkItemSource[] = ['human', 'delegation', 'cron', 'workflow', 'session', 'connector', 'goal'];
 /** `backlog` is here because "not now" is a legitimate move: an agent that
  *  picked a Todo up and found it premature can put it back down. The sticky
  *  terminals are unreachable from here anyway — leaving `done`, `cancelled` or
@@ -789,188 +786,6 @@ const AGENT_WORK_ITEM_TARGETS: readonly WorkItemStatus[] = ['backlog', 'assigned
 const VERIFY_MODES = ['trust', 'verify', 'thorough'] as const;
 const VERIFY_POLICY_KEYS = new Set(['mode', 'verifier', 'maxRounds']);
 
-type TodoEditPrecondition =
-  | { ok: true; expectedVersion: number }
-  | { ok: false; status: 400 | 428; body: { error: string; code: 'todo_precondition_required' | 'todo_invalid_version' } };
-
-function positiveTodoVersion(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
-function ifMatchTodoVersion(value: string | string[] | undefined): number | undefined {
-  if (typeof value !== 'string') return undefined;
-  const match = /^(?:"([1-9]\d*)"|([1-9]\d*))$/.exec(value.trim());
-  if (!match) return undefined;
-  const parsed = Number(match[1] ?? match[2]);
-  return Number.isSafeInteger(parsed) ? parsed : undefined;
-}
-
-function readTodoEditPrecondition(req: HttpRequest, body: Record<string, unknown>): TodoEditPrecondition {
-  const hasBodyVersion = Object.prototype.hasOwnProperty.call(body, 'expectedVersion');
-  const hasIfMatch = req.headers['if-match'] !== undefined;
-  if (!hasBodyVersion && !hasIfMatch) {
-    return { ok: false, status: 428, body: { error: 'A current Todo version is required.', code: 'todo_precondition_required' } };
-  }
-  const bodyVersion = hasBodyVersion ? positiveTodoVersion(body.expectedVersion) : undefined;
-  const headerVersion = hasIfMatch ? ifMatchTodoVersion(req.headers['if-match']) : undefined;
-  if ((hasBodyVersion && bodyVersion === undefined) || (hasIfMatch && headerVersion === undefined)) {
-    return { ok: false, status: 400, body: { error: 'Todo version must be a positive safe integer.', code: 'todo_invalid_version' } };
-  }
-  if (bodyVersion !== undefined && headerVersion !== undefined && bodyVersion !== headerVersion) {
-    return { ok: false, status: 400, body: { error: 'Todo version preconditions do not match.', code: 'todo_invalid_version' } };
-  }
-  return { ok: true, expectedVersion: bodyVersion ?? headerVersion! };
-}
-
-type TodoEditValidationCode = 'todo_invalid_patch' | 'todo_invalid_assignee';
-
-function todoEditValidationError(
-  res: ServerResponse,
-  error: string,
-  code: TodoEditValidationCode = 'todo_invalid_patch',
-): void {
-  json(res, { error, code }, 400);
-}
-
-function todoEditContentLength(value: string | string[] | undefined): number | undefined | null {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
-  const length = Number(value);
-  return Number.isSafeInteger(length) ? length : null;
-}
-
-function hasSupportedTodoEditContentEncoding(value: string | string[] | undefined): boolean {
-  return value === undefined || (typeof value === 'string' && value.trim().toLowerCase() === 'identity');
-}
-
-function readWorkItemStatusParam(url: URL): WorkItemStatus | undefined | null {
-  const status = readCleanSearchParam(url, 'status');
-  if (!status) return undefined;
-  if (!(WORK_ITEM_STATUSES as readonly string[]).includes(status)) return null;
-  return status as WorkItemStatus;
-}
-
-function readWorkItemSourceParam(url: URL): WorkItemSource | undefined | null {
-  const source = readCleanSearchParam(url, 'source');
-  if (!source) return undefined;
-  if (!(WORK_ITEM_SOURCES as readonly string[]).includes(source)) return null;
-  return source as WorkItemSource;
-}
-
-const WORK_ITEM_PAGE_DEFAULT_LIMIT = 20;
-const WORK_ITEM_PAGE_MAX_LIMIT = 100;
-const ISO_DATE_OR_INSTANT = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
-
-interface WorkItemQueryParams {
-  filter: SearchWorkItemsFilter;
-  limit: number;
-  offset: number;
-}
-
-function readWorkItemIntegerParam(
-  url: URL,
-  name: 'limit' | 'offset',
-  fallback: number,
-): { ok: true; value: number } | { ok: false; error: string } {
-  const raw = url.searchParams.get(name);
-  if (raw === null) return { ok: true, value: fallback };
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return { ok: false, error: `${name} must be a non-negative integer` };
-  const value = Number(trimmed);
-  if (!Number.isSafeInteger(value)) return { ok: false, error: `${name} must be a safe integer` };
-  if (name === 'limit') {
-    if (value < 1) return { ok: false, error: 'limit must be at least 1' };
-    return { ok: true, value: Math.min(value, WORK_ITEM_PAGE_MAX_LIMIT) };
-  }
-  return { ok: true, value };
-}
-
-function readWorkItemDateParam(
-  url: URL,
-  name: 'since' | 'until',
-): { ok: true; value?: string } | { ok: false; error: string } {
-  const raw = readCleanSearchParam(url, name);
-  if (!raw) return { ok: true };
-  if (!ISO_DATE_OR_INSTANT.test(raw)) {
-    return { ok: false, error: `${name} must be an ISO date or timezone-qualified ISO timestamp` };
-  }
-  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
-  const expanded = dateOnly
-    ? `${raw}T${name === 'since' ? '00:00:00.000' : '23:59:59.999'}Z`
-    : raw;
-  const parsed = new Date(expanded);
-  if (Number.isNaN(parsed.getTime()) || (dateOnly && parsed.toISOString().slice(0, 10) !== raw)) {
-    return { ok: false, error: `${name} must be a valid ISO date or timestamp` };
-  }
-  return { ok: true, value: parsed.toISOString() };
-}
-
-function readWorkItemQueryParams(url: URL): { ok: true; value: WorkItemQueryParams } | { ok: false; error: string } {
-  const filter: SearchWorkItemsFilter = {};
-  const status = readWorkItemStatusParam(url);
-  if (status === null) return { ok: false, error: `status must be one of ${WORK_ITEM_STATUSES.join(', ')}` };
-  if (status) filter.status = status;
-  const source = readWorkItemSourceParam(url);
-  if (source === null) return { ok: false, error: `source must be one of ${WORK_ITEM_SOURCES.join(', ')}` };
-  if (source) filter.source = source;
-  const assignee = readCleanSearchParam(url, 'assignee');
-  if (assignee) filter.assignee = assignee;
-  const department = readCleanSearchParam(url, 'department');
-  if (department) filter.department = department;
-  const text = readCleanSearchParam(url, 'q') ?? readCleanSearchParam(url, 'text');
-  if (text) {
-    if (text.length > SEARCH_QUERY_ROUTE_CHAR_CAP) {
-      return { ok: false, error: `q is too long (${text.length} chars, max ${SEARCH_QUERY_ROUTE_CHAR_CAP}) — shorten the query` };
-    }
-    filter.text = text;
-  }
-  const createdBy = readCleanSearchParam(url, 'createdBy');
-  if (createdBy) filter.createdBy = createdBy;
-  const parent = readCleanSearchParam(url, 'parent');
-  if (parent) {
-    try {
-      filter.parentId = parseTodoId(parent);
-    } catch {
-      return { ok: false, error: 'parent must be a Todo ID' };
-    }
-  }
-  const root = readCleanSearchParam(url, 'root');
-  if (root) {
-    try {
-      filter.rootId = parseTodoId(root);
-    } catch {
-      return { ok: false, error: 'root must be a Todo ID' };
-    }
-  }
-  if (readCleanSearchParam(url, 'rootsOnly') === 'true') filter.rootsOnly = true;
-  const label = readCleanSearchParam(url, 'label');
-  if (label) {
-    // Ids pass through; display names are normalized to the stored kebab-case.
-    if (/^lbl_[0-9a-f]{12}$/.test(label)) {
-      filter.label = label;
-    } else {
-      try {
-        filter.label = normalizeLabelName(label);
-      } catch {
-        return { ok: false, error: 'label must be a label ID (lbl_…) or a name with at least one letter or digit' };
-      }
-    }
-  }
-  const since = readWorkItemDateParam(url, 'since');
-  if (!since.ok) return since;
-  if (since.value) filter.since = since.value;
-  const until = readWorkItemDateParam(url, 'until');
-  if (!until.ok) return until;
-  if (until.value) filter.until = until.value;
-  if (filter.since && filter.until && filter.since > filter.until) {
-    return { ok: false, error: 'since must be earlier than or equal to until' };
-  }
-  const limit = readWorkItemIntegerParam(url, 'limit', WORK_ITEM_PAGE_DEFAULT_LIMIT);
-  if (!limit.ok) return limit;
-  const offset = readWorkItemIntegerParam(url, 'offset', 0);
-  if (!offset.ok) return offset;
-  return { ok: true, value: { filter, limit: limit.value, offset: offset.value } };
-}
 
 function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
   // Batch the board wire data across the page — ONE query each, never per item.
@@ -3216,6 +3031,17 @@ export async function handleApiRequest(
         }
       }
       const labelRefs = body.labels === undefined ? undefined : (body.labels as string[]).map((entry) => entry.trim());
+      // ICI-733: a caller-supplied create key, same shape rules as the edit key.
+      // Cron and connector retries create duplicate Todos without one.
+      let idempotencyKey: string | undefined;
+      if (body.idempotencyKey !== undefined) {
+        if (typeof body.idempotencyKey !== "string" || !body.idempotencyKey.trim()) {
+          return badRequest(res, "idempotencyKey must be a non-empty string");
+        }
+        idempotencyKey = body.idempotencyKey.trim();
+        if (idempotencyKey.length > 256) return badRequest(res, "idempotencyKey is too long (max 256 characters)");
+        if (/[\x00-\x1f\x7f]/.test(idempotencyKey)) return badRequest(res, "idempotencyKey contains invalid characters");
+      }
       const source: WorkItemSource = caller.kind === "session" ? "session" : "human";
       const input: CreateWorkItemInput = {
         title: title.slice(0, 200),
@@ -3228,7 +3054,14 @@ export async function handleApiRequest(
           ? { department: typeof body.department === "string" && body.department.trim() ? body.department.trim() : null }
           : {}),
         source,
-        sourceRef: source === "session" && caller.kind === "session" ? `session:${caller.callerId}:${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}` : null,
+        // A random ref per create — EXCEPT under an idempotency key, where the
+        // ref must be stable or the replay would look like a different create
+        // (and the `(source, source_ref)` unique index would not catch it either).
+        sourceRef: source === "session" && caller.kind === "session"
+          ? `session:${caller.callerId}:${idempotencyKey
+              ? `idempotency:${crypto.createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 24)}`
+              : crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`
+          : null,
         verifyPolicy: verifyPolicy.value,
         parentId,
         dueAt,
@@ -3243,16 +3076,25 @@ export async function handleApiRequest(
         // Tagging runs inside the create transaction: an unknown label must fail
         // the whole request rather than leave an untagged Todo behind.
         let labels: Label[] | undefined;
-        const item = labelRefs === undefined
-          ? createWorkItem(input)
+        const create = () => idempotencyKey
+          ? createWorkItemIdempotent(input, idempotencyKey, labelRefs)
+          : { item: createWorkItem(input), replayed: false };
+        const created = labelRefs === undefined
+          ? create()
           : initDb().transaction(() => {
-            const created = createWorkItem(input);
-            labels = setWorkItemLabels(created.id, labelRefs, workItemActor(caller), caller.origin);
-            return created;
+            const result = create();
+            // A replay's labels were written by the create it replays. Setting
+            // them again would rewrite a set the Todo may have had edited since.
+            if (!result.replayed) labels = setWorkItemLabels(result.item.id, labelRefs, workItemActor(caller), caller.origin);
+            return result;
           })();
-        const activityReceiptId = persistTodoMutationActivity(req, context, item, "created");
-        return json(res, withActivityReceipt({ workItem: item, ...(labels ? { labels } : {}) }, activityReceiptId), 201);
+        if (created.replayed) return json(res, { workItem: created.item, replayed: true }, 200);
+        const activityReceiptId = persistTodoMutationActivity(req, context, created.item, "created");
+        return json(res, withActivityReceipt({ workItem: created.item, ...(labels ? { labels } : {}) }, activityReceiptId), 201);
       } catch (err) {
+        if (err instanceof WorkItemCreateIdempotencyConflictError) {
+          return json(res, { error: err.message, code: "todo_create_idempotency_conflict", workItemId: err.workItemId }, 409);
+        }
         return badRequest(res, err instanceof Error ? err.message : String(err));
       }
     }
@@ -3701,6 +3543,11 @@ export async function handleApiRequest(
         if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       }
 
+      // The Todo's own dispatch preferences are resolved BEFORE the claim, so a
+      // Todo whose skills have all been uninstalled fails without holding one.
+      const dispatchPrefs = resolveTodoDispatch(item.id);
+      if (!dispatchPrefs.ok) return json(res, { error: dispatchPrefs.error }, 409);
+
       const claim = claimTodoForDispatch(res, item.id);
       if (!claim) return;
 
@@ -3710,25 +3557,29 @@ export async function handleApiRequest(
         claim.release();
         return serverError(res, "the built-in Todo Dispatcher is unavailable");
       }
+      // The Todo's override beats the Dispatcher employee's own engine/model:
+      // it exists to move a stuck Todo onto another engine, so it has to win.
+      const dispatchEngineName = dispatchPrefs.preamble.engine ?? dispatcher.engine;
+      const dispatchModel = dispatchPrefs.preamble.engine ? dispatchPrefs.preamble.model ?? undefined : dispatcher.model;
       const attachment = decideJinnAttachment({
         globalMcp: config.mcp,
         employee: dispatcher,
-        engine: dispatcher.engine,
+        engine: dispatchEngineName,
       });
       if (!attachment.attach) {
         claim.release();
         return json(res, {
-          error: `Todo Dispatcher cannot run on engine "${dispatcher.engine}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
+          error: `Todo Dispatcher cannot run on engine "${dispatchEngineName}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
         }, 409);
       }
 
-      const engine = context.sessionManager.getEngine(dispatcher.engine);
+      const engine = context.sessionManager.getEngine(dispatchEngineName);
       if (!engine) {
         claim.release();
-        return json(res, { error: `engine "${dispatcher.engine}" not available; change the Dispatcher engine override and try again` }, 502);
+        return json(res, { error: `engine "${dispatchEngineName}" not available; change the Dispatcher engine override and try again` }, 502);
       }
 
-      const prompt = [
+      const prompt = dispatchPrefs.preamble.prefix + [
         `Dispatch Todo ${item.id}.`,
         `Title: ${item.title}`,
         item.body ? `Body:\n${item.body}` : "Body: (none)",
@@ -3736,14 +3587,14 @@ export async function handleApiRequest(
       ].join("\n\n");
       const sessionKey = `todo-dispatcher:${item.id}:${crypto.randomUUID()}`;
       const session = createSession({
-        engine: dispatcher.engine,
+        engine: dispatchEngineName,
         source: "web",
         sourceRef: sessionKey,
         connector: "web",
         sessionKey,
         replyContext: { source: "web" },
         employee: dispatcher.name,
-        model: dispatcher.model,
+        model: dispatchModel,
         effortLevel: dispatcher.effortLevel,
         prompt,
         title: `Dispatch ${item.id}`,
@@ -4141,6 +3992,49 @@ export async function handleApiRequest(
         }
         return badRequest(res, err instanceof Error ? err.message : String(err));
       }
+    }
+
+    // PUT /api/work-items/:id/dispatch-config — how the NEXT attempt runs: the
+    // skills it preloads and the engine/model it uses. Deliberately settable
+    // while the Todo is `executing` (that is the point — it is the lever for
+    // moving a stuck attempt onto another engine) and deliberately NOT part of
+    // PATCH: these live in a side table, and the PATCH field order feeds the
+    // canonical edit fingerprint that existing idempotency receipts were made
+    // against. Same authority as labels: operator, creator, or assignee.
+    params = matchRoute("/api/work-items/:id/dispatch-config", pathname);
+    if (method === "PUT" && params) {
+      const caller = resolveWorkItemCaller(req, res, context);
+      if (!caller) return;
+      if (!requireTodoRouteId(res, params.id)) return;
+      const item = getWorkItem(params.id);
+      if (!item) return notFound(res);
+      const employee = caller.kind === "session" ? caller.session.employee ?? null : null;
+      const allowed =
+        caller.kind === "operator" ||
+        item.createdBy === workItemActor(caller) ||
+        (employee !== null && (item.assignee === employee || item.createdBy === employee));
+      if (!allowed) {
+        return json(res, { error: "setting a Todo's dispatch config requires the operator, the item creator, or the assignee" }, 403);
+      }
+      const parsed = await readJsonBody(req, res);
+      if (!parsed.ok) return;
+      if (!parsed.body || typeof parsed.body !== "object" || Array.isArray(parsed.body)) {
+        return badRequest(res, "request body must be a JSON object");
+      }
+      const body = parsed.body as Record<string, unknown>;
+      for (const key of ["engine", "model"] as const) {
+        if (body[key] !== undefined && body[key] !== null && (typeof body[key] !== "string" || !(body[key] as string).trim())) {
+          return badRequest(res, `${key} must be a non-empty string or null`);
+        }
+      }
+      const result = setTodoDispatchConfig(params.id, {
+        ...(body.skills !== undefined ? { skills: body.skills } : {}),
+        ...(body.engine !== undefined ? { engine: body.engine === null ? null : (body.engine as string).trim() } : {}),
+        ...(body.model !== undefined ? { model: body.model === null ? null : (body.model as string).trim() } : {}),
+      }, context.getConfig());
+      if (!result.ok) return badRequest(res, result.error);
+      emitTodoProjectionEvent(context, params.id, "dispatch-config-updated");
+      return json(res, { dispatchConfig: result.config });
     }
 
     // PUT /api/work-items/:id/labels — replace the label set (operator, item
@@ -4548,12 +4442,24 @@ export async function handleApiRequest(
             ...(delegateEmployee.effortLevel ? { effortLevel: delegateEmployee.effortLevel } : {}),
           }
         : undefined;
+      // ICI-733: a Todo's own override outranks both the request and the
+      // employee's YAML — it is the lever for retrying a Todo somewhere else,
+      // and a caller repeating the engine that just failed would defeat it.
+      // A named engine with no model resolves that engine's default, so the
+      // previous engine's model is not carried across.
+      const todoDispatch = typeof body.workItemId === "string" && isTodoId(body.workItemId.trim())
+        ? resolveTodoDispatch(body.workItemId.trim())
+        : { ok: true as const, preamble: { prefix: "", engine: null, model: null } };
+      if (!todoDispatch.ok) return json(res, { error: todoDispatch.error }, 409);
+      const todoOverride = todoDispatch.preamble;
       const selection = validateNewSessionSelection(config, {
-        engine: body.engine,
-        model: body.model,
+        engine: todoOverride.engine ?? body.engine,
+        model: todoOverride.engine ? todoOverride.model ?? undefined : body.model,
         effortLevel: body.effortLevel,
-      }, employeeDefaults);
+      }, todoOverride.engine ? { employee: employeeName } : employeeDefaults);
       if (!selection.ok) return badRequest(res, selection.error || "invalid engine/model/effort");
+      // The Todo's skills are preloaded by prefixing the brief the delegate reads.
+      const brief = todoOverride.prefix + task;
       const engineName = selection.engine || config.engines.default;
 
       const title = (
@@ -4660,7 +4566,7 @@ export async function handleApiRequest(
           parentSessionId,
           model: selection.model,
           effortLevel: selection.effortLevel,
-          prompt: task,
+          prompt: brief,
           title,
           portalName: config.portal?.portalName,
           transportMeta: {
@@ -4688,7 +4594,7 @@ export async function handleApiRequest(
       }
       rehomeAttachmentsToSession(attachments, session.id);
       const delegationMedia = fileIdsToMedia(attachments);
-      insertMessage(session.id, "user", task, delegationMedia.length > 0 ? delegationMedia : undefined);
+      insertMessage(session.id, "user", brief, delegationMedia.length > 0 ? delegationMedia : undefined);
 
       // 3. LINK — BEFORE any dispatch step (017d codex review finding 1). The
       //    whole point of the in-process transaction is that the work item ↔
@@ -4765,10 +4671,10 @@ export async function handleApiRequest(
       }
       logger.info(`Delegation ${workItem.id}: session ${session.id} linked + dispatching for ${employeeName ?? engineName}`);
       const delegationQueueKey = session.sessionKey || session.sourceRef || session.id;
-      const delegationQueueItemId = enqueueQueueItem(session.id, delegationQueueKey, task);
+      const delegationQueueItemId = enqueueQueueItem(session.id, delegationQueueKey, brief);
       context.emit("queue:updated", { sessionId: session.id, sessionKey: delegationQueueKey });
       const attachmentPaths = resolveAttachmentPaths(attachments);
-      dispatchWebSessionRun(session, task, engine, context, {
+      dispatchWebSessionRun(session, brief, engine, context, {
         queueItemId: delegationQueueItemId,
         attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
       });
