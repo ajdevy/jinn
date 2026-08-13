@@ -20,7 +20,7 @@ import type { TodoListGroup } from "./group-items"
  * reason and does have that conversion.)
  */
 
-/** Below this many rows the list renders every one of them, as it always has. */
+/** Below this many Todos the list renders every row of it, as it always has. */
 export const VIRTUALIZE_THRESHOLD = 50
 
 /** Rows kept mounted beyond the visible window, each side. */

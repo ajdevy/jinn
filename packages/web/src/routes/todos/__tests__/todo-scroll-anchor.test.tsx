@@ -13,9 +13,9 @@ import { clearBoardScrollCache } from "../board/board-route"
  * jsdom has no layout engine, so the list is given one: every anchored row is
  * ROW_H tall, the scrollport is VIEWPORT_H tall, and a row's rect follows its
  * position in the CURRENT DOM order minus scrollTop. That makes "where is this
- * row on screen" a number the test can read before and after a status change.
- * PLAIN_ROWS holds these cases below `VIRTUALIZE_THRESHOLD` even once a reflow
- * has added rows; the windowed path has its own describe and harness below.
+ * row on screen" a number the test can read before and after a status change,
+ * which is the thing the reader actually notices. Forty Todos stays below
+ * `VIRTUALIZE_THRESHOLD`; the windowed path has its own describe and harness.
  */
 
 vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
@@ -48,7 +48,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 const ROW_H = 60
 const VIEWPORT_H = 600
-const PLAIN_ROWS = 37
 
 function compact(id: string, status: WorkItemStatusWire, rank: number): WorkItemCompactWire {
   return {
@@ -164,7 +163,7 @@ afterEach(() => { vi.restoreAllMocks() })
 
 describe("Todos list scroll anchoring", () => {
   it("holds the read position when a status change moves a row into a group above it", async () => {
-    rows.backlog = Array.from({ length: PLAIN_ROWS }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
 
@@ -190,7 +189,7 @@ describe("Todos list scroll anchoring", () => {
   })
 
   it("holds it when the group above the reader grows", async () => {
-    rows.backlog = Array.from({ length: PLAIN_ROWS }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
 
@@ -208,7 +207,7 @@ describe("Todos list scroll anchoring", () => {
   })
 
   it("leaves a reader at the top of the list at the top", async () => {
-    rows.backlog = Array.from({ length: PLAIN_ROWS }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
 
@@ -257,7 +256,7 @@ describe("Todos list scroll anchoring, windowed", () => {
 
 describe("Todos board scroll anchoring", () => {
   it("holds the read position when cards land above the reader", async () => {
-    rows.backlog = Array.from({ length: PLAIN_ROWS }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
     fireEvent.click(screen.getByTestId("todos-view-board"))
@@ -278,7 +277,7 @@ describe("Todos board scroll anchoring", () => {
   })
 
   it("follows the content when the anchored card leaves the board, without snapping to an edge", async () => {
-    rows.backlog = Array.from({ length: PLAIN_ROWS }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
     fireEvent.click(screen.getByTestId("todos-view-board"))

@@ -65,9 +65,13 @@ export function TodoList({
     [groups, columns, closedOpen],
   )
   const rows = useMemo(() => flattenTodoListSections(sections), [sections])
+  // Headers, captions and "Show more" number a handful whatever the data, so
+  // counting them in would window a list of forty Todos — short enough that
+  // mounting it whole is the cheaper of the two.
+  const todoCount = rows.reduce((count, row) => count + (row.kind === "item" ? 1 : 0), 0)
 
   const handlers: TodoListRowHandlers = { byName, trees, now, onOpen, onQuickAdd, onToggleClosed: toggleClosed }
-  return rows.length >= VIRTUALIZE_THRESHOLD
+  return todoCount >= VIRTUALIZE_THRESHOLD
     ? <WindowedTodoList rows={rows} scrollRef={scrollRef} className={PADDING} handlers={handlers} />
     : <PlainTodoList sections={sections} handlers={handlers} />
 }
