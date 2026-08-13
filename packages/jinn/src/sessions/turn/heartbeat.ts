@@ -1,3 +1,4 @@
+import { renewWorkItemClaimForSession } from "../../work-items/claims.js";
 import { getSession, updateSessionForAttempt } from "../registry.js";
 
 /** Wall-clock cadence the status reconciler's staleness threshold is sized against. */
@@ -16,6 +17,10 @@ export interface TurnHeartbeat {
  * can tell a live turn from a gateway that died mid-turn. Self-disarms when the
  * session is deleted: `engine.run` may not resolve for minutes, and we must not
  * keep writing `running` rows for a session the user already removed.
+ *
+ * The same beat renews the lease on the Todo this session is working, so the
+ * claim an agent holds stays alive on the evidence that it is still working
+ * rather than on the agent remembering to say so.
  */
 export function armTurnHeartbeat(sessionId: string, attemptToken: string): TurnHeartbeat {
   let lastBeatAt = 0;
@@ -25,6 +30,7 @@ export function armTurnHeartbeat(sessionId: string, attemptToken: string): TurnH
       status: "running",
       lastActivity: new Date().toISOString(),
     });
+    renewWorkItemClaimForSession(sessionId);
   };
 
   let timer: ReturnType<typeof setInterval> | undefined = setInterval(() => {

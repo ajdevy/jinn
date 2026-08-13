@@ -236,6 +236,7 @@ import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRo
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
+import { claimTodoForDelegation, claimTodoForDispatch, type RouteTodoClaim } from "./todo-claim.js";
 import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
@@ -3700,22 +3701,13 @@ export async function handleApiRequest(
         if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       }
 
-      const liveDispatcher = listSessionsByWorkItem(item.id).find(
-        (session) => session.employee === TODO_DISPATCHER_NAME
-          && (session.status === "running" || session.status === "waiting"),
-      );
-      if (liveDispatcher) {
-        return json(res, {
-          workItemId: item.id,
-          sessionId: liveDispatcher.id,
-          status: liveDispatcher.status,
-          reused: true,
-        });
-      }
+      const claim = claimTodoForDispatch(res, item.id);
+      if (!claim) return;
 
       const config = context.getConfig();
       const dispatcher = scanOrg(config).get(TODO_DISPATCHER_NAME);
       if (!dispatcher?.system) {
+        claim.release();
         return serverError(res, "the built-in Todo Dispatcher is unavailable");
       }
       const attachment = decideJinnAttachment({
@@ -3724,6 +3716,7 @@ export async function handleApiRequest(
         engine: dispatcher.engine,
       });
       if (!attachment.attach) {
+        claim.release();
         return json(res, {
           error: `Todo Dispatcher cannot run on engine "${dispatcher.engine}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
         }, 409);
@@ -3731,6 +3724,7 @@ export async function handleApiRequest(
 
       const engine = context.sessionManager.getEngine(dispatcher.engine);
       if (!engine) {
+        claim.release();
         return json(res, { error: `engine "${dispatcher.engine}" not available; change the Dispatcher engine override and try again` }, 502);
       }
 
@@ -3758,7 +3752,9 @@ export async function handleApiRequest(
       insertMessage(session.id, "user", prompt);
       try {
         linkSession(item.id, session.id);
+        claim.bind(session.id);
       } catch (error) {
+        claim.release();
         return serverError(
           res,
           `Todo Dispatcher was not started because its session could not be linked: ${error instanceof Error ? error.message : String(error)}`,
@@ -4575,6 +4571,7 @@ export async function handleApiRequest(
       //    mint as before. An idempotency key makes the minted sourceRef stable,
       //    so a retry after a pre-session failure reuses the same intent.
       let workItem: WorkItem;
+      let claim: RouteTodoClaim | undefined;
       if (requestedWorkItemId) {
         const existingWorkItem = getWorkItem(requestedWorkItemId);
         if (!existingWorkItem) return json(res, { error: `Todo ${requestedWorkItemId} not found` }, 404);
@@ -4599,17 +4596,8 @@ export async function handleApiRequest(
           && getSession(delegationCaller.callerId)?.employee === TODO_DISPATCHER_NAME
           ? delegationCaller.callerId
           : undefined;
-        const liveAttempt = listSessionsByWorkItem(workItem.id).find((attempt) =>
-          (attempt.status === "running" || attempt.status === "waiting")
-          && attempt.id !== dispatcherCallerId,
-        );
-        if (liveAttempt) {
-          return json(res, {
-            error: `Todo ${workItem.id} already has live execution session ${liveAttempt.id}`,
-            workItemId: workItem.id,
-            sessionId: liveAttempt.id,
-          }, 409);
-        }
+        claim = claimTodoForDelegation(res, workItem.id, dispatcherCallerId);
+        if (!claim) return;
       } else {
         try {
           workItem = createWorkItem({
@@ -4639,6 +4627,7 @@ export async function handleApiRequest(
       //    `backlog` item (durable intent, recoverable) and reports its id.
       const engine = context.sessionManager.getEngine(engineName);
       if (!engine) {
+        claim?.release();
         return json(res, {
           error: `engine "${engineName}" not available`,
           workItemId: workItem.id,
@@ -4653,6 +4642,7 @@ export async function handleApiRequest(
               : { kind: "operator" },
           )) ?? workItem;
         } catch (assignmentErr) {
+          claim?.release();
           return json(res, { error: assignmentErr instanceof Error ? assignmentErr.message : String(assignmentErr) }, 409);
         }
       }
@@ -4679,6 +4669,7 @@ export async function handleApiRequest(
           },
         });
       } catch (spawnErr) {
+        claim?.release();
         const replay = idempotencySessionKey ? getSessionBySessionKey(idempotencySessionKey) : undefined;
         if (replay?.workItemId) {
           return json(res, {
@@ -4711,7 +4702,9 @@ export async function handleApiRequest(
       //    instead of dispatching an untracked turn.
       try {
         linkSession(workItem.id, session.id);
+        claim?.bind(session.id);
       } catch (linkErr) {
+        claim?.release();
         logger.warn(`Delegation ${workItem.id} link failed before dispatch: ${linkErr instanceof Error ? linkErr.message : linkErr}`);
         return json(res, {
           error: "delegation halted before dispatch — linking the work item to the spawned session failed",

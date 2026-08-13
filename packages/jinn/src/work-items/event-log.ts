@@ -1,6 +1,6 @@
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
-import type { WorkItemEvent, WorkItemEventKind, WorkItemStatus } from './store.js';
+import type { WorkItemEvent, WorkItemStatus } from './store.js';
 
 /**
  * Reading the Todo audit trail.
@@ -14,6 +14,31 @@ import type { WorkItemEvent, WorkItemEventKind, WorkItemStatus } from './store.j
  * here rather than there for that reason: store.ts re-exports this module, so a
  * value import back the other way would read a constant before it exists.
  */
+
+/** Everything the trail can say. The vocabulary lives with the reader because
+ *  every consumer of an event reads it from here; store.ts re-exports it beside
+ *  the append that writes one. */
+export type WorkItemEventKind =
+  | 'created'
+  | 'child_created'
+  | 'comment_added'
+  | 'comment_edited'
+  | 'comment_deleted'
+  | 'relation_added'
+  | 'relation_removed'
+  | 'label_changed'
+  | 'attachment_added'
+  | 'attachment_removed'
+  | 'metadata_edited'
+  | 'status_change'
+  | 'note'
+  | 'session_linked'
+  | 'approval_requested'
+  | 'approval_decided'
+  | 'verify_result'
+  | 'escalated'
+  | 'claim_rejected'
+  | 'claim_expired';
 
 /** Actor recorded on the reconciler's own derived writes. */
 export const RECONCILER_ACTOR = 'reconciler';

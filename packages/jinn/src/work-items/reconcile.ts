@@ -12,6 +12,7 @@ import {
 } from './store.js';
 import { transitionDerived } from './transitions.js';
 import { currentApproval } from './approval-rows.js';
+import { expireWorkItemClaims } from './claims.js';
 import {
   closeOrphanedWorkItemRuns,
   closeRunsForSettledSessions,
@@ -246,6 +247,10 @@ export function reconcileWorkItemsOnStartup(): number {
       logger.info(`Settled ${orphaned} run(s) as crashed: the session running them is gone`);
     }
     closeRunsForSettledSessions();
+    const released = expireWorkItemClaims();
+    if (released > 0) {
+      logger.info(`Released ${released} Todo claim(s) whose lease ran out with nobody reporting against it`);
+    }
     const { checked, changed } = reconcileActiveWorkItems();
     if (changed > 0) {
       logger.info(`Reconciled ${changed} work item(s) from linked session state (of ${checked} non-sticky)`);
@@ -274,6 +279,9 @@ export function startWorkItemReconciler(intervalMs: number = DEFAULT_RECONCILE_I
       // Sticky Todos are outside the sweep above, so their rows are closed here
       // or never — a cancel mid-delegation must not strand an open attempt.
       closeRunsForSettledSessions();
+      // A lease outlives the worker that took it, so without this nothing hands
+      // the Todo back when the gateway holding it dies mid-work.
+      expireWorkItemClaims();
     } catch (err) {
       logger.warn(`Work-item reconcile sweep failed: ${err instanceof Error ? err.message : err}`);
     }

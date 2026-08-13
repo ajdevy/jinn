@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import cron, { type ScheduledTask } from "node-cron";
 import { validateCronSchedule } from "../cron/validation.js";
 import { logger } from "../shared/logger.js";
+import { claimWorkItem, releaseWorkItemClaim } from "../work-items/claims.js";
 import { normalizeLabelName } from "../work-items/labels.js";
 import { createWorkflowTodoEventFeed, type WorkflowTodoEventClaimOutcome,
   type WorkflowTodoEventFeed, type WorkflowTodoStatusEvent } from "../work-items/workflow-event-feed.js";
@@ -154,8 +155,24 @@ export class WorkflowTriggerService {
         return { workflowId: item.definition.id, outcome: "suppressed" as const, detail };
       });
     const labels = event.item.labels.map((label) => label.name);
+    const runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
+    // Claim the TODO, not just the event: the event claim stops this event being
+    // replayed, and this stops a DIFFERENT event — or another gateway — starting
+    // a second run on work somebody is already doing. A rejected claim means the
+    // Todo row is gone, and a Todo that no longer exists cannot be double-worked.
+    const owner = `workflow:${event.id}`;
+    const todo = runnable.length > 0 ? claimWorkItem({ workItemId: event.workItemId, owner }) : undefined;
+    if (todo?.state === "held") {
+      for (const item of runnable) {
+        const detail = `Todo event ${event.id} suppressed: ${event.workItemId} is already being worked by ${todo.claim.owner}.`;
+        logger.info(`Workflow ${item.definition.id}: ${detail}`);
+        outcomes.push({ workflowId: item.definition.id, outcome: "suppressed", detail });
+      }
+      this.feed.completeEvent(event.id, outcomes);
+      return 0;
+    }
     try {
-      for (const item of indexed.filter((candidate) => allowed.has(candidate.definition.id))) {
+      for (const item of runnable) {
         const run = await this.start(item.definition, item.trigger, event.id, {
           todoId: event.workItemId, fromStatus: event.fromStatus, toStatus: event.toStatus,
           actor: event.actor, source: event.item.source, department: event.item.department,
@@ -165,7 +182,7 @@ export class WorkflowTriggerService {
       }
       this.feed.completeEvent(event.id, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
-    } catch (error) { this.feed.releaseEvent(event.id); throw error; }
+    } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
   }
 
   private async start(definition: WorkflowDefinition, source: TriggerNode, fireId: string,

@@ -8,6 +8,7 @@ import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
+import type { WorkItemEventKind } from './event-log.js';
 
 /**
  * Work-item store — the substrate of the Todos ledger (GRS-002, elevated by
@@ -296,26 +297,6 @@ function isUniqueConstraintError(err: unknown): boolean {
 
 /* ── Events (append-only audit, design §1.2) ────────────────────────────────── */
 
-export type WorkItemEventKind =
-  | 'created'
-  | 'child_created'
-  | 'comment_added'
-  | 'comment_edited'
-  | 'comment_deleted'
-  | 'relation_added'
-  | 'relation_removed'
-  | 'label_changed'
-  | 'attachment_added'
-  | 'attachment_removed'
-  | 'metadata_edited'
-  | 'status_change'
-  | 'note'
-  | 'session_linked'
-  | 'approval_requested'
-  | 'approval_decided'
-  | 'verify_result'
-  | 'escalated';
-
 export interface WorkItemEvent {
   id: string;
   workItemId: string;
@@ -394,6 +375,7 @@ export {
   listWorkItemEvents,
   listWorkItemEventsForItems,
 } from './event-log.js';
+export type { WorkItemEventKind } from './event-log.js';
 
 /* ── Create / read ──────────────────────────────────────────────────────────── */
 
