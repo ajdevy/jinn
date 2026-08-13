@@ -115,6 +115,54 @@ describe("a description opens the one thing it fits", () => {
   })
 })
 
+describe("a description is looked for by every word it holds", () => {
+  /** Two things whose titles the longest spoken word — "thing" — never reaches. */
+  const ORB_SESSIONS = [
+    { id: "s-1", title: "Talk orb resolution", employee: "a-lead" },
+    { id: "s-2", title: "Talk orb latency", employee: "a-lead" },
+  ]
+
+  it("finds what the longest word alone would miss, and asks which", async () => {
+    mocked.searchSessions.mockImplementation((term) =>
+      Promise.resolve(term === "thing" ? [] : ORB_SESSIONS) as never)
+    const { result } = renderHook(() => useSituation())
+    const pending = open("talk orb thing")
+    await settle()
+
+    expect(mocked.searchSessions.mock.calls.map(([term]) => term)).toEqual(
+      expect.arrayContaining(["talk", "orb"]),
+    )
+    const situation = result.current
+    expect(situation?.payload.kind).toBe("options")
+    const options = situation?.payload.kind === "options" ? situation.payload.options : []
+    expect(options.map((option) => option.label)).toEqual(["Talk orb resolution", "Talk orb latency"])
+
+    act(() => answerSituation(options[0].id))
+    expect(await pending).toEqual({ ok: true, data: { path: "/?session=s-1" } })
+  })
+
+  it("counts one object once, however many of its words were searched", async () => {
+    mocked.searchWorkItems.mockResolvedValue({
+      workItems: [{ id: "ABC-744", title: "Talk orb resolution", status: "executing" }],
+    } as never)
+    expect(await open("talk orb resolution")).toEqual({ ok: true, data: { path: "/todos/ABC-744" } })
+    expect(visited).toEqual(["/todos/ABC-744"])
+  })
+
+  it("reads the workflow list past its first page", async () => {
+    const fillers = Array.from({ length: 50 }, (_, index) => ({ id: `w-${index}`, title: `Nightly digest ${index}` }))
+    mocked.listWorkflowDefinitionsV2.mockImplementation((cursor) =>
+      Promise.resolve(
+        cursor
+          ? { items: [{ id: "ancient-target", title: "Ancient target" }], nextCursor: null }
+          : { items: fillers, nextCursor: "page-2" },
+      ) as never)
+
+    expect(await open("ancient target")).toEqual({ ok: true, data: { path: "/workflow/ancient-target" } })
+    expect(visited).toEqual(["/workflow/ancient-target"])
+  })
+})
+
 describe("several matches are asked about, never guessed between", () => {
   beforeEach(() => {
     mocked.searchWorkItems.mockResolvedValue({

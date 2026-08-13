@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { looksLikeId, rankCandidates, searchTerm, spokenId, viewPrefix, type Candidate } from "../resolve"
+import { looksLikeId, rankCandidates, searchTerms, spokenId, viewPrefix, type Candidate } from "../resolve"
 
 const CANDIDATES: Candidate[] = [
   { kind: "todo", id: "ABC-744", title: "Talk orb: fuzzy resolution" },
@@ -58,14 +58,28 @@ describe("looksLikeId", () => {
   })
 })
 
-describe("searchTerm", () => {
-  it("picks the most distinctive spoken word, because the endpoints match substrings", () => {
-    expect(searchTerm("the talk orb ticket")).toBe("talk")
+describe("searchTerms", () => {
+  it("asks for every spoken word, because the endpoints match substrings", () => {
+    expect(searchTerms("the talk orb ticket")).toEqual(["talk", "orb"])
+  })
+
+  it("does not stake the search on the longest word alone", () => {
+    expect(searchTerms("talk orb thing")).toContain("talk")
+    expect(searchTerms("talk orb thing")).toContain("orb")
+  })
+
+  it("keeps the most distinctive words when a long sentence is spoken", () => {
+    expect(searchTerms("resolution latency backlog rollout orb")).toEqual([
+      "resolution",
+      "latency",
+      "backlog",
+      "rollout",
+    ])
   })
 
   it("has nothing to search for when every word is filler", () => {
-    expect(searchTerm("the one about it")).toBeNull()
-    expect(searchTerm("")).toBeNull()
+    expect(searchTerms("the one about it")).toEqual([])
+    expect(searchTerms("")).toEqual([])
   })
 })
 

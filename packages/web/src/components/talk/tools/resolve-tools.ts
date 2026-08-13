@@ -5,7 +5,7 @@ import { companyTodoPrefix, go } from "./navigate-tools"
 import {
   looksLikeId,
   rankCandidates,
-  searchTerm,
+  searchTerms,
   spokenId,
   viewPrefix,
   type Candidate,
@@ -20,9 +20,10 @@ import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./to
  * The operator says an id, a bare number, or their own words, and this turns
  * any of the three into a route. An id costs no request and commits its route
  * change with nothing awaited in front of it, like the navigation tools. Words
- * cost four searches, which is why they are the slower path — and when several
- * things fit them the sheet asks, because a voice channel gives the operator no
- * way to notice that a silent pick was the wrong one.
+ * cost a search per distinctive word plus the two lists that have no search
+ * route, which is why they are the slower path — and when several things fit
+ * them the sheet asks, because a voice channel gives the operator no way to
+ * notice that a silent pick was the wrong one.
  */
 
 /** Enough cards to choose between, few enough to hear read out. */
@@ -56,28 +57,51 @@ function pathFor(candidate: Candidate): string {
   }
 }
 
+/** Workflows have no search route, so the list is walked whole — to its last
+ *  page, because the one thing the operator meant is as likely to sit there as
+ *  on the first. */
+async function workflowCandidates(): Promise<Candidate[]> {
+  const found: Candidate[] = []
+  let cursor: string | undefined
+  do {
+    const page = await api.listWorkflowDefinitionsV2(cursor)
+    found.push(...page.items.map((item) => ({ kind: "workflow" as const, id: item.id, title: item.title })))
+    cursor = page.nextCursor ?? undefined
+  } while (cursor)
+  return found
+}
+
+/** A word of a title reaches the same object as the word beside it does, and a
+ *  repeat would read on the sheet as a second thing to choose between. */
+function distinct(candidates: readonly Candidate[]): Candidate[] {
+  const byKey = new Map<string, Candidate>()
+  for (const candidate of candidates) byKey.set(`${candidate.kind}:${candidate.id}`, candidate)
+  return [...byKey.values()]
+}
+
 /**
- * Everything the four surfaces can offer for one term, flattened.
+ * Everything the four surfaces can offer for the spoken terms, flattened.
  *
- * Workflows and experiments have no search route, so their lists come back
- * whole and `rankCandidates` does the narrowing. A source that fails takes the
- * whole resolution down with it rather than quietly shrinking the field: a
- * "nothing matched" that really meant "one search errored" would send the
- * operator looking for something that is there.
+ * Todos and sessions are searched once per term; workflows and experiments
+ * have no search route, so their lists come back whole and `rankCandidates`
+ * does the narrowing. A source that fails takes the whole resolution down with
+ * it rather than quietly shrinking the field: a "nothing matched" that really
+ * meant "one search errored" would send the operator looking for something
+ * that is there.
  */
-async function candidatesFor(term: string): Promise<Candidate[]> {
+async function candidatesFor(terms: readonly string[]): Promise<Candidate[]> {
   const [todos, sessions, workflows, experiments] = await Promise.all([
-    api.searchWorkItems({ text: term, limit: SEARCH_LIMIT }),
-    api.searchSessions(term),
-    api.listWorkflowDefinitionsV2(),
+    Promise.all(terms.map((term) => api.searchWorkItems({ text: term, limit: SEARCH_LIMIT }))),
+    Promise.all(terms.map((term) => api.searchSessions(term))),
+    workflowCandidates(),
     api.listExperiments(),
   ])
-  return [
-    ...todos.workItems.map((item) => ({ kind: "todo" as const, id: item.id, title: item.title, detail: item.status })),
-    ...sessions.map((row) => ({ kind: "session" as const, id: text(row.id), title: text(row.title), detail: text(row.employee) })),
-    ...workflows.items.map((item) => ({ kind: "workflow" as const, id: item.id, title: item.title })),
+  return distinct([
+    ...todos.flatMap((page) => page.workItems).map((item) => ({ kind: "todo" as const, id: item.id, title: item.title, detail: item.status })),
+    ...sessions.flat().map((row) => ({ kind: "session" as const, id: text(row.id), title: text(row.title), detail: text(row.employee) })),
+    ...workflows,
     ...experiments.experiments.map((item) => ({ kind: "experiment" as const, id: item.id, title: item.name, detail: item.status })),
-  ]
+  ])
 }
 
 /** The kind first, because two objects can carry the same title and only their
@@ -115,14 +139,14 @@ async function askWhichOne(what: string, ranked: readonly RankedCandidate[]): Pr
 }
 
 async function openByDescription(what: string): Promise<ToolResult> {
-  const term = searchTerm(what)
-  if (!term) {
+  const terms = searchTerms(what)
+  if (terms.length === 0) {
     return { ok: false, error: `"${what}" names nothing to look for. Say a word from its title, or give the id.` }
   }
 
   let ranked: RankedCandidate[]
   try {
-    ranked = rankCandidates(what, await candidatesFor(term))
+    ranked = rankCandidates(what, await candidatesFor(terms))
   } catch (error) {
     const why = error instanceof Error && error.message ? error.message : "the gateway did not answer"
     return { ok: false, error: `Could not search for "${what}": ${why}.` }

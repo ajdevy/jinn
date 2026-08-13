@@ -86,16 +86,23 @@ function words(value: string): string[] {
     .filter((word) => word !== "" && !FILLER.has(word))
 }
 
+/** Enough words to reach the thing, few enough that one spoken sentence does
+ *  not turn into a dozen round trips. */
+const SEARCHED_WORDS = 4
+
 /**
- * One term to send to the gateway. Todo and session search both match a
+ * The terms to send to the gateway. Todo and session search both match a
  * substring, so a whole spoken phrase — "the talk orb ticket" — matches
- * nothing at all; the longest distinctive word returns a superset that
- * `rankCandidates` then narrows against everything the operator said.
+ * nothing at all. Each distinctive word is asked for on its own instead,
+ * because the one that finds the object is not always the longest: "talk orb
+ * thing" only reaches the orb sessions through "talk" and "orb". The pooled
+ * answers are a superset that `rankCandidates` narrows against everything the
+ * operator said. Longest first, so the cap keeps the most distinctive words.
  */
-export function searchTerm(query: string): string | null {
-  const asked = words(query)
-  if (asked.length === 0) return null
-  return asked.reduce((longest, word) => (word.length > longest.length ? word : longest))
+export function searchTerms(query: string): string[] {
+  return [...new Set(words(query))]
+    .sort((first, second) => second.length - first.length)
+    .slice(0, SEARCHED_WORDS)
 }
 
 /**
