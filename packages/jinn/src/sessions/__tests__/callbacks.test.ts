@@ -326,7 +326,7 @@ describe("notifyParentSession", () => {
     expect(url).toBe("http://127.0.0.1:7777/api/sessions/child-001/message");
     const body = JSON.parse(opts.body);
     expect(body.role).toBe("notification");
-    expect(body.message).toContain("Continue the existing task now");
+    expect(body.message).toContain("Continue the work now");
   });
 
   it("enforces the completion contract even when ordinary parent replies are suppressed", async () => {

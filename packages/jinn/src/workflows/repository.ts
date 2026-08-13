@@ -85,7 +85,7 @@ export interface WorkflowRunTransaction {
     | { status: 'failed' | 'timed-out' | 'cancelled'; sessionId?: string; error: WorkflowError; endedAt: string }
   ): WorkflowAttemptRecord;
   setAttemptReminder(nodeId: string, attempt: number, patch: {
-    remindersSent?: number;
+    remindersSent?: number; stopNudgesSent?: number;
     nextReminderAt?: string | null;
     extensions?: number;
     lastExtensionReason?: string | null;

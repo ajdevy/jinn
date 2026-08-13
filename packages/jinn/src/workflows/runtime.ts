@@ -90,6 +90,9 @@ export interface WorkflowAttemptRecord {
   startedAt: string;
   endedAt?: string;
   remindersSent: number;
+  /** Immediate nudges spent on turns that ended on narration. Counted apart from
+   *  `remindersSent` so the time ladder is still whole once they run out. */
+  stopNudgesSent: number;
   nextReminderAt?: string;
   extensions: number;
   lastExtensionReason?: string;

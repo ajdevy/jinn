@@ -195,9 +195,9 @@ export class RunMutation implements WorkflowRunTransaction {
     this.assertOpen();
     const id = parseNodeId(nodeId);
     if (!Number.isInteger(attempt) || attempt < 1) repositoryError('bad-input', 'Workflow attempt number is invalid.');
-    const keys = ['remindersSent', 'nextReminderAt', 'extensions', 'lastExtensionReason', 'pendingOutputError', 'lastProcessedTurn'];
+    const keys = ['remindersSent', 'stopNudgesSent', 'nextReminderAt', 'extensions', 'lastExtensionReason', 'pendingOutputError', 'lastProcessedTurn'];
     const values = normalizedRecord(patch, keys, 'Workflow attempt reminder patch is invalid.');
-    for (const key of ['remindersSent', 'extensions', 'lastProcessedTurn'] as const) {
+    for (const key of ['remindersSent', 'stopNudgesSent', 'extensions', 'lastProcessedTurn'] as const) {
       if (values[key] !== undefined && (!Number.isInteger(values[key]) || (values[key] as number) < 0)) {
         repositoryError('bad-input', 'Workflow attempt reminder patch is invalid.');
       }
@@ -213,6 +213,7 @@ export class RunMutation implements WorkflowRunTransaction {
     if (current.status !== 'running') repositoryError('bad-input', 'Workflow attempt reminder state requires a running attempt.');
     const next = { ...current } as WorkflowAttemptRecord;
     if (values.remindersSent !== undefined) next.remindersSent = values.remindersSent as number;
+    if (values.stopNudgesSent !== undefined) next.stopNudgesSent = values.stopNudgesSent as number;
     if (Object.hasOwn(values, 'nextReminderAt')) {
       if (values.nextReminderAt === null) delete next.nextReminderAt;
       else next.nextReminderAt = values.nextReminderAt as string;
@@ -229,6 +230,7 @@ export class RunMutation implements WorkflowRunTransaction {
     if (values.lastProcessedTurn !== undefined) next.lastProcessedTurn = values.lastProcessedTurn as number;
     if (!recordChanged(current, next)) return current;
     this.db.prepare(`UPDATE workflow_attempts SET reminders_sent = @remindersSent,
+      stop_nudges_sent = @stopNudgesSent,
       next_reminder_at = @nextReminderAt, extensions = @extensions,
       last_extension_reason = @lastExtensionReason, pending_output_error = @pendingOutputError,
       last_processed_turn = @lastProcessedTurn
@@ -237,6 +239,7 @@ export class RunMutation implements WorkflowRunTransaction {
       nodeId: id,
       attempt,
       remindersSent: next.remindersSent,
+      stopNudgesSent: next.stopNudgesSent,
       nextReminderAt: next.nextReminderAt ?? null,
       extensions: next.extensions,
       lastExtensionReason: next.lastExtensionReason ?? null,

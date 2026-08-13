@@ -456,7 +456,7 @@ describe("first Workflow vertical", () => {
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1));
     const afterInterruption = service.getRun(authored.id, started.id)!;
 
-    await engine.resolve({ sessionId: "native-follow-up", result: "Still working.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-follow-up", result: "The release notes check is done.", durationMs: 1 });
     await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     expect(afterInterruption).toMatchObject({
@@ -550,7 +550,7 @@ describe("first Workflow vertical", () => {
       error: "Interrupted: new message received",
       durationMs: 1,
     });
-    await engine.resolve({ sessionId: "native-extra-turn", result: "Verification added.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-extra-turn", result: "The extra verification is done.", durationMs: 1 });
     await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     await postSessionMessage(sessionId, "Submit once the summary is ready.");
@@ -681,7 +681,7 @@ describe("first Workflow vertical", () => {
     });
     updateSession(child.id, { status: "running" });
 
-    await engine.resolve({ sessionId: "native-delegated-parent", result: "Waiting for delegated work.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-delegated-parent", result: "Waiting on the delegated child.", durationMs: 1 });
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const firstDue = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     expect(manager.workflowAttemptState(sessionId)).toMatchObject({ idle: true, runningChildren: 1 });
@@ -717,13 +717,13 @@ describe("first Workflow vertical", () => {
     const authored = definition({ id: "vertical-no-output-route", errorRoute: true });
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "silent" } });
 
-    await engine.resolve({ sessionId: "native-no-output-1", result: "Still working.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-no-output-1", result: "The draft is done.", durationMs: 1 });
     for (let rung = 1; rung <= 3; rung += 1) {
       await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
       const due = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
       await service.recover(due);
       await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.remindersSent).toBe(rung));
-      await engine.resolve({ sessionId: `native-no-output-${rung + 1}`, result: "Still no submission.", durationMs: 1 });
+      await engine.resolve({ sessionId: `native-no-output-${rung + 1}`, result: "Finished another pass.", durationMs: 1 });
     }
 
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.status).toBe("completed"));
@@ -744,7 +744,7 @@ describe("first Workflow vertical", () => {
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "extension" } });
     const sessionId = await liveAttemptSession(authored.id, started.id);
 
-    await engine.resolve({ sessionId: "native-before-extension", result: "Need more time.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-before-extension", result: "Need more time. Can the deadline move?", durationMs: 1 });
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const due = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     await service.recover(due);
@@ -760,7 +760,7 @@ describe("first Workflow vertical", () => {
     });
     expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeUndefined();
 
-    await engine.resolve({ sessionId: "native-after-extension", result: "Continuing after extension.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-after-extension", result: "Waiting on the reviewer after the extension.", durationMs: 1 });
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.nextReminderAt).toBeDefined());
     const resetDue = service.getRun(authored.id, started.id)!.attempts[0]!.nextReminderAt!;
     expect(Date.parse(resetDue) - Date.parse(getSession(sessionId)!.lastActivity)).toBe(5 * 60_000);

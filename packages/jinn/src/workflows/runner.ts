@@ -22,6 +22,8 @@ import type {
 import { dispatchFailure, interruptedAttemptFailure, workflowError } from "./failure.js";
 import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
 import { fanoutConcurrencyRecord, readCapacitySnapshot, resolveFanoutConcurrency, type FanoutConcurrency } from "./capacity.js";
+import { addMinutes, hasWorkflowOutputBlock, remindDueAttempts, REMINDER_RUNGS_MINUTES } from "./reminder-ladder.js";
+import { planStopNudge, STOP_NUDGE_TEXT } from "../sessions/stop-nudge.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
@@ -78,16 +80,7 @@ type NodeAction =
   | { kind: "activate" | "skip" | "condition" | "merge" | "approval" | "wait" | "end"; node: WorkflowNode }
   | { kind: "fanout"; node: WorkflowCallNode }
   | { kind: "dispatch"; node: EmployeeNode; config: ResolvedEmployeeConfig };
-const REMINDER_RUNGS_MINUTES = [5, 15, 30] as const;
 const DEFAULT_ATTEMPT_TIMEOUT_MINUTES = 180;
-const REMINDER_TEXT = "Workflow reminder: if you have finished this step, call `workflow_submit_output` now. If you are still working or waiting on delegated work, continue.";
-const FINAL_REMINDER_TEXT = `${REMINDER_TEXT} This is the final reminder. If you genuinely need more time, call \`workflow_extend_deadline\`.`;
-function addMinutes(at: string, minutes: number): string {
-  return new Date(Date.parse(at) + minutes * 60_000).toISOString();
-}
-function hasWorkflowOutputBlock(text: string): boolean {
-  return /(?:^|\n)```jinn-output[ \t]*(?:\r?\n|$)/.test(text);
-}
 function bindingContext(run: WorkflowRunDetail): WorkflowBindingContext {
   const itemIndex = run.trigger.payload.itemIndex;
   return {
@@ -929,38 +922,42 @@ export class WorkflowRunner {
   }
 
   async remindDueAttempts(now: string): Promise<void> {
-    for (const due of this.options.repository.listDueReminders(now, 100)) {
-      const current = this.options.repository.getAttempt(due.runId, due.nodeId, due.attempt);
-      if (!current || current.status !== "running" || !current.sessionId
-        || !current.nextReminderAt || current.nextReminderAt > now) continue;
-      const run = this.activeRunForAttempt(current);
-      const state = this.options.executor.attemptState(current.sessionId);
-      if (!state?.idle || state.runningChildren > 0) {
-        this.options.repository.mutateRun(run.id, run.revision, (tx) => {
-          tx.setAttemptReminder(current.nodeId, current.attempt, { nextReminderAt: addMinutes(now, 5) });
-        });
-        this.changed(run);
-        continue;
-      }
-      const rung = current.remindersSent + 1;
-      const reminder = rung === 3 ? FINAL_REMINDER_TEXT : REMINDER_TEXT;
-      const text = current.pendingOutputError
-        ? `Your previous output block was invalid: ${current.pendingOutputError}\n\n${reminder}`
-        : reminder;
-      await this.options.executor.remind({ sessionId: current.sessionId, text });
-      const refreshed = this.activeRunForAttempt(current);
-      const latest = refreshed.attempts.find((candidate) => candidate.nodeId === current.nodeId
-        && candidate.attempt === current.attempt);
-      if (!latest || latest.status !== "running") continue;
-      this.options.repository.mutateRun(refreshed.id, refreshed.revision, (tx) => {
-        tx.setAttemptReminder(latest.nodeId, latest.attempt, {
-          remindersSent: rung,
-          nextReminderAt: null,
-          pendingOutputError: null,
-        });
-      });
-      this.changed(refreshed);
+    await remindDueAttempts(now, {
+      repository: this.options.repository,
+      executor: this.options.executor,
+      activeRun: (attempt) => this.activeRunForAttempt(attempt),
+      changed: (run) => this.changed(run),
+    });
+  }
+
+  /**
+   * The immediate half of the same problem the ladder solves on a timer: a turn
+   * that ended on narration decided nothing, and the first rung is five minutes
+   * away. Nudging inline costs nothing and usually ends the step right here.
+   *
+   * The nudge is itself a turn, so its own end re-enters `complete()`; the
+   * persisted count is what bounds the loop. A dispatch that cannot be claimed
+   * (the session took a message in the meantime) is not a failure worth
+   * propagating: the caller falls back to arming the ordinary rung.
+   */
+  private async stopNudge(run: WorkflowRunDetail, attempt: WorkflowRunDetail["attempts"][number],
+    event: WorkflowAttemptCompletion): Promise<boolean> {
+    if (!planStopNudge({ finalText: event.finalText ?? "", stopNudgesSent: attempt.stopNudgesSent })) return false;
+    try {
+      await this.options.executor.remind({ sessionId: event.sessionId, text: STOP_NUDGE_TEXT });
+    } catch (error) {
+      logger.warn(`Workflow attempt ${attempt.nodeId}:${attempt.attempt} could not be nudged to submit: `
+        + `${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
+    this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+      tx.setAttemptReminder(attempt.nodeId, attempt.attempt, {
+        stopNudgesSent: attempt.stopNudgesSent + 1,
+        lastProcessedTurn: event.turn,
+      });
+    });
+    this.changed(run);
+    return true;
   }
 
   async submit(input: {
@@ -1079,6 +1076,9 @@ export class WorkflowRunner {
     }
     const endedAt = event.completedAt;
     if (cleanTurnEnd && !output && !failure) {
+      // An unparseable block already earns its own targeted reminder, so telling
+      // that turn it ended on narration would simply be untrue.
+      if (!pendingOutputError && await this.stopNudge(run, attempt, event)) return true;
       if (attempt.remindersSent < REMINDER_RUNGS_MINUTES.length) {
         this.options.repository.mutateRun(run.id, run.revision, (tx) => {
           tx.setAttemptReminder(attempt.nodeId, attempt.attempt, {

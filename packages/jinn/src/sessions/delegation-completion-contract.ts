@@ -2,9 +2,10 @@
  * KNOWN LIMITATION: completion classification is heuristic and fail-safe-biased.
  * It nudges only explicit task-incomplete assertions and surfaces everything
  * else—including finished, ambiguous, and awaiting-parent replies—to the parent.
- * A rare mis-nudge is one redundant continue-message to a done child and then
- * self-corrects. The real contract is structural: delegation provenance, an
- * atomic once-per-idle claim, and startup recovery for orphaned claims.
+ * A rare mis-nudge costs at most MAX_STOP_NUDGES redundant continue-messages to
+ * a done child and then self-corrects. The real contract is structural:
+ * delegation provenance, an atomic once-per-idle claim, and startup recovery
+ * for orphaned claims.
  */
 import type { Session } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
@@ -16,17 +17,11 @@ import {
   markDelegationCompletionSurfaced,
   releaseDelegationCompletionNudge,
 } from "./registry.js";
+import { isNonTerminalNarration, MAX_STOP_NUDGES, STOP_NUDGE_TEXT } from "./stop-nudge.js";
 
 const META_KEY = "delegationCompletionContract";
 export const DELEGATION_COMPLETION_TRACKED_META_KEY = "delegationCompletionTracked";
 const OPEN_EXECUTION_STATUSES = new Set(["backlog", "assigned", "executing"]);
-
-const EXPLICIT_UNFINISHED_SIGNAL = /\b(?:i(?: am|['’]m) still working (?:on|through)|i(?: will|['’]ll) continue (?:working\b|(?:with\s+)?(?:this|the|my)\s+(?:task|work|implementation|fix|patch|change|migration|feature|deliverable|test run)|with (?:the )?remaining (?:work|implementation|checks|tests?))|(?:(?:the|this|my)\s+)?(?:task|work|implementation|fix|patch|change|migration|feature|deliverable)\s+(?:is|remains)\s+(?:incomplete|still in progress)|not (?:done|finished|complete))\b/i;
-const TERMINAL_SIGNAL = /\b(final report|completed|complete|done|finished|shipped|implemented|resolved|all tests pass(?:ed)?|(?:tests?|checks?) (?:now )?pass(?:ed)?|ready for review|ready to merge|(?:the )?(?:pr|patch) (?:is )?ready|commit (?:sha|hash)|hand(?:-| )?off)\b/i;
-const PARENT_WAIT_SIGNAL = /\?|\b(need (?:your|the parent's) input|please confirm|which (?:option|approach)|should i|would you|let me know|blocked (?:on|by)|waiting on|awaiting (?:approval|confirmation|input)|waiting for (?:approval|confirmation|input|you|the parent)|(?:need|missing|without|awaiting) (?:the )?(?:credentials?|access|permissions?|api key|token|secret))\b/i;
-
-export const DELEGATION_COMPLETION_NUDGE =
-  "Delegation completion contract: your linked Todo is still open and your last reply was only a progress update. Continue the existing task now. Do not stop at another progress note; finish the work and post your complete final report to the parent.";
 
 export const DELEGATION_COMPLETION_NUDGE_DISPLAY =
   "Completion contract: continuing this delegated task to a final report.";
@@ -36,6 +31,7 @@ type GuardState = "nudged" | "surfaced";
 interface Guard {
   workItemId: string;
   state: GuardState;
+  nudges: number;
 }
 
 export type DelegationCompletionOutcome = "pass" | "nudged" | "surface" | "suppress";
@@ -50,21 +46,10 @@ function readGuard(session: Session): Guard | null {
   const guard = raw as Record<string, unknown>;
   if (typeof guard.workItemId !== "string") return null;
   if (guard.state !== "nudged" && guard.state !== "surfaced") return null;
-  return { workItemId: guard.workItemId, state: guard.state };
-}
-
-function isProgressOnly(text: string): boolean {
-  const terminalCandidate = text.replace(/\bnot\s+(?:done|finished|complete)\b/gi, " ");
-  // Incidental mentions of work, running services, remaining items, or next
-  // steps are not evidence that the delegated task remains unfinished. The
-  // additive nudge requires a first-person continuation assertion, a task-bound
-  // incomplete/still-in-progress assertion, or explicit negated completion.
-  const hasExplicitUnfinished = EXPLICIT_UNFINISHED_SIGNAL.test(text);
-  const hasTerminal = TERMINAL_SIGNAL.test(terminalCandidate);
-  // Mixed terminal + unfinished clauses are ambiguous. Under the fail-safe
-  // contract, ambiguity surfaces to the parent; it never authorizes a nudge.
-  if (hasTerminal && hasExplicitUnfinished) return false;
-  return hasExplicitUnfinished && !hasTerminal && !PARENT_WAIT_SIGNAL.test(text);
+  // A guard persisted before the count existed has already spent one nudge, so
+  // an upgrade in flight resumes on its budget rather than restarting it.
+  const nudges = typeof guard.nudges === "number" ? guard.nudges : 1;
+  return { workItemId: guard.workItemId, state: guard.state, nudges };
 }
 
 function isStructurallyAwaitingParent(session: Session): boolean {
@@ -81,9 +66,10 @@ function isStructurallyAwaitingParent(session: Session): boolean {
  * returns `pass`, preserving the normal surface-to-parent behavior. Missed
  * nudges are acceptable; false nudges are the harm this contract prevents.
  *
- * The persisted guard is deliberately independent of engine attempt ids: the
- * contract nudge creates a new attempt, and that next idle settlement must
- * surface instead of becoming another nudge.
+ * The persisted guard is deliberately independent of engine attempt ids: each
+ * contract nudge creates a new attempt, and the settlement of that attempt is
+ * counted against the same MAX_STOP_NUDGES budget. Once the budget is spent, or
+ * once the child stops narrating, the settlement surfaces to the parent.
  */
 export async function enforceDelegationCompletionContract(
   session: Session,
@@ -98,9 +84,14 @@ export async function enforceDelegationCompletionContract(
   const item = getWorkItem(session.workItemId);
   if (!item || !OPEN_EXECUTION_STATUSES.has(item.status)) return "pass";
 
-  const existing = readGuard(session);
-  if (existing?.workItemId === session.workItemId) {
-    if (existing.state === "surfaced") return "pass";
+  const guard = readGuard(session);
+  const active = guard?.workItemId === session.workItemId ? guard : null;
+  if (active?.state === "surfaced") return "pass";
+
+  const text = result.result?.trim() ?? "";
+  const narrating = text.length > 0 && isNonTerminalNarration(text);
+
+  if (active && (active.nudges >= MAX_STOP_NUDGES || !narrating)) {
     if (!markDelegationCompletionSurfaced(session.id, session.workItemId)) {
       const persisted = getSession(session.id);
       return persisted && readGuard(persisted)?.workItemId === session.workItemId ? "suppress" : "pass";
@@ -108,19 +99,19 @@ export async function enforceDelegationCompletionContract(
     return "surface";
   }
 
-  const text = result.result?.trim() ?? "";
-  if (!text || !isProgressOnly(text)) return "pass";
+  if (!narrating) return "pass";
 
-  const guarded = claimDelegationCompletionNudge(session.id, session.workItemId);
+  const sentNudges = active?.nudges ?? 0;
+  const guarded = claimDelegationCompletionNudge(session.id, session.workItemId, sentNudges);
   if (!guarded) {
     const persisted = getSession(session.id);
     return persisted && readGuard(persisted)?.workItemId === session.workItemId ? "suppress" : "pass";
   }
   try {
-    await deps.postFollowUp(session.id, DELEGATION_COMPLETION_NUDGE, DELEGATION_COMPLETION_NUDGE_DISPLAY);
+    await deps.postFollowUp(session.id, STOP_NUDGE_TEXT, DELEGATION_COMPLETION_NUDGE_DISPLAY);
     return "nudged";
   } catch (error) {
-    releaseDelegationCompletionNudge(session.id, session.workItemId);
+    releaseDelegationCompletionNudge(session.id, session.workItemId, sentNudges);
     logger.warn(
       `[delegation-contract] failed to nudge child ${session.id}: ${error instanceof Error ? error.message : String(error)}`,
     );
