@@ -48,12 +48,8 @@ import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
 } from "./status-scope"
 import { useBoardDrag } from "./use-board-drag"
-import {
-  boardKey,
-  parseBoardParam,
-  recallBoardScroll,
-  rememberBoardScroll,
-} from "./board-route"
+import { boardKey, parseBoardParam } from "./board-route"
+import { useBoardScroll } from "./use-board-scroll"
 
 /* Todos v2 slice 6 — the board surface (design contract:
  * docs/superpowers/design/todos-v2-board — board.html is the visual truth).
@@ -379,22 +375,10 @@ export default function TodoBoardPage() {
     [itemsByStatus, commitRank],
   )
 
-  // ── Scroll cache (per board, restored on POP) ───────────────────────────────
-  const boardScrollRef = useRef<HTMLDivElement>(null)
-  const listScrollRef = useRef<HTMLDivElement>(null)
-  const onBoardScroll = useCallback(() => {
-    const el = boardScrollRef.current
-    if (el) rememberBoardScroll(key, el.scrollTop)
-  }, [key])
-  const onListScroll = useCallback(() => {
-    const el = listScrollRef.current
-    if (el) rememberBoardScroll(key, el.scrollTop)
-  }, [key])
-  useEffect(() => {
-    const scrollTop = navigationType === "POP" ? recallBoardScroll(key) : 0
-    if (boardScrollRef.current) boardScrollRef.current.scrollTop = scrollTop
-    if (listScrollRef.current) listScrollRef.current.scrollTop = scrollTop
-  }, [key, navigationType])
+  // ── Scroll position (per board on POP, anchored across every reflow) ────────
+  const { boardScrollRef, listScrollRef, onBoardScroll, onListScroll } = useBoardScroll(
+    key, navigationType, { dragging: drag !== null, attention: isAttention },
+  )
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)

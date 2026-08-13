@@ -20,7 +20,7 @@ import {
   OLDER_LOAD_THRESHOLD_PX,
   restoreVisibleAnchor,
   type ScrollAnchor,
-} from './scroll-anchor'
+} from '@/lib/scroll-anchor'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 
@@ -1327,7 +1327,7 @@ export function ChatMessages({
   const requestOlderMessages = useCallback(() => {
     const node = scrollContainerRef.current
     if (!node || !hasOlderMessages || !onLoadOlderMessages || olderRequestInFlightRef.current) return
-    pendingAnchorRef.current = captureVisibleAnchor(node, firstMessageIdRef.current)
+    pendingAnchorRef.current = captureVisibleAnchor(node, 'data-message-id', firstMessageIdRef.current)
     olderRequestInFlightRef.current = true
     // No restore here: the anchor is only correct once the prepended rows are in
     // the DOM, and the layout effect below is the one place that is true.
@@ -1352,7 +1352,7 @@ export function ChatMessages({
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current
     const node = scrollContainerRef.current
-    if (!anchor || !node || messages[0]?.id === anchor.firstMessageId) return
+    if (!anchor || !node || messages[0]?.id === anchor.firstId) return
     restoreVisibleAnchor(node, anchor)
     pendingAnchorRef.current = null
   }, [messages])
