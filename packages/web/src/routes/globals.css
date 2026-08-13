@@ -311,6 +311,9 @@
   --bg-tertiary: #2A2720;
   --material-regular: rgba(30,28,22,0.92);
   --material-thick: rgba(20,18,15,0.96);
+  /* --material-thick composited over --bg at alpha 1, for the coarse-pointer
+     bars that drop the backdrop filter (see --pill-bg-opaque). */
+  --material-thick-opaque: #14120F;
   --material-thin: rgba(255,255,255,0.05);
   --material-ultra-thin: rgba(255,255,255,0.03);
   --fill-primary: rgba(255,255,255,0.10);
@@ -344,6 +347,10 @@
   /* Frosted header-pill material (theme-aware). Dark bumped for legibility — the
      0.55/0.10 pill nearly vanished on the near-black bg. */
   --pill-bg: rgba(34,31,24,0.64);
+  /* Same material with the blur baked out: --pill-bg composited over --bg at
+     alpha 1. Coarse pointers get this instead of the backdrop filter, so the
+     pill reads as the colour it already reads as over a plain page. */
+  --pill-bg-opaque: #1D1B15;
   --pill-border: rgba(255,255,255,0.14);
   --code-bg: rgba(255,255,255,0.05);
   --code-border: rgba(255,255,255,0.09);
@@ -382,6 +389,7 @@
   --bg-tertiary: #ECE8DC;
   --material-regular: rgba(251,249,242,0.94);
   --material-thick: rgba(244,241,232,0.97);
+  --material-thick-opaque: #F4F1E8;
   --material-thin: rgba(33,30,22,0.04);
   --material-ultra-thin: rgba(33,30,22,0.02);
   --fill-primary: rgba(33,30,22,0.08);
@@ -414,6 +422,7 @@
   --shadow-overlay: 0 0 0 0.5px rgba(40,34,20,0.10), 0 4px 16px rgba(40,34,20,0.10), 0 16px 48px rgba(40,34,20,0.14), inset 0 1px 0 rgba(255,255,255,0.80);
   /* Frosted header-pill material (theme-aware) */
   --pill-bg: rgba(251,249,242,0.72);
+  --pill-bg-opaque: #F9F7EF;
   --pill-border: rgba(33,30,22,0.10);
   --code-bg: rgba(33,30,22,0.05);
   --code-border: rgba(33,30,22,0.10);
@@ -453,6 +462,7 @@
     --bg-tertiary: #ECE8DC;
     --material-regular: rgba(251,249,242,0.94);
     --material-thick: rgba(244,241,232,0.97);
+    --material-thick-opaque: #F4F1E8;
     --material-thin: rgba(33,30,22,0.04);
     --material-ultra-thin: rgba(33,30,22,0.02);
     --fill-primary: rgba(33,30,22,0.08);
@@ -485,6 +495,7 @@
     --shadow-overlay: 0 0 0 0.5px rgba(40,34,20,0.10), 0 4px 16px rgba(40,34,20,0.10), 0 16px 48px rgba(40,34,20,0.14), inset 0 1px 0 rgba(255,255,255,0.80);
     /* Frosted header-pill material (theme-aware) */
     --pill-bg: rgba(251,249,242,0.72);
+    --pill-bg-opaque: #F9F7EF;
     --pill-border: rgba(33,30,22,0.10);
     --code-bg: rgba(33,30,22,0.05);
     --code-border: rgba(33,30,22,0.10);
@@ -513,6 +524,7 @@
     --bg-tertiary: #2A2720;
     --material-regular: rgba(30,28,22,0.92);
     --material-thick: rgba(20,18,15,0.96);
+    --material-thick-opaque: #14120F;
     --material-thin: rgba(255,255,255,0.05);
     --material-ultra-thin: rgba(255,255,255,0.03);
     --fill-primary: rgba(255,255,255,0.10);
@@ -545,6 +557,7 @@
     --shadow-overlay: 0 0 0 0.5px rgba(0,0,0,0.40), 0 16px 48px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05);
     /* Frosted header-pill material (theme-aware). Dark bumped (see :root dark block). */
     --pill-bg: rgba(34,31,24,0.64);
+    --pill-bg-opaque: #1D1B15;
     --pill-border: rgba(255,255,255,0.14);
     --code-bg: rgba(255,255,255,0.05);
     --code-border: rgba(255,255,255,0.09);
@@ -578,7 +591,6 @@ html, body {
 }
 
 html {
-  scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
