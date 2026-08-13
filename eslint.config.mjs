@@ -10,6 +10,9 @@ const PACKAGE_TREES = [
   "packages/jinn/src/**/*.ts",
   "packages/web/**/*.{ts,tsx}",
   "packages/gateway-events/src/**/*.ts",
+  // The shell package's only TypeScript is its Capacitor config at the package
+  // root; `ios/` is a generated Xcode project and carries no TS.
+  "packages/shell-ios/*.ts",
 ]
 
 // The trees `tsconfig.e2e.json` and `tsconfig.scripts.json` cover. The project
