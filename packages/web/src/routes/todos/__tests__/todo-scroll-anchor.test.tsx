@@ -219,11 +219,12 @@ describe("Todos list scroll anchoring", () => {
 })
 
 describe("Todos board scroll anchoring", () => {
-  it("leaves the grouped board to the browser, whose cards report an estimated height", async () => {
-    // BoardCard carries `content-visibility: auto`: scrollHeight was measured
-    // swinging 2793px↔10069px across consecutive frames on a 54-row board, and
-    // a commit-boundary correction chases that swing to an edge. The attention
-    // inbox renders plain cards and is anchored; this container is not.
+  it("leaves the grouped board to the browser, whose commit-time layout it cannot trust", async () => {
+    // At a commit boundary this container reports row positions its settled
+    // layout contradicts — the anchored card measured 5274px down while every
+    // card measured 45px — so a correction computed there throws the reader to
+    // an edge. The attention inbox renders plain rows and is anchored; this
+    // container is not. See useBoardScroll for the measurements.
     rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")

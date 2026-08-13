@@ -12,14 +12,18 @@ import { recallBoardScroll, rememberBoardScroll } from "./board-route"
  *
  * `attention` says which surface the board container is showing, and that
  * decides whether it can be anchored at all. The attention inbox renders plain
- * cards with a settled height. The grouped board renders `BoardCard`, which
- * carries `content-visibility: auto`: its height is an estimate the browser
- * revises as the reader travels, and on a 54-row board `scrollHeight` was
- * measured swinging between 2793px and 10069px across consecutive frames. A
- * correction measured at a commit boundary reads that swing as content moving
- * and chases it to an edge — reproduced three times, twice landing at
- * scrollTop 0. Until those cards report a real height, that container is left
- * to the browser.
+ * rows and holds its place exactly. The grouped board does not, because at a
+ * commit boundary it reports row positions its own settled layout contradicts:
+ * on a 55-card board at 390x844 the anchored card was measured 5274px below
+ * the scrollport while every card in the container measured 45px and the card
+ * never left the DOM. A correction computed from that phantom throws the
+ * reader — scrollTop 1400 landed at 54, 233 and 893 across runs, against the
+ * 68px drift it was meant to remove. Deferring the correction a frame, taking
+ * it only once it verifiably lands, holding the reader's own anchor across the
+ * intermediate commits, giving the cards an accurate `contain-intrinsic-size`,
+ * and dropping `content-visibility` altogether were each measured and each
+ * left it. Until that container's commit-time layout can be trusted, it is
+ * left to the browser; ICI-800's acceptance criterion 2 is not met here.
  */
 export function useBoardScroll(
   key: string,
