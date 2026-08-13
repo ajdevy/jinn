@@ -145,6 +145,30 @@ function useExitTimer(closing: boolean, finishExit: () => void): void {
 }
 
 /**
+ * The sheet is measured once on the way in, and a rotation or a resized window
+ * moves it afterwards — full-width bottom sheet at one breakpoint, a panel with
+ * a shoulder at the other. The orb docks to that box, so a stale one leaves it
+ * flying to where the sheet used to be, which on a phone is over the sheet's own
+ * controls. Only while settled: the entrance is transformed, and measuring it
+ * mid-scale would hand out a box the sheet never occupies.
+ */
+function useMeasuredOnResize(
+  settled: boolean,
+  panelRef: RefObject<HTMLElement | null>,
+  layoutRef: LayoutSink,
+): void {
+  useEffect(() => {
+    if (!settled) return
+    const remeasure = () => {
+      const box = panelRef.current?.getBoundingClientRect()
+      if (box) layoutRef.current?.({ left: box.left, top: box.top, width: box.width, height: box.height })
+    }
+    window.addEventListener("resize", remeasure)
+    return () => window.removeEventListener("resize", remeasure)
+  }, [settled, panelRef, layoutRef])
+}
+
+/**
  * Keeps the situation on screen through its exit, and walks it from the frame it
  * is measured in to the frame it is settled in.
  */
@@ -194,6 +218,7 @@ function useRetainedSituation(
 
   useSettleTimer(phase === "entering", settle)
   useExitTimer(phase === "closing" && !reduce, finishExit)
+  useMeasuredOnResize(phase === "open", panelRef, layoutRef)
 
   return { shown, phase }
 }

@@ -146,10 +146,11 @@ export function VoiceSection({ provider, apiKey, capability, onChange, talkOrbOn
       </div>
 
       <FieldRow label="Provider">
+        {/* Null and not undefined: JSON.stringify drops an undefined key, and a key the gateway never sees is one it leaves alone. */}
         <SettingsSelect
           ariaLabel="Voice provider"
           value={provider}
-          onChange={(value) => onChange(["realtime", "provider"], value || undefined)}
+          onChange={(value) => onChange(["realtime", "provider"], value || null)}
           options={[
             { value: "", label: "Not set" },
             ...(capability?.providers ?? []).map((name) => ({ value: name, label: name })),

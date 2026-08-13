@@ -704,15 +704,15 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   for (const key of Object.keys(source)) {
     const sv = source[key];
     const tv = target[key];
-    // Skip sanitized secret placeholders — keep original value
+    // A sanitized secret keeps the stored value; an explicit null clears the field.
     if (isSensitiveConfigKey(key) && sv === REDACTED_SECRET) continue;
-    if (Array.isArray(sv)) {
+    if (sv === null) delete result[key];
+    else if (Array.isArray(sv)) {
       // For arrays (e.g. instances), preserve secrets from matching items
       if (Array.isArray(tv)) {
         result[key] = sv.map((item: unknown) => {
           if (item && typeof item === "object" && !Array.isArray(item)) {
             const srcItem = item as Record<string, unknown>;
-            // Find matching target item by id
             const matchTarget = (tv as unknown[]).find(
               (t) => t && typeof t === "object" && (t as Record<string, unknown>).id === srcItem.id
             ) as Record<string, unknown> | undefined;

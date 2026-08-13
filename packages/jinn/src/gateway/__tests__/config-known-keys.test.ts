@@ -146,6 +146,21 @@ describe("PUT /api/config top-level key allowlist", () => {
     expect(savedConfig().realtime).toEqual({ provider: "openai", apiKey: "sk-account-key" });
   });
 
+  // Omitting a key is how the page says "leave this alone", so it cannot also be
+  // how it says "clear this" — the UI sends null, and the merge has to honour it
+  // rather than report a save that put the old value straight back.
+  it("clears a field the caller sends as null, and keeps the ones it did not mention", async () => {
+    currentConfig = { ...baseConfig(), realtime: { provider: "openai", apiKey: "sk-account-key" } };
+    fs.writeFileSync(path.join(jinnHome, "config.yaml"), yaml.dump(currentConfig));
+
+    const cleared = await call("PUT", "/api/config", {
+      realtime: { provider: null, apiKey: "***" },
+    });
+
+    expect(cleared.status).toBe(200);
+    expect(savedConfig().realtime).toEqual({ apiKey: "sk-account-key" });
+  });
+
   it("still refuses a key JinnConfig does not declare", async () => {
     const response = await call("PUT", "/api/config", { nonsense: true });
 

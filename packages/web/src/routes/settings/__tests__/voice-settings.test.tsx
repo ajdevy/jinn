@@ -109,6 +109,23 @@ describe('the Voice section', () => {
     )
   })
 
+  // An undefined provider is dropped by JSON.stringify, and a body with no
+  // provider in it is how the gateway is told to keep the one it has — so the
+  // page would report a save that had put the old provider straight back.
+  it('clears the provider when it is set back to Not set', async () => {
+    renderSettings()
+
+    const provider = await screen.findByRole('combobox', { name: 'Voice provider' })
+    fireEvent.change(provider, { target: { value: '' } })
+    save()
+
+    await waitFor(() =>
+      expect(apiMocks.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ realtime: { provider: null, apiKey: STORED_KEY_SENTINEL } }),
+      ),
+    )
+  })
+
   it('sends a replacement key, and can be talked out of replacing', async () => {
     renderSettings()
     await screen.findByText('Stored')

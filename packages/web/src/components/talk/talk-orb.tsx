@@ -145,26 +145,32 @@ interface Flight {
 }
 
 /**
- * The transform that carries the sphere out to `dock` and back. Opening measures
- * the parked centre while no dock transform is applied; closing replays that
- * same pair of points reversed, which lands the offset back at zero.
+ * The transform that carries the sphere out to `dock` and back. Closing replays
+ * the same pair of points reversed, which lands the offset back at zero.
+ *
+ * Park comes from the offset box rather than from `getBoundingClientRect`,
+ * because the rect includes whatever transform is already applied and the corner
+ * the sphere is anchored to moves when the viewport does. Measuring the rect
+ * while docked reads the dock as the park, and the next flight is then plotted
+ * from the wrong origin — which is how a sheet that reopens at another
+ * breakpoint lands the sphere in the middle of its own controls. The overlay is
+ * `fixed inset-0`, so these offsets are already viewport coordinates.
  */
 function useDockFlight(dock: Point | null | undefined, host: RefObject<HTMLElement | null>): Flight | null {
   const [flight, setFlight] = useState<Flight | null>(null)
-  const parkRef = useRef<Point | null>(null)
   const dockRef = useRef<Point | null>(null)
 
   useLayoutEffect(() => {
     const sphere = host.current
     if (!sphere) return
-    if (dock) {
-      const rect = sphere.getBoundingClientRect()
-      parkRef.current = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-      dockRef.current = dock
+    if (dock) dockRef.current = dock
+    const target = dockRef.current
+    if (!target) return
+    const park = {
+      x: sphere.offsetLeft + sphere.offsetWidth / 2,
+      y: sphere.offsetTop + sphere.offsetHeight / 2,
     }
-    const park = parkRef.current
-    if (!park) return
-    const path = dockPath(dock ? "open" : "close", park, dockRef.current ?? park)
+    const path = dockPath(dock ? "open" : "close", park, target)
     setFlight({
       offset: { x: path.to.x - park.x, y: path.to.y - park.y },
       durationMs: path.durationMs,
