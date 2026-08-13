@@ -4,6 +4,7 @@ import { isBlocked, listRelations } from "../work-items/relations.js";
 import { getWorkItemLabels, type Label } from "../work-items/labels.js";
 import { listApprovals } from "../work-items/approvals.js";
 import { listWorkItemRuns } from "../work-items/runs.js";
+import { getTodoDispatchConfig } from "../work-items/dispatch-config.js";
 
 /** The wire projections of a Todo the API routes return: one compact shape for
  *  lists, one enriched shape for the board, one full shape for the detail route. */
@@ -69,6 +70,9 @@ export function fullWorkItemPayload(item: WorkItem): Record<string, unknown> {
     // ICI-728 (additive): the attempt ledger, oldest first. Status says where the
     // Todo is; runs say what each attempt at it actually did.
     runs: listWorkItemRuns(item.id),
+    // ICI-733 (additive): how the NEXT attempt runs — preloaded skills and the
+    // engine/model override. Null when the Todo has never had any set.
+    dispatchConfig: getTodoDispatchConfig(item.id) ?? null,
   };
 }
 

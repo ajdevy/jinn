@@ -4,6 +4,11 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import {
+  V1_WORK_ITEMS_TABLE_DDL,
+  V1_WORK_ITEM_IDENTITY_TABLES_DDL,
+  V2_APPROVAL_WORK_ITEMS_TABLE_DDL,
+} from "../frozen-schemas.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-wi-v2-"));
 process.env.JINN_HOME = tmp;
@@ -19,8 +24,8 @@ beforeAll(async () => {
  *  and a burned-but-unissued gap at ordinal 2 (idempotency-race artifact). */
 function buildV1Fixture(file: string): void {
   const db = new Database(file);
-  db.exec(migrate.V1_WORK_ITEMS_TABLE_DDL);
-  db.exec(migrate.V1_WORK_ITEM_IDENTITY_TABLES_DDL);
+  db.exec(V1_WORK_ITEMS_TABLE_DDL);
+  db.exec(V1_WORK_ITEM_IDENTITY_TABLES_DDL);
   db.exec(migrate.WORK_ITEM_EVENTS_DDL);
   db.exec(migrate.WORK_ITEM_EDIT_RECEIPTS_DDL);
   db.exec(migrate.V1_WORK_ITEM_IDENTITY_TRIGGERS_DDL);
@@ -159,7 +164,7 @@ describe("legacy approval columns heal into work_item_approvals", () => {
     // with the real indexes and triggers; the additive tables never shipped.
     const legacy = new Database(file);
     migrate.registerWorkItemIdentityFunctions(legacy);
-    for (const ddl of [migrate.WORK_ITEM_IDENTITY_TABLES_DDL, migrate.V2_APPROVAL_WORK_ITEMS_TABLE_DDL,
+    for (const ddl of [migrate.WORK_ITEM_IDENTITY_TABLES_DDL, V2_APPROVAL_WORK_ITEMS_TABLE_DDL,
       migrate.WORK_ITEMS_INDEX_DDL, migrate.WORK_ITEM_EVENTS_DDL, migrate.WORK_ITEM_EDIT_RECEIPTS_DDL,
       migrate.WORK_ITEM_IDENTITY_TRIGGERS_DDL]) legacy.exec(ddl);
     const pendingId = seedItem(legacy, { state: "pending", request: "legacy pending gate", ref: "workflow-gate:old:run:g", target: "coo", target_kind: "employee" });

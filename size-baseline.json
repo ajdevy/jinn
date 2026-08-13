@@ -348,7 +348,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 6026,
+      "lines": 5932,
       "exempt": [
         "complexity",
         "max-depth",
@@ -626,7 +626,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 804,
+      "lines": 778,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -917,7 +917,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 1075,
+      "lines": 980,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1052,7 +1052,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1130,
+      "lines": 1084,
       "exempt": [
         "complexity",
         "max-depth",

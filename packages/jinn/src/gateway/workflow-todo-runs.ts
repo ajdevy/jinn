@@ -1,6 +1,7 @@
 import { closeWorkItemRun, findOpenWorkItemRunBySession, openWorkItemRun } from "../work-items/runs.js";
 import { linkSession } from "../work-items/store.js";
-import type { WorkflowTodoSessionLink } from "../workflows/todo-ports.js";
+import { getTodoDispatchConfig } from "../work-items/dispatch-config.js";
+import type { WorkflowTodoDispatchOverride, WorkflowTodoSessionLink } from "../workflows/todo-ports.js";
 
 /**
  * The session half of what a Todo-bound Workflow run owes its Todo: each phase
@@ -37,4 +38,13 @@ export function workflowTodoSessions(): WorkflowTodoSessionLink {
       });
     },
   };
+}
+
+/**
+ * The other direction (ICI-733): what the Todo tells the run. Read fresh per
+ * attempt, so an override set while an attempt was in flight lands on the next
+ * one and never disturbs the one already running.
+ */
+export function workflowTodoDispatch(): WorkflowTodoDispatchOverride {
+  return { read: (todoId) => getTodoDispatchConfig(todoId) };
 }

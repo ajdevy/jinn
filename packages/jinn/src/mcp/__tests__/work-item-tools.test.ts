@@ -75,7 +75,7 @@ describe("work-item tools — registry + schemas", () => {
       "unlink_work_items",
       "label_work_item",
       "create_label",
-      "list_labels",
+      "list_labels", "set_work_item_dispatch",
       "list_departments",
     ]);
     const names = buildTools().map((t) => t.name).sort();
@@ -88,7 +88,7 @@ describe("work-item tools — registry + schemas", () => {
     expect(names).toContain("fire_workflow_event");
     expect(names).toContain("cancel_workflow_run");
     expect(names.some((n) => /cancel/i.test(n) && /work_item/.test(n))).toBe(false);
-    expect(names).toHaveLength(72);
+    expect(names).toHaveLength(73);
   });
 
   it("positions list as recent/filter summaries and search as text/filter hits", () => {
@@ -108,7 +108,7 @@ describe("work-item tools — registry + schemas", () => {
   it("create schema has no approval fields and update schema allows manual start but excludes cancelled", () => {
     const createProps = tool("create_work_item").inputSchema.properties;
     expect(Object.keys(createProps).sort()).toEqual(
-      ["acceptance", "assignee", "body", "department", "dueAt", "labels", "parentId", "priority", "title", "verifyPolicy"].sort(),
+      ["acceptance", "assignee", "body", "department", "dueAt", "idempotencyKey", "labels", "parentId", "priority", "title", "verifyPolicy"].sort(),
     );
     expect(JSON.stringify(createProps)).not.toMatch(/approval/i);
     const status = tool("update_work_item").inputSchema.properties.status as { enum: string[] };

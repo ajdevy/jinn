@@ -81,3 +81,14 @@ export interface WorkflowRevisionRequest {
   decidedBy: string;
   rearm: WorkflowRearmTarget;
 }
+
+/**
+ * The engine/model a run's bound Todo says its NEXT attempt should use
+ * (ICI-733). Read once per attempt at dispatch, so setting one never disturbs
+ * an attempt already running. Absent port = no overrides (the run still
+ * executes on the node's own configuration).
+ */
+export interface WorkflowTodoDispatchOverride {
+  /** Undefined when the Todo has no dispatch preferences of its own. */
+  read(todoId: string): { engine: string | null; model: string | null } | undefined;
+}

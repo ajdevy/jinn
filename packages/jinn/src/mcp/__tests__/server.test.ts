@@ -148,7 +148,7 @@ describe("buildTools", () => {
       "search_sessions",
       "search_work_items",
       "send_connector_message",
-      "send_to_session",
+      "send_to_session", "set_work_item_dispatch",
       "spawn_session",
       "start_workflow_run", "stop_heartbeat",
       "stop_session",
@@ -255,7 +255,7 @@ describe("handleMcpRequest — tools/call", () => {
 
   it("compiles every advertised registry schema or supplies its shared runtime schema", () => {
     const tools = buildTools();
-    expect(tools).toHaveLength(72);
+    expect(tools).toHaveLength(73);
     for (const tool of tools) {
       expect(() => tool.runtimeSchema ?? z.fromJSONSchema({ ...tool.inputSchema, additionalProperties: false } as Parameters<typeof z.fromJSONSchema>[0]), tool.name).not.toThrow();
     }
