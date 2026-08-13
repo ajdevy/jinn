@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useRef } from 'react'
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EdgeBackLayer } from '../edge-back-layer'
 import { clearPreviousViewSnapshot } from '../previous-view-snapshot'
@@ -8,14 +8,14 @@ import { COMMIT_RATIO } from '../use-edge-back-gesture'
 
 /** The shell, reduced to the two things the gesture touches: a live view it
  *  translates, and the layer mounted before it. */
-function Shell({ label }: { label: string }) {
+function Shell({ label, next }: { label: string; next: string }) {
   const content = useRef<HTMLDivElement>(null)
   return (
     <main>
       <EdgeBackLayer contentRef={content} />
       <div ref={content}>
         <p>{label}</p>
-        <Link to="/b">forward</Link>
+        <Link to={next}>forward</Link>
       </div>
     </main>
   )
@@ -25,8 +25,9 @@ function renderShell() {
   return render(
     <MemoryRouter initialEntries={['/a']}>
       <Routes>
-        <Route path="/a" element={<Shell label="first view" />} />
-        <Route path="/b" element={<Shell label="second view" />} />
+        <Route path="/a" element={<Shell label="first view" next="/b" />} />
+        <Route path="/b" element={<Shell label="second view" next="/c" />} />
+        <Route path="/c" element={<Shell label="third view" next="/a" />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -39,11 +40,18 @@ async function paint() {
   })
 }
 
-/** Land on the second view with the first one behind it, snapshot and all. */
+/** The live view's link, not the copy of it the layer is holding behind. */
+function forwardLink() {
+  const live = screen.getAllByText('forward').find(link => !link.closest('[data-testid="edge-back-layer"]'))
+  if (!live) throw new Error('no live forward link on screen')
+  return live
+}
+
+/** Land on the next view with the one before it behind, snapshot and all. */
 async function goForward() {
   await paint()
   await act(async () => {
-    fireEvent.click(screen.getByText('forward'))
+    fireEvent.click(forwardLink())
   })
   await paint()
 }
@@ -62,6 +70,9 @@ const liveView = () => screen.getByText('second view').parentElement as HTMLElem
 
 beforeEach(() => {
   clearPreviousViewSnapshot()
+  // The browser history is shared across a file; leaving one test's entries
+  // behind would have the next one reading a count nothing is advancing.
+  window.history.replaceState(null, '', '/')
 })
 
 afterEach(() => {
@@ -92,6 +103,48 @@ describe('EdgeBackLayer', () => {
     expect(liveView().style.transform).toBe('translate3d(120px, 0, 0)')
     // The layer holds a copy of the view that was on screen before this one.
     expect(layer.textContent).toContain('first view')
+  })
+
+  it('reveals the view history will go back to, not the one it just left', async () => {
+    renderShell()
+    await goForward()
+    await goForward()
+
+    edgeDrag(past())
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup'))
+    })
+    await paint()
+    expect(screen.getByText('second view')).toBeTruthy()
+
+    edgeDrag(120)
+
+    // Back from here is the first view. The third one is ahead in history now,
+    // and showing it would advertise a destination the gesture cannot reach.
+    const layer = screen.getByTestId('edge-back-layer')
+    expect(layer.textContent).toContain('first view')
+    expect(layer.textContent).not.toContain('third view')
+  })
+
+  it('treats a route that redirects on arrival as a new view, not a rewrite of this one', async () => {
+    // The push and the redirect's replace land in one commit, so all the router
+    // reports by the time the shell looks is REPLACE — and a rewrite of the
+    // current entry has nothing behind it to reveal.
+    window.history.replaceState(null, '', '/a')
+    render(
+      <BrowserRouter>
+        <Routes>
+          <Route path="/a" element={<Shell label="first view" next="/b" />} />
+          <Route path="/b" element={<Navigate to="/b/inner" replace />} />
+          <Route path="/b/inner" element={<Shell label="second view" next="/a" />} />
+        </Routes>
+      </BrowserRouter>,
+    )
+    await goForward()
+
+    edgeDrag(120)
+
+    expect(screen.getByTestId('edge-back-layer').textContent).toContain('first view')
   })
 
   it('does not move for a drag that starts mid-screen', async () => {

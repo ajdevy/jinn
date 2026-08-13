@@ -24,7 +24,10 @@ function drag(points: Array<[number, number]>, stepMs = 16, view = VIEW): EdgeBa
     at += stepMs
     state = reduceEdgeBack(state, { kind: 'move', x, y, at }, view)
   }
-  return reduceEdgeBack(state, { kind: 'release' }, view)
+  // The finger lifts where it last was, a millisecond later — which is how a
+  // real pointerup follows the pointermove before it.
+  const [lastX] = points[points.length - 1]
+  return reduceEdgeBack(state, { kind: 'release', x: lastX, at: at + 1 }, view)
 }
 
 describe('reduceEdgeBack', () => {
@@ -103,12 +106,27 @@ describe('reduceEdgeBack', () => {
     expect(state.outcome).toBe('cancel')
   })
 
+  it('cancels a short drag that stopped dead before the finger lifted', () => {
+    const travelled = AXIS_LOCK_PX * 5
+    const moved = reduceEdgeBack(
+      reduceEdgeBack(AT_REST, { kind: 'down', x: 6, y: 400, at: 0 }, VIEW),
+      { kind: 'move', x: 6 + travelled, y: 400, at: 16 },
+      VIEW,
+    )
+    // It arrived moving fast enough to be a flick, and short of the distance.
+    expect(moved.velocity).toBeGreaterThan(COMMIT_VELOCITY)
+    expect(moved.offset).toBeLessThan(VIEW.width * COMMIT_RATIO)
+
+    const rested = reduceEdgeBack(moved, { kind: 'release', x: 6 + travelled, at: 2016 }, VIEW)
+    expect(rested.outcome).toBe('cancel')
+  })
+
   it('reports a release only once, so a cancelled pointer cannot navigate twice', () => {
     const past = VIEW.width * COMMIT_RATIO + 1
     const committed = drag([[6, 400], [6 + past, 400]])
     expect(committed.outcome).toBe('commit')
 
-    const again = reduceEdgeBack(committed, { kind: 'release' }, VIEW)
+    const again = reduceEdgeBack(committed, { kind: 'release', x: 6 + past, at: 32 }, VIEW)
     expect(again).toBe(committed)
   })
 

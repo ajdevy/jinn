@@ -34,7 +34,7 @@ export interface EdgeBackState {
   origin: { x: number; y: number } | null
   /** Most recent accepted sample, so a release can read the speed it ended at. */
   sample: { x: number; at: number } | null
-  /** Horizontal speed in px/ms, from the last accepted sample. */
+  /** Horizontal speed in px/ms, measured from the last accepted sample. */
   velocity: number
   /** What the finished gesture asked for. Set by `release`, never by a move. */
   outcome: "commit" | "cancel" | null
@@ -43,7 +43,7 @@ export interface EdgeBackState {
 export type EdgeBackEvent =
   | { kind: "down"; x: number; y: number; at: number }
   | { kind: "move"; x: number; y: number; at: number }
-  | { kind: "release" }
+  | { kind: "release"; x: number; at: number }
 
 export const AT_REST: EdgeBackState = {
   offset: 0,
@@ -83,11 +83,21 @@ function track(state: EdgeBackState, event: { x: number; y: number; at: number }
 }
 
 /** Whether the finger lifted having asked to go back. Distance is the deliberate
- *  drag; velocity is the flick that never travels far but clearly means it. */
-function settle(state: EdgeBackState, view: EdgeBackView): EdgeBackState {
-  if (state.axis !== "horizontal") return AT_REST
-  const committed = state.offset >= view.width * COMMIT_RATIO || state.velocity >= COMMIT_VELOCITY
-  return { ...state, axis: null, origin: null, sample: null, outcome: committed ? "commit" : "cancel" }
+ *  drag; velocity is the flick that never travels far but clearly means it.
+ *
+ *  The lift is a sample like any other: a pointerup normally follows its last
+ *  pointermove within a millisecond or two, too close together to measure, and
+ *  the speed the drag was already carrying stands. Far enough apart and the
+ *  finger has been resting — a drag that stopped dead half a second ago is not a
+ *  flick, however fast it was travelling before it stopped. */
+function settle(state: EdgeBackState, event: { x: number; at: number }, view: EdgeBackView): EdgeBackState {
+  const { sample } = state
+  if (state.axis !== "horizontal" || !sample) return AT_REST
+
+  const elapsed = event.at - sample.at
+  const velocity = elapsed >= MIN_SAMPLE_MS ? (event.x - sample.x) / elapsed : state.velocity
+  const committed = state.offset >= view.width * COMMIT_RATIO || velocity >= COMMIT_VELOCITY
+  return { ...state, axis: null, origin: null, sample: null, velocity, outcome: committed ? "commit" : "cancel" }
 }
 
 /** The whole gesture, as a pure transition — so the thresholds are testable
@@ -101,7 +111,7 @@ export function reduceEdgeBack(state: EdgeBackState, event: EdgeBackEvent, view:
     case "move":
       return track(state, event, view)
     case "release":
-      return state.origin ? settle(state, view) : state
+      return state.origin ? settle(state, event, view) : state
   }
 }
 
@@ -137,8 +147,8 @@ function watchForEdgeDrag(sink: { current: EdgeBackHandlers }): () => void {
     if (next.offset !== before.offset) sink.current.onMove(next.offset)
   }
 
-  const onRelease = () => {
-    const outcome = reduce({ kind: "release" }).outcome
+  const onRelease = (event: PointerEvent) => {
+    const outcome = reduce({ kind: "release", x: event.clientX, at: event.timeStamp }).outcome
     detach?.()
     detach = null
     state = AT_REST
