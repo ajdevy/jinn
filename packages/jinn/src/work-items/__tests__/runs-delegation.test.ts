@@ -155,13 +155,17 @@ describe("both sweeps close a run the status sweep will never reach (ICI-728)", 
     expect(runs.listWorkItemRuns(item.id)[0]).toMatchObject({ id: item.runId, outcome: "blocked" });
   });
 
-  it("leaves a running Workflow phase's run open — the run settles its own attempts", () => {
-    const item = store.createWorkItem({ title: "phase-bound, swept", status: "executing", source: "human" });
-    settledPhaseSession("s-phase-sweep", item.id);
-    runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-phase-sweep" });
+  // The cancelled row is the control: without it, "the phase row is still open"
+  // is equally true of a sweep that skipped phase rows and one that never ran.
+  it("leaves a running Workflow phase's run open in the same sweep that closes a delegated one", () => {
+    const delegated = cancelledMidFlight("cancelled alongside a phase", "s-cancelled-beside-phase");
+    const phase = store.createWorkItem({ title: "phase-bound, swept", status: "executing", source: "human" });
+    settledPhaseSession("s-phase-sweep", phase.id);
+    const phaseRun = runs.openWorkItemRun({ workItemId: phase.id, sessionId: "s-phase-sweep" });
 
     reconcile.reconcileWorkItemsOnStartup();
 
-    expect(runs.listWorkItemRuns(item.id)[0]).toMatchObject({ endedAt: null, outcome: null });
+    expect(runs.listWorkItemRuns(delegated.id)[0]).toMatchObject({ id: delegated.runId, outcome: "blocked" });
+    expect(runs.listWorkItemRuns(phase.id)[0]).toMatchObject({ id: phaseRun.id, endedAt: null, outcome: null });
   });
 });
