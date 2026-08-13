@@ -163,11 +163,11 @@ describe("closeOrphanedWorkItemRuns", () => {
 describe("a quota window is not a failure (ICI-731)", () => {
   /** A session that already reported its receipt, so the settled-session sweep
    *  is the thing deciding what the run's outcome reads as. */
-  function settledSession(id: string, outcome: string, lastError: string | null): void {
+  function settledSession(id: string, outcome: string, lastError: string | null, workItemId: string | null = null): void {
     db.prepare(
-      `INSERT INTO sessions (id, engine, source, source_ref, status, attempt_outcome, last_error, created_at, last_activity)
-       VALUES (?, 'claude', 'web', 'web', 'error', ?, ?, ?, ?)`,
-    ).run(id, outcome, lastError, "2026-08-13T09:00:00.000Z", "2026-08-13T09:00:00.000Z");
+      `INSERT INTO sessions (id, engine, source, source_ref, status, attempt_outcome, last_error, work_item_id, created_at, last_activity)
+       VALUES (?, 'claude', 'web', 'web', 'error', ?, ?, ?, ?, ?)`,
+    ).run(id, outcome, lastError, workItemId, "2026-08-13T09:00:00.000Z", "2026-08-13T09:00:00.000Z");
   }
 
   it("accepts and persists an explicit rate_limited close", () => {
@@ -183,6 +183,21 @@ describe("a quota window is not a failure (ICI-731)", () => {
     settledSession("s-429", "failed", "429 Too Many Requests: usage limit exceeded, retry after the window");
 
     runs.closeRunsForSettledSessions("2026-08-13T12:00:00.000Z");
+
+    expect(runs.listWorkItemRuns(item.id).find((entry) => entry.id === run.id)?.outcome).toBe("rate_limited");
+  });
+
+  it("reads the receipt the same way when the per-Todo reconciler reaches it first", async () => {
+    // Two settlers race for every attempt: this sweep and the reconciler. If
+    // they disagree, a quota window reads as `blocked` purely because of which
+    // one arrived first — and `blocked` is what the respawn guards take to mean
+    // a human has to clear it.
+    const { reconcileWorkItem } = await import("../reconcile.js");
+    const item = store.createWorkItem({ title: "reconciled quota host" });
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-429-reconciled" });
+    settledSession("s-429-reconciled", "failed", "429 Too Many Requests: usage limit exceeded", item.id);
+
+    reconcileWorkItem(item.id);
 
     expect(runs.listWorkItemRuns(item.id).find((entry) => entry.id === run.id)?.outcome).toBe("rate_limited");
   });

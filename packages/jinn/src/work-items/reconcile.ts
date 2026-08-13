@@ -18,7 +18,7 @@ import {
   closeRunsForSettledSessions,
   closeWorkItemRun,
   findOpenWorkItemRunBySession,
-  RUN_OUTCOME_BY_RECEIPT,
+  runOutcomeForReceipt,
 } from './runs.js';
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { logger } from '../shared/logger.js';
@@ -115,7 +115,12 @@ function closeRunsForSettledAttempts(sessions: readonly Session[]): void {
     if (!session.attemptOutcome) continue;
     try {
       const run = findOpenWorkItemRunBySession(session.id);
-      if (run) closeWorkItemRun(run.id, { outcome: RUN_OUTCOME_BY_RECEIPT[session.attemptOutcome] });
+      // Read the receipt through the same rate-limit-aware reading the sweep
+      // uses. Whichever of the two reaches an attempt first must settle it the
+      // same way, or a quota window becomes `blocked` purely because the
+      // reconciler got there first — and `blocked` is what the respawn guards
+      // read as "a human has to clear this".
+      if (run) closeWorkItemRun(run.id, { outcome: runOutcomeForReceipt(session.attemptOutcome, session.lastError) });
     } catch (err) {
       logger.warn(`Run ledger close for session ${session.id} skipped: ${err instanceof Error ? err.message : err}`);
     }

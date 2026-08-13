@@ -1,5 +1,5 @@
+import { initDb } from '../shared/db.js';
 import { isRateLimitMessage } from '../shared/rateLimit.js';
-import { commentsTail } from './comments.js';
 import { listWorkItemEvents } from './event-log.js';
 import { parseTodoId } from './id.js';
 import { listWorkItemRuns, type TodoRun } from './runs.js';
@@ -39,10 +39,6 @@ export const RESPAWN_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
  *  legitimate retries; shorter would not outlast a storm. */
 export const RESPAWN_RECENT_WINDOW_MS = 60 * 60_000;
 
-/** The comment tail the two comment-reading guards scan. Both only care about
- *  the last hour, and no Todo writes more than this many comments in one. */
-const COMMENT_SCAN = 50;
-
 /** The actor a human's own writes carry. An employee is not a human here: the
  *  point of `recent_success` is that somebody outside the loop has looked. */
 const HUMAN_ACTOR = 'operator';
@@ -53,6 +49,32 @@ const AUTH_ERROR_RE =
 
 /** A pull request a previous attempt already opened. */
 const PR_URL_RE = /https?:\/\/[^\s)]+\/(?:pull|merge_requests)\/\d+/i;
+
+/** One live comment, as the two comment-reading guards need to read it. */
+interface GuardComment {
+  authorKind: string;
+  body: string;
+  createdAt: string;
+}
+
+/**
+ * This Todo's live comments written after `since`, oldest first.
+ *
+ * Both callers bound `since` to the last hour, so this reads a window rather
+ * than a tail: a fixed tail would drop the very comment that clears a guard as
+ * soon as a chatty Todo wrote enough newer ones, which turns a hold into a
+ * function of how much a Todo talks rather than of what it said.
+ */
+function liveCommentsSince(workItemId: string, since: string): GuardComment[] {
+  const rows = initDb()
+    .prepare(
+      `SELECT author_kind, body, created_at FROM work_item_comments
+        WHERE work_item_id = ? AND deleted_at IS NULL AND created_at > ?
+        ORDER BY created_at, rowid`,
+    )
+    .all(workItemId, since) as { author_kind: string; body: string; created_at: string }[];
+  return rows.map((row) => ({ authorKind: row.author_kind, body: row.body, createdAt: row.created_at }));
+}
 
 /** A run that reached an outcome, so its `endedAt` is a fact rather than a maybe. */
 type SettledRun = TodoRun & { endedAt: string };
@@ -131,12 +153,16 @@ function recentSuccess(workItemId: string, run: SettledRun | undefined, now: Dat
 function activePullRequest(workItemId: string, now: Date): RespawnGuardHold | undefined {
   const since = new Date(now.getTime() - RESPAWN_RECENT_WINDOW_MS).toISOString();
   const branch = `build/${workItemId}`;
-  for (const comment of commentsTail(workItemId, COMMENT_SCAN).comments) {
-    if (comment.deletedAt !== null || comment.createdAt <= since) continue;
+  // A Todo id ends in digits, so a plain substring test reads `build/AAA-10` as
+  // a branch for `AAA-1` and parks a Todo on another one's work. Only a digit
+  // can extend the id, so only a digit disqualifies the match — the slug a real
+  // branch appends (`build/AAA-1-the-slice`) still counts.
+  const branchRef = new RegExp(`${branch}(?!\\d)`);
+  for (const comment of liveCommentsSince(workItemId, since)) {
     if (PR_URL_RE.test(comment.body)) {
       return held('active_pr', `a comment at ${comment.createdAt} already carries a pull request for this Todo`);
     }
-    if (comment.body.includes(branch)) {
+    if (branchRef.test(comment.body)) {
       return held('active_pr', `a comment at ${comment.createdAt} already carries branch ${branch}`);
     }
   }
@@ -146,12 +172,14 @@ function activePullRequest(workItemId: string, now: Date): RespawnGuardHold | un
 /** A human comment or a human status move after the run ended — the look the
  *  `recent_success` hold is waiting for. */
 function humanLookedAfter(workItemId: string, endedAt: string): boolean {
-  const commented = commentsTail(workItemId, COMMENT_SCAN).comments.some(
-    (comment) => comment.authorKind === 'operator' && comment.deletedAt === null && comment.createdAt > endedAt,
-  );
+  const commented = liveCommentsSince(workItemId, endedAt).some((comment) => comment.authorKind === 'operator');
   if (commented) return true;
+  // Any event that MOVED the status counts, not only the `status_change` kind:
+  // the operator's own max-rounds decision is recorded as `escalated`, and that
+  // is the most deliberate look there is. Reading `toStatus` rather than listing
+  // kinds keeps the next status-bearing kind from silently dropping out again.
   return listWorkItemEvents(workItemId).some(
-    (event) => event.kind === 'status_change' && event.actor === HUMAN_ACTOR && event.createdAt > endedAt,
+    (event) => event.toStatus !== null && event.actor === HUMAN_ACTOR && event.createdAt > endedAt,
   );
 }
 

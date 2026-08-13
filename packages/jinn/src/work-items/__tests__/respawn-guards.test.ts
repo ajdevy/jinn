@@ -12,11 +12,13 @@ type Store = typeof import("../store.js");
 type Comments = typeof import("../comments.js");
 type Runs = typeof import("../runs.js");
 type Guards = typeof import("../respawn-guards.js");
+type Transitions = typeof import("../transitions.js");
 
 let store: Store;
 let comments: Comments;
 let runs: Runs;
 let guards: Guards;
+let transitions: Transitions;
 let db: import("better-sqlite3").Database;
 
 const NOW = new Date("2026-08-13T12:00:00.000Z");
@@ -48,11 +50,18 @@ function comment(workItemId: string, body: string, createdAt: string, authorKind
   db.prepare("UPDATE work_item_comments SET created_at = ? WHERE id = ?").run(createdAt, added.id);
 }
 
+/** A page's worth of newer traffic on top of whatever the case already wrote —
+ *  the volume that used to decide, all by itself, what the guards could see. */
+function chatter(workItemId: string, createdAt: string): void {
+  for (let i = 0; i < 50; i++) comment(workItemId, `progress note ${i}`, createdAt);
+}
+
 beforeAll(async () => {
   store = await import("../store.js");
   comments = await import("../comments.js");
   runs = await import("../runs.js");
   guards = await import("../respawn-guards.js");
+  transitions = await import("../transitions.js");
   db = (await import("../../shared/db.js")).initDb();
 });
 
@@ -123,6 +132,29 @@ describe("recent_success", () => {
     const id = todoWithSettledRun("stale success", { outcome: "completed", endedAt: minutesBefore(90) });
     expect(guards.checkRespawnGuard(id, NOW)).toEqual({ state: "allowed" });
   });
+
+  it("still sees the human's comment once a chatty Todo has buried it under a page of newer ones", () => {
+    const id = todoWithSettledRun("buried review", { outcome: "completed", endedAt: minutesBefore(30) });
+    comment(id, "looks right, carry on", minutesBefore(25), "operator");
+    chatter(id, minutesBefore(20));
+    expect(guards.checkRespawnGuard(id, NOW)).toEqual({ state: "allowed" });
+  });
+
+  it("counts the operator's max-rounds escalation, which is not a status_change event", () => {
+    const item = store.createWorkItem({
+      title: "escalated after the rounds ran out",
+      status: "in_review",
+      verifyPolicy: { mode: "verify", maxRounds: 1 },
+    });
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: `s-${item.id}`, startedAt: minutesBefore(180) });
+    runs.closeWorkItemRun(run.id, { outcome: "completed", endedAt: minutesBefore(30) });
+
+    const bounced = transitions.transition(item.id, "executing", "operator", { bounce: true });
+    expect(bounced.escalated).toBe(true); // the real path records `escalated`, never `status_change`
+    db.prepare("UPDATE work_item_events SET created_at = ? WHERE id = ?").run(minutesBefore(20), bounced.event!.id);
+
+    expect(guards.checkRespawnGuard(item.id, NOW)).toEqual({ state: "allowed" });
+  });
 });
 
 describe("active_pr", () => {
@@ -147,6 +179,22 @@ describe("active_pr", () => {
   it("allows when the only such comment is older than the window", () => {
     const item = store.createWorkItem({ title: "stale pr" });
     comment(item.id, "opened https://github.com/acme/widget/pull/7", minutesBefore(180));
+    expect(guards.checkRespawnGuard(item.id, NOW)).toEqual({ state: "allowed" });
+  });
+
+  it("still sees the pull request once newer comments have buried it", () => {
+    const item = store.createWorkItem({ title: "buried pr" });
+    comment(item.id, "opened https://github.com/acme/widget/pull/9 for review", minutesBefore(30));
+    chatter(item.id, minutesBefore(20));
+    expect(guards.checkRespawnGuard(item.id, NOW)).toMatchObject({ state: "held", guard: "active_pr" });
+  });
+
+  it("does not read a longer-numbered Todo's branch as this Todo's own", () => {
+    const item = store.createWorkItem({ title: "prefix neighbour" });
+    // `build/AAA-10` shares every character of `build/AAA-1` — the neighbour's
+    // branch, not this Todo's, and a Todo held on it waits on work nobody is
+    // doing for it.
+    comment(item.id, `pushed to build/${item.id}0-a-different-todo`, minutesBefore(10));
     expect(guards.checkRespawnGuard(item.id, NOW)).toEqual({ state: "allowed" });
   });
 });

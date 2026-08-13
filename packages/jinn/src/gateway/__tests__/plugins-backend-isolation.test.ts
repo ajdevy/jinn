@@ -12,6 +12,7 @@ vi.mock("../../shared/logger.js", () => ({
 }));
 
 let onConfigReload: () => void;
+let reconcileWatchers: () => Promise<void>;
 
 function installBackend(id: string, source: string): void {
   install(id, { id, name: id, version: "1.0.0", server: "server.js" }, { "server.js": source });
@@ -22,23 +23,33 @@ const HEALTHY = `export default () => ({
 });`;
 
 beforeAll(async () => {
-  ({ onConfigReload } = await startHarness());
+  ({ onConfigReload, reconcileWatchers } = await startHarness());
 });
 
-beforeEach(() => {
+/**
+ * `onConfigReload` starts a watcher reconcile it does not wait for, and that
+ * pass loads plugin modules from disk. A case that then rewrites a plugin's
+ * `server.js` is racing it: the pass stats the old file, imports after the
+ * write, and the module evaluates once for the pass and once more for the
+ * request, under two different version keys. So every setup here settles its
+ * own pass before the case starts writing.
+ */
+beforeEach(async () => {
   vi.clearAllMocks();
   resetPlugins();
   writeConfig({ enabled: ["inbox"] });
   onConfigReload();
+  await reconcileWatchers();
 });
 
 describe("the enable gate never answers before auth does", () => {
   // Walking /api/plugins/<guess>/ would otherwise let anyone who can reach the
   // port read the operator's installed plugins off 404-versus-something-else.
-  beforeEach(() => {
+  beforeEach(async () => {
     installBackend("inbox", HEALTHY);
     writeConfig({ enabled: ["inbox"] }, { authRequired: true });
     onConfigReload();
+    await reconcileWatchers();
   });
 
   it("answers an enabled plugin and a not-installed id identically to an unauthenticated caller", async () => {
@@ -62,10 +73,11 @@ describe("the enable gate never answers before auth does", () => {
 });
 
 describe("a plugin that fails, fails alone", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     installBackend("healthy", HEALTHY);
     writeConfig({ enabled: ["healthy", "broken"] });
     onConfigReload();
+    await reconcileWatchers();
   });
 
   it.each([
