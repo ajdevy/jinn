@@ -73,6 +73,7 @@ beforeEach(() => {
   stored.settings = { ...DEFAULTS, talkOrb: true }
   authFetch.mockReset()
   authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (url === "/api/talk/config") return json({ configured: true, provider: "openai", providers: ["openai"] })
     if (url === "/api/talk/sessions" && init.method === "POST") return json(OPENED, 201)
     return json({ ok: true })
   })

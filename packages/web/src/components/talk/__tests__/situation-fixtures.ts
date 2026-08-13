@@ -40,6 +40,7 @@ export const PAYLOADS: Record<SituationPayload["kind"], SituationPayload> = {
     ],
   },
   object: { kind: "object", object: { type: "todo", id: "AAA-1" } },
+  "voice-setup": { kind: "voice-setup", providers: ["openai"] },
 }
 
 export const KINDS = Object.keys(PAYLOADS) as SituationPayload["kind"][]

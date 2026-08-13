@@ -207,6 +207,7 @@ export const CONFIG_TOP_LEVEL_KEYS = [
   "context",
   "stt",
   "talk",
+  "realtime",
   "skills",
   "remotes",
 ];

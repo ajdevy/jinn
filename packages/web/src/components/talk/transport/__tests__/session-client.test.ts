@@ -8,6 +8,7 @@ vi.mock("@/lib/auth", () => ({
 
 const {
   HEARTBEAT_INTERVAL_MS,
+  VoiceUnconfiguredError,
   closeTalkSession,
   openTalkSession,
   parkTalkSession,
@@ -44,10 +45,14 @@ describe("opening a session", () => {
     expect(init.method).toBe("POST")
   })
 
-  it("reports the gateway's own words when voice is not configured", async () => {
-    authFetch.mockResolvedValue(json({ error: "Voice is not available: realtime is not configured" }, 503))
+  // The gateway attributes this one rather than describing it, so the caller can
+  // offer setup. Matching on the sentence would make that a string comparison.
+  it("reports an unconfigured refusal as its own kind of failure", async () => {
+    authFetch.mockResolvedValue(
+      json({ error: "Voice is not available.", reason: "unconfigured", detail: "realtime.provider is not set" }, 503),
+    )
 
-    await expect(openTalkSession()).rejects.toThrow("Voice is not available: realtime is not configured")
+    await expect(openTalkSession()).rejects.toThrow(VoiceUnconfiguredError)
   })
 
   it("reports the gateway's own words when the provider refuses to mint", async () => {

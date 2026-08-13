@@ -1676,7 +1676,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1844,
+      "lines": 1675,
       "exempt": [
         "complexity",
         "max-lines-per-function"

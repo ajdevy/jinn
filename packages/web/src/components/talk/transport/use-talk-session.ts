@@ -13,40 +13,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { OrbState } from "../orb-motion"
 import { setTalkSessionId } from "../talk-session-store"
 import { createTalkDriver } from "./session-driver"
+import { fetchTalkCapability } from "@/lib/talk-capability"
+import { useParkWhileHidden } from "./park-while-hidden"
 import {
+  VoiceUnconfiguredError,
   closeTalkSession,
   openTalkSession,
-  parkTalkSession,
-  resumeTalkSession,
   startTalkHeartbeat,
 } from "./session-client"
+import { reason, type LiveSession, type SessionControls, type TalkSetupNeeded } from "./session-controls"
 import { connectRealtime, type ConnectRealtime, type TalkConnection } from "./webrtc-connection"
 
-interface LiveSession {
-  id: string
-  /** Null while parked: the connection is dropped so the provider bills nothing. */
-  connection: TalkConnection | null
-  stopHeartbeat: () => void
-}
-
-/** What opening, closing, parking and resuming all need in order to act on the
- *  session. One object, so each of them is a plain function rather than another
- *  closure over the hook's body. */
-interface SessionControls {
-  liveRef: RefObject<LiveSession | null>
-  /** True between the open request and its answer, so a second press cannot
-   *  mint a second credential. */
-  openingRef: RefObject<boolean>
-  /** Bumped by every teardown. A connection that finished opening across a bump
-   *  belongs to a session nobody is waiting for, and hands itself back rather
-   *  than turning the microphone on behind a closed session. */
-  generationRef: RefObject<number>
-  attach: (id: string, token: string) => Promise<TalkConnection>
-  forget: (live: LiveSession) => void
-  setActive: (active: boolean) => void
-  setState: (state: OrbState) => void
-  setError: (message: string | null) => void
-}
+export type { TalkSetupNeeded }
 
 export interface TalkSessionHandle {
   /** Whether a session is open, which is what the orb's control reflects. */
@@ -55,11 +33,10 @@ export interface TalkSessionHandle {
   levelRef: RefObject<number>
   /** The last failure, in the words of whoever refused. Null once it is past. */
   error: string | null
+  /** Set instead of `error` when the only thing wrong is that voice was never
+   *  configured — a gap with something to do about it, not a message. */
+  setup: TalkSetupNeeded | null
   toggle: () => void
-}
-
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -138,16 +115,30 @@ function useForget(
  * connected is closed here rather than left for the reaper ninety seconds later.
  * A page that left while this was in flight is the same case — the session is
  * named by then, so it is closed on the way out rather than never mentioned.
+ *
+ * It starts by asking whether voice is set up at all, because the alternative is
+ * charging the operator for the answer. The gateway can still refuse the mint
+ * for the same reason — the config can change between the two calls — and that
+ * refusal is routed to the same place rather than shown as a message.
  */
 async function openSession(controls: SessionControls): Promise<void> {
   if (controls.liveRef.current || controls.openingRef.current) return
   controls.openingRef.current = true
   controls.setError(null)
+  controls.setSetup(null)
   controls.setState("thinking")
 
   const generation = controls.generationRef.current
   let opened: string | null = null
+  let providers: string[] = []
   try {
+    const capability = await fetchTalkCapability()
+    providers = capability.providers
+    if (!capability.configured) {
+      controls.setSetup({ providers })
+      controls.setState("idle")
+      return
+    }
     const session = await openTalkSession()
     opened = session.id
     setTalkSessionId(opened)
@@ -162,7 +153,8 @@ async function openSession(controls: SessionControls): Promise<void> {
     controls.setActive(true)
     controls.setState("listening")
   } catch (failure) {
-    controls.setError(reason(failure))
+    if (failure instanceof VoiceUnconfiguredError) controls.setSetup({ providers })
+    else controls.setError(reason(failure))
     controls.setState("idle")
     controls.setActive(false)
     if (opened) void closeTalkSession(opened).catch(() => {})
@@ -181,56 +173,6 @@ async function closeSession(controls: SessionControls): Promise<void> {
   } catch (failure) {
     controls.setError(reason(failure))
   }
-}
-
-/**
- * A hidden tab keeps its session and its history but drops the connection, so a
- * tab switch costs nothing and coming back is not a fresh conversation. The
- * heartbeat carries on through it: the reaper does not read state, and a parked
- * session it collects is one the operator cannot come back to.
- */
-function useParkWhileHidden(controls: SessionControls): void {
-  useEffect(() => {
-    const park = (live: LiveSession) => {
-      if (!live.connection) return
-      live.connection.close()
-      live.connection = null
-      controls.setState("idle")
-      void parkTalkSession(live.id).catch((failure) => controls.setError(reason(failure)))
-    }
-
-    const resume = (live: LiveSession) => {
-      if (live.connection) return
-      const generation = controls.generationRef.current
-      void resumeTalkSession(live.id)
-        .then(async (resumed) => {
-          const connection = await controls.attach(live.id, resumed.token)
-          if (generation !== controls.generationRef.current) {
-            // Closed while this was connecting. The microphone does not come
-            // back on for a session that has already been deleted.
-            connection.close()
-            return
-          }
-          live.connection = connection
-          controls.setState("listening")
-        })
-        .catch((failure) => {
-          // The session is gone — reaped, or closed under us. Say so and stand
-          // down rather than animating an orb attached to nothing.
-          controls.setError(reason(failure))
-          controls.forget(live)
-        })
-    }
-
-    const onVisibility = () => {
-      const live = controls.liveRef.current
-      if (!live) return
-      if (document.hidden) park(live)
-      else resume(live)
-    }
-    document.addEventListener("visibilitychange", onVisibility)
-    return () => document.removeEventListener("visibilitychange", onVisibility)
-  }, [controls])
 }
 
 /**
@@ -270,6 +212,7 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   const [active, setActive] = useState(false)
   const [state, setState] = useState<OrbState>("idle")
   const [error, setError] = useState<string | null>(null)
+  const [setup, setSetup] = useState<TalkSetupNeeded | null>(null)
   const levelRef = useRef(0)
   const liveRef = useRef<LiveSession | null>(null)
   const openingRef = useRef(false)
@@ -278,7 +221,7 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   const forget = useForget(liveRef, generationRef, setActive, setState)
 
   const controls = useMemo<SessionControls>(
-    () => ({ liveRef, openingRef, generationRef, attach, forget, setActive, setState, setError }),
+    () => ({ liveRef, openingRef, generationRef, attach, forget, setActive, setState, setError, setSetup }),
     [attach, forget],
   )
 
@@ -290,5 +233,5 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   useParkWhileHidden(controls)
   useCloseOnLeaving(liveRef, generationRef, forget)
 
-  return { active, state, levelRef, error, toggle }
+  return { active, state, levelRef, error, setup, toggle }
 }

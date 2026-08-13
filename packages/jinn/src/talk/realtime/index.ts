@@ -46,3 +46,21 @@ export function createRealtimeProvider(config: RealtimeConfig): RealtimeProvider
       throw new UnknownRealtimeProviderError(config.provider);
   }
 }
+
+/**
+ * Whether {@link createRealtimeProvider} would succeed on this block.
+ *
+ * Answered by building one rather than by re-stating the rules, so the setup
+ * surface can never drift from the factory it is describing — a provider name
+ * this file does not implement and a `${ENV_VAR}` key whose variable is unset
+ * both read as unconfigured, because both are what the factory refuses.
+ * Construction opens no socket and mints nothing, so asking costs nothing.
+ */
+export function isRealtimeConfigured(config: RealtimeConfig): boolean {
+  try {
+    createRealtimeProvider(config);
+    return true;
+  } catch {
+    return false;
+  }
+}

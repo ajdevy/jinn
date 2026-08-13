@@ -4,10 +4,11 @@ import { ImagesSituation, VideoSituation, imagesSpeech, videoSpeech } from "./re
 import { ObjectSituation, objectSpeech } from "./renderers/jinn-object"
 import { OptionsSituation, optionsSpeech } from "./renderers/options"
 import { ProseSituation, proseSpeech } from "./renderers/prose"
+import { VoiceSetupSituation, voiceSetupSpeech } from "./renderers/voice-setup"
 
 /**
  * One entry per payload kind: what draws it, and what a voice would say. The
- * record is keyed on the union's discriminant, so the compiler refuses a sixth
+ * record is keyed on the union's discriminant, so the compiler refuses a new
  * kind that forgot to register itself — and the sheet needs no branch at all.
  */
 
@@ -28,6 +29,7 @@ export const SITUATION_RENDERERS: Record<Kind, SituationRenderer> = {
   images: { Render: ImagesSituation, speech: imagesSpeech },
   video: { Render: VideoSituation, speech: videoSpeech },
   object: { Render: ObjectSituation, speech: objectSpeech },
+  "voice-setup": { Render: VoiceSetupSituation, speech: voiceSetupSpeech },
 }
 
 /** What to say for this payload, without rendering — or touching — the sheet. */

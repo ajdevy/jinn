@@ -1,6 +1,6 @@
 /**
  * What a situation can put in front of the operator. One discriminated union,
- * one renderer per kind (see `situation-renderers.ts`), so a sixth kind is a new
+ * one renderer per kind (see `situation-renderers.ts`), so another kind is a new
  * member here plus a new entry there — and nothing in the sheet changes.
  *
  * Every card answers by its own id: there is no confirm step anywhere.
@@ -40,6 +40,9 @@ export type SituationPayload =
   | { kind: "images"; images: SituationImage[] }
   | { kind: "video"; clips: SituationClip[] }
   | { kind: "object"; object: JinnObjectRef }
+  /** Voice has no provider that would work yet. `providers` is what this gateway
+   *  implements, so the card can only offer a choice that would actually run. */
+  | { kind: "voice-setup"; providers: string[] }
 
 /** The envelope the sheet draws. Text lives here and in the undo strip, and
  *  nowhere else in the surface. */

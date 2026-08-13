@@ -13,7 +13,10 @@ const apiMocks = vi.hoisted(() => ({
   sttDownload: vi.fn(),
 }))
 
+const fetchTalkCapability = vi.hoisted(() => vi.fn())
+
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
+vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock('@/routes/providers', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }))
@@ -66,6 +69,7 @@ describe('Settings stale chat controls', () => {
     })
     apiMocks.sttUpdateConfig.mockResolvedValue({})
     apiMocks.sttDownload.mockResolvedValue({})
+    fetchTalkCapability.mockResolvedValue({ configured: true, provider: 'openai', providers: ['openai'] })
   })
 
   it('writes the policy fields and disables thresholds with the toggle off', async () => {

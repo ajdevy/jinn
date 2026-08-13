@@ -35,13 +35,22 @@ function sessionPath(id: string, action?: string): string {
   return action ? `${base}/${action}` : base
 }
 
+/** What the gateway reports when voice has no provider it could use. It is a
+ *  refusal with an answer, so callers offer setup rather than repeat a message —
+ *  which is why it is a type and not a string to match against. */
+export class VoiceUnconfiguredError extends Error {}
+
 /** The gateway's own words for what went wrong, because it is the only party
  *  that knows whether voice is unconfigured, the provider refused, or the
  *  session is gone. A body with nothing to say falls back to the status. */
 async function failure(response: Response): Promise<Error> {
   try {
-    const body = (await response.json()) as { error?: unknown }
-    if (typeof body.error === "string" && body.error) return new Error(body.error)
+    const body = (await response.json()) as { error?: unknown; reason?: unknown }
+    const message = typeof body.error === "string" && body.error ? body.error : null
+    if (body.reason === "unconfigured") {
+      return new VoiceUnconfiguredError(message ?? "Voice is not available.")
+    }
+    if (message) return new Error(message)
   } catch {
     /* a body that is not JSON says nothing the status does not */
   }
@@ -61,7 +70,8 @@ function jsonBody(body: unknown): RequestInit {
 /**
  * Open a session. This is the call that mints a paid provider credential, so it
  * belongs to an operator gesture and nothing else — never a mount, never a
- * route change.
+ * route change. `lib/talk-capability.ts` is what asks whether that is even
+ * possible, and asking costs nothing.
  */
 export async function openTalkSession(): Promise<OpenTalkSession> {
   const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions")

@@ -44,11 +44,15 @@ describe("opening a talk session", () => {
     }
   });
 
-  it("answers 503 naming the config key when realtime is unconfigured", async () => {
+  it("answers 503 attributing the refusal to configuration when realtime is unconfigured", async () => {
     delete (config as { realtime?: unknown }).realtime;
     const res = await call(config, "POST", "/api/talk/sessions");
     expect(res.status).toBe(503);
-    expect(String(res.body.error)).toMatch(/realtime\.provider/);
+    expect(res.body.reason).toBe("unconfigured");
+    // The factory's words are kept for the log, not for the operator: the
+    // client answers this reason with a setup card of its own.
+    expect(String(res.body.detail)).toMatch(/realtime\.provider/);
+    expect(String(res.body.error)).not.toMatch(/realtime\.provider/);
     expect(res.text).not.toContain(ACCOUNT_KEY);
   });
 

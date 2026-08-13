@@ -53,6 +53,10 @@ const PAYLOADS: Record<SituationPayload["kind"], SituationPayload> = {
     kind: "object",
     object: { type: "todo", id: "JIN-1" },
   },
+  "voice-setup": {
+    kind: "voice-setup",
+    providers: ["openai"],
+  },
 }
 
 const TITLES: Record<SituationPayload["kind"], { title: string; hint: string }> = {
@@ -61,6 +65,7 @@ const TITLES: Record<SituationPayload["kind"], { title: string; hint: string }> 
   images: { title: "Which cover?", hint: "Three variants, same brief" },
   video: { title: "Which cut?", hint: "Two edits of the same take" },
   object: { title: "Is this the right Todo?", hint: "Pulled live from this instance" },
+  "voice-setup": { title: "Set up voice", hint: "Saving here writes the gateway's realtime config" },
 }
 
 export const SITUATION_KINDS = Object.keys(PAYLOADS) as SituationPayload["kind"][]

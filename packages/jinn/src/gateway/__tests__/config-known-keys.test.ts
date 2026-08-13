@@ -121,6 +121,31 @@ describe("PUT /api/config top-level key allowlist", () => {
     expect(savedConfig().workflows).toEqual({ armingDelegates: ["platform-delegate"] });
   });
 
+  it("accepts and persists the realtime block", async () => {
+    const response = await call("PUT", "/api/config", {
+      realtime: { provider: "openai", apiKey: "sk-account-key" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(savedConfig().realtime).toEqual({ provider: "openai", apiKey: "sk-account-key" });
+  });
+
+  // The Settings page saves the whole document it was served, so the key it
+  // sends back is the "***" it was given. Saving must therefore be a no-op on
+  // the key rather than a way to overwrite it with the sentinel.
+  it("round-trips a realtime gateway without overwriting the key it redacted", async () => {
+    currentConfig = { ...baseConfig(), realtime: { provider: "openai", apiKey: "sk-account-key" } };
+    fs.writeFileSync(path.join(jinnHome, "config.yaml"), yaml.dump(currentConfig));
+
+    const fetched = await call("GET", "/api/config");
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.realtime.apiKey).toBe("***");
+
+    const saved = await call("PUT", "/api/config", fetched.body);
+    expect(saved.status).toBe(200);
+    expect(savedConfig().realtime).toEqual({ provider: "openai", apiKey: "sk-account-key" });
+  });
+
   it("still refuses a key JinnConfig does not declare", async () => {
     const response = await call("PUT", "/api/config", { nonsense: true });
 

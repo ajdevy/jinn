@@ -21,6 +21,7 @@ import { UNPINNED_MODEL, isPricingKnown } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
 import { alwaysOnTools, estimateToolTokens, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
+import { handleTalkConfigApi } from "./talk-config-api.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 
@@ -59,9 +60,13 @@ function fail(res: ServerResponse, error: unknown): void {
 }
 
 /**
- * Build the provider, or answer 503 naming the config the operator is missing.
+ * Build the provider, or answer 503 for the config the operator is missing.
+ *
  * A provider that cannot be constructed is a configuration gap, so it is
- * reported as an unavailable feature rather than as a crash.
+ * reported as an unavailable feature rather than as a crash. `reason` is what
+ * the client acts on: it turns the refusal into a setup prompt rather than into
+ * a message. The factory's own words stay in `detail`, which is for the log and
+ * for a test — the surface has a card for this and does not need the exception.
  */
 function provider(config: JinnConfig, res: ServerResponse) {
   try {
@@ -70,7 +75,7 @@ function provider(config: JinnConfig, res: ServerResponse) {
     const detail = error instanceof UnknownRealtimeProviderError || error instanceof Error
       ? error.message
       : "realtime is not configured";
-    send(res, 503, { error: `Voice is not available: ${detail}` });
+    send(res, 503, { error: "Voice is not available.", reason: "unconfigured", detail });
     return null;
   }
 }
@@ -244,6 +249,19 @@ function unauthorizedWrite(res: ServerResponse, method: string, options: TalkApi
   return true;
 }
 
+/** The talk routes that are not sessions: read-aloud, and the voice-setup probe.
+ *  Tried before the session router for the same reason this module is tried
+ *  before the main dispatcher — whoever owns the path answers it. */
+async function nonSessionRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  config: JinnConfig,
+): Promise<boolean> {
+  if (await handleTalkTtsApi(req, res, pathname, config)) return true;
+  return handleTalkConfigApi(req, res, pathname, config);
+}
+
 export async function handleTalkApi(
   req: IncomingMessage,
   res: ServerResponse,
@@ -251,7 +269,7 @@ export async function handleTalkApi(
 ): Promise<boolean> {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
   const config = options.getConfig();
-  if (await handleTalkTtsApi(req, res, pathname, config)) return true;
+  if (await nonSessionRoutes(req, res, pathname, config)) return true;
 
   const parts = talkSessionsPath(pathname);
   if (!parts) return false;

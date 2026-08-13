@@ -92,15 +92,18 @@ export function SettingsSelect({
   value,
   onChange,
   options,
+  ariaLabel,
 }: {
   value: string
   onChange: (v: string) => void
   options: { value: string; label: string; disabled?: boolean }[]
+  ariaLabel?: string
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      aria-label={ariaLabel}
       className={`${CONTROL_CLASS} cursor-pointer`}
     >
       {options.map((o) => (

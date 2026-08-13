@@ -27,8 +27,11 @@ function calls(match: string) {
   return authFetch.mock.calls.filter(([url]) => String(url).endsWith(match))
 }
 
+const CONFIGURED = { configured: true, provider: "openai", providers: ["openai"] }
+
 function openSucceeds() {
   authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (url === "/api/talk/config") return json(CONFIGURED)
     if (url === "/api/talk/sessions" && init.method === "POST") return json(OPENED, 201)
     if (url.endsWith("/resume")) return json({ token: "secret-2", expiresAt: 1_700_001_200 })
     return json({ ok: true })
@@ -117,21 +120,24 @@ describe("activating and deactivating", () => {
 })
 
 describe("an open that fails", () => {
-  it.each([
-    [503, "Voice is not available: realtime is not configured"],
-    [502, "The realtime provider refused to issue a session credential."],
-  ])("leaves the orb idle and the store empty on %i", async (status, message) => {
-    authFetch.mockResolvedValue(json({ error: message }, status))
-    const { getByTestId } = render(<Probe />)
+  it.each([[502, "The realtime provider refused to issue a session credential."]])(
+    "leaves the orb idle and the store empty on %i",
+    async (status, message) => {
+      authFetch.mockImplementation(async (url: string) =>
+        url === "/api/talk/config" ? json(CONFIGURED) : json({ error: message }, status),
+      )
+      const { getByTestId } = render(<Probe />)
 
-    await act(async () => handle.toggle())
+      await act(async () => handle.toggle())
 
-    await waitFor(() => expect(handle.error).toBe(message))
-    expect(handle.active).toBe(false)
-    expect(handle.state).toBe("idle")
-    expect(getByTestId("open-session").textContent).toBe("none")
-    expect(connect).not.toHaveBeenCalled()
-  })
+      await waitFor(() => expect(handle.error).toBe(message))
+      expect(handle.setup).toBeNull()
+      expect(handle.active).toBe(false)
+      expect(handle.state).toBe("idle")
+      expect(getByTestId("open-session").textContent).toBe("none")
+      expect(connect).not.toHaveBeenCalled()
+    },
+  )
 
   it("closes a session that opened but never connected, rather than half-holding it", async () => {
     openSucceeds()
