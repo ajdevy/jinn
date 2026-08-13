@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { installPluginSdk, sdkImportMap, shimSource } from '../runtime'
 
 describe('shim source', () => {
@@ -38,9 +38,18 @@ describe('shim source', () => {
   })
 })
 
+describe('sdkImportMap before installPluginSdk', () => {
+  // The barrel is resolved by the install rather than bound statically, so the
+  // window where there is nothing to derive shims from is real. It says which
+  // call is missing rather than emitting shims over an undefined namespace.
+  it('refuses to build shims and names the call that was skipped', () => {
+    expect(() => sdkImportMap()).toThrow(/installPluginSdk/)
+  })
+})
+
 describe('installPluginSdk', () => {
   it('puts the app’s own SDK and React on the globals the shims read', async () => {
-    installPluginSdk()
+    await installPluginSdk()
 
     const globals = globalThis as Record<string, unknown>
     const sdk = await import('../index')
@@ -53,6 +62,10 @@ describe('installPluginSdk', () => {
 })
 
 describe('sdkImportMap', () => {
+  beforeAll(async () => {
+    await installPluginSdk()
+  })
+
   it('maps exactly the three supported specifiers', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
       '@jinn/plugin-sdk',

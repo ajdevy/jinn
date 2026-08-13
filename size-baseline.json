@@ -446,7 +446,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1386,
+      "lines": 1375,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1981,7 +1981,7 @@
       "lines": 388
     },
     "scripts/check-footguns.mjs": {
-      "lines": 484
+      "lines": 435
     },
     "scripts/docker-configure.mjs": {
       "lines": 308,

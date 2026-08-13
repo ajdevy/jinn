@@ -9,6 +9,19 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue>({ theme: 'dark', setTheme: () => {} })
 
+/**
+ * An installed PWA paints its titlebar from this meta, so it has to follow the
+ * theme the app actually resolved — a `prefers-color-scheme` pair would give an
+ * explicitly light install a dark titlebar on a dark OS. Read back off --bg so
+ * the titlebar and the page can never disagree about what the background is.
+ */
+function syncThemeColor() {
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (!meta) return
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+  if (bg) meta.setAttribute('content', bg)
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeId>('dark')
 
@@ -23,6 +36,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       el.setAttribute('data-theme', t)
     }
+    syncThemeColor()
   }, [])
 
   useEffect(() => {
@@ -40,6 +54,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (current === 'system') {
         const el = document.documentElement
         el.setAttribute('data-theme', mq.matches ? 'dark' : 'light')
+        syncThemeColor()
       }
     }
     mq.addEventListener('change', handleChange)

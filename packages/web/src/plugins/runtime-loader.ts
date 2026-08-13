@@ -259,9 +259,12 @@ export async function loadRuntimePlugin(
   origin: string,
   kind: PluginKind,
 ): Promise<string | null> {
-  installPluginSdk()
-
   try {
+    // Inside the try because it now fetches the SDK barrel's chunk: a deploy
+    // that superseded it should be recorded against this plugin, not surface as
+    // an unhandled rejection in the reconcile pass above.
+    await installPluginSdk()
+
     const unsupported = unsupportedImports(source)
     if (unsupported.length > 0) {
       throw new PluginLoadError(

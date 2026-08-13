@@ -71,6 +71,23 @@ describe('web static asset fallback', () => {
     }
   })
 
+  it('serves the web manifest as application/manifest+json', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'jinn-web-'))
+    try {
+      writeFileSync(join(dir, 'manifest.webmanifest'), JSON.stringify({ name: 'Jinn' }))
+
+      const { handled, res } = await callServeStatic('/manifest.webmanifest', dir)
+
+      expect(handled).toBe(true)
+      expect(res.statusCode).toBe(200)
+      // Chrome ignores a manifest served as anything else, so the install prompt
+      // never appears — and the SPA fallback would otherwise hand back index.html.
+      expect(res.headers['Content-Type']).toBe('application/manifest+json')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('keeps SPA fallback for client-side routes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'jinn-web-'))
     try {

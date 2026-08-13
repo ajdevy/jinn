@@ -19,6 +19,8 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 
+import { findLeaks, loadPrivateTerms, PRIVATE_TERMS_DEFAULT } from "./footguns/privacy-leak.mjs"
+
 const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 const TEXT_EXTENSIONS = new Set([...CODE_EXTENSIONS, ".json", ".md", ".yml", ".yaml", ".sh"])
 
@@ -38,8 +40,6 @@ const DESCRIBES_THE_RULES = new Set([
 ])
 
 const SUPPRESSION = /(?:\/\/|#)\s*footgun:\s*ok\b[ \t]*(.*)$/
-
-const PRIVATE_TERMS_DEFAULT = "scripts/.footgun-terms.local"
 
 /** Lines matching `pattern`, minus the ones `ignore` recognises as a sanctioned idiom. */
 function matchingLines(text, pattern, ignore) {
@@ -63,36 +63,6 @@ function underPackages(relPath) {
 
 function isTest(relPath) {
   return relPath.includes("/__tests__/") || /\.test\.[jt]sx?$/.test(relPath)
-}
-
-/**
- * An email on a domain nobody owns is documentation, not a leak. Anything under
- * an `example` label or a reserved TLD is illustrative by RFC 2606 / 6761.
- */
-function isIllustrativeDomain(domain) {
-  const labels = domain.toLowerCase().split(".")
-  const tld = labels[labels.length - 1]
-  // `typescript@5.9.3` in a lockfile is email-shaped and is not an address. A
-  // real top-level domain is letters.
-  if (!/^[a-z]{2,}$/.test(tld)) return true
-  if (["example", "invalid", "test", "local", "localhost", "internal"].includes(tld)) return true
-  return labels.includes("example")
-}
-
-// A local part with no letter in it is an identifier that happens to be
-// @-shaped — a WhatsApp JID, a docker tag — not a person's address.
-const EMAIL = /\b[A-Za-z0-9._%+-]*[A-Za-z][A-Za-z0-9._%+-]*@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g
-
-function findLeaks(text, privateTerms) {
-  const found = []
-  const lines = text.split("\n")
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const leaks = [...line.matchAll(EMAIL)].some((match) => !isIllustrativeDomain(match[1]))
-    const lower = line.toLowerCase()
-    if (leaks || privateTerms.some((term) => lower.includes(term))) found.push(index + 1)
-  }
-  return found
 }
 
 const RULES = [
@@ -127,7 +97,7 @@ const RULES = [
     message: "an email address on a real domain, or a term from the private-terms file — everything here is public and ships to npm",
     fix: "Use an illustrative address (someone@example.com) or a neutral placeholder. Anything that must be personal is read at runtime from the instance home, never committed.",
     scans: (relPath) => extensionIn(relPath, TEXT_EXTENSIONS),
-    find: (text, _relPath, context) => findLeaks(text, context.privateTerms),
+    find: (text, relPath, context) => findLeaks(text, relPath, context.privateTerms),
   },
   {
     name: "hardcoded-port",
@@ -346,25 +316,6 @@ function selectFiles(mode, ref) {
     .filter(([, lines]) => lines.size > 0)
     .map(([file, lines]) => ({ file, lines }))
   return { files, read }
-}
-
-function loadPrivateTerms() {
-  // A deny-list of real names committed to a public repo IS the leak, so the
-  // terms live outside the tree. Absent, the rule runs structurally only, and
-  // the summary says so rather than downgrading in silence.
-  const configured = process.env.FOOTGUN_TERMS_FILE
-  const file = configured ?? PRIVATE_TERMS_DEFAULT
-  let raw
-  try {
-    raw = readFileSync(file, "utf8")
-  } catch (error) {
-    if (error.code === "ENOENT" && !configured) return []
-    throw new Error(`FOOTGUN_TERMS_FILE ${file} could not be read: ${error.message}`)
-  }
-  return raw
-    .split("\n")
-    .map((line) => line.trim().toLowerCase())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
 }
 
 function loadTypeScript() {
