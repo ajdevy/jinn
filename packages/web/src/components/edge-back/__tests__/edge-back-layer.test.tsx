@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearPreviousViewSnapshot } from '../previous-view-snapshot'
+import { clearPreviousViewSnapshot, RETAINED_NODES } from '../previous-view-snapshot'
 import {
   edgeBack,
   edgeDrag,
@@ -16,7 +16,31 @@ import {
 
 const liveView = () => screen.getByText('second view').parentElement as HTMLElement
 
+/** Every `navigate(-1)` the layer asked for. Recorded through the module the
+ *  layer calls, so a gesture that moves the view without navigating — or that
+ *  navigates twice for one drag — reads differently from one that works. */
+const stepsTaken = vi.hoisted(() => [] as number[])
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => {
+      const navigate = actual.useNavigate() as (to: unknown, options?: unknown) => void
+      return (to: unknown, options?: unknown) => {
+        if (typeof to === 'number') stepsTaken.push(to)
+        navigate(to, options)
+      }
+    },
+  }
+})
+
+/** A trail of nine that cannot be retained whole, so the walk back has to keep
+ *  working through evictions rather than only through a cache that never fills. */
+const OVER_BUDGET_PADDING = Math.ceil(RETAINED_NODES / 8)
+
 beforeEach(() => {
+  stepsTaken.length = 0
   clearPreviousViewSnapshot()
   // The browser history is shared across a file; leaving one test's entries
   // behind would have the next one reading a count nothing is advancing.
@@ -95,8 +119,12 @@ describe('EdgeBackLayer', () => {
     expect(screen.getByTestId('edge-back-layer').textContent).toContain('first view')
   })
 
-  it('keeps the gutter and keeps going back through eight consecutive gestures', async () => {
-    renderShell()
+  it('keeps the gutter and keeps navigating through eight backs off an over-budget trail', async () => {
+    // Nine views the retention budget cannot hold together, so photographs are
+    // being dropped while the trail is walked. That is the case a gesture built
+    // on "there is a copy of where I am going" goes inert in, one step before
+    // the finger reaches the far end.
+    renderShell(true, OVER_BUDGET_PADDING)
     for (let step = 0; step < 8; step += 1) await goForward()
     expect(screen.getByText(labelAt(8))).toBeTruthy()
 
@@ -104,8 +132,11 @@ describe('EdgeBackLayer', () => {
       expect(screen.getByTestId('edge-back-gutter')).toBeTruthy()
       await edgeBack()
       expect(screen.getByText(labelAt(depth))).toBeTruthy()
+      expect(stepsTaken).toHaveLength(8 - depth)
     }
-  })
+
+    expect(stepsTaken).toEqual(Array.from({ length: 8 }, () => -1))
+  }, 30_000)
 
   it('falls back to a plain backdrop, and still goes back at every step, with nothing photographed', async () => {
     // No photograph anywhere is strictly worse than anything retention can do to

@@ -6,8 +6,12 @@ import { COMMIT_RATIO } from '../use-edge-back-gesture'
 
 /** The shell, reduced to the two things the gesture touches: a live view it
  *  translates, and the layer mounted before it. Leaving the view unphotographed
- *  is how a test stands where retention has already dropped the copy. */
-export function Shell({ label, next, photographed = true }: { label: string; next: string; photographed?: boolean }) {
+ *  is how a test stands where retention has already dropped the copy, and
+ *  padding it is how a test builds a trail too big to retain whole. */
+export function Shell(
+  { label, next, photographed = true, padding = 0 }:
+  { label: string; next: string; photographed?: boolean; padding?: number },
+) {
   const content = useRef<HTMLDivElement>(null)
   return (
     <main>
@@ -15,19 +19,23 @@ export function Shell({ label, next, photographed = true }: { label: string; nex
       <div ref={photographed ? content : undefined}>
         <p>{label}</p>
         <Link to={next}>forward</Link>
+        {Array.from({ length: padding }, (_, node) => <span key={node} />)}
       </div>
     </main>
   )
 }
 
 /** Three views in a cycle, so a trail can be walked as long as a test needs. */
-export function renderShell(photographed = true): void {
+export function renderShell(photographed = true, padding = 0): void {
+  const shell = (label: string, next: string) => (
+    <Shell label={label} next={next} photographed={photographed} padding={padding} />
+  )
   render(
     <MemoryRouter initialEntries={['/a']}>
       <Routes>
-        <Route path="/a" element={<Shell label="first view" next="/b" photographed={photographed} />} />
-        <Route path="/b" element={<Shell label="second view" next="/c" photographed={photographed} />} />
-        <Route path="/c" element={<Shell label="third view" next="/a" photographed={photographed} />} />
+        <Route path="/a" element={shell('first view', '/b')} />
+        <Route path="/b" element={shell('second view', '/c')} />
+        <Route path="/c" element={shell('third view', '/a')} />
       </Routes>
     </MemoryRouter>,
   )

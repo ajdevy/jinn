@@ -21,10 +21,8 @@ export interface RetainedView {
  * navigation the view that was on screen a moment ago is the one *ahead* in
  * history, and revealing it would promise a destination `navigate(-1)` is not
  * going to reach. `entries` mirrors the browser's stack so the reveal and the
- * navigation always name the same view.
- *
- * The map is held in visit order, oldest first, so the eviction reads the least
- * recently stood-on view off the front.
+ * navigation always name the same view, and so the eviction can tell an entry
+ * the gesture is walking towards from one it has already left behind.
  */
 const snapshots = new Map<string, RetainedView>()
 let entries: string[] = []
@@ -35,7 +33,7 @@ let counted: number | null = null
  *  roughly eight average routes. A budget in entries would treat a settings page
  *  and a long transcript as the same size, and a budget in bytes cannot be read
  *  off a detached tree at all. */
-const RETAINED_NODES = 12_000
+export const RETAINED_NODES = 12_000
 
 /** Test-only: forget every retained view so a suite starts from a known state. */
 export function clearPreviousViewSnapshot(): void {
@@ -56,13 +54,6 @@ function photograph(source: HTMLElement): RetainedView {
   clone.style.width = "100%"
   clone.style.height = "100%"
   return { clone, nodes: clone.querySelectorAll("*").length + 1 }
-}
-
-/** Files the photograph at the back of the queue, so re-visiting a view makes it
- *  the freshest again — a plain `set` would leave it where it first landed. */
-function rememberView(key: string, view: RetainedView): void {
-  snapshots.delete(key)
-  snapshots.set(key, view)
 }
 
 /**
@@ -103,40 +94,48 @@ function locate(key: string, navigation: NavigationType): number {
   const standing = forward ? undefined : snapshots.get(entries[index])
   for (const dropped of entries.splice(index)) snapshots.delete(dropped)
   entries[index] = key
-  if (standing) rememberView(key, standing)
+  if (standing) snapshots.set(key, standing)
   return index
 }
 
+/** Every entry the drag could afford to lose, least missed first: the far side
+ *  of the forward half, then the trail behind the cursor read from its far end
+ *  in. The view `navigate(-1)` lands on is in neither half. */
+function evictionOrder(trail: readonly string[], at: number): string[] {
+  return [...trail.slice(at).reverse(), ...trail.slice(0, Math.max(at - 1, 0))]
+}
+
 /**
- * Brings the retained photographs back under the budget, dropping the least
- * recently visited first.
+ * Brings the retained photographs back under the budget, dropping whichever the
+ * back gesture would want last.
  *
- * The pinned keys are never candidates, whatever the budget says: the view on
- * screen and the one behind it are the only two a drag can ever put on screen,
- * and evicting either is what turned a full history into a dead gesture. An
- * entry the browser can still reach is worth keeping — an eviction that outruns
- * reachability costs a reveal it did not have to.
+ * The gesture only ever runs the trail backwards, so an entry ahead of the
+ * cursor is not on the way anywhere and goes first, and the entries behind it go
+ * from the far end in, because those are the stops the finger reaches last.
+ * Least-recently-visited reads as the same order and is not: walking a long
+ * trail back re-photographs the view at every stop, which floats the entire
+ * forward half above the predecessors the gesture is about to walk into, and the
+ * trail goes dark from its far end just before the finger gets there.
+ *
+ * The view `navigate(-1)` lands on is never a candidate, whatever the budget
+ * says: evicting that one is what turned a full history into a dead reveal.
  */
 export function forgetViewsOverBudget(
   views: Map<string, RetainedView>,
-  pinned: readonly string[],
+  trail: readonly string[],
+  at: number,
   budget = RETAINED_NODES,
 ): void {
   let total = 0
   for (const view of views.values()) total += view.nodes
 
-  for (const [key, view] of views) {
+  for (const key of evictionOrder(trail, at)) {
     if (total <= budget) return
-    if (pinned.includes(key)) continue
+    const view = views.get(key)
+    if (!view) continue
     views.delete(key)
     total -= view.nodes
   }
-}
-
-/** The two views a drag can put on screen: the one standing here, and the one
- *  `navigate(-1)` lands on. */
-function pinnedViews(): string[] {
-  return entries.slice(Math.max(cursor - 1, 0), cursor + 1)
 }
 
 /**
@@ -173,11 +172,11 @@ export function usePreviousViewSnapshot(content: RefObject<HTMLElement | null>):
 
   useEffect(() => {
     cursor = locate(key, navigation)
-    forgetViewsOverBudget(snapshots, pinnedViews())
+    forgetViewsOverBudget(snapshots, entries, cursor)
     const behind = cursor > 0 ? snapshots.get(entries[cursor - 1]) : undefined
     setView({ previous: behind?.clone ?? null, canGoBack: canStepBack() })
     const frame = requestAnimationFrame(() => {
-      if (content.current) rememberView(key, photograph(content.current))
+      if (content.current) snapshots.set(key, photograph(content.current))
     })
     return () => cancelAnimationFrame(frame)
   }, [key, navigation, content])
