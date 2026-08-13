@@ -3,6 +3,13 @@ import type { EngineResult } from "./types.js";
 const RATE_LIMIT_ERROR_RE =
   /rate.?limit|too many requests|429|overloaded|usage.*limit|exceeded.*limit|out of extra usage/i;
 
+/** Whether error text reads as a quota window rather than a fault. Engine
+ *  results are one caller; a settled attempt's stored error is the other, and
+ *  both have to reach the same verdict or the same outage reads two ways. */
+export function isRateLimitMessage(text: string | null | undefined): boolean {
+  return typeof text === "string" && RATE_LIMIT_ERROR_RE.test(text);
+}
+
 export interface RateLimitDetection {
   limited: boolean;
   /** Unix timestamp in seconds */
@@ -68,7 +75,7 @@ export function detectRateLimit(result: EngineResult): RateLimitDetection {
     return { limited: true, resetsAt };
   }
 
-  if (result.error && RATE_LIMIT_ERROR_RE.test(result.error)) {
+  if (isRateLimitMessage(result.error)) {
     return { limited: true, resetsAt };
   }
 

@@ -159,3 +159,41 @@ describe("closeOrphanedWorkItemRuns", () => {
     expect(runs.closeOrphanedWorkItemRuns("2026-08-13T12:00:01.000Z")).toBe(0);
   });
 });
+
+describe("a quota window is not a failure (ICI-731)", () => {
+  /** A session that already reported its receipt, so the settled-session sweep
+   *  is the thing deciding what the run's outcome reads as. */
+  function settledSession(id: string, outcome: string, lastError: string | null): void {
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, attempt_outcome, last_error, created_at, last_activity)
+       VALUES (?, 'claude', 'web', 'web', 'error', ?, ?, ?, ?)`,
+    ).run(id, outcome, lastError, "2026-08-13T09:00:00.000Z", "2026-08-13T09:00:00.000Z");
+  }
+
+  it("accepts and persists an explicit rate_limited close", () => {
+    const item = store.createWorkItem({ title: "quota host" });
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-quota" });
+    expect(runs.closeWorkItemRun(run.id, { outcome: "rate_limited" }).outcome).toBe("rate_limited");
+    expect(runs.listWorkItemRuns(item.id)[0].outcome).toBe("rate_limited");
+  });
+
+  it("settles a rate-limit-shaped receipt as rate_limited rather than blocked", () => {
+    const item = store.createWorkItem({ title: "receipt host" });
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-429" });
+    settledSession("s-429", "failed", "429 Too Many Requests: usage limit exceeded, retry after the window");
+
+    runs.closeRunsForSettledSessions("2026-08-13T12:00:00.000Z");
+
+    expect(runs.listWorkItemRuns(item.id).find((entry) => entry.id === run.id)?.outcome).toBe("rate_limited");
+  });
+
+  it("leaves an ordinary failed receipt reading as blocked", () => {
+    const item = store.createWorkItem({ title: "ordinary host" });
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-fail" });
+    settledSession("s-fail", "failed", "the build step exited with code 1");
+
+    runs.closeRunsForSettledSessions("2026-08-13T12:00:00.000Z");
+
+    expect(runs.listWorkItemRuns(item.id).find((entry) => entry.id === run.id)?.outcome).toBe("blocked");
+  });
+});

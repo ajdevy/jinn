@@ -173,6 +173,9 @@ describe("the outcome a terminal attempt reads as", () => {
     expect(todoRunOutcome("failed", "workflow-submitted-failure")).toBe("blocked");
     expect(todoRunOutcome("failed", "workflow-no-output")).toBe("crashed");
     expect(todoRunOutcome("failed")).toBe("crashed");
+    // A quota window outranks the status: the attempt never got to fail at the work.
+    expect(todoRunOutcome("failed", "workflow-no-output", "429 rate limit exceeded")).toBe("rate_limited");
+    expect(todoRunOutcome("timed-out", undefined, "the provider is overloaded")).toBe("rate_limited");
   });
 });
 

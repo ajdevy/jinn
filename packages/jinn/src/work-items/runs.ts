@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
+import { isRateLimitMessage } from '../shared/rateLimit.js';
 import type { SessionAttemptOutcome } from '../shared/types.js';
 import { TODO_RUN_OUTCOMES, type TodoRunOutcome } from './runs-schema.js';
 
@@ -163,7 +164,7 @@ export function openWorkItemRun(input: OpenWorkItemRunInput): TodoRun {
 
 /**
  * Settle exactly one run. Refuses an unknown id, an outcome outside the frozen
- * five, and a run that is already settled — a second close would overwrite a
+ * six, and a run that is already settled — a second close would overwrite a
  * handoff somebody is meant to read.
  */
 export function closeWorkItemRun(runId: string, input: CloseWorkItemRunInput): TodoRun {
@@ -227,6 +228,18 @@ export const RUN_OUTCOME_BY_RECEIPT: Record<SessionAttemptOutcome, TodoRunOutcom
 };
 
 /**
+ * How a receipt reads once its error text is taken into account. A session the
+ * provider turned away did not fail at the work — it never got to do any — so a
+ * quota window settles as `rate_limited` rather than as `blocked`, whatever the
+ * receipt calls it. Only a receipt that did NOT succeed is reinterpreted: a
+ * finished attempt is finished no matter what its logs mention.
+ */
+export function runOutcomeForReceipt(receipt: SessionAttemptOutcome, error: string | null): TodoRunOutcome {
+  if (receipt !== 'succeeded' && isRateLimitMessage(error)) return 'rate_limited';
+  return RUN_OUTCOME_BY_RECEIPT[receipt];
+}
+
+/**
  * Sweep: close every open run whose session has already reported a terminal
  * receipt.
  *
@@ -247,14 +260,14 @@ export const RUN_OUTCOME_BY_RECEIPT: Record<SessionAttemptOutcome, TodoRunOutcom
 export function closeRunsForSettledSessions(endedAt: string = new Date().toISOString()): number {
   const settled = initDb()
     .prepare(
-      `SELECT runs.id AS id, sessions.attempt_outcome AS outcome
+      `SELECT runs.id AS id, sessions.attempt_outcome AS outcome, sessions.last_error AS error
          FROM work_item_runs AS runs JOIN sessions ON sessions.id = runs.session_id
         WHERE runs.ended_at IS NULL AND sessions.attempt_outcome IS NOT NULL
           AND (sessions.workflow_kind IS NULL OR sessions.workflow_kind <> 'phase')`,
     )
-    .all() as { id: string; outcome: SessionAttemptOutcome }[];
+    .all() as { id: string; outcome: SessionAttemptOutcome; error: string | null }[];
   for (const run of settled) {
-    closeWorkItemRun(run.id, { outcome: RUN_OUTCOME_BY_RECEIPT[run.outcome], endedAt });
+    closeWorkItemRun(run.id, { outcome: runOutcomeForReceipt(run.outcome, run.error), endedAt });
   }
   return settled.length;
 }

@@ -9,7 +9,9 @@ import {
 } from "./id.js";
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
 import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
+import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
+import { currentTableSql, sqlShape } from "./sql-shape.js";
 import { resolveDepartmentPrefix } from "./departments.js";
 import { loadConfig } from "../shared/config.js";
 import { CONFIG_PATH } from "../shared/paths.js";
@@ -580,15 +582,6 @@ export { allocateWorkItemId, allocateWorkItemIdV1ForTest, registerWorkItemIdenti
 
 export type WorkItemSchemaPreflight = "absent" | "empty-prerelease" | "v1" | "current";
 
-function sqlShape(sql: string | null | undefined): string {
-  return (sql ?? "")
-    .replace(/\bIF\s+NOT\s+EXISTS\b/gi, "")
-    .replace(/\s+/g, " ")
-    .replace(/;\s*$/, "")
-    .trim()
-    .toLowerCase();
-}
-
 const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_items", WORK_ITEMS_TABLE_DDL],
   ["work_item_events", WORK_ITEM_EVENTS_TABLE_DDL],
@@ -699,10 +692,6 @@ function refusal(): never {
   throw new Error(UNSUPPORTED_PRERELEASE_TODO_DATA);
 }
 
-function currentTableSql(db: DatabaseType, name: string): string | undefined {
-  return (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { sql: string } | undefined)?.sql;
-}
-
 const PRERELEASE_WORK_ITEMS_TABLE_SQL = `
 CREATE TABLE work_items (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT,
@@ -731,16 +720,19 @@ function hasShadowApprovalColumns(db: DatabaseType): boolean {
 }
 
 /** A v2 database whose only defects heal at boot: additive tables that shipped
- *  later are absent (e.g. slice-1 pre-comments), and/or work_items still carries
- *  the pre-PLA-48 approval columns. Never a refusal and never a rebuild. Every
- *  OTHER table that is present must shape-match exactly. */
+ *  later are absent (e.g. slice-1 pre-comments), work_items still carries the
+ *  pre-PLA-48 approval columns, and/or work_item_runs still pins the five
+ *  outcomes it shipped with. Never a refusal. Every OTHER table that is present
+ *  must shape-match exactly. */
 function recognizedHealableV2(db: DatabaseType): boolean {
   const additiveNames = new Set(V2_ADDITIVE_TABLES.map((table) => table.name));
   const shadowedApprovals = hasShadowApprovalColumns(db);
+  const fiveOutcomeRuns = hasFiveOutcomeRunTable(db);
   const missing = V2_ADDITIVE_TABLES.filter((table) => !tableExists(db, table.name));
-  if (missing.length === 0 && !shadowedApprovals) return false; // nothing to heal
+  if (missing.length === 0 && !shadowedApprovals && !fiveOutcomeRuns) return false; // nothing to heal
   for (const [name, expected] of REQUIRED_TABLE_SQL) {
     if (name === "work_items" && shadowedApprovals) continue;
+    if (name === "work_item_runs" && fiveOutcomeRuns) continue;
     if (additiveNames.has(name) && !tableExists(db, name)) continue;
     if (sqlShape(currentTableSql(db, name)) !== sqlShape(expected)) return false;
   }
@@ -985,6 +977,9 @@ export function migrateWorkItemsSchema(
         backfillWorkItemApprovals(db, "work_items");
         for (const column of V2_APPROVAL_COLUMNS) db.exec(`ALTER TABLE work_items DROP COLUMN ${column}`);
       }
+      // ICI-731: a run ledger written before `rate_limited` existed is widened
+      // here, after the additive creates above have had their no-op pass at it.
+      if (hasFiveOutcomeRunTable(db)) widenRunOutcomes(db);
       // Slice-5 review F2: departments that gained Todos through pre-fix
       // move-only writes get their registry rows.
       reconcileDepartmentRegistry(db);

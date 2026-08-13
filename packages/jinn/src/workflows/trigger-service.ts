@@ -4,6 +4,7 @@ import { validateCronSchedule } from "../cron/validation.js";
 import { logger } from "../shared/logger.js";
 import { claimWorkItem, releaseWorkItemClaim } from "../work-items/claims.js";
 import { normalizeLabelName } from "../work-items/labels.js";
+import { appendRespawnGuardHold, checkRespawnGuard } from "../work-items/respawn-guards.js";
 import { createWorkflowTodoEventFeed, type WorkflowTodoEventClaimOutcome,
   type WorkflowTodoEventFeed, type WorkflowTodoStatusEvent } from "../work-items/workflow-event-feed.js";
 import { jsonValueSchema, type JsonValue, type TriggerNode, type WorkflowDefinition } from "./model.js";
@@ -161,15 +162,19 @@ export class WorkflowTriggerService {
     // a second run on work somebody is already doing. A rejected claim means the
     // Todo row is gone, and a Todo that no longer exists cannot be double-worked.
     const owner = `workflow:${event.id}`;
+    // The respawn guards run BEFORE the claim (ICI-731): this is the automated
+    // re-dispatch lane — status-driven pickup, and workflow re-arm one hop later
+    // through the status transition it writes — and a Todo a guard refuses must
+    // stay free for a human to dispatch by hand. One event, one audited hold,
+    // however many definitions were about to run on it.
+    const guard = runnable.length > 0 ? checkRespawnGuard(event.workItemId) : undefined;
+    if (guard?.state === "held") {
+      appendRespawnGuardHold(event.workItemId, guard, owner);
+      return this.suppressAll(event, runnable, outcomes, `the ${guard.guard} guard holds it: ${guard.reason}`);
+    }
     const todo = runnable.length > 0 ? claimWorkItem({ workItemId: event.workItemId, owner }) : undefined;
     if (todo?.state === "held") {
-      for (const item of runnable) {
-        const detail = `Todo event ${event.id} suppressed: ${event.workItemId} is already being worked by ${todo.claim.owner}.`;
-        logger.info(`Workflow ${item.definition.id}: ${detail}`);
-        outcomes.push({ workflowId: item.definition.id, outcome: "suppressed", detail });
-      }
-      this.feed.completeEvent(event.id, outcomes);
-      return 0;
+      return this.suppressAll(event, runnable, outcomes, `${event.workItemId} is already being worked by ${todo.claim.owner}`);
     }
     try {
       for (const item of runnable) {
@@ -183,6 +188,20 @@ export class WorkflowTriggerService {
       this.feed.completeEvent(event.id, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
     } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
+  }
+
+  /** Refuse every candidate that survived the filters for the same reason, and
+   *  close the event on it. Two things stop a fire this late: a respawn guard,
+   *  and the Todo already being worked by somebody else. */
+  private suppressAll(event: WorkflowTodoStatusEvent, runnable: ReadonlyArray<IndexedTrigger>,
+    outcomes: WorkflowTodoEventClaimOutcome[], reason: string): number {
+    for (const item of runnable) {
+      const detail = `Todo event ${event.id} suppressed: ${reason}.`;
+      logger.info(`Workflow ${item.definition.id}: ${detail}`);
+      outcomes.push({ workflowId: item.definition.id, outcome: "suppressed", detail });
+    }
+    this.feed.completeEvent(event.id, outcomes);
+    return 0;
   }
 
   private async start(definition: WorkflowDefinition, source: TriggerNode, fireId: string,

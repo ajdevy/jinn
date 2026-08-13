@@ -1,4 +1,5 @@
 import { logger } from "../shared/logger.js";
+import { isRateLimitMessage } from "../shared/rateLimit.js";
 import { normalizeTodoRunHandoff, type TodoRunOutcome } from "../work-items/runs.js";
 import type { WorkflowNodeOutput } from "./model.js";
 import type { WorkflowError, WorkflowRunDetail } from "./runtime.js";
@@ -24,9 +25,16 @@ export type WorkflowAttemptTerminalStatus = "completed" | "failed" | "timed-out"
 /** How a terminal attempt reads in the ledger. `failed` is the only split: an
  *  employee that ran and reported a verdict left BLOCKED work, while a
  *  transport fault that produced no output is a CRASH — and an agent deciding
- *  whether to try the same thing again needs to tell those apart. */
-export function todoRunOutcome(status: WorkflowAttemptTerminalStatus, errorCode?: string): TodoRunOutcome {
+ *  whether to try the same thing again needs to tell those apart.
+ *
+ *  A quota window outranks all of it (ICI-731). The attempt did not fail, time
+ *  out or get cancelled at the work: the provider turned it away, and reading
+ *  the error is the only way that fact reaches the ledger — no error CODE says
+ *  it, because every transport spells it differently in the message. */
+export function todoRunOutcome(status: WorkflowAttemptTerminalStatus, errorCode?: string,
+  errorMessage?: string): TodoRunOutcome {
   if (status === "completed") return "completed";
+  if (isRateLimitMessage(errorMessage)) return "rate_limited";
   if (status === "timed-out") return "timed_out";
   if (status === "cancelled") return "abandoned";
   return errorCode === "workflow-submitted-failure" ? "blocked" : "crashed";
@@ -60,7 +68,7 @@ export function settleTodoRun(link: WorkflowTodoSessionLink | undefined, run: Wo
   const handoff = normalizeTodoRunHandoff(settle.output?.fields ?? settle.handoff);
   record(link, run, (ledger) => ledger.closeRun({
     sessionId,
-    outcome: todoRunOutcome(settle.status, settle.error?.code),
+    outcome: todoRunOutcome(settle.status, settle.error?.code, settle.error?.message),
     endedAt: settle.endedAt,
     ...(summary ? { summary } : {}),
     ...(Object.keys(handoff).length > 0 ? { handoff } : {}),

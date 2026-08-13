@@ -38,7 +38,8 @@ export type WorkItemEventKind =
   | 'verify_result'
   | 'escalated'
   | 'claim_rejected'
-  | 'claim_expired';
+  | 'claim_expired'
+  | 'respawn_guard_held';
 
 /** Actor recorded on the reconciler's own derived writes. */
 export const RECONCILER_ACTOR = 'reconciler';

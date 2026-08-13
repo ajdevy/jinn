@@ -16,16 +16,19 @@ const OUTCOME_LABEL: Record<WorkItemRunOutcomeWire, string> = {
   crashed: "Crashed",
   timed_out: "Timed out",
   abandoned: "Abandoned",
+  rate_limited: "Rate limited",
 }
 
 /** The disc takes a colour only as the honest state it presents: green for an
- *  attempt that finished, red for one that died, neutral for one let go. */
+ *  attempt that finished, red for one that died, neutral for one let go, and
+ *  yellow for one the provider turned away — a wait, not a fault. */
 const OUTCOME_TINT: Record<WorkItemRunOutcomeWire, string> = {
   completed: "var(--system-green)",
   blocked: "var(--system-orange)",
   crashed: "var(--system-red)",
   timed_out: "var(--system-orange)",
   abandoned: "var(--text-quaternary)",
+  rate_limited: "var(--system-yellow)",
 }
 
 const NOTE_FIELDS: Array<{ key: "verification" | "retryNotes" | "residualRisk"; label: string }> = [

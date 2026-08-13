@@ -1,8 +1,12 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 
-/** How an attempt ended. Frozen: the DDL's CHECK pins the same five words, so a
- *  new one is a schema change, not a string. */
-export const TODO_RUN_OUTCOMES = ["completed", "blocked", "crashed", "timed_out", "abandoned"] as const;
+/** How an attempt ended. Frozen: the DDL's CHECK pins the same six words, so a
+ *  new one is a schema change, not a string.
+ *
+ *  `rate_limited` is deliberately not a failure (ICI-731): a quota window is the
+ *  provider saying "not now", and recording it as `blocked` or `crashed` makes a
+ *  wait look like a code problem to every reader and every counter downstream. */
+export const TODO_RUN_OUTCOMES = ["completed", "blocked", "crashed", "timed_out", "abandoned", "rate_limited"] as const;
 
 export type TodoRunOutcome = (typeof TODO_RUN_OUTCOMES)[number];
 
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS work_item_runs (
   session_id   TEXT NOT NULL,
   started_at   TEXT NOT NULL,
   ended_at     TEXT,
-  outcome      TEXT CHECK (outcome IN ('completed','blocked','crashed','timed_out','abandoned')),
+  outcome      TEXT CHECK (outcome IN ('completed','blocked','crashed','timed_out','abandoned','rate_limited')),
   summary      TEXT,
   metadata     TEXT,
   error        TEXT,
@@ -50,7 +54,7 @@ interface WorkItemRunVerifyRow {
 /**
  * Data-level re-proof of the run ledger at boot (the DDL pins the shape, this
  * pins the rows): every run belongs to a live Todo, open and settled are the
- * only two states, a settled run's outcome is one of the frozen five, and a
+ * only two states, a settled run's outcome is one of the frozen six, and a
  * stored handoff still parses as a JSON object. Returns false rather than
  * throwing so the caller keeps the single curated refusal message.
  */
