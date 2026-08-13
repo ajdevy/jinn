@@ -68,8 +68,10 @@ describe("searchTerms", () => {
     expect(searchTerms("talk orb thing")).toContain("orb")
   })
 
-  it("keeps the most distinctive words when a long sentence is spoken", () => {
-    expect(searchTerms("resolution latency backlog rollout orb")).toEqual([
+  it("keeps the short words of a long sentence, in the order they were spoken", () => {
+    expect(searchTerms("the talk orb one about resolution latency backlog rollout")).toEqual([
+      "talk",
+      "orb",
       "resolution",
       "latency",
       "backlog",

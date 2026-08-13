@@ -86,23 +86,17 @@ function words(value: string): string[] {
     .filter((word) => word !== "" && !FILLER.has(word))
 }
 
-/** Enough words to reach the thing, few enough that one spoken sentence does
- *  not turn into a dozen round trips. */
-const SEARCHED_WORDS = 4
-
 /**
  * The terms to send to the gateway. Todo and session search both match a
  * substring, so a whole spoken phrase — "the talk orb ticket" — matches
- * nothing at all. Each distinctive word is asked for on its own instead,
- * because the one that finds the object is not always the longest: "talk orb
- * thing" only reaches the orb sessions through "talk" and "orb". The pooled
+ * nothing at all. Each distinctive word is asked for on its own instead, and
+ * all of them go: the one that finds the object is not always the longest, and
+ * a phrase already stripped of filler has few words left to ask for. The pooled
  * answers are a superset that `rankCandidates` narrows against everything the
- * operator said. Longest first, so the cap keeps the most distinctive words.
+ * operator said.
  */
 export function searchTerms(query: string): string[] {
   return [...new Set(words(query))]
-    .sort((first, second) => second.length - first.length)
-    .slice(0, SEARCHED_WORDS)
 }
 
 /**
