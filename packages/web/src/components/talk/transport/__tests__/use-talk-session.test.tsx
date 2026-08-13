@@ -2,12 +2,16 @@ import { act, render, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const authFetch = vi.fn()
-vi.mock("@/lib/auth", () => ({ authFetch: (...args: unknown[]) => authFetch(...args) }))
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/auth")>()
+  return { ...original, authFetch: (...args: unknown[]) => authFetch(...args) }
+})
 
 const { useTalkSession } = await import("../use-talk-session")
 const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
 const { HEARTBEAT_INTERVAL_MS } = await import("../session-client")
 const { FakeConnection, connect, holdNextConnect } = await import("./fake-connection")
+const { pageContextListenerCount, resetPageContext } = await import("@/components/talk/context/page-context-store")
 
 let handle: ReturnType<typeof useTalkSession>
 
@@ -45,6 +49,7 @@ beforeEach(() => {
   connect.mockClear()
   FakeConnection.opened = []
   setTalkSessionId(null)
+  resetPageContext()
 })
 
 afterEach(() => {
@@ -204,6 +209,27 @@ describe("leaving and coming back", () => {
     expect(calls("/resume")).toHaveLength(1)
     expect(FakeConnection.opened[1]!.token).toBe("secret-2")
     await waitFor(() => expect(handle.state).toBe("listening"))
+  })
+
+  it("lets go of the page store on every drop, so parking and resuming leaks no follower", async () => {
+    openSucceeds()
+    render(<Probe />)
+    await activate()
+    expect(pageContextListenerCount()).toBe(1)
+
+    for (const round of [1, 2]) {
+      await act(async () => setHidden(true))
+      await waitFor(() => expect(calls("/park")).toHaveLength(round))
+      // A parked session has no channel, so it must have no follower either.
+      expect(pageContextListenerCount()).toBe(0)
+      await act(async () => setHidden(false))
+      await waitFor(() => expect(handle.state).toBe("listening"))
+      expect(pageContextListenerCount()).toBe(1)
+    }
+
+    await act(async () => handle.toggle())
+    await waitFor(() => expect(handle.active).toBe(false))
+    expect(pageContextListenerCount()).toBe(0)
   })
 
   it("stands down when the session it parked has been reaped", async () => {

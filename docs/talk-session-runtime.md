@@ -363,10 +363,12 @@ provider session carrying two tools of the same name is rejected. Two invariants
 are tested: the always-on list is a strict subset of the full catalog, and the
 endpoint is idempotent per intent.
 
-No client posts to it yet. The browser transport declares the web catalog in one
-`session.update` on the data channel opening and has no intent detection at all —
-"The browser half" above says why the two catalogs have not been unified. The
-endpoint is the gateway half of a mechanism whose other half is unbuilt.
+No client posts to it yet. The browser transport declares the whole web catalog
+in the `session.update` it sends when the data channel opens, and re-declares it
+on every later `session.update` (see "Ambient page context" below); it has no
+intent detection at all — "The browser half" above says why the two catalogs have
+not been unified. The endpoint is the gateway half of a mechanism whose other
+half is unbuilt.
 
 What ships here is the mechanism plus a small read-only seed. `search_knowledge`
 and `hand_off_to_chat` are always on; `todos`, `sessions`, and `org` are the seed
@@ -374,6 +376,48 @@ groups. **ICI-756 owns the full catalog** and extends `tools.ts`; the seed here 
 not a proposal for what that catalog should contain. ICI-757's write tools are
 declared client-side in `packages/web`, so `tools.ts` stays read-only; what the
 gateway owns of a write is the action log below.
+
+### Ambient page context
+
+The orb is told where the operator is instead of having to ask. Almost every Jinn
+surface already keeps that in the URL, so `components/talk/context/` parses the
+location into a `PageSnapshot` — the surface, the path, the route params, the
+active filters and search, and the one object the view is focused on — adds the
+ids and titles of whatever the page's own react-query cache is already holding,
+and names the instance and port so a machine running several Jinns side by side
+is never ambiguous. Nothing here fetches: a cold cache renders as a view with no
+object list rather than as traffic the operator did not ask for.
+
+**The browser owns `instructions`.** `RealtimeConfig` carries model, voice and
+turn detection only, and `createRealtimeProvider` forwards nothing else, so no
+talk session has instructions from the gateway today and the field is free for
+the browser to hold. It is a *replaced* field rather than a conversation item,
+which is exactly the shape ambient context wants: the snapshot costs its length
+once and is overwritten on the next push, instead of accumulating down the
+transcript one page view at a time.
+
+**Every push carries the full tool list.** `sendSessionConfig` sends tools and
+instructions together rather than relying on the provider to merge one field at a
+time — a context push that silently cleared the catalog would take the whole orb
+down, and the bytes are on a local data channel.
+
+**Bounded, and the object list is the only part that gives ground.**
+`PAGE_CONTEXT_BUDGET_CHARS` is 1200, about 300 tokens at the four-characters-per-token
+estimate above, against the 6000-token rolling budget. Instance, route, params and
+selection are clipped field by field and always survive; the object list then
+takes whatever room is left, one entry at a time, and says `+N more` for what it
+dropped. A 400-card board renders in about a dozen entries and stays under the cap.
+
+**Debounced and unsubscribed.** The router publishes on every navigation, and the
+driver pushes on a 400 ms trailing debounce, so typing in the board's search box
+costs one `session.update` rather than one per keystroke. `driver.stop()` lets go
+of the store and is called wherever the connection is dropped — close, park, page
+unload, and the generation-mismatch paths — because a driver outliving its
+channel would go on pushing at nothing.
+
+One thing is deliberately absent: the workflow editor's selected node is local
+component state rather than a URL param, so the snapshot cannot see it. That is
+recorded rather than fixed here.
 
 ### The consent policy
 

@@ -11,7 +11,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const authFetch = vi.fn()
-vi.mock("@/lib/auth", () => ({ authFetch: (...args: unknown[]) => authFetch(...args) }))
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/auth")>()
+  return { ...original, authFetch: (...args: unknown[]) => authFetch(...args) }
+})
 
 const addWorkItemComment = vi.fn()
 vi.mock("@/lib/api", async (importOriginal) => {

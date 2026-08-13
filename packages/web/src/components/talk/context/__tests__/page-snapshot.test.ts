@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest"
+import { describeLocation } from "../page-snapshot"
+
+describe("describing the operator's location", () => {
+  it("reads a board with its filters and its search query", () => {
+    expect(describeLocation("/todos/b/platform", "?status=executing&assignee=a-lead&q=orb")).toEqual({
+      kind: "todos",
+      path: "/todos/b/platform",
+      params: { board: "platform" },
+      filters: { status: "executing", assignee: "a-lead", q: "orb" },
+      selection: null,
+    })
+  })
+
+  it("keeps the home board's implied status filter, which is what the board shows", () => {
+    expect(describeLocation("/todos/b/my", "")).toEqual({
+      kind: "todos",
+      path: "/todos/b/my",
+      params: { board: "my" },
+      filters: { status: "open" },
+      selection: null,
+    })
+  })
+
+  it("names the open Todo as the selection, not as a route param", () => {
+    expect(describeLocation("/todos/ABC-744", "")).toEqual({
+      kind: "todo",
+      path: "/todos/ABC-744",
+      params: {},
+      filters: {},
+      selection: { kind: "Todo", id: "ABC-744" },
+    })
+  })
+
+  it("reads a workflow run as the run it is on, under the workflow that owns it", () => {
+    expect(describeLocation("/workflow/nightly-build/runs/run_0f21c7", "")).toEqual({
+      kind: "workflow-run",
+      path: "/workflow/nightly-build/runs/run_0f21c7",
+      params: { workflow: "nightly-build" },
+      filters: {},
+      selection: { kind: "workflow run", id: "run_0f21c7" },
+    })
+  })
+
+  it("reads the workflow editor and its runs lens apart", () => {
+    expect(describeLocation("/workflow/nightly-build", "")).toMatchObject({
+      kind: "workflow",
+      filters: {},
+      selection: { kind: "workflow", id: "nightly-build" },
+    })
+    expect(describeLocation("/workflow/nightly-build", "?lens=runs")).toMatchObject({
+      kind: "workflow",
+      filters: { lens: "runs" },
+    })
+  })
+
+  it("reads chat's selected session from the query, where chat keeps it", () => {
+    expect(describeLocation("/", "?session=sess-4821")).toEqual({
+      kind: "chat",
+      path: "/",
+      params: {},
+      filters: {},
+      selection: { kind: "chat session", id: "sess-4821" },
+    })
+  })
+
+  it("reads chat with nothing selected", () => {
+    expect(describeLocation("/", "")).toEqual({
+      kind: "chat",
+      path: "/",
+      params: {},
+      filters: {},
+      selection: null,
+    })
+  })
+
+  it("degrades an unknown route to its path and nothing invented", () => {
+    expect(describeLocation("/somewhere/nobody/added", "?x=1")).toEqual({
+      kind: "other",
+      path: "/somewhere/nobody/added",
+      params: {},
+      filters: {},
+      selection: null,
+    })
+  })
+
+  it("never throws, whatever the location says", () => {
+    for (const [pathname, search] of [
+      ["", ""],
+      ["/", "?session="],
+      ["/todos/b/%", ""],
+      ["/todos/%E0%A4%A", ""],
+      ["/workflow/%/runs/%", "?lens=%"],
+      ["/notes/f/%2Fetc%2Fpasswd/n/%", ""],
+      ["///", "?&&=="],
+    ] as const) {
+      expect(() => describeLocation(pathname, search)).not.toThrow()
+      expect(describeLocation(pathname, search).path).toBe(pathname)
+    }
+  })
+
+  it("reads the other surfaces the orb can navigate to", () => {
+    expect(describeLocation("/org", "?employee=a-lead")).toMatchObject({
+      kind: "org",
+      selection: { kind: "employee", id: "a-lead" },
+    })
+    expect(describeLocation("/cron/nightly-sync", "")).toMatchObject({
+      kind: "cron",
+      selection: { kind: "cron job", id: "nightly-sync" },
+    })
+    expect(describeLocation("/cron", "?lens=week&filter=enabled")).toMatchObject({
+      kind: "cron",
+      filters: { lens: "week", filter: "enabled" },
+      selection: null,
+    })
+    expect(describeLocation("/experiments/exp-1", "")).toMatchObject({
+      kind: "experiment",
+      selection: { kind: "experiment", id: "exp-1" },
+    })
+    // Folder and open note are carried independently, so the note's own path is
+    // the whole knowledge-relative one, not one relative to the folder chip.
+    expect(describeLocation("/notes/f/product/n/product/roadmap", "")).toMatchObject({
+      kind: "notes",
+      params: { folder: "product" },
+      selection: { kind: "note", id: "knowledge/product/roadmap.md" },
+    })
+  })
+})

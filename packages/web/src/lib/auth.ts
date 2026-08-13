@@ -82,9 +82,20 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
+let knownInstance: string | null = null
+
 export async function getAuthState(): Promise<AuthState> {
   const res = await fetch(urlFor("/api/auth/state"), withCredentials({ method: "GET" }))
-  return jsonOrThrow<AuthState>(res)
+  const state = await jsonOrThrow<AuthState>(res)
+  knownInstance = state.instance?.trim() || null
+  return state
+}
+
+/** The instance name the gateway last reported, for the surfaces that have to
+ *  name which Jinn they are on without waiting on a request. Null until the
+ *  app's first auth-state read has landed. */
+export function lastKnownInstance(): string | null {
+  return knownInstance
 }
 
 export async function bootstrapLocalAuth(): Promise<boolean> {
