@@ -41,9 +41,12 @@ const config: CapacitorConfig = {
   // directory to exist. See public/README.md.
   webDir: "public",
   server: {
+    // A gateway on a LAN address is plain http, which App Transport Security
+    // blocks by default. `server.cleartext` does not lift that: it is an
+    // Android-only key and Capacitor's iOS runtime never reads it. The
+    // NSAllowsArbitraryLoadsInWebContent exception in ios/App/App/Info.plist is
+    // what lets WKWebView load this URL.
     url: serverUrl,
-    // A gateway on a LAN address is plain http, which iOS blocks by default.
-    cleartext: true,
   },
   plugins: {
     Keyboard: {

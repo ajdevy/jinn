@@ -13,29 +13,14 @@
  * this whole file into the console, and copy the single JSON line it prints.
  */
 (() => {
+  // The chat transcript is the surface the comparison is about, and it is the
+  // one element the chat route scrolls. Naming it keeps both runs on the same
+  // element instead of whichever overflowing container happens to be mounted.
+  const SCROLLER_SELECTOR = '.chat-messages-scroll';
   const DISTANCE_PX = 4000;
   const DURATION_MS = 3000;
   const BASELINE_HZ = 60;
   const BASELINE_INTERVAL_MS = 1000 / BASELINE_HZ;
-
-  /**
-   * Several surfaces carry [data-scrollable]; only one of them is the long
-   * transcript we care about. Pick the tallest actual overflow rather than the
-   * first match, so the probe lands on the same element in both runs.
-   */
-  function findScroller() {
-    const candidates = Array.from(document.querySelectorAll('[data-scrollable]'));
-    let best = null;
-    let bestOverflow = 0;
-    for (const el of candidates) {
-      const overflow = el.scrollHeight - el.clientHeight;
-      if (overflow > bestOverflow) {
-        best = el;
-        bestOverflow = overflow;
-      }
-    }
-    return { element: best, overflow: bestOverflow };
-  }
 
   function percentile(sorted, p) {
     if (sorted.length === 0) return 0;
@@ -50,12 +35,21 @@
     return Math.round(value * 100) / 100;
   }
 
-  const { element: scroller, overflow } = findScroller();
+  const scroller = document.querySelector(SCROLLER_SELECTOR);
 
   if (!scroller) {
-    console.log(JSON.stringify({ probe: 'frame-probe', error: 'no [data-scrollable] element found' }));
+    console.log(
+      JSON.stringify({
+        probe: 'frame-probe',
+        error: 'no chat transcript on this page',
+        selector: SCROLLER_SELECTOR,
+        fix: 'open a chat with a long transcript, then run the probe again',
+      }),
+    );
     return;
   }
+
+  const overflow = scroller.scrollHeight - scroller.clientHeight;
 
   // A short scroller cannot travel DISTANCE_PX, so the two runs would cover
   // different distances and the numbers would not be comparable. Refuse instead.

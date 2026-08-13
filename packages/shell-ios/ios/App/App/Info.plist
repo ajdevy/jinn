@@ -24,6 +24,18 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- The shell loads the operator's own gateway at a LAN address over plain
+	     http, so App Transport Security would refuse the very first request.
+	     The address differs per operator and is supplied at sync time, so it
+	     cannot be pinned as an NSExceptionDomains entry. This is the narrowest
+	     exception that still works: cleartext is permitted to WKWebView content
+	     only, and native URLSession traffic stays under the default policy.
+	     App Review requires this to be justified; see README.md. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

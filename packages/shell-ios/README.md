@@ -29,10 +29,16 @@ CORS check rejects any non-`http(s)` origin. Serving the bundle from
 `capacitor://localhost` breaks all four at once. Loading the gateway's origin
 keeps every one of them true and needs no change to auth or to the gateway.
 
-Two consequences, both real:
+Three consequences, all real:
 
 - The app is inert whenever the gateway is unreachable.
 - App Store review guideline 4.2 disfavours apps that are a remote-URL wrapper.
+- A gateway on a LAN speaks plain http, which App Transport Security blocks, so
+  `ios/App/App/Info.plist` carries an `NSAllowsArbitraryLoadsInWebContent`
+  exception. It permits cleartext to WebView content only and leaves native
+  traffic under the default policy, but App Review still asks it to be
+  justified. Capacitor's `server.cleartext` is an Android-only key and does
+  nothing on iOS.
 
 ## Prerequisites
 
