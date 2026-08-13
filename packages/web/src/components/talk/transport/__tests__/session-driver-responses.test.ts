@@ -138,6 +138,36 @@ describe("a response already in flight", () => {
     expect(talk.requests()).toHaveLength(1)
   })
 
+  it("leaves the request to the call still running when the response ends first", async () => {
+    let finishSecond: (value: unknown) => void = () => {}
+    addWorkItemComment
+      .mockResolvedValueOnce({ comment: { id: "c-1" } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishSecond = resolve
+        }),
+      )
+    const talk = driver()
+
+    // The calls of one response settle in turn, not together: the first answers
+    // while the assistant is still speaking, which owes a request, and the
+    // second is still running when that response ends.
+    talk.driver.receive(RESPONSE_CREATED)
+    talk.driver.receive(toolCall("call-1"))
+    await vi.waitFor(() => expect(talk.answers()).toEqual(["call-1"]))
+    talk.driver.receive(toolCall("call-2"))
+    talk.driver.receive(RESPONSE_DONE)
+
+    // Making the owed request here and letting call-2 make its own is two
+    // replies to one utterance.
+    expect(talk.requests()).toHaveLength(0)
+    finishSecond({ comment: { id: "c-2" } })
+
+    await vi.waitFor(() => expect(talk.answers()).toHaveLength(2))
+    await settle()
+    expect(talk.requests()).toHaveLength(1)
+  })
+
   it("makes one request across the whole exchange, not one per response", async () => {
     const talk = driver()
 

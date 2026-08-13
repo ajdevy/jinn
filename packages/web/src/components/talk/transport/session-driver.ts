@@ -84,6 +84,7 @@ function requestResponse(driver: DriverState): void {
     driver.owed = true
     return
   }
+  driver.owed = false
   driver.options.send({ type: "response.create" })
 }
 
@@ -124,13 +125,17 @@ function finishTurn(driver: DriverState, total: TalkUsage): void {
   })
 }
 
-/** The response is over: price it, then make the one request it was owed. */
+/**
+ * The response is over: price it, then make the one request it was owed.
+ *
+ * Unless one of its tool calls is still running. That call is the last to
+ * answer, so it is the one that asks — asking here as well would put a second
+ * `response.create` on the same utterance, which is the duplicate reply.
+ */
 function endResponse(driver: DriverState, total: TalkUsage): void {
   driver.responding = false
   finishTurn(driver, total)
-  if (!driver.owed) return
-  driver.owed = false
-  requestResponse(driver)
+  if (driver.owed && driver.outstanding === 0) requestResponse(driver)
 }
 
 function handle(driver: DriverState, frame: RealtimeFrame): void {
