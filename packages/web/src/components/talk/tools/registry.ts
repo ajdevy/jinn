@@ -4,6 +4,7 @@ import { ESCAPE_HATCH_TOOL } from "./escape-hatch"
 import { FOCUS_ELEMENT_TOOL } from "./focus-element"
 import { NAVIGATE_TOOLS } from "./navigate-tools"
 import { READ_TOOLS } from "./read-tools"
+import { RESOLVE_TOOLS } from "./resolve-tools"
 import { toolDefinition, type TalkTool, type ToolDefinition, type ToolResult } from "./tool-spec"
 import { parseToolArgs } from "./validate-args"
 import { WRITE_TOOLS } from "./write-tools"
@@ -20,6 +21,7 @@ import { WRITE_TOOLS } from "./write-tools"
 
 export const TALK_TOOLS: readonly TalkTool[] = [
   ...NAVIGATE_TOOLS,
+  ...RESOLVE_TOOLS,
   ...READ_TOOLS,
   ...WRITE_TOOLS,
   ...CONSENT_TOOLS,
