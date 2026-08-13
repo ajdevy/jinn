@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import type { MessageItem, RenderGroup } from './chat-messages'
-import { restoreVisibleAnchor, type ScrollAnchor } from './scroll-anchor'
+import { restoreVisibleAnchor, type ScrollAnchor } from '@/lib/scroll-anchor'
 
 /**
  * Windowing for the chat transcript.

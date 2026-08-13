@@ -211,7 +211,7 @@ function NeedsYouCard({
 
   return (
     <div
-      data-testid="needs-item"
+      data-testid="needs-item" data-anchor-id={publicWorkItemReference(item.id) ?? undefined}
       className="mb-2.5 rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] p-[16px_18px] shadow-[var(--shadow-card)]"
     >
       {/* Head: 34px disc · title over the mono ID line. */}
