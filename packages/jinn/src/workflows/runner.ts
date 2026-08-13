@@ -881,7 +881,7 @@ export class WorkflowRunner {
   }
 
   private settleFailure(run: WorkflowRunDetail, attempt: typeof run.attempts[number], error: WorkflowError,
-    status: "failed" | "timed-out" | "cancelled", endedAt: string, processedTurn?: number): boolean {
+    status: "failed" | "timed-out" | "cancelled", endedAt: string, processedTurn?: number, handoff?: unknown): boolean {
     // `error.retryable` is what decides this, not the attempt counter alone. A
     // node's retry budget exists for attempts that never landed; spending it on
     // an employee that ran and reported failure pays twice for a verdict that was
@@ -911,7 +911,7 @@ export class WorkflowRunner {
     if (!retry && !routed) this.reflectFailure(run, attempt.nodeId, error);
     // The ATTEMPT is over either way: a retry opens a fresh row on the next
     // dispatch and this one's evidence is what that retry gets to read.
-    settleTodoRun(this.options.todoSessions, run, attempt, { status, endedAt, error });
+    settleTodoRun(this.options.todoSessions, run, attempt, { status, endedAt, error, handoff });
     this.changed(run);
     return routed;
   }
@@ -989,7 +989,7 @@ export class WorkflowRunner {
         nodeId: attempt.nodeId,
         attempt: attempt.attempt,
       };
-      const routed = this.settleFailure(run, attempt, error, "failed", this.now());
+      const routed = this.settleFailure(run, attempt, error, "failed", this.now(), undefined, input.fields);
       return routed ? this.advance(run.workflowId, run.id) : this.detail(run.workflowId, run.id);
     }
     const fields = validateSubmittedFields(input.fields, node.config.output);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,10 +11,12 @@ process.env.JINN_HOME = tmp;
 type Store = typeof import("../store.js");
 type Runs = typeof import("../runs.js");
 type Reconcile = typeof import("../reconcile.js");
+type Transitions = typeof import("../transitions.js");
 
 let store: Store;
 let runs: Runs;
 let reconcile: Reconcile;
+let transitions: Transitions;
 let db: import("better-sqlite3").Database;
 
 type AttemptOutcome = "succeeded" | "failed" | "interrupted";
@@ -44,8 +46,19 @@ beforeAll(async () => {
   store = await import("../store.js");
   runs = await import("../runs.js");
   reconcile = await import("../reconcile.js");
+  transitions = await import("../transitions.js");
   db = (await import("../../shared/db.js")).initDb();
 });
+
+/** A Todo cancelled while its delegated child was still running, with the child
+ *  since settled. The status sweep never revisits it — `cancelled` is sticky. */
+function cancelledMidFlight(title: string, sessionId: string): { id: string; runId: string } {
+  const item = store.createWorkItem({ title, status: "executing", source: "delegation" });
+  const open = runs.openWorkItemRun({ workItemId: item.id, sessionId });
+  transitions.transition(item.id, "cancelled", "operator", { human: true, manual: true });
+  settledSession(sessionId, item.id, "failed");
+  return { id: item.id, runId: open.id };
+}
 
 describe("the reconciler settles the run ledger from attempt receipts (ICI-728)", () => {
   it.each([
@@ -116,5 +129,39 @@ describe("the startup sweep settles orphaned runs (ICI-728)", () => {
 
     expect(reconcile.reconcileWorkItemsOnStartup()).toBe(0);
     expect(runs.listWorkItemRuns(item.id)[0].outcome).toBe("crashed");
+  });
+});
+
+describe("both sweeps close a run the status sweep will never reach (ICI-728)", () => {
+  it("closes a cancelled Todo's run with its child's outcome on the periodic tick", () => {
+    const item = cancelledMidFlight("cancelled, child still running", "s-cancelled-periodic");
+
+    vi.useFakeTimers();
+    const stop = reconcile.startWorkItemReconciler(20);
+    vi.advanceTimersByTime(20);
+    stop();
+    vi.useRealTimers();
+
+    const settled = runs.listWorkItemRuns(item.id);
+    expect(settled[0]).toMatchObject({ id: item.runId, outcome: "blocked" });
+    expect(settled[0].endedAt).not.toBeNull();
+  });
+
+  it("closes it on the startup sweep too", () => {
+    const item = cancelledMidFlight("cancelled, gateway restarted", "s-cancelled-startup");
+
+    reconcile.reconcileWorkItemsOnStartup();
+
+    expect(runs.listWorkItemRuns(item.id)[0]).toMatchObject({ id: item.runId, outcome: "blocked" });
+  });
+
+  it("leaves a running Workflow phase's run open — the run settles its own attempts", () => {
+    const item = store.createWorkItem({ title: "phase-bound, swept", status: "executing", source: "human" });
+    settledPhaseSession("s-phase-sweep", item.id);
+    runs.openWorkItemRun({ workItemId: item.id, sessionId: "s-phase-sweep" });
+
+    reconcile.reconcileWorkItemsOnStartup();
+
+    expect(runs.listWorkItemRuns(item.id)[0]).toMatchObject({ endedAt: null, outcome: null });
   });
 });

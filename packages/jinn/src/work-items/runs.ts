@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
+import type { SessionAttemptOutcome } from '../shared/types.js';
 import { TODO_RUN_OUTCOMES, type TodoRunOutcome } from './runs-schema.js';
 
 /**
@@ -214,4 +215,46 @@ export function closeOrphanedWorkItemRuns(endedAt: string = new Date().toISOStri
        WHERE ended_at IS NULL AND session_id NOT IN (SELECT id FROM sessions)`,
     )
     .run(endedAt).changes;
+}
+
+/** How a session's terminal receipt reads in this ledger's vocabulary.
+ *  `crashed` and `timed_out` are absent because no session receipt claims them:
+ *  a vanished session is settled by the orphan sweep instead. */
+export const RUN_OUTCOME_BY_RECEIPT: Record<SessionAttemptOutcome, TodoRunOutcome> = {
+  succeeded: 'completed',
+  failed: 'blocked',
+  interrupted: 'abandoned',
+};
+
+/**
+ * Sweep: close every open run whose session has already reported a terminal
+ * receipt.
+ *
+ * The per-Todo reconciler normally does this, but it is only reached for
+ * NON-sticky statuses. Cancel a Todo while its delegated child is still running
+ * and nothing ever looks at that child's receipt again — the orphan sweep above
+ * does not save it either, because the session is present, not gone. The row
+ * would read as still running forever, which is worse than no row at all.
+ *
+ * Driven off the open rows rather than the Todo list: it is O(open runs) and
+ * covers `done` and `escalated` on the same terms, instead of re-deriving every
+ * closed Todo in history on each tick.
+ *
+ * Workflow PHASE sessions are excluded — the workflow run settles those rows
+ * itself, and closing one here would settle an attempt it is still retrying.
+ * Returns how many runs were settled.
+ */
+export function closeRunsForSettledSessions(endedAt: string = new Date().toISOString()): number {
+  const settled = initDb()
+    .prepare(
+      `SELECT runs.id AS id, sessions.attempt_outcome AS outcome
+         FROM work_item_runs AS runs JOIN sessions ON sessions.id = runs.session_id
+        WHERE runs.ended_at IS NULL AND sessions.attempt_outcome IS NOT NULL
+          AND (sessions.workflow_kind IS NULL OR sessions.workflow_kind <> 'phase')`,
+    )
+    .all() as { id: string; outcome: SessionAttemptOutcome }[];
+  for (const run of settled) {
+    closeWorkItemRun(run.id, { outcome: RUN_OUTCOME_BY_RECEIPT[run.outcome], endedAt });
+  }
+  return settled.length;
 }

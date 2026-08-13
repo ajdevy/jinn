@@ -12,7 +12,13 @@ import {
 } from './store.js';
 import { transitionDerived } from './transitions.js';
 import { currentApproval } from './approval-rows.js';
-import { closeOrphanedWorkItemRuns, closeWorkItemRun, findOpenWorkItemRunBySession, type TodoRunOutcome } from './runs.js';
+import {
+  closeOrphanedWorkItemRuns,
+  closeRunsForSettledSessions,
+  closeWorkItemRun,
+  findOpenWorkItemRunBySession,
+  RUN_OUTCOME_BY_RECEIPT,
+} from './runs.js';
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { logger } from '../shared/logger.js';
 import type { Session, SessionAttemptOutcome } from '../shared/types.js';
@@ -92,15 +98,6 @@ export function deriveWorkItemStatus(
   if (newest === 'failed' || newest === 'interrupted') return 'blocked';
   return current;
 }
-
-/** How a session's terminal receipt reads in the run ledger's vocabulary
- *  (ICI-728). `crashed` and `timed_out` are absent because no session receipt
- *  claims them: a vanished session is settled by the startup sweep instead. */
-const RUN_OUTCOME_BY_RECEIPT: Record<SessionAttemptOutcome, TodoRunOutcome> = {
-  succeeded: 'completed',
-  failed: 'blocked',
-  interrupted: 'abandoned',
-};
 
 /**
  * Settle the run ledger from the same receipts the status derivation reads, so
@@ -236,11 +233,11 @@ export function reconcileActiveWorkItems(): ReconcileSweepResult {
 }
 
 /**
- * Startup hook: settle the run ledger's orphans, reconcile work items, and log a
- * one-line summary. Best-effort — a reconcile failure must never block gateway
- * boot (mirrors the cron consumer's guard). Returns the count of items whose
- * status changed (0 on any error); orphaned runs are a ledger repair, not a
- * status change, so they are deliberately not counted.
+ * Startup hook: repair the run ledger, reconcile work items, and log a one-line
+ * summary. Best-effort — a reconcile failure must never block gateway boot
+ * (mirrors the cron consumer's guard). Returns the count of items whose status
+ * changed (0 on any error); a settled run is a ledger repair, not a status
+ * change, so those are deliberately not counted.
  */
 export function reconcileWorkItemsOnStartup(): number {
   try {
@@ -248,6 +245,7 @@ export function reconcileWorkItemsOnStartup(): number {
     if (orphaned > 0) {
       logger.info(`Settled ${orphaned} run(s) as crashed: the session running them is gone`);
     }
+    closeRunsForSettledSessions();
     const { checked, changed } = reconcileActiveWorkItems();
     if (changed > 0) {
       logger.info(`Reconciled ${changed} work item(s) from linked session state (of ${checked} non-sticky)`);
@@ -273,6 +271,9 @@ export function startWorkItemReconciler(intervalMs: number = DEFAULT_RECONCILE_I
   const timer = setInterval(() => {
     try {
       reconcileActiveWorkItems();
+      // Sticky Todos are outside the sweep above, so their rows are closed here
+      // or never — a cancel mid-delegation must not strand an open attempt.
+      closeRunsForSettledSessions();
     } catch (err) {
       logger.warn(`Work-item reconcile sweep failed: ${err instanceof Error ? err.message : err}`);
     }

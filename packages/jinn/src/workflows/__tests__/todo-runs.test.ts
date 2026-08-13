@@ -238,6 +238,31 @@ describe("a Todo-bound run's ledger", () => {
     expect(ledger[0].summary).toBe("the fixture is missing");
   });
 
+  it("keeps the handoff a reported failure carried, minus the keys the ledger does not know", async () => {
+    const { todoId, workflowId } = await boundRun();
+    await service.submitAttemptOutput({ sessionId: `session:${workflowId}:work:1`, outcome: "failure",
+      summary: "the fixture is missing",
+      fields: { changed_files: ["src/a.ts"], verification: "pnpm test — 1 failed", mood: "grim" } });
+    const ledger = runs.listWorkItemRuns(todoId);
+    expect(ledger[0].outcome).toBe("blocked");
+    expect(ledger[0].handoff).toEqual({ changedFiles: ["src/a.ts"], verification: "pnpm test — 1 failed" });
+  });
+
+  it("leaves a failed attempt's handoff readable once a retry has opened the next row", async () => {
+    const { todoId, workflowId, runId } = await boundRun();
+    await service.submitAttemptOutput({ sessionId: `session:${workflowId}:work:1`, outcome: "failure",
+      summary: "the fixture is missing",
+      fields: { changed_files: ["src/a.ts"], retry_notes: "the fixture moved to fixtures/v2" } });
+    await service.retryNode({ workflowId, runId, nodeId: "work", idempotencyKey: "retry-after-failure" });
+    await executor.succeed("work", { value: "second time lucky" });
+
+    const ledger = runs.listWorkItemRuns(todoId);
+    expect(ledger.map((run) => run.outcome)).toEqual(["blocked", "completed"]);
+    expect(ledger[0].handoff).toEqual({
+      changedFiles: ["src/a.ts"], retryNotes: "the fixture moved to fixtures/v2",
+    });
+  });
+
   it("settles a transport fault as crashed", async () => {
     const { todoId } = await boundRun();
     await executor.crash("work", "the engine died");

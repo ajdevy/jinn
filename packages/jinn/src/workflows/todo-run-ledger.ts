@@ -46,16 +46,24 @@ export function openTodoRun(link: WorkflowTodoSessionLink | undefined, run: Work
 export function settleTodoRun(link: WorkflowTodoSessionLink | undefined, run: WorkflowRunDetail,
   attempt: { sessionId?: string }, settle: {
     status: WorkflowAttemptTerminalStatus; endedAt: string; error?: WorkflowError; output?: WorkflowNodeOutput;
+    /** What a phase that submitted FAILURE reported. A success carries its
+     *  handoff on `output.fields`; a failure has no output to carry it, and
+     *  that report is the one the next attempt most needs to read. Deliberately
+     *  NOT checked against the node's success schema on the way in: a phase that
+     *  failed must not have its honest report rejected for missing an output it
+     *  never got to produce. Known keys are kept, the rest dropped. */
+    handoff?: unknown;
   }): void {
   const sessionId = attempt.sessionId;
   if (!sessionId) return;
   const summary = settle.output?.text ?? settle.error?.message;
+  const handoff = normalizeTodoRunHandoff(settle.output?.fields ?? settle.handoff);
   record(link, run, (ledger) => ledger.closeRun({
     sessionId,
     outcome: todoRunOutcome(settle.status, settle.error?.code),
     endedAt: settle.endedAt,
     ...(summary ? { summary } : {}),
-    ...(settle.output ? { handoff: normalizeTodoRunHandoff(settle.output.fields) } : {}),
+    ...(Object.keys(handoff).length > 0 ? { handoff } : {}),
     ...(settle.error ? { error: settle.error.message } : {}),
   }));
 }
