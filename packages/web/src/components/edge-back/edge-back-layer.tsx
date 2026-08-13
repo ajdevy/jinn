@@ -129,7 +129,7 @@ function useEdgeBackDrag(contentRef: RefObject<HTMLElement | null>) {
   const navigate = useNavigate()
   const { key } = useLocation()
   const reduced = usePrefersReducedMotion()
-  const snapshot = usePreviousViewSnapshot(contentRef)
+  const { previous, canGoBack } = usePreviousViewSnapshot(contentRef)
   const { hostRef, cloneRef, scrimRef, layers } = useLayerRefs(contentRef)
   const { after: settleAfter, cancel: cancelSettle } = useSettleTimer()
   const { dragged, onGutterTap } = useGutterTap()
@@ -152,8 +152,9 @@ function useEdgeBackDrag(contentRef: RefObject<HTMLElement | null>) {
   }, [cancelSettle, dragged, layers, reduced])
 
   const onRelease = useCallback((outcome: "commit" | "cancel") => {
-    // The snapshot is what covers the screen at the moment of the swap, so the
-    // navigation lands behind a picture of exactly what it is about to render.
+    // The layer covers the screen at the moment of the swap, so the navigation
+    // happens behind it: behind a picture of the destination where one was kept,
+    // behind a plain backdrop where it was not.
     const commit = () => void navigate(-1)
     const ms = reduced ? null : settleMs()
     if (ms === null) {
@@ -165,23 +166,28 @@ function useEdgeBackDrag(contentRef: RefObject<HTMLElement | null>) {
     settleAfter(ms, outcome === "commit" ? commit : stand)
   }, [layers, navigate, reduced, settleAfter, stand])
 
-  useEdgeBackGesture(snapshot !== null, { onMove, onRelease })
-  useMountedSnapshot(cloneRef, snapshot)
+  useEdgeBackGesture(canGoBack, { onMove, onRelease })
+  useMountedSnapshot(cloneRef, previous)
 
   // A committed gesture ends here: the route underneath has swapped.
   useEffect(() => stand(), [key, stand])
 
-  return { active, snapshot, hostRef, cloneRef, scrimRef, onGutterTap }
+  return { active, canGoBack, hostRef, cloneRef, scrimRef, onGutterTap }
 }
 
 /**
  * The shell's back gesture: a drag from the left edge that carries the live view
  * off to the right and reveals the previous one underneath, going back when it
  * is let go past the threshold and rubber-banding home when it is not.
+ *
+ * It arms on there being somewhere to go back to, not on there being a
+ * photograph of it. With no copy to hold, the layer is a plain backdrop and the
+ * drag still navigates: a view that was never captured, or whose capture has
+ * since been evicted, costs the reveal and nothing else.
  */
 export function EdgeBackLayer({ contentRef }: { contentRef: RefObject<HTMLElement | null> }) {
-  const { active, snapshot, hostRef, cloneRef, scrimRef, onGutterTap } = useEdgeBackDrag(contentRef)
-  if (!snapshot) return null
+  const { active, canGoBack, hostRef, cloneRef, scrimRef, onGutterTap } = useEdgeBackDrag(contentRef)
+  if (!canGoBack) return null
 
   return (
     <>

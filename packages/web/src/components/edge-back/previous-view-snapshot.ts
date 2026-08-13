@@ -1,6 +1,12 @@
 import { useEffect, useState, type RefObject } from "react"
 import { NavigationType, useLocation, useNavigationType } from "react-router-dom"
 
+export interface RetainedView {
+  clone: HTMLElement
+  /** Size of the detached tree, measured once when it is taken. */
+  nodes: number
+}
+
 /**
  * Copies of the views the shell has shown, so the back gesture can reveal where
  * it is going instead of dragging the screen off a void.
@@ -16,17 +22,20 @@ import { NavigationType, useLocation, useNavigationType } from "react-router-dom
  * history, and revealing it would promise a destination `navigate(-1)` is not
  * going to reach. `entries` mirrors the browser's stack so the reveal and the
  * navigation always name the same view.
+ *
+ * The map is held in visit order, oldest first, so the eviction reads the least
+ * recently stood-on view off the front.
  */
-const snapshots = new Map<string, HTMLElement>()
+const snapshots = new Map<string, RetainedView>()
 let entries: string[] = []
 let cursor = 0
 let counted: number | null = null
 
-/** How many views stay photographed. A drag reveals exactly one step back and
- *  re-photographs each view as it is landed on, so only the entries just behind
- *  the cursor are ever read; retaining the whole session would hold a detached
- *  DOM tree for every route it ever visited. */
-const RETAINED_VIEWS = 8
+/** How much detached DOM the photographs may hold between them, in nodes —
+ *  roughly eight average routes. A budget in entries would treat a settings page
+ *  and a long transcript as the same size, and a budget in bytes cannot be read
+ *  off a detached tree at all. */
+const RETAINED_NODES = 12_000
 
 /** Test-only: forget every retained view so a suite starts from a known state. */
 export function clearPreviousViewSnapshot(): void {
@@ -38,7 +47,7 @@ export function clearPreviousViewSnapshot(): void {
 
 /** A photograph of a view that is no longer running: nothing in it can be
  *  focused, typed into, read out, or found twice by an id lookup. */
-function photograph(source: HTMLElement): HTMLElement {
+function photograph(source: HTMLElement): RetainedView {
   const clone = source.cloneNode(true) as HTMLElement
   clone.removeAttribute("id")
   for (const element of clone.querySelectorAll("[id]")) element.removeAttribute("id")
@@ -46,7 +55,14 @@ function photograph(source: HTMLElement): HTMLElement {
   clone.setAttribute("inert", "")
   clone.style.width = "100%"
   clone.style.height = "100%"
-  return clone
+  return { clone, nodes: clone.querySelectorAll("*").length + 1 }
+}
+
+/** Files the photograph at the back of the queue, so re-visiting a view makes it
+ *  the freshest again — a plain `set` would leave it where it first landed. */
+function rememberView(key: string, view: RetainedView): void {
+  snapshots.delete(key)
+  snapshots.set(key, view)
 }
 
 /**
@@ -87,40 +103,84 @@ function locate(key: string, navigation: NavigationType): number {
   const standing = forward ? undefined : snapshots.get(entries[index])
   for (const dropped of entries.splice(index)) snapshots.delete(dropped)
   entries[index] = key
-  if (standing) snapshots.set(key, standing)
+  if (standing) rememberView(key, standing)
   return index
 }
 
-/** Drops the photographs the cursor has moved out of reach of. Entries ahead of
- *  it are dropped too: going forward lands on the live view, which is
- *  photographed again on arrival. */
-function forgetDistantViews(): void {
-  const reachable = new Set(entries.slice(Math.max(cursor - RETAINED_VIEWS + 1, 0), cursor + 1))
-  for (const key of snapshots.keys()) if (!reachable.has(key)) snapshots.delete(key)
+/**
+ * Brings the retained photographs back under the budget, dropping the least
+ * recently visited first.
+ *
+ * The pinned keys are never candidates, whatever the budget says: the view on
+ * screen and the one behind it are the only two a drag can ever put on screen,
+ * and evicting either is what turned a full history into a dead gesture. An
+ * entry the browser can still reach is worth keeping — an eviction that outruns
+ * reachability costs a reveal it did not have to.
+ */
+export function forgetViewsOverBudget(
+  views: Map<string, RetainedView>,
+  pinned: readonly string[],
+  budget = RETAINED_NODES,
+): void {
+  let total = 0
+  for (const view of views.values()) total += view.nodes
+
+  for (const [key, view] of views) {
+    if (total <= budget) return
+    if (pinned.includes(key)) continue
+    views.delete(key)
+    total -= view.nodes
+  }
+}
+
+/** The two views a drag can put on screen: the one standing here, and the one
+ *  `navigate(-1)` lands on. */
+function pinnedViews(): string[] {
+  return entries.slice(Math.max(cursor - 1, 0), cursor + 1)
 }
 
 /**
- * The view `navigate(-1)` will land on, or null when there is nothing behind
- * this one — which is also how the shell knows there is nowhere to swipe back to.
+ * Whether `navigate(-1)` has anywhere to go. Read from the browser's own history
+ * index where there is one, because that is the authority on what a back
+ * navigation will do — and it stays right when a photograph has been evicted,
+ * which is the whole point: a missing copy degrades the reveal, it does not take
+ * the gesture with it. Memory routing keeps no browser history, so there the
+ * entries we have watched go by are all there is.
+ */
+function canStepBack(): boolean {
+  const idx = window.history.state?.idx
+  return typeof idx === "number" ? idx > 0 : cursor > 0
+}
+
+export interface PreviousView {
+  /** A copy of the view `navigate(-1)` lands on, or null when none was kept. */
+  previous: HTMLElement | null
+  canGoBack: boolean
+}
+
+/**
+ * What the back gesture has to work with: whether it can go back at all, and a
+ * photograph of where it is going when one was retained.
  *
  * Capture happens a frame after the navigation commits so the clone is of the
  * painted route rather than of the DOM mid-swap, and so the cost lands after
  * the new view is on screen rather than in front of it.
  */
-export function usePreviousViewSnapshot(content: RefObject<HTMLElement | null>): HTMLElement | null {
+export function usePreviousViewSnapshot(content: RefObject<HTMLElement | null>): PreviousView {
   const { key } = useLocation()
   const navigation = useNavigationType()
-  const [previous, setPrevious] = useState<HTMLElement | null>(null)
+  const [view, setView] = useState<PreviousView>({ previous: null, canGoBack: false })
 
   useEffect(() => {
     cursor = locate(key, navigation)
-    forgetDistantViews()
-    setPrevious(cursor > 0 ? snapshots.get(entries[cursor - 1]) ?? null : null)
+    forgetViewsOverBudget(snapshots, pinnedViews())
+    const behind = cursor > 0 ? snapshots.get(entries[cursor - 1]) : undefined
+    setView({ previous: behind?.clone ?? null, canGoBack: canStepBack() })
     const frame = requestAnimationFrame(() => {
-      if (content.current) snapshots.set(key, photograph(content.current))
+      if (content.current) rememberView(key, photograph(content.current))
     })
     return () => cancelAnimationFrame(frame)
   }, [key, navigation, content])
 
-  return previous
+  return view
 }

@@ -1,70 +1,18 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
-import { useRef } from 'react'
-import { BrowserRouter, Link, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { act, render, screen } from '@testing-library/react'
+import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EdgeBackLayer } from '../edge-back-layer'
 import { clearPreviousViewSnapshot } from '../previous-view-snapshot'
-import { COMMIT_RATIO } from '../use-edge-back-gesture'
-
-/** The shell, reduced to the two things the gesture touches: a live view it
- *  translates, and the layer mounted before it. */
-function Shell({ label, next }: { label: string; next: string }) {
-  const content = useRef<HTMLDivElement>(null)
-  return (
-    <main>
-      <EdgeBackLayer contentRef={content} />
-      <div ref={content}>
-        <p>{label}</p>
-        <Link to={next}>forward</Link>
-      </div>
-    </main>
-  )
-}
-
-function renderShell() {
-  return render(
-    <MemoryRouter initialEntries={['/a']}>
-      <Routes>
-        <Route path="/a" element={<Shell label="first view" next="/b" />} />
-        <Route path="/b" element={<Shell label="second view" next="/c" />} />
-        <Route path="/c" element={<Shell label="third view" next="/a" />} />
-      </Routes>
-    </MemoryRouter>,
-  )
-}
-
-/** One animation frame, which is when the snapshot of the painted view is taken. */
-async function paint() {
-  await act(async () => {
-    await new Promise(resolve => requestAnimationFrame(resolve))
-  })
-}
-
-/** The live view's link, not the copy of it the layer is holding behind. */
-function forwardLink() {
-  const live = screen.getAllByText('forward').find(link => !link.closest('[data-testid="edge-back-layer"]'))
-  if (!live) throw new Error('no live forward link on screen')
-  return live
-}
-
-/** Land on the next view with the one before it behind, snapshot and all. */
-async function goForward() {
-  await paint()
-  await act(async () => {
-    fireEvent.click(forwardLink())
-  })
-  await paint()
-}
-
-function edgeDrag(distance: number) {
-  act(() => {
-    window.dispatchEvent(new PointerEvent('pointerdown', { clientX: 6, clientY: 400 }))
-    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 6 + distance, clientY: 400, cancelable: true }))
-  })
-}
-
-const past = () => window.innerWidth * COMMIT_RATIO + 20
-const short = () => window.innerWidth * COMMIT_RATIO - 20
+import {
+  edgeBack,
+  edgeDrag,
+  goForward,
+  labelAt,
+  paint,
+  past,
+  renderShell,
+  Shell,
+  short,
+} from './edge-back-harness'
 
 const liveView = () => screen.getByText('second view').parentElement as HTMLElement
 
@@ -145,6 +93,69 @@ describe('EdgeBackLayer', () => {
     edgeDrag(120)
 
     expect(screen.getByTestId('edge-back-layer').textContent).toContain('first view')
+  })
+
+  it('keeps the gutter and keeps going back through eight consecutive gestures', async () => {
+    renderShell()
+    for (let step = 0; step < 8; step += 1) await goForward()
+    expect(screen.getByText(labelAt(8))).toBeTruthy()
+
+    for (let depth = 7; depth >= 0; depth -= 1) {
+      expect(screen.getByTestId('edge-back-gutter')).toBeTruthy()
+      await edgeBack()
+      expect(screen.getByText(labelAt(depth))).toBeTruthy()
+    }
+  })
+
+  it('falls back to a plain backdrop, and still goes back at every step, with nothing photographed', async () => {
+    // No photograph anywhere is strictly worse than anything retention can do to
+    // the cache, and the gesture has to survive it: the reveal degrades, the
+    // navigation does not.
+    renderShell(false)
+    for (let step = 0; step < 8; step += 1) await goForward()
+
+    edgeDrag(120)
+    const layer = screen.getByTestId('edge-back-layer')
+    expect(layer.className).not.toContain('hidden')
+    expect(layer.className).toContain('bg-background')
+    expect(layer.textContent).toBe('')
+    expect(screen.getByTestId('edge-back-gutter')).toBeTruthy()
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup'))
+    })
+
+    for (let depth = 7; depth >= 0; depth -= 1) {
+      expect(screen.getByTestId('edge-back-gutter')).toBeTruthy()
+      await edgeBack()
+      expect(screen.getByText(labelAt(depth))).toBeTruthy()
+    }
+  })
+
+  it('arms the drag on a missing photograph, and goes back exactly one entry', async () => {
+    render(
+      <MemoryRouter initialEntries={['/a']}>
+        <Routes>
+          <Route path="/a" element={<Shell label="first view" next="/b" />} />
+          <Route path="/b" element={<Shell label="second view" next="/c" photographed={false} />} />
+          <Route path="/c" element={<Shell label="third view" next="/a" />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await goForward()
+    await goForward()
+
+    edgeDrag(past())
+
+    // Nothing to reveal, but the live view still follows the finger.
+    expect(screen.getByTestId('edge-back-layer').textContent).toBe('')
+    expect((screen.getByText('third view').parentElement as HTMLElement).style.transform).toBe(
+      `translate3d(${past()}px, 0, 0)`,
+    )
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup'))
+    })
+    expect(screen.getByText('second view')).toBeTruthy()
   })
 
   it('does not move for a drag that starts mid-screen', async () => {
