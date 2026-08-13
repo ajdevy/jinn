@@ -94,6 +94,23 @@ const SHORT_BACKLOG = BACKLOG.slice(0, SHORT_COUNT)
 const DONE = [compact("PLA-900", "done", 0), compact("PLA-901", "done", 1)]
 const ROW_IDS = BACKLOG.map((item) => `todo-list-row-${item.id}`)
 
+/**
+ * The flat row model the page draws for the default fixture, spelled out here
+ * from the fixture instead of read back from the render — an expectation taken
+ * from the DOM cannot catch the DOM being wrong. Four groups arrive empty
+ * (header, then their caption), then Backlog's header and its rows, then Closed,
+ * collapsed to its header. Only Todo rows carry a test id; the rest are null.
+ */
+const MODEL: Array<string | null> = [
+  null, null, // Needs you
+  null, null, // Executing
+  null, null, // In review
+  null, null, // Assigned
+  null, // Backlog
+  ...ROW_IDS,
+  null, // Closed
+]
+
 let rows: Partial<Record<WorkItemStatusWire, WorkItemCompactWire[]>> = {}
 let backlogHasMore = false
 
@@ -182,18 +199,25 @@ describe("the windowed Todo list", () => {
     await waitFor(() => expect(screen.queryByTestId("todo-list-row-PLA-0")).toBeNull())
 
     const mounted = layout!.mountedRowIds()
-    const first = ROW_IDS.indexOf(mounted[0])
-    console.log(`[todo list] scrollTop=${scrollTop} firstMountedItem=${first} mountedRows=${mounted.length}`)
-    expect(first).toBeGreaterThan(0)
+    console.log(`[todo list] scrollTop=${scrollTop} firstMountedIndex=${modelIndexOf(mounted[0])} mountedRows=${mounted.length}`)
     expect(mounted.length).toBeLessThan(WINDOW_CEILING)
-    // Contiguous, in order, and starting where the offset says it should.
-    expect(mounted).toEqual(ROW_IDS.slice(first, first + mounted.length))
+
+    // Which rows this offset calls for is arithmetic, not something to look up:
+    // every row is ROW_H tall, so the band the reader can see runs from
+    // scrollTop / ROW_H for as many rows as the viewport holds. A slice taken
+    // one row off the offset stays contiguous and lands here.
+    const topIndex = Math.floor(scrollTop / ROW_H)
+    const visibleCount = Math.ceil(VIEWPORT_H / ROW_H)
+    expect(layout!.visibleRowIds()).toEqual(MODEL.slice(topIndex, topIndex + visibleCount))
+    // And it is painted where the model puts it: the top row's own edge sits its
+    // model index times the row height above where the reader has scrolled to.
+    expect(layout!.offsetOf(MODEL[topIndex]!)).toBe(topIndex * ROW_H - scrollTop)
+
+    // The overscan rows either side answer to the model too, each at the index
+    // the list claims for it.
+    expect(mounted.map((id) => MODEL[modelIndexOf(id)])).toEqual(mounted)
     // Every row left behind is gone, not merely scrolled out of sight.
     expect(mounted.some((id) => atTop.includes(id))).toBe(false)
-    // And the slice is painted where the model puts it: a row's top edge is its
-    // own model index times the row height, less how far the reader has scrolled.
-    const probe = mounted[Math.floor(mounted.length / 2)]
-    expect(layout!.offsetOf(probe)).toBe(modelIndexOf(probe) * ROW_H - scrollTop)
   })
 
   it("opens a row the window is showing", async () => {
