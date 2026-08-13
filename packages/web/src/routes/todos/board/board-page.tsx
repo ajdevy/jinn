@@ -382,13 +382,9 @@ export default function TodoBoardPage() {
   // ── Scroll cache (per board, restored on POP) ───────────────────────────────
   const boardScrollRef = useRef<HTMLDivElement>(null)
   const listScrollRef = useRef<HTMLDivElement>(null)
-  const onBoardScroll = useCallback(() => {
-    const el = boardScrollRef.current
-    if (el) rememberBoardScroll(key, el.scrollTop)
-  }, [key])
-  const onListScroll = useCallback(() => {
-    const el = listScrollRef.current
-    if (el) rememberBoardScroll(key, el.scrollTop)
+  // One handler for both scrollports — the event already names the one that moved.
+  const onScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    rememberBoardScroll(key, event.currentTarget.scrollTop)
   }, [key])
   useEffect(() => {
     const scrollTop = navigationType === "POP" ? recallBoardScroll(key) : 0
@@ -706,7 +702,7 @@ export default function TodoBoardPage() {
         {isAttention ? (
           <div
             ref={boardScrollRef}
-            onScroll={onBoardScroll}
+            onScroll={onScroll}
             data-testid="todo-board-scroll"
             data-scrollable
             className="min-h-0 flex-1 overflow-y-auto px-5 pb-20 pt-5 md:px-10"
@@ -734,7 +730,7 @@ export default function TodoBoardPage() {
           <>
           <div
             ref={listScrollRef}
-            onScroll={onListScroll}
+            onScroll={onScroll}
             hidden={view !== "list"}
             data-testid="todo-list-scroll"
             data-scrollable
@@ -754,6 +750,7 @@ export default function TodoBoardPage() {
             ) : (
               <TodoList
                 columns={listColumns}
+                scrollRef={listScrollRef}
                 statusInScope={listStatusInScope}
                 closedInitiallyOpen={closedFilter}
                 needsAttention={needsYou}
@@ -770,7 +767,7 @@ export default function TodoBoardPage() {
           </div>
           <div
             ref={boardScrollRef}
-            onScroll={onBoardScroll}
+            onScroll={onScroll}
             hidden={view !== "board"}
             data-testid="todo-board-scroll"
             data-scrollable
