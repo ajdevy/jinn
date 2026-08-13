@@ -241,7 +241,7 @@ data channel opening it sends one `session.update` carrying
 `toolDefinitions()` from `components/talk/tools/registry.ts`. The two catalogs
 share no name at all — the gateway's always-on set is
 `{search_knowledge, hand_off_to_chat}` and the browser's is
-`{focus_element, open_chats, open_todo, open_todos, read_todo}` — and only the
+`{focus_element, open_chats, open_todos, read_todo, resolve_and_open}` — and only the
 browser's have an executor on the page, so a session configured from the
 gateway's list could emit nothing this client can run. Progressive exposure is
 therefore not wired on the browser side: the web registry carries a binary

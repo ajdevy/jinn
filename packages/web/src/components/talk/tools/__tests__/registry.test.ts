@@ -51,9 +51,9 @@ describe("the registered set", () => {
     expect(toolsWithExposure("always").map((tool) => tool.name).sort()).toEqual([
       "focus_element",
       "open_chats",
-      "open_todo",
       "open_todos",
       "read_todo",
+      "resolve_and_open",
     ])
     expect(alwaysOnDefinitions()).toHaveLength(5)
   })
