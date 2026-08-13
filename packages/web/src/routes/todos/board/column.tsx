@@ -15,7 +15,14 @@ import type { BoardDragState } from "./use-board-drag"
 /** FLIP the column's cards when the list shifts (slot insertion, drops,
  *  polling moves). Measures previous tops per card id and plays the inversion
  *  as a transform — skipped under reduced motion or where WAAPI is absent
- *  (jsdom). */
+ *  (jsdom).
+ *
+ *  Tops are read from layout, not from the viewport: a viewport rect also moves
+ *  when the reader scrolls, so any re-render after a scroll used to read the
+ *  scroll offset as movement and slide every card in from a screen away. That
+ *  also expanded the container's scrollHeight for the length of the animation
+ *  (2721 → 3606 at 390x844), which is the phantom board scroll anchoring was
+ *  chasing to an edge. */
 function useColumnFlip(bodyRef: React.RefObject<HTMLDivElement | null>, dep: unknown) {
   const prevTops = useRef(new Map<string, number>())
   useLayoutEffect(() => {
@@ -25,7 +32,7 @@ function useColumnFlip(bodyRef: React.RefObject<HTMLDivElement | null>, dep: unk
     const next = new Map<string, number>()
     for (const card of el.querySelectorAll<HTMLElement>("[data-board-card]")) {
       const id = card.dataset.boardCard!
-      const top = card.getBoundingClientRect().top
+      const top = card.offsetTop
       next.set(id, top)
       const prev = prevTops.current.get(id)
       if (!reduced && prev !== undefined && Math.abs(prev - top) > 1 && typeof card.animate === "function") {

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef } from "react"
 import type { NavigationType } from "react-router-dom"
-import { useScrollAnchor } from "@/hooks/use-scroll-anchor"
+import { ANCHOR_ATTRIBUTE, useScrollAnchor } from "@/hooks/use-scroll-anchor"
 import { recallBoardScroll, rememberBoardScroll } from "./board-route"
+
+/** Attribute a board card is identified by; `BoardCard` stamps it. */
+const BOARD_CARD_ATTRIBUTE = "data-board-card"
 
 /**
  * Where the reader is on a board, in both directions: remembered per board and
@@ -10,20 +13,12 @@ import { recallBoardScroll, rememberBoardScroll } from "./board-route"
  * Anchoring is off while a card is lifted — the drag reorders the column under
  * the pointer, and correcting for that is fighting the reader, not helping.
  *
- * `attention` says which surface the board container is showing, and that
- * decides whether it can be anchored at all. The attention inbox renders plain
- * rows and holds its place exactly. The grouped board does not, because at a
- * commit boundary it reports row positions its own settled layout contradicts:
- * on a 55-card board at 390x844 the anchored card was measured 5274px below
- * the scrollport while every card in the container measured 45px and the card
- * never left the DOM. A correction computed from that phantom throws the
- * reader — scrollTop 1400 landed at 54, 233 and 893 across runs, against the
- * 68px drift it was meant to remove. Deferring the correction a frame, taking
- * it only once it verifiably lands, holding the reader's own anchor across the
- * intermediate commits, giving the cards an accurate `contain-intrinsic-size`,
- * and dropping `content-visibility` altogether were each measured and each
- * left it. Until that container's commit-time layout can be trusted, it is
- * left to the browser; ICI-800's acceptance criterion 2 is not met here.
+ * The same container serves the attention inbox and the grouped board, which
+ * identify their rows by different attributes. Anchoring the grouped board only
+ * became safe once its cards were given a real `contain-intrinsic-size`: while
+ * the estimate was `auto 160px` against a 45px card, the browser revised every
+ * skipped card's height as the reader travelled, and a correction measured at a
+ * commit boundary chased that phantom to an edge.
  */
 export function useBoardScroll(
   key: string,
@@ -32,7 +27,7 @@ export function useBoardScroll(
 ) {
   const boardScrollRef = useRef<HTMLDivElement>(null)
   const listScrollRef = useRef<HTMLDivElement>(null)
-  const reanchorBoard = useScrollAnchor(boardScrollRef, !dragging && attention)
+  const reanchorBoard = useScrollAnchor(boardScrollRef, !dragging, attention ? ANCHOR_ATTRIBUTE : BOARD_CARD_ATTRIBUTE)
   const reanchorList = useScrollAnchor(listScrollRef, !dragging)
 
   const onBoardScroll = useCallback(() => {

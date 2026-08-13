@@ -16,7 +16,11 @@ export const ANCHOR_ATTRIBUTE = "data-anchor-id"
  * Without it a reader who scrolls between two commits is corrected back to
  * where they were, which is the same jump seen from the other side.
  */
-export function useScrollAnchor(ref: RefObject<HTMLElement | null>, enabled = true): () => void {
+export function useScrollAnchor(
+  ref: RefObject<HTMLElement | null>,
+  enabled = true,
+  attribute = ANCHOR_ATTRIBUTE,
+): () => void {
   const anchorRef = useRef<ScrollAnchor | null>(null)
 
   // No dependency array on purpose: any commit can be the one that changed a
@@ -33,11 +37,11 @@ export function useScrollAnchor(ref: RefObject<HTMLElement | null>, enabled = tr
     // on mount — would otherwise drag the container back to where it started.
     const previous = anchorRef.current
     if (previous && previous.scrollTop > 0) restoreVisibleAnchor(node, previous)
-    anchorRef.current = captureVisibleAnchor(node, ANCHOR_ATTRIBUTE)
+    anchorRef.current = captureVisibleAnchor(node, attribute)
   })
 
   return useCallback(() => {
     const node = ref.current
-    if (node && enabled) anchorRef.current = captureVisibleAnchor(node, ANCHOR_ATTRIBUTE)
-  }, [ref, enabled])
+    if (node && enabled) anchorRef.current = captureVisibleAnchor(node, attribute)
+  }, [ref, enabled, attribute])
 }

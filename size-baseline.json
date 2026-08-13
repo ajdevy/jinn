@@ -1694,7 +1694,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 914
+      "lines": 911
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 340,

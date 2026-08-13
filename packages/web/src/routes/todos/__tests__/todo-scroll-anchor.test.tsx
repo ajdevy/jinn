@@ -219,27 +219,45 @@ describe("Todos list scroll anchoring", () => {
 })
 
 describe("Todos board scroll anchoring", () => {
-  it("leaves the grouped board to the browser, whose commit-time layout it cannot trust", async () => {
-    // At a commit boundary this container reports row positions its settled
-    // layout contradicts — the anchored card measured 5274px down while every
-    // card measured 45px — so a correction computed there throws the reader to
-    // an edge. The attention inbox renders plain rows and is anchored; this
-    // container is not. See useBoardScroll for the measurements.
+  it("holds the read position when cards land above the reader", async () => {
     rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
     await screen.findByTestId("todo-list-row-PLA-1")
     fireEvent.click(screen.getByTestId("todos-view-board"))
 
     const layout = installLayout("todo-board-scroll", "data-board-card")
-    layout.scrollTo(8 * ROW_H)
+    layout.scrollTo(8.5 * ROW_H)
     const anchored = layout.rowIds()[8]
-    // Backlog is the board's first column, so rows land above the reader by
+    const before = layout.offsetOf(anchored)
+    expect(before).toBe(-30)
+    // Backlog is the board's first column, so cards land above the reader by
     // ranking ahead of them rather than by moving into an earlier group.
     rows.backlog = [compact("PLA-90", "backlog", -2), compact("PLA-91", "backlog", -1), ...rows.backlog!]
     await settleStatusChange(client)
 
-    // The rows really do move — the container just is not corrected for it.
     expect(layout.rowIds().indexOf(anchored)).toBe(10)
-    expect(layout.scroller.scrollTop).toBe(8 * ROW_H)
+    expect(Math.abs(layout.offsetOf(anchored) - before)).toBeLessThanOrEqual(2)
+    expect(layout.scroller.scrollTop).toBe(8.5 * ROW_H + 2 * ROW_H)
+  })
+
+  it("follows the content when the anchored card leaves the board, without snapping to an edge", async () => {
+    rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    const { client } = renderBoard()
+    await screen.findByTestId("todo-list-row-PLA-1")
+    fireEvent.click(screen.getByTestId("todos-view-board"))
+
+    const layout = installLayout("todo-board-scroll", "data-board-card")
+    layout.scrollTo(8.5 * ROW_H)
+    const anchored = layout.rowIds()[8]
+
+    // Closing the anchored card drops it out of the board's active columns, so
+    // the restore has no row left to measure and falls back to the height delta.
+    rows.backlog = rows.backlog!.filter((item) => item.id !== anchored)
+    await settleStatusChange(client)
+
+    expect(layout.rowIds()).not.toContain(anchored)
+    expect(layout.scroller.scrollTop).toBe(8.5 * ROW_H - ROW_H)
+    expect(layout.scroller.scrollTop).toBeGreaterThan(0)
+    expect(layout.scroller.scrollTop).toBeLessThan(layout.scroller.scrollHeight - VIEWPORT_H)
   })
 })
