@@ -9,6 +9,7 @@ import { publishPageContext } from './components/talk/context/page-context-store
 import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
+import { startKeyboardInset } from './lib/native/keyboard-inset'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import './routes/globals.css'
@@ -197,6 +198,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     })
   })
 }
+
+// Runs for the life of the document, so the unsubscribe is deliberately dropped.
+startKeyboardInset()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element #root not found')
