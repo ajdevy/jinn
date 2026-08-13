@@ -49,6 +49,10 @@ function refuse(res: ServerResponse, workItemId: string, reason: string): undefi
  * Claim a Todo for a delegation. A Dispatcher handing its own Todo to the
  * employee it picked is the one caller allowed past a live claim: it is not a
  * second worker, it is the same work moving on, so it gives its claim up first.
+ *
+ * A delegation that MINTED its Todo claims too. Nothing can be racing it yet,
+ * but the claim is what the next pickup path reads: without one, the second
+ * delegation onto that Todo finds it free and works it a second time.
  */
 export function claimTodoForDelegation(
   res: ServerResponse,

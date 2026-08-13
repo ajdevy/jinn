@@ -236,7 +236,7 @@ import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRo
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
-import { claimTodoForDelegation, claimTodoForDispatch, type RouteTodoClaim } from "./todo-claim.js";
+import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
 import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
@@ -4571,7 +4571,7 @@ export async function handleApiRequest(
       //    mint as before. An idempotency key makes the minted sourceRef stable,
       //    so a retry after a pre-session failure reuses the same intent.
       let workItem: WorkItem;
-      let claim: RouteTodoClaim | undefined;
+      let dispatcherHandoffFrom: string | undefined;
       if (requestedWorkItemId) {
         const existingWorkItem = getWorkItem(requestedWorkItemId);
         if (!existingWorkItem) return json(res, { error: `Todo ${requestedWorkItemId} not found` }, 404);
@@ -4592,12 +4592,10 @@ export async function handleApiRequest(
               );
           if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
         }
-        const dispatcherCallerId = delegationCaller.kind === "session"
+        dispatcherHandoffFrom = delegationCaller.kind === "session"
           && getSession(delegationCaller.callerId)?.employee === TODO_DISPATCHER_NAME
           ? delegationCaller.callerId
           : undefined;
-        claim = claimTodoForDelegation(res, workItem.id, dispatcherCallerId);
-        if (!claim) return;
       } else {
         try {
           workItem = createWorkItem({
@@ -4622,12 +4620,14 @@ export async function handleApiRequest(
           return json(res, { error: "delegation failed before any work started — the work item could not be minted; nothing was spawned" }, 500);
         }
       }
+      const claim = claimTodoForDelegation(res, workItem.id, dispatcherHandoffFrom);
+      if (!claim) return;
 
       // 2. SPAWN — the irreversible step. A failure here PRESERVES the minted
       //    `backlog` item (durable intent, recoverable) and reports its id.
       const engine = context.sessionManager.getEngine(engineName);
       if (!engine) {
-        claim?.release();
+        claim.release();
         return json(res, {
           error: `engine "${engineName}" not available`,
           workItemId: workItem.id,
@@ -4642,7 +4642,7 @@ export async function handleApiRequest(
               : { kind: "operator" },
           )) ?? workItem;
         } catch (assignmentErr) {
-          claim?.release();
+          claim.release();
           return json(res, { error: assignmentErr instanceof Error ? assignmentErr.message : String(assignmentErr) }, 409);
         }
       }
@@ -4669,7 +4669,7 @@ export async function handleApiRequest(
           },
         });
       } catch (spawnErr) {
-        claim?.release();
+        claim.release();
         const replay = idempotencySessionKey ? getSessionBySessionKey(idempotencySessionKey) : undefined;
         if (replay?.workItemId) {
           return json(res, {
@@ -4702,9 +4702,9 @@ export async function handleApiRequest(
       //    instead of dispatching an untracked turn.
       try {
         linkSession(workItem.id, session.id);
-        claim?.bind(session.id);
+        claim.bind(session.id);
       } catch (linkErr) {
-        claim?.release();
+        claim.release();
         logger.warn(`Delegation ${workItem.id} link failed before dispatch: ${linkErr instanceof Error ? linkErr.message : linkErr}`);
         return json(res, {
           error: "delegation halted before dispatch — linking the work item to the spawned session failed",

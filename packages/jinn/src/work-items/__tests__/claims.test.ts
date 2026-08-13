@@ -26,12 +26,16 @@ function claimKinds(workItemId: string): string[] {
     .map((event) => event.kind);
 }
 
-/** Backdate a live claim's lease, which is the only way to reach an expiry
+/** Move a claim's lease, which is the only way to reach a lease boundary
  *  without holding the suite for fifteen minutes. */
-function expireLease(workItemId: string): void {
+function moveLease(workItemId: string, expiresInMs: number): void {
   db.prepare("UPDATE work_item_claims SET claim_expires = ? WHERE work_item_id = ?")
-    .run("2020-01-01T00:00:00.000Z", workItemId);
+    .run(new Date(Date.now() + expiresInMs).toISOString(), workItemId);
 }
+
+const LEASE_RAN_OUT = -60_000;
+/** Live, but far enough short of a full TTL that a renewal is measurable. */
+const LEASE_ALMOST_UP = 60_000;
 
 describe("the claims table", () => {
   // Declared first on purpose: it is only true before anything claims. A
@@ -91,10 +95,13 @@ describe("claimWorkItem", () => {
     expect(result.state === "rejected" && result.reason).toContain("does not exist");
   });
 
+  // The lease is still LIVE, so nothing but the same-owner arm of the CAS can
+  // grant this: a claim that renewed because its lease had run out would prove
+  // the expiry arm and say nothing about re-entrancy.
   it("renews rather than refuses when the same owner re-claims, and extends the lease", () => {
     const item = store.createWorkItem({ title: "re-entrant" });
     const first = claims.claimWorkItem({ workItemId: item.id, owner: "owner-a" });
-    expireLease(item.id);
+    moveLease(item.id, LEASE_ALMOST_UP);
 
     const again = claims.claimWorkItem({ workItemId: item.id, owner: "owner-a", sessionId: "session-a" });
 
@@ -109,7 +116,7 @@ describe("claimWorkItem", () => {
   it("lets a new owner take a claim whose lease has run out", () => {
     const item = store.createWorkItem({ title: "abandoned" });
     claims.claimWorkItem({ workItemId: item.id, owner: "owner-a" });
-    expireLease(item.id);
+    moveLease(item.id, LEASE_RAN_OUT);
 
     const taken = claims.claimWorkItem({ workItemId: item.id, owner: "owner-b" });
 
@@ -122,7 +129,7 @@ describe("expireWorkItemClaims", () => {
   it("releases an expired lease and says so in the Todo's trail", () => {
     const item = store.createWorkItem({ title: "vanished worker" });
     claims.claimWorkItem({ workItemId: item.id, owner: "owner-a" });
-    expireLease(item.id);
+    moveLease(item.id, LEASE_RAN_OUT);
 
     expect(claims.expireWorkItemClaims()).toBe(1);
 

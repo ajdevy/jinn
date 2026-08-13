@@ -153,6 +153,21 @@ describe("POST /api/delegations onto a claimed Todo", () => {
     expect(runs.findOpenWorkItemRunBySession(sessionId)?.workItemId).toBe(item.id);
   });
 
+  it("claims the Todo it minted, so a second delegation onto it is refused", async () => {
+    const minted = await call("POST", "/api/delegations", { employee: "claim-worker", task: "Fresh work" });
+
+    expect(minted.status).toBe(201);
+    const workItemId = String(minted.body?.workItemId);
+    expect(claims.getWorkItemClaim(workItemId)?.sessionId).toBe(String(minted.body?.sessionId));
+
+    const second = await call("POST", "/api/delegations", {
+      workItemId, employee: "claim-worker", task: "Work it again",
+    });
+
+    expect(second.status).toBe(409);
+    expect(String(second.body?.error)).toContain(String(minted.body?.sessionId));
+  });
+
   it("hands the Todo back when the spawn cannot happen", async () => {
     const item = workItems.createWorkItem({ title: "engine is gone", source: "human" });
     engineAvailable = false;

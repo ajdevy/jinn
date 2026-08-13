@@ -27,12 +27,16 @@ const definition = {
 } as unknown as WorkflowDefinition;
 
 const started: string[] = [];
+/** Who held the Todo at the instant the run was created — the only place the
+ *  ordering is observable, because after the fire both orders look alike. */
+const heldWhenRunCreated: (string | null)[] = [];
 
 const repository = {
   listDefinitions: () => ({ items: [{ id: definition.id }], nextCursor: null }),
   getDefinition: () => definition,
-  createRun: ({ idempotencyKey }: { idempotencyKey: string }) => {
+  createRun: ({ idempotencyKey, trigger }: { idempotencyKey: string; trigger: { todoId?: string } }) => {
     started.push(idempotencyKey);
+    heldWhenRunCreated.push(claims.getWorkItemClaim(trigger.todoId ?? "")?.owner ?? null);
     return { id: `run-${started.length}` };
   },
   getRun: (_workflowId: string, runId: string) => ({ id: runId, status: "completed" }),
@@ -64,7 +68,7 @@ beforeAll(async () => {
   triggers = await import("../trigger-service.js");
 });
 
-beforeEach(() => { started.length = 0; pending = []; });
+beforeEach(() => { started.length = 0; heldWhenRunCreated.length = 0; pending = []; });
 
 describe("the todo-status trigger and the Todo claim", () => {
   it("claims the Todo before starting a run", async () => {
@@ -75,7 +79,7 @@ describe("the todo-status trigger and the Todo claim", () => {
     await service.recoverTodoEvents();
 
     expect(started).toEqual(["todo:event-1"]);
-    expect(claims.getWorkItemClaim(item.id)?.owner).toBe("workflow:event-1");
+    expect(heldWhenRunCreated).toEqual(["workflow:event-1"]);
   });
 
   it("starts no second run for another event on a Todo it is already working", async () => {
