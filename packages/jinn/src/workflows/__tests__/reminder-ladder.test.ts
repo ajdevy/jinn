@@ -65,7 +65,7 @@ class FakeExecutor {
   readTerminalCompletion(sessionId: string): WorkflowAttemptCompletion | null {
     return this.receipts.get(sessionId) ?? null;
   }
-  async turnEnd(finalText = "Still working.", outcome: WorkflowAttemptCompletion["outcome"] = "succeeded"): Promise<void> {
+  async turnEnd(finalText = "The work is done.", outcome: WorkflowAttemptCompletion["outcome"] = "succeeded"): Promise<void> {
     const command = this.commands.at(-1)!;
     const sessionId = this.sessionId(command);
     const turn = (this.turns.get(sessionId) ?? 0) + 1;

@@ -6,11 +6,13 @@
  * turn, so the count is what closes the loop; after MAX_STOP_NUDGES the caller
  * falls back to whatever it did before.
  *
- * The classifier keeps the delegation contract's fail-safe bias, because that
- * is where it came from: it fires only on an explicit first-person continuation
- * or task-incomplete assertion. Ambiguity, a terminal claim, and a question
- * back to the parent all mean no nudge. Missed nudges are acceptable; a nudge
- * sent to a session that already finished is the harm this bias prevents.
+ * What counts as narration differs by surface, because the evidence differs. A
+ * workflow attempt owns a submit tool and a fenced output block, so a turn that
+ * used neither has objectively delivered nothing and the text only has to fail
+ * to claim otherwise. A delegated child has no such tool — its reply IS the
+ * deliverable — so there the classifier keeps the delegation contract's
+ * fail-safe bias and fires only on an explicit continuation assertion. Both
+ * surfaces share the suppressors, the wording, and the budget.
  */
 
 /** Two, so a model that narrates twice still gets one more chance to submit
@@ -27,22 +29,35 @@ const EXPLICIT_UNFINISHED_SIGNAL = /\b(?:i(?: am|['’]m) still working (?:on|th
 const TERMINAL_SIGNAL = /\b(final report|completed|complete|done|finished|shipped|implemented|resolved|all tests pass(?:ed)?|(?:tests?|checks?) (?:now )?pass(?:ed)?|ready for review|ready to merge|(?:the )?(?:pr|patch) (?:is )?ready|commit (?:sha|hash)|hand(?:-| )?off)\b/i;
 const PARENT_WAIT_SIGNAL = /\?|\b(need (?:your|the parent's) input|please confirm|which (?:option|approach)|should i|would you|let me know|blocked (?:on|by)|waiting on|awaiting (?:approval|confirmation|input)|waiting for (?:approval|confirmation|input|you|the parent)|(?:need|missing|without|awaiting) (?:the )?(?:credentials?|access|permissions?|api key|token|secret))\b/i;
 
-/** Whether this final text is a progress note and nothing more. */
-export function isNonTerminalNarration(text: string): boolean {
-  const terminalCandidate = text.replace(/\bnot\s+(?:done|finished|complete)\b/gi, " ");
-  // Incidental mentions of work, running services, remaining items, or next
-  // steps are not evidence that the task remains unfinished. The nudge requires
-  // a first-person continuation assertion, a task-bound incomplete/still-in-progress
-  // assertion, or explicit negated completion.
-  const hasExplicitUnfinished = EXPLICIT_UNFINISHED_SIGNAL.test(text);
-  const hasTerminal = TERMINAL_SIGNAL.test(terminalCandidate);
-  // Mixed terminal + unfinished clauses are ambiguous. Under the fail-safe
-  // contract, ambiguity surfaces to the caller; it never authorizes a nudge.
-  if (hasTerminal && hasExplicitUnfinished) return false;
-  return hasExplicitUnfinished && !hasTerminal && !PARENT_WAIT_SIGNAL.test(text);
+/** Whether this final text claims the work reached a terminal state. */
+function hasTerminalSignal(text: string): boolean {
+  return TERMINAL_SIGNAL.test(text.replace(/\bnot\s+(?:done|finished|complete)\b/gi, " "));
 }
 
-/** Whether this turn end earns a stop nudge, given how many it has already had. */
+/** Whether this final text is a progress note and nothing more. */
+export function isNonTerminalNarration(text: string): boolean {
+  // Incidental mentions of work, running services, remaining items, or next
+  // steps are not evidence that the task remains unfinished. Without a submit
+  // tool to fall back on, the nudge requires a first-person continuation
+  // assertion, a task-bound incomplete/still-in-progress assertion, or explicit
+  // negated completion. Mixed terminal + unfinished clauses are ambiguous, and
+  // ambiguity surfaces to the parent rather than authorizing a nudge.
+  if (!EXPLICIT_UNFINISHED_SIGNAL.test(text)) return false;
+  return !hasTerminalSignal(text) && !PARENT_WAIT_SIGNAL.test(text);
+}
+
+/**
+ * Whether this turn end earns a stop nudge, given how many it has already had.
+ *
+ * The caller has already established that the turn submitted nothing, so the
+ * text cannot be asked to prove the work is unfinished — ordinary progress talk
+ * ("I am reviewing the remaining files now") is the whole case this exists for.
+ * It only has to leave the two claims a nudge would contradict unmade: that the
+ * work is done, and that the turn is waiting on an answer. An empty final text
+ * asserts neither but narrates nothing either, so it stays with the ladder.
+ */
 export function planStopNudge(input: { finalText: string; stopNudgesSent: number }): boolean {
-  return input.stopNudgesSent < MAX_STOP_NUDGES && isNonTerminalNarration(input.finalText.trim());
+  const text = input.finalText.trim();
+  if (input.stopNudgesSent >= MAX_STOP_NUDGES || text.length === 0) return false;
+  return !hasTerminalSignal(text) && !PARENT_WAIT_SIGNAL.test(text);
 }

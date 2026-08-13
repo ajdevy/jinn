@@ -17,9 +17,9 @@ import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
 
-/** Trips the narration classifier: a first-person continuation assertion with no
- *  terminal claim and no question back to the caller. */
-const NARRATION = "I am still working on the migration and will report back.";
+/** Ordinary progress talk — the case the nudge exists for. It submits nothing,
+ *  claims no terminal state, and asks the caller nothing. */
+const NARRATION = "I am reviewing the remaining files now.";
 
 const employee: Employee = {
   name: "worker",

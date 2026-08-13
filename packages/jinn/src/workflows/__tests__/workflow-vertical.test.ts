@@ -456,7 +456,7 @@ describe("first Workflow vertical", () => {
     await waitForSettle(() => expect(service.getRun(authored.id, started.id)?.attempts[0]?.lastProcessedTurn).toBe(1));
     const afterInterruption = service.getRun(authored.id, started.id)!;
 
-    await engine.resolve({ sessionId: "native-follow-up", result: "Still working.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-follow-up", result: "The release notes check is done.", durationMs: 1 });
     await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     expect(afterInterruption).toMatchObject({
@@ -550,7 +550,7 @@ describe("first Workflow vertical", () => {
       error: "Interrupted: new message received",
       durationMs: 1,
     });
-    await engine.resolve({ sessionId: "native-extra-turn", result: "Verification added.", durationMs: 1 });
+    await engine.resolve({ sessionId: "native-extra-turn", result: "The extra verification is done.", durationMs: 1 });
     await waitForSettle(() => expect(getSession(sessionId)?.status).toBe("idle"));
 
     await postSessionMessage(sessionId, "Submit once the summary is ready.");
