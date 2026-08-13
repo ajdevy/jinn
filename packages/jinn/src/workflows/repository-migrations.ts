@@ -3,9 +3,9 @@ import { dirname, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { WORKFLOWS_DB_PATH } from '../shared/paths.js';
 
-export const WORKFLOW_DB_SCHEMA_VERSION = 3;
-export const WORKFLOW_DB_PHYSICAL_SCHEMA_VERSIONS = [1, 2, 3] as const;
-export const WORKFLOW_DB_MIGRATION_SOURCE_VERSIONS = [0, 1, 2] as const;
+export const WORKFLOW_DB_SCHEMA_VERSION = 4;
+export const WORKFLOW_DB_PHYSICAL_SCHEMA_VERSIONS = [1, 2, 3, 4] as const;
+export const WORKFLOW_DB_MIGRATION_SOURCE_VERSIONS = [0, 1, 2, 3] as const;
 
 const UNSUPPORTED_SCHEMA_ERROR = 'Unsupported workflow database schema version.';
 const MALFORMED_SCHEMA_ERROR = 'Malformed workflow database schema version.';
@@ -144,6 +144,9 @@ const CREATE_DOMAIN_SCHEMA_V3_SQL = CREATE_DOMAIN_SCHEMA_V2_SQL
     `CREATE INDEX workflow_approvals_pending ON workflow_approvals(status, requested_at);
 CREATE INDEX workflow_attempts_due_reminder ON workflow_attempts(status, next_reminder_at);`);
 
+const MIGRATE_V3_TO_V4_SQL = 'ALTER TABLE workflow_attempts ADD COLUMN stop_nudges_sent INTEGER NOT NULL DEFAULT 0;';
+const CREATE_DOMAIN_SCHEMA_V4_SQL = CREATE_DOMAIN_SCHEMA_V3_SQL.replace('  prompt_text TEXT,', '  prompt_text TEXT,\n  stop_nudges_sent INTEGER NOT NULL DEFAULT 0,');
+
 function normalizeSql(sql: string): string {
   return sql.toLowerCase().replace(/\s+/g, ' ').replace(/\s*([(),])\s*/g, '$1').trim().replace(/;$/, '');
 }
@@ -157,6 +160,7 @@ const VERSION_ZERO_SCHEMA = [SCHEMA_TABLE_SQL];
 const SCHEMA_V1 = schemaStatements(CREATE_SCHEMA_TABLE_SQL + CREATE_DOMAIN_SCHEMA_V1_SQL);
 const SCHEMA_V2 = schemaStatements(CREATE_SCHEMA_TABLE_SQL + CREATE_DOMAIN_SCHEMA_V2_SQL);
 const SCHEMA_V3 = schemaStatements(CREATE_SCHEMA_TABLE_SQL + CREATE_DOMAIN_SCHEMA_V3_SQL);
+const SCHEMA_V4 = schemaStatements(CREATE_SCHEMA_TABLE_SQL + CREATE_DOMAIN_SCHEMA_V4_SQL);
 
 interface SchemaState {
   exists: boolean;
@@ -188,8 +192,7 @@ function readSchemaState(db: Database.Database): SchemaState {
     throw new Error(MALFORMED_SCHEMA_ERROR);
   }
   if (version > WORKFLOW_DB_SCHEMA_VERSION) throw new Error(UNSUPPORTED_SCHEMA_ERROR);
-  const expected = version === 0 ? VERSION_ZERO_SCHEMA : version === 1 ? SCHEMA_V1
-    : version === 2 ? SCHEMA_V2 : version === 3 ? SCHEMA_V3 : undefined;
+  const expected = [VERSION_ZERO_SCHEMA, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4][version];
   if (!expected) throw new Error(UNSUPPORTED_SCHEMA_ERROR);
   assertSchema(db, expected);
   return { exists: true, version };
@@ -265,6 +268,11 @@ export function migrateWorkflowDatabase(db: Database.Database): void {
     if (state.version === 2) {
       db.exec(MIGRATE_V2_TO_V3_SQL);
       db.prepare('UPDATE workflow_schema SET version = 3').run();
+      state = readSchemaState(db);
+    }
+    if (state.version === 3) {
+      db.exec(MIGRATE_V3_TO_V4_SQL);
+      db.prepare('UPDATE workflow_schema SET version = 4').run();
       state = readSchemaState(db);
     }
     if (state.version !== WORKFLOW_DB_SCHEMA_VERSION) throw new Error(UNSUPPORTED_SCHEMA_ERROR);

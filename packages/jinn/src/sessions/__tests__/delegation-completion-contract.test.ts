@@ -96,7 +96,7 @@ describe("delegation completion contract", () => {
       expect.stringContaining("Completion contract"),
     );
     expect(claimDelegationCompletionNudge).toHaveBeenCalledOnce();
-    expect(claimDelegationCompletionNudge).toHaveBeenCalledWith("child-1", "wi_open");
+    expect(claimDelegationCompletionNudge).toHaveBeenCalledWith("child-1", "wi_open", 0);
   });
 
   it.each(["in_review", "done"] as const)("does not nudge a %s child", async (status) => {
@@ -293,20 +293,20 @@ describe("delegation completion contract", () => {
     expect(postFollowUp).not.toHaveBeenCalled();
   });
 
-  it("surfaces the second idle settlement to the parent without a nudge loop", async () => {
+  it("surfaces to the parent once the nudge budget is spent, without a nudge loop", async () => {
     getWorkItem.mockReturnValue(openItem("executing"));
     const postFollowUp = vi.fn().mockResolvedValue(undefined);
     const alreadyNudged = child({
-      attemptToken: "attempt-2",
+      attemptToken: "attempt-3",
       transportMeta: {
         delegationCompletionTracked: true,
-        delegationCompletionContract: { workItemId: "wi_open", state: "nudged" },
+        delegationCompletionContract: { workItemId: "wi_open", state: "nudged", nudges: 2 },
       },
     });
 
     const outcome = await enforceDelegationCompletionContract(
       alreadyNudged,
-      { result: "Progress update: still working through the remaining checks." },
+      { result: "Progress update: I am still working through the remaining checks." },
       { postFollowUp },
     );
 

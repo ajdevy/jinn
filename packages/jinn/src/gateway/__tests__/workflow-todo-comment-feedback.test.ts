@@ -278,17 +278,19 @@ describe("operator Todo comments delivered to workflow phases", () => {
     expect(notices[0]!.body).toContain("5");
   });
 
-  it("accepts an operator comment without error when no phase session was ever linked", async () => {
+  it("steers an operator comment to the plain linked session when no phase session was ever linked", async () => {
     const item = store.createWorkItem({
       title: "No workflow session",
       source: "workflow",
       status: "in_review",
     });
-    plainSession(item.id);
+    const plain = plainSession(item.id);
 
     await postComment(item.id, "Can anyone answer this?");
 
-    expect(registry.listPendingSessionDeliveries()).toEqual([]);
+    expect(registry.listPendingSessionDeliveries()).toMatchObject([
+      { targetSessionId: plain.id, sourceKind: "work-item", deliveryKind: "todo-comment-steering" },
+    ]);
     expect(comments.listComments(item.id).total).toBe(1);
   });
 });

@@ -426,7 +426,7 @@ export interface DelegatedActivity {
 
 export interface SessionDeliveryIdentity {
   targetSessionId: string;
-  sourceKind: "session" | "workflow-run" | "heartbeat";
+  sourceKind: "session" | "workflow-run" | "heartbeat" | "work-item";
   sourceId: string;
   sourceAttempt: string;
   sourceOutcome: string;

@@ -745,11 +745,11 @@ export function unarchiveSession(id: string): Session | undefined {
 }
 
 /**
- * Atomically claim the single delegation-completion nudge for a work item.
- * The JSON guard and its compare predicate live in one SQLite UPDATE so two
- * duplicate idle callbacks cannot both observe an empty guard and both win.
+ * Atomically claim the next delegation-completion nudge. The JSON guard and its compare predicate live in one
+ * SQLite UPDATE, so two duplicate idle callbacks cannot both observe the same count and both win. The observed
+ * count reads 0 for another work item or none and 1 for a guard written before it; a surfaced guard never matches.
  */
-export function claimDelegationCompletionNudge(id: string, workItemId: string): Session | undefined {
+export function claimDelegationCompletionNudge(id: string, workItemId: string, sentNudges = 0): Session | undefined {
   const db = initDb();
   const todoId = parseTodoId(workItemId);
   const result = db.prepare(`
@@ -757,14 +757,13 @@ export function claimDelegationCompletionNudge(id: string, workItemId: string): 
     SET transport_meta = json_set(
       COALESCE(transport_meta, '{}'),
       '$.delegationCompletionContract',
-      json_object('workItemId', ?, 'state', 'nudged')
+      json_object('workItemId', ?, 'state', 'nudged', 'nudges', ?)
     )
     WHERE id = ?
-      AND (
-        json_extract(transport_meta, '$.delegationCompletionContract.workItemId') IS NULL
-        OR json_extract(transport_meta, '$.delegationCompletionContract.workItemId') <> ?
-      )
-  `).run(todoId, id, todoId);
+      AND ? = CASE WHEN COALESCE(json_extract(transport_meta, '$.delegationCompletionContract.workItemId'), '') <> ? THEN 0
+        WHEN json_extract(transport_meta, '$.delegationCompletionContract.state') <> 'nudged' THEN -1
+        ELSE COALESCE(json_extract(transport_meta, '$.delegationCompletionContract.nudges'), 1) END
+  `).run(todoId, sentNudges + 1, id, sentNudges, todoId);
   return result.changes === 1 ? getSession(id) : undefined;
 }
 
@@ -786,17 +785,17 @@ export function markDelegationCompletionSurfaced(id: string, workItemId: string)
   return result.changes === 1 ? getSession(id) : undefined;
 }
 
-/** Release only the nudge this caller owns; never erase a later surfaced state. */
-export function releaseDelegationCompletionNudge(id: string, workItemId: string): Session | undefined {
+/** Roll back only the nudge this caller claimed, to the count that preceded it: a failed first nudge leaves no guard, a failed second leaves the first standing. */
+export function releaseDelegationCompletionNudge(id: string, workItemId: string, sentNudges = 0): Session | undefined {
   const db = initDb();
   const todoId = parseTodoId(workItemId);
   const result = db.prepare(`
     UPDATE sessions
-    SET transport_meta = json_remove(transport_meta, '$.delegationCompletionContract')
+    SET transport_meta = CASE WHEN ? = 0 THEN json_remove(transport_meta, '$.delegationCompletionContract') ELSE json_set(transport_meta, '$.delegationCompletionContract.nudges', ?) END
     WHERE id = ?
       AND json_extract(transport_meta, '$.delegationCompletionContract.workItemId') = ?
-      AND json_extract(transport_meta, '$.delegationCompletionContract.state') = 'nudged'
-  `).run(id, todoId);
+      AND ? = CASE WHEN json_extract(transport_meta, '$.delegationCompletionContract.state') = 'nudged' THEN COALESCE(json_extract(transport_meta, '$.delegationCompletionContract.nudges'), 1) ELSE -1 END
+  `).run(sentNudges, sentNudges, id, todoId, sentNudges + 1);
   return result.changes === 1 ? getSession(id) : undefined;
 }
 

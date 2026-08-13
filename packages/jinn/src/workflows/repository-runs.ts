@@ -46,7 +46,7 @@ const attemptRecordSchema = z.strictObject({
   status: z.enum(WORKFLOW_ATTEMPT_STATUSES), resolvedConfig: resolvedSchema, input: jsonValueSchema,
   promptText: z.string().optional(),
   output: outputSchema.optional(), error: errorSchema.optional(), startedAt: instantSchema, endedAt: instantSchema.optional(),
-  remindersSent: z.number().int().nonnegative(), nextReminderAt: instantSchema.optional(),
+  remindersSent: z.number().int().nonnegative(), stopNudgesSent: z.number().int().nonnegative(), nextReminderAt: instantSchema.optional(),
   extensions: z.number().int().nonnegative(), lastExtensionReason: z.string().optional(),
   pendingOutputError: z.string().optional(), lastProcessedTurn: z.number().int().nonnegative(),
 });
@@ -81,7 +81,7 @@ interface NodeRow {
 export interface AttemptRow {
   run_id: unknown; node_id: unknown; attempt: unknown; session_id: unknown; status: unknown;
   resolved_config_json: unknown; input_json: unknown; output_json: unknown; error_json: unknown;
-  started_at: unknown; ended_at: unknown; reminders_sent: unknown; next_reminder_at: unknown;
+  started_at: unknown; ended_at: unknown; reminders_sent: unknown; stop_nudges_sent: unknown; next_reminder_at: unknown;
   extensions: unknown; last_extension_reason: unknown; pending_output_error: unknown; last_processed_turn: unknown;
   prompt_text: unknown;
 }
@@ -166,7 +166,7 @@ export function decodeAttempt(row: AttemptRow): WorkflowAttemptRecord {
     ...(row.output_json === null ? {} : { output: optionalJson(row.output_json, 'Workflow attempt output') }),
     ...(row.error_json === null ? {} : { error: optionalJson(row.error_json, 'Workflow attempt error') }),
     startedAt: row.started_at, ...(row.ended_at === null ? {} : { endedAt: row.ended_at }),
-    remindersSent: row.reminders_sent,
+    remindersSent: row.reminders_sent, stopNudgesSent: row.stop_nudges_sent,
     ...(row.next_reminder_at === null ? {} : { nextReminderAt: row.next_reminder_at }),
     extensions: row.extensions,
     ...(row.last_extension_reason === null ? {} : { lastExtensionReason: row.last_extension_reason }),

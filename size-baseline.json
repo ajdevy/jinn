@@ -490,7 +490,7 @@
       ]
     },
     "packages/jinn/src/gateway/workflow-todo-surface.ts": {
-      "lines": 401,
+      "lines": 335,
       "exempt": [
         "complexity"
       ]
@@ -752,7 +752,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2807,
+      "lines": 2806,
       "exempt": [
         "complexity",
         "max-depth",
