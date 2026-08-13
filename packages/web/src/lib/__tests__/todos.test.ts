@@ -155,6 +155,13 @@ describe("filters (design-todos §4.3)", () => {
     // Garbage params are ignored, not thrown.
     expect(filtersFromSearchParams(new URLSearchParams("status=nope&source=bad&date=huh"))).toEqual({ status: "open" })
   })
+  it("trims the free-text values, so a padded URL reads as the filter it names", () => {
+    expect(filtersFromSearchParams(new URLSearchParams("assignee=%20scout%20&department=%20platform%20&label=%20build%20")))
+      .toEqual({ status: "open", assignee: "scout", department: "platform", label: "build" })
+    // Whitespace alone is not a filter set to nothing — it is no filter at all.
+    expect(filtersFromSearchParams(new URLSearchParams("assignee=%20%20"))).toEqual({ status: "open" })
+  })
+
   it("counts set chips for the Clear control", () => {
     expect(activeFilterCount({ status: "open" })).toBe(0)
     expect(activeFilterCount({ status: "open", q: "roadmap" })).toBe(0)

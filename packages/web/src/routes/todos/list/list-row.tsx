@@ -45,6 +45,7 @@ export const TodoListRow = memo(function TodoListRow({
     <button
       type="button"
       data-testid={`todo-list-row-${item.id}`}
+      data-anchor-id={item.id}
       onClick={() => onOpen(item.id, item)}
       className="focus-ring flex min-h-[44px] w-full items-center gap-3 rounded-[var(--radius-md)] px-2.5 text-left outline-none transition-colors duration-150 hover:bg-[var(--fill-quaternary)] max-[700px]:min-h-[52px] max-[700px]:gap-2"
     >

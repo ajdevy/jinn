@@ -599,8 +599,8 @@ describe("card anatomy", () => {
     const card = await screen.findByTestId("board-card-PLA-4")
     expect(card.textContent).toContain("infra")
     expect(card.textContent).toContain("Jul 1")
-    expect((card as HTMLElement).style.contentVisibility).toBe("auto")
-    expect((card as HTMLElement).style.containIntrinsicSize).toBe("auto 160px")
+    // Skipping is desktop-only, at a fixed intrinsic size: a remembered one is revised mid-scroll and takes the reader's place with it.
+    expect(card.className).toContain("[content-visibility:auto] [contain-intrinsic-size:83px] max-[700px]:[content-visibility:visible]")
   })
 
   it("shows the approval bell in accent when an approval is pending", async () => {
@@ -644,13 +644,10 @@ describe("card anatomy", () => {
           }
         }),
     )
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      const id = this.dataset.boardCard
-      const top = id === "PLA-16" ? (enriched ? 112 : 80) : 0
-      return {
-        x: 0, y: top, left: 0, top, right: 240, bottom: top + 72, width: 240, height: 72,
-        toJSON: () => ({}),
-      } as DOMRect
+    // The FLIP measures layout, not the viewport, so that a scroll cannot read as movement; jsdom lays nothing out, so offsetTop is what has to stand in.
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get(this: HTMLElement) { return this.dataset.boardCard === "PLA-16" ? (enriched ? 112 : 80) : 0 },
     })
     const animate = vi.fn()
     Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -672,7 +669,7 @@ describe("card anatomy", () => {
     )
     expect(animate.mock.instances).toContain(lowerCard)
 
-    rect.mockRestore()
+    delete (HTMLElement.prototype as { offsetTop?: unknown }).offsetTop
     delete (HTMLElement.prototype as { animate?: unknown }).animate
   })
 

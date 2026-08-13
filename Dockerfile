@@ -26,6 +26,7 @@ COPY packages/gateway-events/package.json ./packages/gateway-events/
 COPY packages/jinn/package.json ./packages/jinn/
 COPY packages/jinn/scripts/fix-node-pty-permissions.mjs ./packages/jinn/scripts/
 COPY packages/web/package.json ./packages/web/
+COPY packages/shell-ios/package.json ./packages/shell-ios/
 
 # The base image is already the Node pin. Honouring `use-node-version` would compile
 # better-sqlite3/node-pty under a second Node fetched from nodejs.org while the runtime

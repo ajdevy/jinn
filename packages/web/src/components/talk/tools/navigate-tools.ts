@@ -21,7 +21,7 @@ import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./to
  * of waiting for the model to finish speaking.
  */
 
-function go(path: string): ToolResult | Promise<ToolResult> {
+export function go(path: string): ToolResult | Promise<ToolResult> {
   const navigate = talkNavigator()
   if (!navigate) {
     return { ok: false, error: "The app is not mounted yet, so there is nothing to navigate. Try again once it has loaded." }
@@ -35,7 +35,7 @@ function go(path: string): ToolResult | Promise<ToolResult> {
 
 /** The prefix root Todos are minted under. `/api/onboarding` is fetched once at
  *  boot and never goes stale, so this read is synchronous in a running app. */
-function companyTodoPrefix(): string | null {
+export function companyTodoPrefix(): string | null {
   const onboarding = queryClient.getQueryData<{ todoPrefix: string | null }>(queryKeys.onboarding)
   return onboarding?.todoPrefix ?? null
 }
@@ -65,10 +65,13 @@ const openTodos: TalkTool = {
   execute: (args: ToolArgs) => go(todosPath(args)),
 }
 
+// `resolve_and_open` takes every input this accepts and adds the rest, so it
+// holds the always-on slot and this stays reachable for a caller that already
+// knows it is a Todo.
 const openTodo: TalkTool = {
   name: "open_todo",
   description: 'Open one Todo\'s page. The id may be spoken with its prefix ("ABC-59") or as a bare number ("59").',
-  exposure: "always",
+  exposure: "on-intent",
   parameters: params({ id: str("The Todo id.") }, ["id"]),
   execute: (args: ToolArgs) => {
     const resolved = resolveTodoId(args.id, companyTodoPrefix())

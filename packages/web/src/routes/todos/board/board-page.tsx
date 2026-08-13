@@ -48,12 +48,8 @@ import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
 } from "./status-scope"
 import { useBoardDrag } from "./use-board-drag"
-import {
-  boardKey,
-  parseBoardParam,
-  recallBoardScroll,
-  rememberBoardScroll,
-} from "./board-route"
+import { boardKey, parseBoardParam } from "./board-route"
+import { useBoardScroll } from "./use-board-scroll"
 
 /* Todos v2 slice 6 — the board surface (design contract:
  * docs/superpowers/design/todos-v2-board — board.html is the visual truth).
@@ -379,18 +375,9 @@ export default function TodoBoardPage() {
     [itemsByStatus, commitRank],
   )
 
-  // ── Scroll cache (per board, restored on POP) ───────────────────────────────
-  const boardScrollRef = useRef<HTMLDivElement>(null)
-  const listScrollRef = useRef<HTMLDivElement>(null)
-  // One handler for both scrollports — the event already names the one that moved.
-  const onScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    rememberBoardScroll(key, event.currentTarget.scrollTop)
-  }, [key])
-  useEffect(() => {
-    const scrollTop = navigationType === "POP" ? recallBoardScroll(key) : 0
-    if (boardScrollRef.current) boardScrollRef.current.scrollTop = scrollTop
-    if (listScrollRef.current) listScrollRef.current.scrollTop = scrollTop
-  }, [key, navigationType])
+  // ── Scroll position (per board on POP, anchored across every reflow) ────────
+  const { boardScrollRef, listScrollRef, onBoardScroll, onListScroll } =
+    useBoardScroll(key, navigationType, { dragging: drag !== null, attention: isAttention })
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)
@@ -702,7 +689,7 @@ export default function TodoBoardPage() {
         {isAttention ? (
           <div
             ref={boardScrollRef}
-            onScroll={onScroll}
+            onScroll={onBoardScroll}
             data-testid="todo-board-scroll"
             data-scrollable
             className="min-h-0 flex-1 overflow-y-auto px-5 pb-20 pt-5 md:px-10"
@@ -730,7 +717,7 @@ export default function TodoBoardPage() {
           <>
           <div
             ref={listScrollRef}
-            onScroll={onScroll}
+            onScroll={onListScroll}
             hidden={view !== "list"}
             data-testid="todo-list-scroll"
             data-scrollable
@@ -767,7 +754,7 @@ export default function TodoBoardPage() {
           </div>
           <div
             ref={boardScrollRef}
-            onScroll={onScroll}
+            onScroll={onBoardScroll}
             hidden={view !== "board"}
             data-testid="todo-board-scroll"
             data-scrollable
