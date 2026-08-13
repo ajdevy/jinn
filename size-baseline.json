@@ -937,7 +937,7 @@
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 337,
+      "lines": 335,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1728,7 +1728,7 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 339,
+      "lines": 338,
       "exempt": [
         "complexity",
         "max-lines-per-function"

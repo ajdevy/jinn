@@ -1,5 +1,5 @@
 import type { JsonObject } from "../shared/types.js";
-import type { WorkItem } from "./store.js";
+import type { WorkItem, WorkItemEvent, WorkItemStatus } from "./store.js";
 
 /**
  * ICI-570 — live change signal for Todo writes that happen IN-PROCESS, outside
@@ -43,5 +43,35 @@ export function notifyTodoChanged(item: WorkItem, action: string, sessionId?: st
     });
   } catch {
     // A broken listener must never fail the write it observes.
+  }
+}
+
+/** The second listener on the same write: a committed status change, handed to
+ *  the Workflow `todo-status` trigger bridge. Same null-default, same
+ *  never-throw contract as the live emitter above. */
+export interface TodoStatusChangeEvent extends WorkItemEvent {
+  fromStatus: WorkItemStatus;
+  toStatus: WorkItemStatus;
+  item: WorkItem;
+}
+
+export type TodoStatusChangeListener = (event: TodoStatusChangeEvent) => void | Promise<void>;
+
+let todoStatusChangeListener: TodoStatusChangeListener | null = null;
+
+export function setTodoStatusChangeListener(listener: TodoStatusChangeListener | null): void {
+  todoStatusChangeListener = listener;
+}
+
+export function notifyTodoStatusChange(event: WorkItemEvent | undefined, item: WorkItem): void {
+  if (!event || !event.fromStatus || !event.toStatus || !todoStatusChangeListener) return;
+  try {
+    const maybe = todoStatusChangeListener({ ...event, fromStatus: event.fromStatus, toStatus: event.toStatus, item });
+    if (maybe && typeof (maybe as Promise<void>).catch === "function") {
+      void (maybe as Promise<void>).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort bridge: a workflow-fire failure must never roll back or throw
+    // from the guarded lifecycle transition that already committed.
   }
 }

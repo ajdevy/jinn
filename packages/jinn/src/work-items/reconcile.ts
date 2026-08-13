@@ -175,7 +175,10 @@ export function reconcileWorkItem(id: string): ReconcileResult | undefined {
   if (derived !== item.status) {
     // transitionDerived returns undefined on a sticky/concurrent race — report
     // the fresh truth as unchanged rather than clobbering a deliberate decision.
-    const updated = transitionDerived(id, derived, RECONCILER_ACTOR, { declared: false });
+    // `transient` names the only block this derivation produces: an attempt that
+    // failed or was interrupted. Left unsaid it would count as `needs_input`, and
+    // a retry that fails again is the same problem, not a new one.
+    const updated = transitionDerived(id, derived, RECONCILER_ACTOR, { declared: false }, 'transient');
     if (updated) {
       current = updated;
       changed = true;

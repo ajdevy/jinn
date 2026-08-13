@@ -75,13 +75,13 @@ function reflect(input: {
   if (!item || !mayReflect(input.status, item.status, input.todoId)) return;
   // `declared: false` keeps this out of the declaration lane: the reconciler's
   // provenance checks read it, so a reflected status stays re-derivable instead of
-  // freezing the Todo.
+  // freezing the Todo. A dead run blocks `transient`: one recurring problem, not two.
   transitionDerived(input.todoId, input.status, WORKFLOW_RUN_ACTOR, {
     declared: false,
     workflowId: input.workflowId,
     runId: input.runId,
     nodeId: input.nodeId,
-  });
+  }, "transient");
 }
 
 function recordFailure(input: {
@@ -202,7 +202,7 @@ function stopRevision(input: WorkflowRevisionRequest, why: string, status: "bloc
     workflowId: input.workflowId,
     runId: input.runId,
     nodeId: input.nodeId,
-  });
+  }, "transient");
 }
 
 /**

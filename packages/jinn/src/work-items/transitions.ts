@@ -1,6 +1,7 @@
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { initDb } from '../shared/db.js';
-import { notifyTodoChanged } from './live-events.js';
+import { clearBlockRecord, DEFAULT_BLOCK_KIND, recordBlock, resolveBlock, type BlockKind } from './blocks.js';
+import { notifyTodoChanged, notifyTodoStatusChange } from './live-events.js';
 import type { WriteOrigin } from './origin.js';
 import {
   appendWorkItemEvent,
@@ -105,49 +106,27 @@ export interface TransitionOptions {
    * still need `human`, and the self-review ban still withholds `done`.
    */
   requeue?: boolean;
+  /** Why this block is a block (ICI-730); read only when `to` is `blocked`, and
+   *  `blocks.ts` owns what each kind does. Absent, a block means `needs_input`:
+   *  never `dependency`, which would re-queue work nobody asked to have back. */
+  blockKind?: BlockKind;
   /** Free-form audit payload (critique text, verdict, reason) stored on the event. */
   detail?: Record<string, unknown>;
 }
 
 export interface TransitionResult {
   item: WorkItem;
-  /** True when the bounce rule redirected the target to `escalated`. */
+  /** True when a bounded-loop rule — review rounds or block recurrences —
+   *  redirected the target to `escalated`. */
   escalated: boolean;
   /** The committed audit event for an actual status write. Undefined for no-ops. */
   event?: WorkItemEvent;
 }
 
-export interface TodoStatusChangeEvent extends WorkItemEvent {
-  fromStatus: WorkItemStatus;
-  toStatus: WorkItemStatus;
-  item: WorkItem;
-}
-
-export type TodoStatusChangeListener = (event: TodoStatusChangeEvent) => void | Promise<void>;
-
-let todoStatusChangeListener: TodoStatusChangeListener | null = null;
-
-export function setTodoStatusChangeListener(listener: TodoStatusChangeListener | null): void {
-  todoStatusChangeListener = listener;
-}
-
-function notifyTodoStatusChange(event: WorkItemEvent | undefined, item: WorkItem): void {
-  if (!event || !event.fromStatus || !event.toStatus || !todoStatusChangeListener) return;
-  try {
-    const maybe = todoStatusChangeListener({
-      ...event,
-      fromStatus: event.fromStatus,
-      toStatus: event.toStatus,
-      item,
-    });
-    if (maybe && typeof (maybe as Promise<void>).catch === 'function') {
-      void (maybe as Promise<void>).catch(() => undefined);
-    }
-  } catch {
-    // Best-effort bridge: a workflow-fire failure must never roll back or throw
-    // from the guarded lifecycle transition that already committed.
-  }
-}
+// The status-change bridge lives with the other live listener (`live-events.ts`)
+// and is re-exported here, because this write path is what registering against
+// it actually observes.
+export { setTodoStatusChangeListener, type TodoStatusChangeEvent, type TodoStatusChangeListener } from './live-events.js';
 
 function todoProvenanceSnapshot(
   item: Pick<WorkItem, 'source' | 'department' | 'assignee'>,
@@ -173,7 +152,13 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
     const item = getWorkItem(id);
     if (!item) throw new TransitionError('not-found', `work item ${id} not found`);
     const from = item.status;
-    if (from === to) return { item, escalated: false }; // no-op: no write, no event
+    // Resolved BEFORE the same-status shortcut, because a `dependency` block
+    // routes AWAY from `blocked`: on an already-blocked Todo `to === from` no
+    // longer means nothing changes, and the shortcut would swallow both the
+    // move back to the queue and the count that ends the loop. Every other kind
+    // does land where it already is, so their no-op stands.
+    const blockKind: BlockKind | null = to === 'blocked' ? (opts.blockKind ?? DEFAULT_BLOCK_KIND) : null;
+    if (from === to && blockKind !== 'dependency') return { item, escalated: false }; // no-op: no write, no event
 
     if (STICKY_STATUSES.has(from) && !opts.human) {
       throw new TransitionError(
@@ -231,6 +216,13 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
       }
     }
 
+    // The block-loop breaker: the same bounded-loop shape one level down, so a
+    // block that keeps coming back for the same reason ends at the operator
+    // instead of cycling between a cron that unblocks and an agent that re-blocks.
+    const block = blockKind ? resolveBlock(db, item, blockKind) : null;
+    if (block) target = block.target;
+    const escalated = escalatedByRounds || block?.escalated === true;
+
     // Optimistic write: 0 rows changed = someone moved it between our read and
     // this write (cross-process only — better-sqlite3 calls are synchronous).
     const now = new Date().toISOString();
@@ -244,9 +236,14 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
       throw new TransitionError('conflict', `work item ${id} changed concurrently (expected status ${from})`);
     }
 
+    if (block) recordBlock(db, id, block, now);
+    // Only a successful completion resets the block history; `cancelled` keeps
+    // it, because abandoning work is not evidence its blocks were resolved.
+    if (target === 'done') clearBlockRecord(db, id);
+
     const event = appendWorkItemEvent({
       workItemId: id,
-      kind: escalatedByRounds ? 'escalated' : 'status_change',
+      kind: escalated ? 'escalated' : 'status_change',
       fromStatus: from,
       toStatus: target,
       actor,
@@ -254,11 +251,12 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
         ...(opts.detail ?? {}),
         ...(opts.bounce ? { bounce: true, rounds } : {}),
         ...(escalatedByRounds ? { reason: 'max-rounds-exhausted', maxRounds: effectiveMaxRounds(item) } : {}),
+        ...(block?.escalated ? { reason: 'block_loop_detected', blockKind, recurrences: block.recurrences } : {}),
         todoProvenance: todoProvenanceSnapshot(item),
       },
     });
 
-    return { item: getWorkItem(id)!, escalated: escalatedByRounds, event };
+    return { item: getWorkItem(id)!, escalated, event };
   });
   const result = txn();
   // ICI-749: the board's live signal belongs to the status write, not to the HTTP
@@ -327,9 +325,9 @@ export function assignWorkItem(
 /** Convenience: the reconciler's derived writes (agent-free, event-audited).
  *  Returns undefined instead of throwing on conflict/sticky races — derivation
  *  is best-effort truth-keeping, not authority. */
-export function transitionDerived(id: string, to: WorkItemStatus, actor: string, detail?: Record<string, unknown>): WorkItem | undefined {
+export function transitionDerived(id: string, to: WorkItemStatus, actor: string, detail?: Record<string, unknown>, blockKind?: BlockKind): WorkItem | undefined {
   try {
-    return transition(id, to, actor, detail ? { detail } : {}).item;
+    return transition(id, to, actor, { ...(detail ? { detail } : {}), ...(blockKind ? { blockKind } : {}) }).item;
   } catch (err) {
     if (err instanceof TransitionError) return undefined;
     throw err;

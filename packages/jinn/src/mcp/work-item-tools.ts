@@ -1,5 +1,6 @@
 import { assertBoundCaller, gatewayRequest, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
 import type { JinnMcpContext } from "./toolkit.js";
+import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { parseTodoId } from "../work-items/id.js";
 
 export const WORK_ITEM_SEARCH_LIMIT_MAX = 100;
@@ -391,6 +392,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       properties: {
         id: TODO_ID_SCHEMA,
         status: { type: "string", enum: [...AGENT_UPDATE_STATUSES] },
+        blockKind: { type: "string", enum: [...BLOCK_KINDS], description: "`dependency` re-queues it; the rest wait on a human." },
         note: { type: "string" },
         asOperator: { type: "boolean", description: "Record the move as the operator's. COO only." },
       },
@@ -401,13 +403,11 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       rejectApprovalFields(args, "update_work_item");
       const id = requireTodoId(args);
       const rawStatus = requireString(args, "status");
-      if (rawStatus === "cancelled") {
-        throw new JinnMcpToolError("cancelling a Todo is a human surface decision; agents do not have a cancel tool.");
-      }
-      if (!(AGENT_UPDATE_STATUSES as readonly string[]).includes(rawStatus)) {
-        throw new JinnMcpToolError(`status must be one of ${AGENT_UPDATE_STATUSES.join(", ")}; cancellation/other lifecycle edits are human surface decisions.`);
-      }
-      const payload: Record<string, unknown> = { status: rawStatus };
+      if (rawStatus === "cancelled") throw new JinnMcpToolError("cancelling a Todo is a human surface decision; agents do not have a cancel tool.");
+      if (!(AGENT_UPDATE_STATUSES as readonly string[]).includes(rawStatus)) throw new JinnMcpToolError(`status must be one of ${AGENT_UPDATE_STATUSES.join(", ")}; cancellation/other lifecycle edits are human surface decisions.`);
+      const blockKind = parseBlockKind(args.blockKind);
+      if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
+      const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}) };
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
       if (note !== undefined) payload.note = note;
       if (args.asOperator !== undefined) payload.asOperator = args.asOperator;

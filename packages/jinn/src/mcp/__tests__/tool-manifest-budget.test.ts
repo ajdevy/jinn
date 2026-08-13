@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5704;
+const MAX_MANIFEST_TOKENS = 5743;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -66,9 +66,18 @@ const ATTESTED = {
   // null clears them. Create declares plain strings: there is nothing to clear at
   // creation. That leaves 35 tokens with nothing dead left in this group to buy
   // them back from, so the ceiling moves by exactly that. Pi stays five under it.
-  rpc: { tokens: 5201, sha256: "748a5a621a84c53ad0cdb0be77aabb8528040bd20cdc4018d1d0ec60e912dde9" },
-  pi: { tokens: 5699, sha256: "9897ee6255ba7088092e0e4f98c8308695af64a8c64edee0245ae9fcdb619e53" },
-  openai: { tokens: 5403, sha256: "7f2136214e7308e0c9807538869ba7ddd23339aec17bfbb725bf11575a9a1e20" },
+  // Rebased for `blockKind` on update_work_item: the four-value enum that says
+  // WHY a Todo is blocked, and with it where the block lands. It has to be on
+  // the tool rather than inferred, because `dependency` returns the Todo to its
+  // queue while the other three park it in front of a human, and a caller that
+  // cannot say which gets the human every time. The enum plus its one clause of
+  // routing prose cost 39; its own description already paid 3 of that back by
+  // dropping "Why blocked.", which the property name says. Nothing dead is left
+  // in this group to buy the rest from, so the ceiling moves by exactly the 39.
+  // Pi stays five under it.
+  rpc: { tokens: 5240, sha256: "378398b6c24f73594560a6b2ae0ebd91e45d6641bf4bd6f6226d07fbf49112b5" },
+  pi: { tokens: 5738, sha256: "6401ace1a1278ac0b1232307ff4d47f43cc33371b155ecf3a6edc985ab6f735d" },
+  openai: { tokens: 5442, sha256: "b59b7f5da754408831dc4cff9d346adf957f3021fbc33f2ea3d57e8c1af90c64" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

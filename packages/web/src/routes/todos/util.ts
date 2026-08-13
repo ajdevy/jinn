@@ -16,6 +16,14 @@ export function formatRelativeTime(iso: string, now = Date.now()): string {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
+/** An escalation event's own reason, phrased for the banner and the card. A
+ *  guard that escalates without one of these leaves the why-line blank. */
+export function escalationReasonLabel(reason: unknown): string | null {
+  if (reason === "max-rounds-exhausted") return "Review rounds exhausted"
+  if (reason === "block_loop_detected") return "Blocked again for the same reason"
+  return typeof reason === "string" && reason ? reason : null
+}
+
 /** Resolve a display name for an assignee employee key, falling back to the key. */
 export function displayNameOf(assignee: string | null, byName: Map<string, Employee>): string {
   if (!assignee) return ""

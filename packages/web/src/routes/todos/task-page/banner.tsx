@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Bell, Check, Pause, TriangleAlert } from "lucide-react"
 import type { Employee, WorkItemDetailWire, WorkItemEventWire } from "@/lib/api"
 import { effectiveMaxRounds } from "@/lib/todos"
-import { displayNameOf, formatRelativeTime } from "../util"
+import { displayNameOf, escalationReasonLabel, formatRelativeTime } from "../util"
 
 /* Todos v2 slice 6 — the task page's banner zone (design-doc §7.2, states mock
  * §5). At most ONE banner: Escalated > Approval > Blocked. Neutral
@@ -38,8 +38,9 @@ export function exceptionReasonOf(detail: WorkItemDetailWire): { note: string | 
     if (e.toStatus !== status) continue
     const note = typeof e.detail?.note === "string" ? e.detail.note.trim() : ""
     if (note) return { note, event: e }
-    if (e.kind === "escalated" && e.detail?.reason === "max-rounds-exhausted") {
-      return { note: "Review rounds exhausted", event: e }
+    if (e.kind === "escalated") {
+      const label = escalationReasonLabel(e.detail?.reason)
+      if (label) return { note: label, event: e }
     }
     if (e.kind === "status_change") return { note: null, event: e }
   }

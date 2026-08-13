@@ -8,6 +8,7 @@ import {
   TODO_ID_PREFIX_PATTERN,
 } from "./id.js";
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
+import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { resolveDepartmentPrefix } from "./departments.js";
 import { loadConfig } from "../shared/config.js";
@@ -600,6 +601,7 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_approval_operator_only", WORK_ITEM_APPROVAL_OPERATOR_ONLY_DDL],
   ["work_item_attachments", WORK_ITEM_ATTACHMENTS_TABLE_DDL],
   ["work_item_runs", WORK_ITEM_RUNS_TABLE_DDL],
+  ["work_item_blocks", WORK_ITEM_BLOCKS_DDL],
   ["work_item_edit_receipts", WORK_ITEM_EDIT_RECEIPTS_DDL],
   ["work_item_id_allocator", WORK_ITEM_ID_ALLOCATOR_TABLE_DDL],
   ["work_item_id_burns", WORK_ITEM_ID_BURNS_TABLE_DDL],
@@ -607,13 +609,10 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["departments", DEPARTMENTS_TABLE_DDL],
 ]);
 
-/** Tables added additively AFTER the v2 rebuild first shipped, in ship order
- *  (comments = slice 2; relations/labels = slice 3; approvals = slice 4;
- *  attachments = slice 5). A v2
- *  database whose only defect is that some of these are absent is "current":
- *  `migrateWorkItemsSchema` creates whatever is missing under the write lock and
- *  the FULL exact-shape verify still gates the boot. A present-but-wrong-shape
- *  additive table is NOT recognized and refuses at preflight. */
+/** Tables added additively AFTER the v2 rebuild first shipped, in ship order. A v2 database whose
+ *  only defect is that some of these are absent is "current": `migrateWorkItemsSchema` creates
+ *  whatever is missing under the write lock and the FULL exact-shape verify still gates the boot.
+ *  A present-but-wrong-shape additive table is NOT recognized and refuses at preflight. */
 const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_comments", ddl: WORK_ITEM_COMMENTS_DDL },
   { name: "work_item_relations", ddl: WORK_ITEM_RELATIONS_DDL },
@@ -624,6 +623,7 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_approval_operator_only", ddl: WORK_ITEM_APPROVAL_OPERATOR_ONLY_DDL },
   { name: "work_item_attachments", ddl: WORK_ITEM_ATTACHMENTS_DDL },
   { name: "work_item_runs", ddl: WORK_ITEM_RUNS_DDL },
+  { name: "work_item_blocks", ddl: WORK_ITEM_BLOCKS_DDL },
 ];
 
 /**

@@ -11,6 +11,7 @@ import { stripMarkdown } from "@/lib/strip-markdown"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { StateCircle } from "../state-glyph"
 import { stateKeyOf } from "@/lib/todos"
+import { escalationReasonLabel } from "../util"
 import { CardTree } from "./card-tree"
 
 /* Todos v2 slice 6 — the board card (design-doc §3, states mock specimen 3).
@@ -48,9 +49,7 @@ export function reasonOf(item: WorkItemCompactWire, detail: WorkItemOpenDetailWi
     if (e.toStatus === item.status) {
       const note = typeof e.detail?.note === "string" ? e.detail.note.trim() : ""
       if (note) return note
-      if (e.kind === "escalated" && typeof e.detail?.reason === "string") {
-        return e.detail.reason === "max-rounds-exhausted" ? "Review rounds exhausted" : e.detail.reason
-      }
+      if (e.kind === "escalated") return escalationReasonLabel(e.detail?.reason)
       return null
     }
   }

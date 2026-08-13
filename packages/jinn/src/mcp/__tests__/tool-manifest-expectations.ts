@@ -175,5 +175,8 @@ export const EXPECTED_ENUMS = {
     ["properties.source", ["human", "delegation", "cron", "workflow", "session", "connector", "goal"]],
   ],
   unlink_work_items: [["properties.kind", ["blocks", "relates", "duplicates"]]],
-  update_work_item: [["properties.status", ["backlog", "assigned", "executing", "in_review", "blocked", "escalated", "done"]]],
+  update_work_item: [
+    ["properties.status", ["backlog", "assigned", "executing", "in_review", "blocked", "escalated", "done"]],
+    ["properties.blockKind", ["dependency", "needs_input", "capability", "transient"]],
+  ],
 } as const;

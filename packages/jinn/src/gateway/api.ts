@@ -221,6 +221,7 @@ import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
 import { compactWorkItem, fullWorkItemPayload, openWorkItemPayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
+import { BLOCK_KIND_ERROR, parseBlockKind } from "../work-items/blocks.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
 import { openWorkItemRun } from "../work-items/runs.js";
@@ -3464,9 +3465,7 @@ export async function handleApiRequest(
       if (!requireTodoRouteId(res, params.id)) return;
       const parsed = await readJsonBody(req, res);
       if (!parsed.ok) return;
-      if (!parsed.body || typeof parsed.body !== "object" || Array.isArray(parsed.body)) {
-        return badRequest(res, "request body must be a JSON object");
-      }
+      if (!parsed.body || typeof parsed.body !== "object" || Array.isArray(parsed.body)) return badRequest(res, "request body must be a JSON object");
       const body = parsed.body as Record<string, unknown>;
       const approvalKeys = findApprovalKeysDeep(body);
       if (approvalKeys.length > 0) {
@@ -3492,9 +3491,10 @@ export async function handleApiRequest(
       const note = typeof body.note === "string" ? body.note.trim() : "";
       // Agents must say WHY up front; the operator surface asks for the reason
       // in the opened item's banner instead (design-doc §5) — never a modal.
-      if ((target === "blocked" || target === "escalated") && !note && !isOperatorPut) {
-        return badRequest(res, `note is required when moving a Todo to ${target}`);
-      }
+      if ((target === "blocked" || target === "escalated") && !note && !isOperatorPut) return badRequest(res, `note is required when moving a Todo to ${target}`);
+      // The kind decides where a block lands, so an unknown one refuses rather than falling back to a default nobody meant.
+      const blockKind = parseBlockKind(body.blockKind);
+      if (blockKind === null) return badRequest(res, BLOCK_KIND_ERROR);
       if (body.asOperator !== undefined && typeof body.asOperator !== "boolean") {
         return badRequest(res, "asOperator must be a boolean");
       }
@@ -3549,7 +3549,7 @@ export async function handleApiRequest(
               // Agent lane: the target allowlist above is what bounds this
               // caller, so the edge map does not also govern it.
               agent: !isOperatorPut || undefined,
-              callerSessionId: caller.kind === "session" ? caller.callerId : undefined,
+              callerSessionId: caller.kind === "session" ? caller.callerId : undefined, ...(blockKind ? { blockKind } : {}),
               detail,
             });
         const activityReceiptId = persistTodoMutationActivity(
