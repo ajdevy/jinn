@@ -246,6 +246,25 @@ test("private terms load from outside the repository, never from inside it", () 
   assert.equal(violationsOf(check(root, "--all").stdout, "privacy-leak"), 0, "structural-only without the terms file")
 })
 
+test("a lockfile's addresses come from the registry, though a private term in one is still ours", () => {
+  const root = repoWith({
+    "pnpm-lock.yaml":
+      "  glob@11.1.0:\n" +
+      "    deprecated: Support may be purchased by contacting maintainer@acme-widgets.io\n" +
+      "  '@private-org/toolkit@1.0.0':\n",
+  })
+  assert.equal(violationsOf(check(root, "--all").stdout, "privacy-leak"), 0, "npm wrote that address, not us")
+
+  const termsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "footgun-terms-")), "terms")
+  fs.writeFileSync(termsFile, "private-org\n")
+  const withTerms = spawnSync(process.execPath, [CHECKER, "--all"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...HERMETIC, FOOTGUN_TERMS_FILE: termsFile },
+  })
+  assert.equal(violationsOf(withTerms.stdout, "privacy-leak"), 1, withTerms.stdout)
+})
+
 test("pnpm footguns runs the checker", () => {
   const pkg = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"))
   assert.match(pkg.scripts.footguns, /scripts\/check-footguns\.mjs/)

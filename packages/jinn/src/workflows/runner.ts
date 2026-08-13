@@ -4,7 +4,8 @@ import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shar
 import { TODO_ID_PATTERN } from "../work-items/id.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
-import { continuationPrompt, resolveEmployeeContinuation } from "./employee-continuation.js";
+import { continuationPrompt } from "./employee-continuation.js";
+import { bindingContext, resolveDispatch, resolveString } from "./node-dispatch.js";
 import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
 import type {
   ConditionNode,
@@ -35,8 +36,8 @@ import type {
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { todoApprovalRef } from "./todo-approval-ref.js";
 import { openTodoRun, settleTodoRun } from "./todo-run-ledger.js";
-import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMirror, WorkflowTodoLifecycle,
-  WorkflowTodoSessionLink } from "./todo-ports.js";
+import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMirror, WorkflowTodoDispatchOverride,
+  WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
 import { topologicalOrder, validateExecutableWorkflow } from "./validation.js";
 
 export interface WorkflowRunnerOptions {
@@ -65,6 +66,9 @@ export interface WorkflowRunnerOptions {
    *  has to write `update_work_item` into a phase prompt for the board to be
    *  honest. Absent = no reflection (the run still executes). */
   todoLifecycle?: WorkflowTodoLifecycle;
+  /** Lets the run's bound Todo redirect the next attempt to another engine or
+   *  model. Absent = the node's own configuration decides. */
+  todoDispatch?: WorkflowTodoDispatchOverride;
   /** Engine sessions across the whole gateway that already hold the machine,
    *  read fresh whenever a fan-out asks for room. Absent = no system ceiling:
    *  the authored concurrency stands, bounded only by its schema maximum. */
@@ -74,28 +78,12 @@ export interface WorkflowRunnerOptions {
 /** The Todo-facing ports live in todo-ports.ts; re-exported so the runner stays
  *  the one import every implementer and caller already had. */
 export type { WorkflowRearmTarget, WorkflowRevisionRequest, WorkflowRunReflection, WorkflowTodoApprovalMirror,
-  WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
+  WorkflowTodoDispatchOverride, WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
 
 type NodeAction =
   | { kind: "activate" | "skip" | "condition" | "merge" | "approval" | "wait" | "end"; node: WorkflowNode }
   | { kind: "fanout"; node: WorkflowCallNode }
   | { kind: "dispatch"; node: EmployeeNode; config: ResolvedEmployeeConfig };
-const DEFAULT_ATTEMPT_TIMEOUT_MINUTES = 180;
-function bindingContext(run: WorkflowRunDetail): WorkflowBindingContext {
-  const itemIndex = run.trigger.payload.itemIndex;
-  return {
-    input: run.input,
-    trigger: {
-      kind: run.trigger.kind,
-      payload: run.trigger.payload,
-      ...(Number.isInteger(itemIndex) ? { itemIndex: itemIndex as number } : {}),
-    },
-    run: { id: run.id, startedAt: run.startedAt, ...(run.trigger.todoId ? { todoId: run.trigger.todoId } : {}) },
-    nodes: Object.fromEntries(run.nodeRuns.map((node) => [node.nodeId, {
-      status: node.status, output: node.output ?? null, error: node.error ?? null,
-    }])),
-  };
-}
 
 interface FanoutPlan {
   workflowId: string;
@@ -146,40 +134,6 @@ function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, childr
 function composeEmployeePrompt(run: WorkflowRunDetail, node: EmployeeNode, continued: boolean): string {
   const prompt = interpolateWorkflowPrompt(continuationPrompt(node, continued), bindingContext(run));
   return `${prompt}\n\n---\n${buildNodeContract(node, upstreamSessions(run, node.id))}`;
-}
-function resolveString(binding: Parameters<typeof resolveBinding<string>>[0], context: WorkflowBindingContext, label: string): string {
-  const value = resolveBinding(binding, context);
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must resolve to a nonempty string.`);
-  return value;
-}
-function resolveDispatch(run: WorkflowRunDetail, node: EmployeeNode, options: WorkflowRunnerOptions): ResolvedEmployeeConfig {
-  const context = bindingContext(run);
-  const employeeId = resolveString(node.config.employee, context, "Employee");
-  const employee = options.employees().get(employeeId);
-  if (!employee) throw new Error(`Workflow employee "${employeeId}" is not available.`);
-  const engine = node.config.engine ? resolveString(node.config.engine, context, "Engine") : employee.engine;
-  const registry = options.models()[engine];
-  if (!registry?.available) throw new Error(`Workflow engine "${engine}" is not available.`);
-  const model = node.config.model ? resolveString(node.config.model, context, "Model") : node.config.engine ? registry.defaultModel : employee.model || registry.defaultModel;
-  const modelInfo = registry.models.find((candidate) => candidate.id === model);
-  if (!modelInfo) throw new Error(`Workflow model "${model}" is not available for engine "${engine}".`);
-  const rawEffort = node.config.effort ? resolveString(node.config.effort, context, "Effort") : (node.config.engine || node.config.model) ? undefined : employee.effortLevel;
-  const effort = rawEffort as ResolvedEmployeeConfig["effort"];
-  if (effort && (!modelInfo.supportsEffort || !modelInfo.effortLevels.includes(effort))) {
-    throw new Error(`Workflow effort "${effort}" is not available for model "${model}".`);
-  }
-  const continuedFrom = resolveEmployeeContinuation(run, node, engine, {
-    repository: options.repository,
-    resumableEngineSession: (id, target) => options.executor.resumableEngineSession(id, target),
-  });
-  // Only the prompt going out: an unused delta must not fail a cold round over a binding it never reads.
-  interpolateWorkflowPrompt(continuationPrompt(node, Boolean(continuedFrom)), context);
-  const config: ResolvedEmployeeConfig = {
-    employeeId, engine, model, ...(effort ? { effort } : {}), ...(continuedFrom ? { continuedFrom } : {}),
-    retry: node.config.retry ?? { attempts: 1, delaySeconds: 0, backoff: "fixed" },
-    timeoutMinutes: node.config.timeoutMinutes ?? DEFAULT_ATTEMPT_TIMEOUT_MINUTES,
-  };
-  return config;
 }
 function terminalNode(node: WorkflowNodeRunRecord): boolean {
   return ["completed", "failed", "skipped", "cancelled"].includes(node.status);
@@ -782,15 +736,15 @@ export class WorkflowRunner {
     const replay = this.options.repository.findAttemptByRetryKey(run.id, idempotencyKey);
     if (replay) return this.detail(workflowId, runId);
     const latest = run.attempts.filter((attempt) => attempt.nodeId === nodeId).at(-1);
-    if (!latest) throw new Error(`Workflow Employee ${nodeId} has no retryable attempt.`);
     const authored = run.definition.nodes.find((item): item is EmployeeNode => item.id === nodeId && item.type === "employee");
-    const promptText = authored ? composeEmployeePrompt(run, authored, Boolean(latest.resolvedConfig.continuedFrom)) : undefined;
+    if (!latest || !authored) throw new Error(`Workflow Employee ${nodeId} has no retryable attempt.`);
+    const resolvedConfig = resolveDispatch(run, authored, this.options); // ICI-733: resolved fresh, never copied off the attempt that just failed.
+    const promptText = composeEmployeePrompt(run, authored, Boolean(resolvedConfig.continuedFrom));
     try {
       this.options.repository.mutateRun(run.id, run.revision, (tx) => {
         tx.setNodeStatus(nodeId, "dispatching", { activated: true });
         tx.setRunStatus("running");
-        tx.createAttempt({ nodeId, resolvedConfig: latest.resolvedConfig,
-          input: latest.input, ...(promptText === undefined ? {} : { promptText }), retryIdempotencyKey: idempotencyKey });
+        tx.createAttempt({ nodeId, resolvedConfig, input: latest.input, promptText, retryIdempotencyKey: idempotencyKey });
       });
     } catch (error) {
       const claimed = this.options.repository.findAttemptByRetryKey(run.id, idempotencyKey);

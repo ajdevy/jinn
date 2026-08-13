@@ -108,10 +108,12 @@ interface FoldRegionProps {
    *  instant, and two concurrent anchor loops would double-compensate the
    *  shared scroller — so siblings fold with the instant path. */
   animated?: boolean
+  /** Windowed transcript: a folded region drops its evidence instead of mounting it — folded it is inert, aria-hidden and zero-height, so nothing can read it. */
+  windowed?: boolean
   children: ReactNode
 }
 
-export function FoldRegion({ answered, liveCompletion = false, collapseRequested = false, summary, animated = true, children }: FoldRegionProps) {
+export function FoldRegion({ answered, liveCompletion = false, collapseRequested = false, summary, animated = true, windowed = false, children }: FoldRegionProps) {
   // Historical turns rest folded; a live completion stays open until its next
   // user message. `liveCompletion` distinguishes those cases on first mount.
   const startsAnswered = answered && !liveCompletion
@@ -286,9 +288,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
 
   return (
     <div ref={wrapRef} data-fold data-folded={folded || undefined}>
-      <div ref={regionRef} data-fold-region inert={folded || undefined} aria-hidden={folded || undefined}>
-        {children}
-      </div>
+      <div ref={regionRef} data-fold-region inert={folded || undefined} aria-hidden={folded || undefined}>{folded && windowed ? null : children}</div>
       {/* The summary carries its OWN after-user inset: an answered region
           rests directly under the user bubble (everything between the ask and
           the answer is inside it), and the items' role-switch spacers fold

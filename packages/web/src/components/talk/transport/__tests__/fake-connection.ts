@@ -15,7 +15,7 @@ export class FakeConnection {
   readonly token: string
   closes = 0
   private readonly onOpen: () => void
-  readonly onFrame: (data: string) => void
+  private readonly onFrame: (data: string) => void
 
   constructor(options: { token: string; onOpen: () => void; onFrame: (data: string) => void }) {
     this.token = options.token
@@ -24,7 +24,10 @@ export class FakeConnection {
     FakeConnection.opened.push(this)
   }
 
+  /** Dropped once closed, as the real one is: it sends only while the channel's
+   *  `readyState` is open (webrtc-connection.ts). */
   send(event: Record<string, unknown>) {
+    if (this.closes > 0) return
     this.sent.push(event)
   }
 
@@ -35,6 +38,14 @@ export class FakeConnection {
   /** The data channel reaching `open`, which is what starts the conversation. */
   openChannel() {
     this.onOpen()
+  }
+
+  /** One frame down the channel. A closed peer has no channel left to carry
+   *  one, so a delivery after teardown reaches nothing — which is the point of
+   *  delivering one. */
+  deliver(data: string) {
+    if (this.closes > 0) return
+    this.onFrame(data)
   }
 }
 

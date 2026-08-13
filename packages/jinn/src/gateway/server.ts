@@ -45,7 +45,7 @@ import { setTodoStatusChangeListener } from "../work-items/transitions.js";
 import { firstOperatorCommentAfter, setTodoCommentListener } from "../work-items/comments.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
-import { workflowTodoSessions } from "./workflow-todo-runs.js";
+import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
 import { claudeJsonPath } from "../shared/home.js";
@@ -61,6 +61,7 @@ import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
 import { pickEncoding, isCompressibleExt, compressBuffer, compressStream, type Encoding } from "./compress.js";
+import { MIME_TYPES } from "./static-mime.js";
 import { attachPtyWebSocket } from "./pty-ws.js";
 import { openWorkflowDatabase } from "../workflows/repository-migrations.js";
 import { importLegacyWorkflowDefinitions } from "../workflows/import-v1.js";
@@ -161,18 +162,6 @@ export function isAllowedCorsOrigin(origin: string | undefined, requestHost?: st
  * short-lived CLI spawns plus one Anthropic catalog GET) and bounds that staleness.
  */
 export const MODEL_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
 
 type RuntimeActivityInfo = {
   activeStreams: number;
@@ -804,7 +793,7 @@ export async function startGateway(
     todoApprovals: workflowTodoApprovals(({ todoId, request, ref, options, approver }) => {
       requestApproval(todoId, { request, ref, ...(options ? { options } : {}), ...(approver ? { target: approver } : {}), actor: "workflow" });
     }),
-    todoSessions: workflowTodoSessions(),
+    todoSessions: workflowTodoSessions(), todoDispatch: workflowTodoDispatch(),
     // A parked Wait node listens for the operator's reply on the bound Todo.
     todoComments: { firstOperatorCommentAfter },
     sessionSpend: getSessionSpend, activeEngineSessions: () => sessionsHoldingEngineCapacity(listSessions(), apiContext).length,

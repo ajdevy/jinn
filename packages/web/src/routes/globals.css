@@ -1,5 +1,86 @@
 @import "tailwindcss";
 
+/* Self-hosted so the shell has no third-party dependency and paints its own
+   type offline. Vite hashes these into /assets/, which the gateway serves
+   immutable — a public/ font would revalidate on every load instead. */
+/* Hanken Grotesk — variable wght 400..600, normal — SIL OFL 1.1 (see src/fonts/OFL-hanken-grotesk.txt) */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../fonts/hanken-grotesk-latin-ext-var.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../fonts/hanken-grotesk-latin-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* IBM Plex Mono — 400 / 500 / 600, normal — SIL OFL 1.1 (see src/fonts/OFL-ibm-plex-mono.txt) */
+
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-ext-500.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-500.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-ext-600.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* :where() has zero specificity so shadcn's dark: utilities remain overridable.
    data-theme is never "system" after JS hydration — ThemeProvider resolves it to dark/light. */
 @custom-variant dark (:where([data-theme="dark"]) &);
@@ -230,6 +311,9 @@
   --bg-tertiary: #2A2720;
   --material-regular: rgba(30,28,22,0.92);
   --material-thick: rgba(20,18,15,0.96);
+  /* --material-thick composited over --bg at alpha 1, for the coarse-pointer
+     bars that drop the backdrop filter (see --pill-bg-opaque). */
+  --material-thick-opaque: #14120F;
   --material-thin: rgba(255,255,255,0.05);
   --material-ultra-thin: rgba(255,255,255,0.03);
   --fill-primary: rgba(255,255,255,0.10);
@@ -263,6 +347,10 @@
   /* Frosted header-pill material (theme-aware). Dark bumped for legibility — the
      0.55/0.10 pill nearly vanished on the near-black bg. */
   --pill-bg: rgba(34,31,24,0.64);
+  /* Same material with the blur baked out: --pill-bg composited over --bg at
+     alpha 1. Coarse pointers get this instead of the backdrop filter, so the
+     pill reads as the colour it already reads as over a plain page. */
+  --pill-bg-opaque: #1D1B15;
   --pill-border: rgba(255,255,255,0.14);
   --code-bg: rgba(255,255,255,0.05);
   --code-border: rgba(255,255,255,0.09);
@@ -301,6 +389,7 @@
   --bg-tertiary: #ECE8DC;
   --material-regular: rgba(251,249,242,0.94);
   --material-thick: rgba(244,241,232,0.97);
+  --material-thick-opaque: #F4F1E8;
   --material-thin: rgba(33,30,22,0.04);
   --material-ultra-thin: rgba(33,30,22,0.02);
   --fill-primary: rgba(33,30,22,0.08);
@@ -333,6 +422,7 @@
   --shadow-overlay: 0 0 0 0.5px rgba(40,34,20,0.10), 0 4px 16px rgba(40,34,20,0.10), 0 16px 48px rgba(40,34,20,0.14), inset 0 1px 0 rgba(255,255,255,0.80);
   /* Frosted header-pill material (theme-aware) */
   --pill-bg: rgba(251,249,242,0.72);
+  --pill-bg-opaque: #F9F7EF;
   --pill-border: rgba(33,30,22,0.10);
   --code-bg: rgba(33,30,22,0.05);
   --code-border: rgba(33,30,22,0.10);
@@ -372,6 +462,7 @@
     --bg-tertiary: #ECE8DC;
     --material-regular: rgba(251,249,242,0.94);
     --material-thick: rgba(244,241,232,0.97);
+    --material-thick-opaque: #F4F1E8;
     --material-thin: rgba(33,30,22,0.04);
     --material-ultra-thin: rgba(33,30,22,0.02);
     --fill-primary: rgba(33,30,22,0.08);
@@ -404,6 +495,7 @@
     --shadow-overlay: 0 0 0 0.5px rgba(40,34,20,0.10), 0 4px 16px rgba(40,34,20,0.10), 0 16px 48px rgba(40,34,20,0.14), inset 0 1px 0 rgba(255,255,255,0.80);
     /* Frosted header-pill material (theme-aware) */
     --pill-bg: rgba(251,249,242,0.72);
+    --pill-bg-opaque: #F9F7EF;
     --pill-border: rgba(33,30,22,0.10);
     --code-bg: rgba(33,30,22,0.05);
     --code-border: rgba(33,30,22,0.10);
@@ -432,6 +524,7 @@
     --bg-tertiary: #2A2720;
     --material-regular: rgba(30,28,22,0.92);
     --material-thick: rgba(20,18,15,0.96);
+    --material-thick-opaque: #14120F;
     --material-thin: rgba(255,255,255,0.05);
     --material-ultra-thin: rgba(255,255,255,0.03);
     --fill-primary: rgba(255,255,255,0.10);
@@ -464,6 +557,7 @@
     --shadow-overlay: 0 0 0 0.5px rgba(0,0,0,0.40), 0 16px 48px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05);
     /* Frosted header-pill material (theme-aware). Dark bumped (see :root dark block). */
     --pill-bg: rgba(34,31,24,0.64);
+    --pill-bg-opaque: #1D1B15;
     --pill-border: rgba(255,255,255,0.14);
     --code-bg: rgba(255,255,255,0.05);
     --code-border: rgba(255,255,255,0.09);
@@ -497,7 +591,6 @@ html, body {
 }
 
 html {
-  scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }

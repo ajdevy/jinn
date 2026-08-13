@@ -13,24 +13,42 @@
  */
 import * as React from 'react'
 import * as jsxRuntime from 'react/jsx-runtime'
-import * as sdk from './index'
 
 /** The three specifiers a plugin may import, each with the global its shim
  *  reads. Membership is the allowlist the loader rejects against. */
 const SDK_GLOBALS = {
-  '@jinn/plugin-sdk': { key: '__JINN_PLUGIN_SDK__', namespace: sdk },
-  react: { key: '__JINN_REACT__', namespace: React },
-  'react/jsx-runtime': { key: '__JINN_REACT_JSX__', namespace: jsxRuntime },
+  '@jinn/plugin-sdk': '__JINN_PLUGIN_SDK__',
+  react: '__JINN_REACT__',
+  'react/jsx-runtime': '__JINN_REACT_JSX__',
 } as const
+
+type SdkSpecifier = keyof typeof SDK_GLOBALS
+
+/**
+ * The namespaces behind those specifiers, resolved by the first install.
+ *
+ * The barrel is imported on demand rather than bound statically because it
+ * re-exports every shared UI primitive — Select and Menu alone carry the whole
+ * floating layer — and that put ~9 KB gzip of it on the first paint of a
+ * dashboard whose plugins directory is usually empty. Nothing reads these
+ * globals until a plugin is actually being loaded.
+ */
+let namespaces: Record<SdkSpecifier, object> | null = null
 
 /** A name a shim can destructure. Anything else would be a syntax error in the
  *  generated module, and no import could have named it anyway. */
 const BINDING_NAME = /^[A-Za-z_$][\w$]*$/
 
 /** Install the app's own instances where the shims read them. Idempotent. */
-export function installPluginSdk(): void {
-  for (const { key, namespace } of Object.values(SDK_GLOBALS)) {
-    Object.assign(globalThis, { [key]: namespace })
+export async function installPluginSdk(): Promise<void> {
+  namespaces ??= {
+    '@jinn/plugin-sdk': await import('./index'),
+    react: React,
+    'react/jsx-runtime': jsxRuntime,
+  }
+
+  for (const [specifier, key] of Object.entries(SDK_GLOBALS)) {
+    Object.assign(globalThis, { [key]: namespaces[specifier as SdkSpecifier] })
   }
 }
 
@@ -61,10 +79,22 @@ let cached: Record<string, string> | null = null
  * loaded, so a second set would strand the first plugin's imports.
  */
 export function sdkImportMap(): Record<string, string> {
+  const resolved = namespaces
+  if (!resolved) {
+    throw new Error(
+      'sdkImportMap: the SDK namespaces are not installed. Await installPluginSdk() first — ' +
+        'the shims are generated from the namespaces it resolves.',
+    )
+  }
+
   cached ??= Object.fromEntries(
-    Object.entries(SDK_GLOBALS).map(([specifier, { key, namespace }]) => [
+    Object.entries(SDK_GLOBALS).map(([specifier, key]) => [
       specifier,
-      URL.createObjectURL(new Blob([shimSource(key, namespace)], { type: 'text/javascript' })),
+      URL.createObjectURL(
+        new Blob([shimSource(key, resolved[specifier as SdkSpecifier])], {
+          type: 'text/javascript',
+        }),
+      ),
     ]),
   )
 

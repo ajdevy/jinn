@@ -15,18 +15,29 @@ import { FoldRegion, type FoldSummaryData } from './fold-region'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
+import { CollapsibleUserText } from './collapsible-user-text'
+import { JumpToLatestButton } from './jump-to-latest'
 import {
-  captureVisibleAnchor,
-  OLDER_LOAD_THRESHOLD_PX,
-  restoreVisibleAnchor,
-  type ScrollAnchor,
-} from '@/lib/scroll-anchor'
+  TranscriptExpansionProvider,
+  usePersistentExpansion,
+  useTranscriptExpansionStore,
+} from './transcript-expansion'
+import {
+  applyTranscriptAnchor,
+  captureVirtualAnchor,
+  groupKey,
+  useTranscriptVirtualizer,
+  VIRTUALIZE_THRESHOLD,
+  type VirtualAnchor,
+} from './transcript-virtualizer'
+import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
+export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 
 /* ── Tool grouping ──────────────────────────────────────── */
 
-type MessageItem =
+export type MessageItem =
   | { kind: 'message'; msg: Message; index: number }
   | { kind: 'tool-group'; msgs: Message[]; startIndex: number }
   | { kind: 'dispatch-call'; msg: Message; index: number }
@@ -486,7 +497,7 @@ export function buildFoldSummary(run: MessageItem[], messages: Message[], answer
   return { durationMs: settledDurationMs(messages, answerIndex), tools, teammates: teammates.size, updates }
 }
 
-type RenderGroup =
+export type RenderGroup =
   | { kind: 'plain'; item: MessageItem }
   | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number; animated: boolean }
 
@@ -606,12 +617,15 @@ export function partitionForFold(
 function ToolGroup({
   msgs,
   isActive,
+  groupId,
 }: {
   msgs: Message[]
   isActive: boolean
+  /** Identity the expansion outlives the row by, once virtualised. */
+  groupId: string
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [showAllTools, setShowAllTools] = useState(false)
+  const [expanded, setExpanded] = usePersistentExpansion(`tools:${groupId}`, false)
+  const [showAllTools, setShowAllTools] = usePersistentExpansion(`tools-all:${groupId}`, false)
   const allDone = msgs.every(isToolDone)
   const activeIndex = isActive ? findActiveToolIndex(msgs) : -1
   const label = isActive && !allDone
@@ -632,7 +646,7 @@ function ToolGroup({
     <div className="assistant-msg-row mb-[var(--space-1)]">
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
         className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border-none bg-[var(--fill-quaternary)] py-1 pl-3 pr-2.5 text-[length:var(--text-caption1)] text-[var(--text-secondary)] shadow-none transition-[background-color,scale] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] active:scale-[0.97]"
       >
@@ -856,143 +870,56 @@ function MessageActions({ id, text, onRetry, retryDisabled }: { id: string; text
   )
 }
 
-/* ── CollapsibleUserText — auto-collapse long user pastes ── */
-
-// Collapsed bubbles clamp to this rendered height. ~240px ≈ 9–10 lines of the
-// user bubble's subheadline/relaxed type — long enough that short prompts and
-// normal multi-line questions stay fully visible, short enough that a wall of
-// pasted text earns a "Show more". SLACK ensures we only collapse when there's
-// something worth revealing (≥ ~2 hidden lines), so the control never appears to
-// hide a single clipped word.
-export const USER_COLLAPSE_PX = 240
-export const USER_COLLAPSE_SLACK = 40
-
-/** Pure: should a user bubble of this full rendered height auto-collapse? */
-export function shouldCollapse(
-  fullHeight: number,
-  threshold = USER_COLLAPSE_PX,
-  slack = USER_COLLAPSE_SLACK,
-): boolean {
-  return fullHeight > threshold + slack
-}
-
-// Bottom-edge fade for the collapsed state. A mask (alpha, not color) fades the
-// text into the bubble's own --accent-fill background, so it is theme-aware for
-// free — no hardcoded rgba, works identically in dark and light.
-const COLLAPSE_FADE_MASK =
-  `linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%)`
-
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!mq) return
-    setReduced(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
-  return reduced
-}
-
-// Wraps the user bubble's formatted content. Measures the rendered height; when
-// it exceeds the threshold it clamps + fades the bottom edge and reveals a quiet
-// "Show more / Show less" text control. Height animates via max-height + the
-// smooth easing token; reduced-motion snaps with no animation.
-function CollapsibleUserText({ children }: { children: React.ReactNode }) {
-  const contentRef = useRef<HTMLDivElement>(null)
-  const [needsCollapse, setNeedsCollapse] = useState(false)
-  const [collapsed, setCollapsed] = useState(true)
-  const [fullHeight, setFullHeight] = useState(0)
-  const reducedMotion = usePrefersReducedMotion()
-
-  // scrollHeight reports the full content height regardless of the max-height
-  // clamp, so measuring stays stable across collapse/expand (no feedback loop).
-  useLayoutEffect(() => {
-    const el = contentRef.current
-    if (!el) return
-    const measure = () => {
-      const h = el.scrollHeight
-      setFullHeight(h)
-      setNeedsCollapse(shouldCollapse(h))
-    }
-    measure()
-    let ro: ResizeObserver | undefined
-    if (typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(measure)
-      ro.observe(el)
-    }
-    return () => ro?.disconnect()
-  }, [children])
-
-  const clamped = needsCollapse && collapsed
-  // +8px buffer absorbs sub-pixel/last-line rounding so expanded never clips.
-  const maxHeight = !needsCollapse
-    ? undefined
-    : collapsed
-      ? `${USER_COLLAPSE_PX}px`
-      : `${fullHeight + 8}px`
-
-  return (
-    <>
-      <div
-        ref={contentRef}
-        style={{
-          maxHeight,
-          overflow: needsCollapse ? 'hidden' : undefined,
-          transition:
-            needsCollapse && !reducedMotion ? 'max-height 320ms var(--ease-smooth)' : undefined,
-          maskImage: clamped ? COLLAPSE_FADE_MASK : undefined,
-          WebkitMaskImage: clamped ? COLLAPSE_FADE_MASK : undefined,
-        }}
-      >
-        {children}
-      </div>
-      {needsCollapse && (
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-expanded={!collapsed}
-          className="mt-[var(--space-1)] -ml-1.5 inline-flex items-center gap-1 rounded-[var(--radius-sm)] border-none bg-transparent py-0.5 px-1.5 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)] cursor-pointer transition-colors duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
-        >
-          {collapsed ? 'Show more' : 'Show less'}
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`transition-transform duration-200 ease-[var(--ease-smooth)] opacity-70 ${collapsed ? 'rotate-0' : 'rotate-180'}`}
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
-      )}
-    </>
-  )
-}
-
 /* ── MessageRow — memoized per-message renderer ─────────── */
+
+// Offscreen rows skip layout and paint on the plain path. It is deliberately
+// absent once virtualised: a skipped element reports its containIntrinsicSize to
+// the ResizeObserver, so the virtualizer would cache the placeholder height
+// instead of the row's own and every offset below it would be wrong.
+const ROW_SKIP_STYLE: React.CSSProperties = { contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }
+
+/** Row-position facts for each message, resolved once per transcript commit. */
+export interface RowMeta {
+  showTimestamp: boolean
+  prevRole: Message['role'] | null
+  /** The user message a retry on this row would resend. */
+  prevUserText: string
+}
+
+export function buildRowMeta(messages: Message[]): RowMeta[] {
+  let lastUserText = ''
+  return messages.map((msg, i) => {
+    const meta: RowMeta = {
+      showTimestamp: shouldShowTimestamp(messages, i),
+      prevRole: i > 0 ? messages[i - 1].role : null,
+      prevUserText: lastUserText,
+    }
+    if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
+    return meta
+  })
+}
 
 interface MessageRowProps {
   msg: Message
   index: number
-  messages: Message[]
+  /** Row-position facts, resolved by the transcript. Passing the whole message
+   *  array instead would re-render every memoised row on every append. */
+  showTimestamp: boolean
+  prevRole: Message['role'] | null
+  prevUserText: string
   loading?: boolean
   onRetry?: (text: string) => void
   onPeek?: (peek: CommsPeekData) => void
   /** Live-arrival stagger index for comms rows (null = not arriving). */
   arrival?: number | null
   blockArrivals?: ReadonlyMap<string, LiveBlockArrival>
+  /** Windowed rows must not skip their own layout — see ROW_SKIP_STYLE. */
+  virtualized?: boolean
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loading, onRetry, onPeek, arrival, blockArrivals }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, loading, onRetry, onPeek, arrival, blockArrivals, virtualized }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
-  const showTimestamp = shouldShowTimestamp(messages, i)
   const media = messageMedia(msg)
   const blocks = msg.blocks || []
   const hasBlocks = blocks.length > 0
@@ -1030,29 +957,19 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loa
   // Memoize timestamp formatting — avoids Date allocations on every parent re-render
   const formattedTimestamp = useMemo(() => formatTimestamp(msg.timestamp), [msg.timestamp])
 
-  // Retry resends the user message that prompted this assistant reply (the gateway
-  // has no in-place regenerate, so re-sending the prior prompt is the honest action).
-  const prevUserText = useMemo(() => {
-    if (isUser || isNotification) return ''
-    for (let j = i - 1; j >= 0; j--) {
-      if (messages[j].role === 'user' && messages[j].content.trim()) return messages[j].content
-    }
-    return ''
-  }, [messages, i, isUser, isNotification])
-
   return (
     <div
       key={msg.id || i}
       data-message-id={msg.id || `idx-${i}`}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 120px" }}
+      style={virtualized ? undefined : ROW_SKIP_STYLE}
     >
       {/* Timestamp divider */}
       {showTimestamp && <TimestampDivider label={formattedTimestamp} />}
 
       {/* Spacing between role switches — shared with the streaming container
           (turnSpacerClass) so the stream→final swap cannot move the text. */}
-      {!showTimestamp && i > 0 && (
-        <div className={turnSpacerClass(messages[i - 1].role, msg.role)} />
+      {!showTimestamp && prevRole && (
+        <div className={turnSpacerClass(prevRole, msg.role)} />
       )}
 
       {/* Notification message — centered system-style banner */}
@@ -1099,7 +1016,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loa
         <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
           {textContent && (
             <div className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
-              <CollapsibleUserText>{formattedContent}</CollapsibleUserText>
+              <CollapsibleUserText messageId={msg.id || `idx-${i}`}>{formattedContent}</CollapsibleUserText>
             </div>
           )}
           {media.length > 0 && (
@@ -1211,71 +1128,6 @@ function latestTurnId(messages: Message[]): string | null {
   return null
 }
 
-const JUMP_EXIT_MS = 140
-
-function JumpToLatestButton({
-  show,
-  unreadCount,
-  onClick,
-}: {
-  show: boolean
-  unreadCount: number
-  onClick: () => void
-}) {
-  const [rendered, setRendered] = useState(show)
-  const [exiting, setExiting] = useState(false)
-  const reducedMotion = usePrefersReducedMotion()
-  const hasUnread = unreadCount > 0
-  const visibleUnread = unreadCount > 99 ? '99+' : String(unreadCount)
-  const label = hasUnread
-    ? `Jump to latest, ${unreadCount} new message${unreadCount === 1 ? '' : 's'}`
-    : 'Jump to latest'
-
-  useEffect(() => {
-    if (show) {
-      setRendered(true)
-      setExiting(false)
-      return
-    }
-    if (!rendered) return
-
-    setExiting(true)
-    const timer = window.setTimeout(() => {
-      setRendered(false)
-      setExiting(false)
-    }, reducedMotion ? 1 : JUMP_EXIT_MS)
-    return () => window.clearTimeout(timer)
-  }, [show, reducedMotion, rendered])
-
-  if (!rendered) return null
-
-  const motionClass = reducedMotion
-    ? 'data-[state=exiting]:opacity-0 data-[state=visible]:opacity-100'
-    : 'data-[state=exiting]:animate-[jinn-jump-out_140ms_var(--ease-snappy)_both] data-[state=visible]:animate-[jinn-jump-in_160ms_var(--ease-smooth)_both]'
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      aria-hidden={exiting ? true : undefined}
-      tabIndex={exiting ? -1 : undefined}
-      data-state={exiting ? 'exiting' : 'visible'}
-      className={`absolute bottom-4 left-1/2 z-10 inline-flex h-10 w-10 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full bg-[var(--material-thick)] px-0 text-[var(--text-secondary)] shadow-[var(--shadow-overlay)] backdrop-blur-md transition-[background-color,transform,opacity] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] active:scale-[0.96] data-[state=exiting]:pointer-events-none [@media(pointer:fine)]:h-9 [@media(pointer:fine)]:w-9 ${motionClass}`}
-    >
-      <ChevronDown size={18} strokeWidth={2.25} aria-hidden="true" className="-mb-px shrink-0" />
-      {hasUnread && (
-        <span
-          aria-hidden="true"
-          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-[var(--weight-semibold)] leading-none text-[var(--accent-contrast)] shadow-[var(--shadow-subtle)] tabular-nums"
-        >
-          {visibleUnread}
-        </span>
-      )}
-    </button>
-  )
-}
-
 export function ChatMessages({
   messages,
   loading,
@@ -1293,69 +1145,13 @@ export function ChatMessages({
   blockAnnouncement = '',
   footer,
 }: ChatMessagesProps) {
-  // Stick-to-bottom: one hook owns follow-intent, growth-follow, resize/keyboard,
-  // tab-return, mount-snap, and the jump affordance. See use-stick-to-bottom.ts.
-  const { containerRef, showJump, unreadCount, scrollToBottom } = useStickToBottom({
-    streamingText,
-    messageCount: messages.length,
-    latestMessageKey: messages.at(-1)?.id ?? null,
-  })
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const pendingAnchorRef = useRef<ScrollAnchor | null>(null)
+  const pendingVirtualAnchorRef = useRef<VirtualAnchor | null>(null)
   const firstMessageIdRef = useRef<string | null>(null)
   firstMessageIdRef.current = messages[0]?.id ?? null
   const olderRequestInFlightRef = useRef(false)
-  const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
-    scrollContainerRef.current = node
-    setScrollEl(node)
-    containerRef(node)
-  }, [containerRef])
-
-  useEffect(() => {
-    olderRequestInFlightRef.current = loadingOlderMessages
-  }, [loadingOlderMessages])
-
-  // `MessageRow` is memoised, so a caller that rebuilds `onRetry` on every render
-  // re-renders the entire transcript on every streaming token. Hand the rows one
-  // identity and read the live callback through a ref.
-  const onRetryRef = useRef(onRetry)
-  onRetryRef.current = onRetry
-  const stableRetry = useCallback((text: string) => onRetryRef.current?.(text), [])
-  const retry = onRetry ? stableRetry : undefined
-
-  const requestOlderMessages = useCallback(() => {
-    const node = scrollContainerRef.current
-    if (!node || !hasOlderMessages || !onLoadOlderMessages || olderRequestInFlightRef.current) return
-    pendingAnchorRef.current = captureVisibleAnchor(node, 'data-message-id', firstMessageIdRef.current)
-    olderRequestInFlightRef.current = true
-    // No restore here: the anchor is only correct once the prepended rows are in
-    // the DOM, and the layout effect below is the one place that is true.
-    Promise.resolve(onLoadOlderMessages())
-      .catch(() => { /* hook owns the visible error state */ })
-      .finally(() => { olderRequestInFlightRef.current = false })
-  }, [hasOlderMessages, onLoadOlderMessages])
-
-  useEffect(() => {
-    if (!scrollEl) return
-    const onScroll = () => {
-      if (scrollEl.scrollTop <= OLDER_LOAD_THRESHOLD_PX) requestOlderMessages()
-    }
-    scrollEl.addEventListener('scroll', onScroll, { passive: true })
-    return () => scrollEl.removeEventListener('scroll', onScroll)
-  }, [requestOlderMessages, scrollEl])
-
-  // Only the prepend the anchor was taken for may spend it. A reply arriving
-  // below while the page is still in flight also changes `messages`, and
-  // correcting for that commit — which moved nothing above the read position —
-  // used to consume the anchor and leave the real prepend uncorrected.
-  useLayoutEffect(() => {
-    const anchor = pendingAnchorRef.current
-    const node = scrollContainerRef.current
-    if (!anchor || !node || messages[0]?.id === anchor.firstId) return
-    restoreVisibleAnchor(node, anchor)
-    pendingAnchorRef.current = null
-  }, [messages])
 
   // The hook owns terminal-response lifecycle independently of `loading`, which
   // can clear for waiting/idle/stopped states. Until a real final response lands,
@@ -1387,6 +1183,104 @@ export function ChatMessages({
     effectiveLiveFinalResponseId,
     liveTerminalDelegationIds,
   )
+
+  // Windowing. The threshold counts ROWS, not groups: three groups can be 500
+  // rows. The footer branch stays plain — no room for a total-size spacer.
+  const groupKeys = useMemo(() => renderGroups.map(groupKey), [renderGroups])
+  const groupKeysRef = useRef(groupKeys)
+  groupKeysRef.current = groupKeys
+  const virtualized = !footer && groupedMessages.length >= VIRTUALIZE_THRESHOLD
+  const virtualizedRef = useRef(virtualized)
+  virtualizedRef.current = virtualized
+  const virtualizer = useTranscriptVirtualizer(
+    renderGroups,
+    groupKeys,
+    virtualized,
+    useCallback(() => scrollContainerRef.current, []),
+  )
+  const expansionStore = useTranscriptExpansionStore()
+
+  // The true bottom of a virtualised thread is only known once the last row has
+  // measured. `scrollToIndex` re-targets when that lands mid-flight; a smooth
+  // `scrollTo(scrollHeight)` animates toward the stale estimate and stops short.
+  const scrollToEnd = useCallback((behavior: ScrollBehavior) => {
+    const count = groupKeysRef.current.length
+    if (count > 0) virtualizer.scrollToIndex(count - 1, { align: 'end', behavior })
+  }, [virtualizer])
+
+  // Stick-to-bottom: one hook owns follow-intent, growth-follow, resize/keyboard,
+  // tab-return, mount-snap, and the jump affordance. See use-stick-to-bottom.ts.
+  const { containerRef, showJump, unreadCount, scrollToBottom } = useStickToBottom({
+    streamingText,
+    messageCount: messages.length,
+    latestMessageKey: messages.at(-1)?.id ?? null,
+    scrollToEnd: virtualized ? scrollToEnd : undefined,
+  })
+  const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
+    scrollContainerRef.current = node
+    setScrollEl(node)
+    containerRef(node)
+  }, [containerRef])
+
+  useEffect(() => {
+    olderRequestInFlightRef.current = loadingOlderMessages
+  }, [loadingOlderMessages])
+
+  // `MessageRow` is memoised, so a caller that rebuilds `onRetry` on every render
+  // re-renders the entire transcript on every streaming token. Hand the rows one
+  // identity and read the live callback through a ref.
+  const onRetryRef = useRef(onRetry)
+  onRetryRef.current = onRetry
+  const stableRetry = useCallback((text: string) => onRetryRef.current?.(text), [])
+  const retry = onRetry ? stableRetry : undefined
+
+  const requestOlderMessages = useCallback(() => {
+    const node = scrollContainerRef.current
+    if (!node || !hasOlderMessages || !onLoadOlderMessages || olderRequestInFlightRef.current) return
+    pendingAnchorRef.current = captureVisibleAnchor(node, 'data-message-id', firstMessageIdRef.current)
+    pendingVirtualAnchorRef.current = virtualizedRef.current
+      ? captureVirtualAnchor(node, virtualizer, groupKeysRef.current)
+      : null
+    olderRequestInFlightRef.current = true
+    // No restore here: the anchor is only correct once the prepended rows are in
+    // the DOM, and the layout effect below is the one place that is true.
+    Promise.resolve(onLoadOlderMessages())
+      .catch(() => { /* hook owns the visible error state */ })
+      .finally(() => { olderRequestInFlightRef.current = false })
+  }, [hasOlderMessages, onLoadOlderMessages, virtualizer])
+
+  useEffect(() => {
+    if (!scrollEl) return
+    const onScroll = () => {
+      if (scrollEl.scrollTop <= OLDER_LOAD_THRESHOLD_PX) requestOlderMessages()
+    }
+    scrollEl.addEventListener('scroll', onScroll, { passive: true })
+    return () => scrollEl.removeEventListener('scroll', onScroll)
+  }, [requestOlderMessages, scrollEl])
+
+  // Only the prepend the anchor was taken for may spend it. A reply arriving
+  // below while the page is still in flight also changes `messages`, and
+  // correcting for that commit — which moved nothing above the read position —
+  // used to consume the anchor and leave the real prepend uncorrected.
+  useLayoutEffect(() => {
+    const anchor = pendingAnchorRef.current
+    const node = scrollContainerRef.current
+    if (!anchor || !node || messages[0]?.id === anchor.firstId) return
+    // Once virtualised the anchored row is a hundred rows above the window by the
+    // time the page lands, so it is unmounted and has no rect to measure. That
+    // takes two commits, and this effect is deliberately unkeyed so the second
+    // one — the commit the coarse scroll causes — is a render this runs after.
+    const spent = applyTranscriptAnchor({
+      node,
+      virtualizer,
+      keys: groupKeysRef.current,
+      anchor,
+      virtual: pendingVirtualAnchorRef.current,
+    })
+    if (!spent) return
+    pendingAnchorRef.current = null
+    pendingVirtualAnchorRef.current = null
+  })
 
   // Live-arrival tracking for the comms choreography: ids present at mount
   // never animate; comms rows appended while mounted play the arrival once,
@@ -1431,7 +1325,94 @@ export function ChatMessages({
   }, [groupedMessages, loading])
 
   // Stop any in-progress read-aloud when the chat view unmounts (navigation away).
+  // A row scrolling out of the virtual window is not that: the read-aloud
+  // controller lives outside the tree, so playback and its controls both survive.
   useEffect(() => () => stopMessageTts(), [])
+
+  // Row-position facts, resolved once per commit instead of inside every row. A
+  // memoised row that reads the whole message array re-renders on every append,
+  // which on a long transcript is the whole transcript per message.
+  const rowMeta = useMemo(() => buildRowMeta(messages), [messages])
+
+  // ONE renderer, used by both paths, so the windowed and plain transcripts
+  // cannot drift apart.
+  const renderItem = (item: MessageItem) => {
+    if (item.kind === 'tool-group' || item.kind === 'dispatch-call' || item.kind === 'callback-burst' || item.kind === 'todo-burst') {
+      const firstMsg = itemFirstMsg(item)
+      const startIndex = item.kind === 'dispatch-call' ? item.index : item.startIndex
+      const showTimestamp = shouldShowTimestamp(messages, startIndex)
+      const prevMsg = startIndex > 0 ? messages[startIndex - 1] : null
+      const rowId = firstMsg.id || `tg-${startIndex}`
+      return (
+        <div key={`tg-${firstMsg.id || startIndex}`} data-message-id={rowId}>
+          {showTimestamp && <TimestampDivider label={formatTimestamp(firstMsg.timestamp)} />}
+          {!showTimestamp && prevMsg && (
+            <div className={turnSpacerClass(prevMsg.role, 'assistant')} />
+          )}
+          {item.kind === 'tool-group' && (
+            <ToolGroup msgs={item.msgs} isActive={item.startIndex === activeToolGroupStart} groupId={rowId} />
+          )}
+          {item.kind === 'dispatch-call' && (
+            <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
+              <DispatchRow />
+            </div>
+          )}
+          {item.kind === 'callback-burst' && (
+            <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
+              <CallbackBurst
+                entries={item.entries}
+                onPeek={onPeek}
+                arrivals={arrivalsRef.current}
+              />
+            </div>
+          )}
+          {item.kind === 'todo-burst' && (
+            <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
+              <TodoActivityBurst
+                blocks={item.msgs.flatMap((message) => message.blocks ?? [])}
+              />
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    const { msg, index: i } = item
+    const meta = rowMeta[i]
+    return (
+      <MessageRow
+        key={msg.id || i}
+        msg={msg}
+        index={i}
+        showTimestamp={meta.showTimestamp}
+        prevRole={meta.prevRole}
+        prevUserText={meta.prevUserText}
+        loading={loading}
+        onRetry={retry}
+        onPeek={onPeek}
+        arrival={arrivalFor(msg.id)}
+        blockArrivals={blockArrivals}
+        virtualized={virtualized}
+      />
+    )
+  }
+
+  const renderGroup = (group: RenderGroup) => {
+    if (group.kind === 'plain') return renderItem(group.item)
+    return (
+      <FoldRegion
+        key={`fold-${group.id}`}
+        answered={group.answered}
+        liveCompletion={group.liveCompletion}
+        collapseRequested={group.collapseRequested}
+        summary={group.summary}
+        animated={group.animated}
+        windowed={virtualized}
+      >
+        {group.items.map(renderItem)}
+      </FoldRegion>
+    )
+  }
 
   if (messages.length === 0 && !loading) {
     return (
@@ -1449,6 +1430,7 @@ export function ChatMessages({
   }
 
   return (
+    <TranscriptExpansionProvider value={expansionStore}>
     <div className="relative flex-1 min-h-0 bg-[var(--bg)]">
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {blockAnnouncement}
@@ -1465,77 +1447,22 @@ export function ChatMessages({
               Older messages could not load
             </div>
           )}
-          {renderGroups.map((group) => {
-            const renderItem = (item: MessageItem) => {
-              if (item.kind === 'tool-group' || item.kind === 'dispatch-call' || item.kind === 'callback-burst' || item.kind === 'todo-burst') {
-                const firstMsg = itemFirstMsg(item)
-                const startIndex = item.kind === 'dispatch-call' ? item.index : item.startIndex
-                const showTimestamp = shouldShowTimestamp(messages, startIndex)
-                const prevMsg = startIndex > 0 ? messages[startIndex - 1] : null
-                return (
-                  <div key={`tg-${firstMsg.id || startIndex}`} data-message-id={firstMsg.id || `tg-${startIndex}`}>
-                    {showTimestamp && <TimestampDivider label={formatTimestamp(firstMsg.timestamp)} />}
-                    {!showTimestamp && prevMsg && (
-                      <div className={turnSpacerClass(prevMsg.role, 'assistant')} />
-                    )}
-                    {item.kind === 'tool-group' && (
-                      <ToolGroup msgs={item.msgs} isActive={item.startIndex === activeToolGroupStart} />
-                    )}
-                    {item.kind === 'dispatch-call' && (
-                      <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
-                        <DispatchRow />
-                      </div>
-                    )}
-                    {item.kind === 'callback-burst' && (
-                      <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
-                        <CallbackBurst
-                          entries={item.entries}
-                          onPeek={onPeek}
-                          arrivals={arrivalsRef.current}
-                        />
-                      </div>
-                    )}
-                    {item.kind === 'todo-burst' && (
-                      <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
-                        <TodoActivityBurst
-                          blocks={item.msgs.flatMap((message) => message.blocks ?? [])}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )
-              }
-
-              const { msg, index: i } = item
-              return (
-                <MessageRow
-                  key={msg.id || i}
-                  msg={msg}
-                  index={i}
-                  messages={messages}
-                  loading={loading}
-                  onRetry={retry}
-                  onPeek={onPeek}
-                  arrival={arrivalFor(msg.id)}
-                  blockArrivals={blockArrivals}
-                />
-              )
-            }
-
-            if (group.kind === 'plain') return renderItem(group.item)
-            return (
-              <FoldRegion
-                key={`fold-${group.id}`}
-                answered={group.answered}
-                liveCompletion={group.liveCompletion}
-                collapseRequested={group.collapseRequested}
-                summary={group.summary}
-                animated={group.animated}
-              >
-                {group.items.map(renderItem)}
-              </FoldRegion>
-            )
-          })}
+          {virtualized ? (
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((row) => (
+                // `data-index` is what the virtualizer measures by, so the row's
+                // own `data-message-id` stays where scroll-anchor.ts looks for it.
+                <div
+                  key={row.key}
+                  ref={virtualizer.measureElement}
+                  data-index={row.index}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start}px)` }}
+                >
+                  {renderGroup(renderGroups[row.index])}
+                </div>
+              ))}
+            </div>
+          ) : renderGroups.map(renderGroup)}
 
           {/* Streaming message — shows text as it arrives, always re-renders */}
           {streamingText && (
@@ -1629,5 +1556,6 @@ export function ChatMessages({
         }
       `}</style>
     </div>
+    </TranscriptExpansionProvider>
   )
 }

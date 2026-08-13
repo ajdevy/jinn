@@ -2,11 +2,25 @@ import { assertBoundCaller, gatewayRequest, JinnMcpToolError, type JinnMcpTool }
 import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { parseTodoId } from "../work-items/id.js";
+import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
+import {
+  clampInt,
+  FILTER_CHAR_CAP,
+  optionalEnum,
+  optionalString,
+  optionalTodoIdField,
+  RELATION_KINDS,
+  requireLabelRefs,
+  requireRelationKind,
+  requireString,
+  requireTodoId,
+  requireSkillNames,
+  requireTodoIdField,
+} from "./work-item-args.js";
 
 export const WORK_ITEM_SEARCH_LIMIT_MAX = 100;
 export const WORK_ITEM_SEARCH_LIMIT_DEFAULT = 25;
 export const WORK_ITEM_QUERY_CHAR_CAP = 512;
-const FILTER_CHAR_CAP = 256;
 const WORK_ITEM_BODY_CHAR_CAP = 64_000;
 /** Matches the route's own title ceiling, so an over-long title fails here with the field named. */
 const WORK_ITEM_TITLE_CHAR_CAP = 200;
@@ -21,8 +35,6 @@ const TODO_ID_SCHEMA = { type: "string", pattern: "^[A-Z]{3}-[1-9][0-9]*$" } as 
 const COMMENT_ID_SCHEMA = { type: "string", pattern: "^wic_[0-9a-f]{12}$" } as const;
 const COMMENT_ID_PATTERN = /^wic_[0-9a-f]{12}$/;
 const COMMENT_LIST_LIMIT_MAX = 500;
-const RELATION_KINDS = ["blocks", "relates", "duplicates"] as const;
-const WORK_ITEM_LABELS_MAX = 100;
 const COMMENT_ATTACHMENTS_MAX = 10;
 const ATTACHMENT_PATH_CHAR_CAP = 1024;
 
@@ -35,80 +47,6 @@ function mutationResult(body: unknown, hint: string): Record<string, unknown> {
 
 function assertIdentity(ctx: JinnMcpContext): void {
   assertBoundCaller(ctx);
-}
-
-function assertLength(name: string, value: string, max: number): void {
-  if (value.length > max) {
-    throw new JinnMcpToolError(`${name} is too long (${value.length} chars, max ${max}) — shorten it and try again`);
-  }
-}
-
-function requireString(args: Record<string, unknown>, name: string, max = FILTER_CHAR_CAP): string {
-  const v = args[name];
-  const s = typeof v === "string" ? v.trim() : "";
-  if (!s) throw new JinnMcpToolError(`${name} is required and must be a non-empty string`);
-  assertLength(name, s, max);
-  return s;
-}
-
-function requireTodoId(args: Record<string, unknown>): string {
-  try {
-    return parseTodoId(args.id);
-  } catch {
-    throw new JinnMcpToolError("id must be a canonical Todo ID such as ACM-42");
-  }
-}
-
-function requireTodoIdField(args: Record<string, unknown>, name: string): string {
-  try {
-    return parseTodoId(args[name]);
-  } catch {
-    throw new JinnMcpToolError(`${name} must be a canonical Todo ID such as ACM-42`);
-  }
-}
-
-function optionalTodoIdField(args: Record<string, unknown>, name: string): string | undefined {
-  if (args[name] === undefined || args[name] === null) return undefined;
-  return requireTodoIdField(args, name);
-}
-
-function requireRelationKind(args: Record<string, unknown>): (typeof RELATION_KINDS)[number] {
-  const kind = typeof args.kind === "string" ? args.kind : "";
-  if (!(RELATION_KINDS as readonly string[]).includes(kind)) {
-    throw new JinnMcpToolError(`kind must be one of ${RELATION_KINDS.join(", ")}`);
-  }
-  return kind as (typeof RELATION_KINDS)[number];
-}
-
-function requireLabelRefs(args: Record<string, unknown>): string[] {
-  if (!Array.isArray(args.labels) || args.labels.length > WORK_ITEM_LABELS_MAX
-    || args.labels.some((entry) => typeof entry !== "string" || !entry.trim() || entry.length > FILTER_CHAR_CAP)) {
-    throw new JinnMcpToolError(`labels must be an array of up to ${WORK_ITEM_LABELS_MAX} label names or ids (non-empty strings) — list_labels shows valid labels`);
-  }
-  return (args.labels as string[]).map((entry) => entry.trim());
-}
-
-function optionalString(args: Record<string, unknown>, name: string, max = FILTER_CHAR_CAP): string | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string" || !v.trim()) throw new JinnMcpToolError(`${name} must be a non-empty string when provided`);
-  const s = v.trim();
-  assertLength(name, s, max);
-  return s;
-}
-
-function optionalEnum<T extends readonly string[]>(args: Record<string, unknown>, name: string, values: T): T[number] | undefined {
-  const s = optionalString(args, name);
-  if (s === undefined) return undefined;
-  if (!(values as readonly string[]).includes(s)) {
-    throw new JinnMcpToolError(`${name} must be one of ${values.join(", ")}, got "${s}"`);
-  }
-  return s as T[number];
-}
-
-function clampInt(value: unknown, fallback: number, min: number, max: number): number {
-  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : fallback;
-  return Math.min(max, Math.max(min, n));
 }
 
 function asText(body: unknown, max = 1200): string {
@@ -334,6 +272,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         priority: { type: "number", enum: [0, 1, 2, 3] },
         dueAt: { type: "string" },
         labels: { type: "array", items: { type: "string" } },
+        idempotencyKey: { type: "string" },
       },
       required: ["title"],
     },
@@ -361,6 +300,10 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       const dueAt = optionalString(args, "dueAt", 64);
       if (dueAt !== undefined) body.dueAt = dueAt;
       if (args.labels !== undefined) body.labels = requireLabelRefs(args);
+      // ICI-733: repeating the same key returns the Todo the first call made,
+      // so a retried cron or connector fire cannot mint a duplicate.
+      const idempotencyKey = optionalString(args, "idempotencyKey");
+      if (idempotencyKey !== undefined) body.idempotencyKey = idempotencyKey;
       const { status, body: resp } = await gatewayRequest(ctx, "POST", "/api/work-items", body);
       if (status >= 400) throw gatewayFailure("creating work item", status, resp);
       return mutationResult(resp, "Next: assign_work_item or update_work_item.");
@@ -788,6 +731,37 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
+  const dispatchConfig: JinnMcpTool = {
+    name: "set_work_item_dispatch",
+    description: "Set how a Todo's NEXT attempt runs: skills to preload, engine/model override. Safe while executing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: TODO_ID_SCHEMA,
+        skills: { type: "array", items: { type: "string" }, maxItems: TODO_SKILLS_MAX },
+        engine: { type: ["string", "null"] },
+        model: { type: ["string", "null"] },
+      },
+      required: ["id"],
+    },
+    handler: async (args, ctx) => {
+      assertIdentity(ctx);
+      const id = requireTodoId(args);
+      const payload: Record<string, unknown> = {};
+      if (args.skills !== undefined) payload.skills = requireSkillNames(args);
+      for (const key of ["engine", "model"] as const) {
+        if (args[key] === null) payload[key] = null;
+        else if (args[key] !== undefined) payload[key] = requireString(args, key);
+      }
+      if (Object.keys(payload).length === 0) {
+        throw new JinnMcpToolError("pass at least one of skills, engine or model — an empty call would change nothing");
+      }
+      const { status, body } = await gatewayRequest(ctx, "PUT", `/api/work-items/${encodeURIComponent(id)}/dispatch-config`, payload);
+      if (status >= 400) throw gatewayFailure(`setting dispatch config on work item "${id}"`, status, body);
+      return mutationResult(body, "The next attempt on this Todo uses it; the one running now is untouched.");
+    },
+  };
+
   const departments: JinnMcpTool = {
     name: "list_departments",
     description: "List departments with Todo prefixes and counts.",
@@ -800,5 +774,5 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  return [list, get, tree, search, create, update, edit, assign, archive, comment, listComments, attach, listAttachments, link, unlink, label, labelCreate, labelsList, departments];
+  return [list, get, tree, search, create, update, edit, assign, archive, comment, listComments, attach, listAttachments, link, unlink, label, labelCreate, labelsList, dispatchConfig, departments];
 }
