@@ -1,6 +1,7 @@
 import { initDb } from '../shared/db.js';
 import { installedSkillNames } from '../shared/skill-commands.js';
 import { logger } from '../shared/logger.js';
+import { getModelRegistry } from '../shared/models.js';
 import { validateNewSessionSelection } from '../sessions/session-patch.js';
 import type { JinnConfig } from '../shared/types.js';
 import { parseTodoId } from './id.js';
@@ -85,6 +86,18 @@ function validateSkills(raw: unknown): { ok: true; skills: string[] } | { ok: fa
   return { ok: true, skills };
 }
 
+/** The session choke point tolerates a Pi model its discovery snapshot has not
+ *  caught up with yet. That is right for a session starting this second and
+ *  wrong for a STORED override: the next attempt can be hours away, so an id no
+ *  registry ever knew would fail then, on a warning nobody was there to read.
+ *  Set time is the only moment the caller can be told. */
+function unregisteredModelError(config: JinnConfig, engine: string | undefined, model: string | undefined): string | null {
+  if (!engine || !model) return null;
+  const known = (getModelRegistry(config)[engine]?.models ?? []).map((entry) => entry.id);
+  if (known.includes(model)) return null;
+  return `unknown model "${model}" for engine "${engine}" (known: ${known.join(', ') || 'none'})`;
+}
+
 /** Engine and model go through the same choke point every new session uses, so
  *  "engine implies a model that engine knows" and its error prose come for free
  *  rather than being re-derived here. */
@@ -93,15 +106,18 @@ function validateOverride(
   engine: string | null | undefined,
   model: string | null | undefined,
 ): { ok: true; engine: string | null; model: string | null } | { ok: false; error: string } {
-  if (!engine && !model) return { ok: true, engine: null, model: null };
-  if (!engine && model) {
-    return { ok: false, error: 'a model override needs an engine override — a model is only meaningful for one engine' };
+  if (!engine) {
+    return model
+      ? { ok: false, error: 'a model override needs an engine override — a model is only meaningful for one engine' }
+      : { ok: true, engine: null, model: null };
   }
   const selection = validateNewSessionSelection(config, {
     engine,
     ...(model ? { model } : {}),
   });
   if (!selection.ok) return { ok: false, error: selection.error ?? 'invalid engine/model override' };
+  const unregistered = unregisteredModelError(config, selection.engine, selection.model);
+  if (unregistered) return { ok: false, error: unregistered };
   return { ok: true, engine: selection.engine ?? null, model: selection.model ?? null };
 }
 

@@ -917,7 +917,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 980,
+      "lines": 975,
       "exempt": [
         "complexity",
         "max-lines-per-function"

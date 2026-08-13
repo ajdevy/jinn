@@ -736,15 +736,15 @@ export class WorkflowRunner {
     const replay = this.options.repository.findAttemptByRetryKey(run.id, idempotencyKey);
     if (replay) return this.detail(workflowId, runId);
     const latest = run.attempts.filter((attempt) => attempt.nodeId === nodeId).at(-1);
-    if (!latest) throw new Error(`Workflow Employee ${nodeId} has no retryable attempt.`);
     const authored = run.definition.nodes.find((item): item is EmployeeNode => item.id === nodeId && item.type === "employee");
-    const promptText = authored ? composeEmployeePrompt(run, authored, Boolean(latest.resolvedConfig.continuedFrom)) : undefined;
+    if (!latest || !authored) throw new Error(`Workflow Employee ${nodeId} has no retryable attempt.`);
+    const resolvedConfig = resolveDispatch(run, authored, this.options); // ICI-733: resolved fresh, never copied off the attempt that just failed.
+    const promptText = composeEmployeePrompt(run, authored, Boolean(resolvedConfig.continuedFrom));
     try {
       this.options.repository.mutateRun(run.id, run.revision, (tx) => {
         tx.setNodeStatus(nodeId, "dispatching", { activated: true });
         tx.setRunStatus("running");
-        tx.createAttempt({ nodeId, resolvedConfig: latest.resolvedConfig,
-          input: latest.input, ...(promptText === undefined ? {} : { promptText }), retryIdempotencyKey: idempotencyKey });
+        tx.createAttempt({ nodeId, resolvedConfig, input: latest.input, promptText, retryIdempotencyKey: idempotencyKey });
       });
     } catch (error) {
       const claimed = this.options.repository.findAttemptByRetryKey(run.id, idempotencyKey);

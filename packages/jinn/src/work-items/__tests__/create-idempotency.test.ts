@@ -76,6 +76,19 @@ describe("createWorkItemIdempotent", () => {
       .toThrow(idempotency.WorkItemCreateIdempotencyConflictError);
   });
 
+  it("counts the labels a create asked for, but not the order they arrived in", () => {
+    const key = "connector:slack:msg-9003";
+    const input = { title: "tagged create", source: "connector" as const };
+    const first = idempotency.createWorkItemIdempotent(input, key, ["urgent", "billing"]);
+
+    expect(() => idempotency.createWorkItemIdempotent(input, key, ["billing"]))
+      .toThrow(idempotency.WorkItemCreateIdempotencyConflictError);
+    // A label set is a set: the same names in another order is the same create.
+    const reordered = idempotency.createWorkItemIdempotent(input, key, ["billing", "urgent"]);
+    expect(reordered.replayed).toBe(true);
+    expect(reordered.item.id).toBe(first.item.id);
+  });
+
   it("leaves keyless creates alone: two identical ones are two Todos", () => {
     store.createWorkItem({ title: "no key here", source: "human" });
     store.createWorkItem({ title: "no key here", source: "human" });

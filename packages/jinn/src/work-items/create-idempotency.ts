@@ -43,11 +43,17 @@ const CREATE_FINGERPRINT_FIELDS: ReadonlyArray<keyof CreateWorkItemInput> = [
   'dueAt', 'priority', 'source', 'sourceRef', 'acceptance', 'verifyPolicy', 'budgetUsd',
 ];
 
-function canonicalCreateFingerprint(input: CreateWorkItemInput): string {
+function canonicalCreateFingerprint(input: CreateWorkItemInput, labels: readonly string[] | undefined): string {
   const payload: Record<string, unknown> = {};
   for (const key of CREATE_FINGERPRINT_FIELDS) {
     if (input[key] !== undefined) payload[key] = input[key];
   }
+  // Labels are applied after the row rather than through `CreateWorkItemInput`,
+  // but they are part of what the caller asked to create, and a replay keeps the
+  // first call's set — so a different set is a different create, not one this
+  // replay could deliver. Sorted, because a label set is a set: reordering the
+  // same names is the same request and must not read as a conflict.
+  if (labels !== undefined) payload.labels = [...labels].sort();
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
@@ -57,10 +63,14 @@ function canonicalCreateFingerprint(input: CreateWorkItemInput): string {
  * second `created` event, and no burned ID, because the receipt is checked
  * before the allocator is ever reached.
  */
-export function createWorkItemIdempotent(input: CreateWorkItemInput, idempotencyKey: string): IdempotentCreateResult {
+export function createWorkItemIdempotent(
+  input: CreateWorkItemInput,
+  idempotencyKey: string,
+  labels?: readonly string[],
+): IdempotentCreateResult {
   const db = initDb();
   const keyDigest = createHash('sha256').update(idempotencyKey).digest('hex');
-  const fingerprint = canonicalCreateFingerprint(input);
+  const fingerprint = canonicalCreateFingerprint(input, labels);
 
   const txn = db.transaction((): IdempotentCreateResult => {
     const receipt = db

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,19 +16,27 @@ type Store = typeof import("../store.js");
 type DispatchConfig = typeof import("../dispatch-config.js");
 let store: Store;
 let dispatch: DispatchConfig;
+let logger: typeof import("../../shared/logger.js").logger;
 
 beforeAll(async () => {
   (await import("../../shared/db.js")).initDb();
   store = await import("../store.js");
   dispatch = await import("../dispatch-config.js");
+  logger = (await import("../../shared/logger.js")).logger;
 });
 
 function config(): JinnConfig {
   return {
-    engines: { default: "codex", claude: { bin: "claude", model: "opus" }, codex: { bin: "codex", model: "gpt-5.6-sol" } },
+    engines: {
+      default: "codex",
+      claude: { bin: "claude", model: "opus" },
+      codex: { bin: "codex", model: "gpt-5.6-sol" },
+      pi: { bin: "pi", model: "ollama/gemma3:12b" },
+    },
     models: {
       claude: { default: "opus", models: [{ id: "opus", supportsEffort: false }] },
       codex: { default: "gpt-5.6-sol", models: [{ id: "gpt-5.6-sol", supportsEffort: true, effortLevels: ["low", "high"] }] },
+      pi: { default: "ollama/gemma3:12b", models: [{ id: "ollama/gemma3:12b", supportsEffort: false }] },
     },
   } as unknown as JinnConfig;
 }
@@ -107,6 +115,22 @@ describe("the engine/model override is validated when it is SET", () => {
     expect(dispatch.getTodoDispatchConfig(id)).toBeUndefined();
   });
 
+  it("refuses a Pi model no registry knows, even though a new session would tolerate it", () => {
+    const id = todo("override undiscovered pi model");
+    const result = dispatch.setTodoDispatchConfig(id, { engine: "pi", model: "ollama/never-pulled" }, config());
+
+    // A session starting this second can afford to wait for discovery; a stored
+    // override cannot — its next attempt is hours away and nobody reads the log.
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain("ollama/never-pulled");
+    expect(dispatch.getTodoDispatchConfig(id)).toBeUndefined();
+  });
+
+  it("accepts a Pi model the registry does know", () => {
+    const id = todo("override discovered pi model");
+    expect(dispatch.setTodoDispatchConfig(id, { engine: "pi", model: "ollama/gemma3:12b" }, config()).ok).toBe(true);
+  });
+
   it("accepts an engine with a model that engine knows", () => {
     const id = todo("override good");
     const result = dispatch.setTodoDispatchConfig(id, { engine: "claude", model: "opus" }, config());
@@ -155,19 +179,39 @@ describe("skills are re-resolved at DISPATCH, against the workspace as it is the
     }
   });
 
-  it("proceeds with the survivors when only some are gone, and the prompt carries only those", () => {
+  it("proceeds with the survivors when only some are gone, and warns naming the ones that went", () => {
     const id = todo("dispatch some gone");
     expect(dispatch.setTodoDispatchConfig(id, { skills: ["dev-workflow", "browser-use"] }, config()).ok).toBe(true);
 
     fs.renameSync(path.join(skillsDir, "browser-use"), path.join(tmp, "gone-browser-use"));
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const resolved = dispatch.resolveTodoDispatch(id);
       expect(resolved.ok).toBe(true);
       const prefix = resolved.ok ? resolved.preamble.prefix : "";
       expect(prefix).toContain("skills/dev-workflow/SKILL.md");
       expect(prefix).not.toContain("browser-use");
+      // A silently thinner prompt is how an attempt fails for a reason nobody
+      // can see, so the missing name has to reach the log.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("browser-use");
+      expect(warn.mock.calls[0]?.[0]).toContain(id);
     } finally {
+      warn.mockRestore();
       fs.renameSync(path.join(tmp, "gone-browser-use"), path.join(skillsDir, "browser-use"));
+    }
+  });
+
+  it("does not warn when every requested skill is still installed", () => {
+    const id = todo("dispatch none gone");
+    expect(dispatch.setTodoDispatchConfig(id, { skills: ["dev-workflow", "browser-use"] }, config()).ok).toBe(true);
+
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    try {
+      expect(dispatch.resolveTodoDispatch(id).ok).toBe(true);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
     }
   });
 
