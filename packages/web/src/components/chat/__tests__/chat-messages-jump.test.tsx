@@ -1,22 +1,30 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { ChatMessages } from '../chat-messages'
+import { installVirtualLayout } from './virtual-layout'
 import type { Message } from '@/lib/conversations'
 
 const stickState = {
   showJump: true,
   unreadCount: 0,
   scrollToBottom: vi.fn(),
+  /** The affordance's own behaviour is stubbed; where it SCROLLS TO is not. */
+  real: false,
 }
 
-vi.mock('@/hooks/use-stick-to-bottom', () => ({
-  useStickToBottom: () => ({
-    containerRef: vi.fn(),
-    showJump: stickState.showJump,
-    unreadCount: stickState.unreadCount,
-    scrollToBottom: stickState.scrollToBottom,
-  }),
-}))
+vi.mock('@/hooks/use-stick-to-bottom', async () => {
+  const actual = await vi.importActual<typeof import('@/hooks/use-stick-to-bottom')>('@/hooks/use-stick-to-bottom')
+  return {
+    ...actual,
+    useStickToBottom: (options: Parameters<typeof actual.useStickToBottom>[0]) =>
+      stickState.real ? actual.useStickToBottom(options) : {
+        containerRef: vi.fn(),
+        showJump: stickState.showJump,
+        unreadCount: stickState.unreadCount,
+        scrollToBottom: stickState.scrollToBottom,
+      },
+  }
+})
 
 const messages: Message[] = [{
   id: 'm1',
@@ -28,8 +36,10 @@ const messages: Message[] = [{
 afterEach(() => {
   stickState.showJump = true
   stickState.unreadCount = 0
+  stickState.real = false
   stickState.scrollToBottom.mockReset()
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe('ChatMessages jump affordance', () => {
@@ -86,6 +96,41 @@ describe('ChatMessages jump affordance', () => {
 
     act(() => { vi.runAllTimers() })
     expect(document.querySelector('[data-state="exiting"]')).toBeNull()
+  })
+})
+
+describe('ChatMessages jump on a virtualised thread', () => {
+  const ROW_H = 140
+  const VIEWPORT_H = 700
+  const longThread: Message[] = Array.from({ length: 500 }, (_, i) => ({
+    id: `v${i}`,
+    role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+    content: `message ${i}`,
+    timestamp: 1_700_000_000_000 + i * 1000,
+  }))
+
+  // The hook coalesces its affordance state into a frame, so let one pass.
+  const nextFrame = () => act(async () => { await new Promise((done) => setTimeout(done, 20)) })
+
+  it('appears when detached and lands at the true bottom', async () => {
+    stickState.real = true
+    const layout = installVirtualLayout(ROW_H, VIEWPORT_H)
+    render(<ChatMessages messages={longThread} loading={false} />)
+
+    // Read up: the affordance appears and the last message is nowhere near.
+    act(() => { layout.scrollTo(2_000) })
+    await nextFrame()
+    expect(layout.visibleMessageIds()).not.toContain('v499')
+    const jump = screen.getByRole('button', { name: /jump to latest/i })
+
+    act(() => { fireEvent.click(jump) })
+    await nextFrame()
+
+    // The bottom of a virtualised thread is not `scrollHeight` until the last
+    // row has measured; the jump has to arrive there anyway.
+    expect(layout.visibleMessageIds()).toContain('v499')
+    expect(screen.queryByRole('button', { name: /jump to latest/i })).toBeNull()
+    layout.release()
   })
 })
 

@@ -1,61 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, act, fireEvent } from '@testing-library/react'
-import { useStickToBottom, STICK_THRESHOLD_PX } from '@/hooks/use-stick-to-bottom'
+import { STICK_THRESHOLD_PX } from '@/hooks/use-stick-to-bottom'
+import { type CapturedObserver, dist, Harness, setMetrics, stubScrollEnvironment } from './stick-harness'
 
 // Drives the REAL hook through every scroll failure mode the rebuild targets.
-// jsdom has no layout engine, so we install controllable scrollHeight/clientHeight/
-// scrollTop on the container and a captured ResizeObserver, then assert the hook's
-// observable behaviour (does it pin? does it preserve position? jump/unread state).
+// See stick-harness.tsx for the jsdom rig it runs on.
 
-let roInstances: Array<{ cb: ResizeObserverCallback; observed: Element[] }> = []
+let roInstances: CapturedObserver[] = []
 
-beforeEach(() => {
-  roInstances = []
-  // Run rAF synchronously so the hook's coalesced UI updates land within act().
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1 })
-  vi.stubGlobal('cancelAnimationFrame', () => {})
-  vi.stubGlobal('ResizeObserver', class {
-    cb: ResizeObserverCallback
-    observed: Element[] = []
-    constructor(cb: ResizeObserverCallback) { this.cb = cb; roInstances.push(this) }
-    observe(target: Element) { this.observed.push(target) }
-    unobserve(target: Element) {
-      this.observed = this.observed.filter((item) => item !== target)
-    }
-    disconnect() {}
-  })
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
-
-function Harness(props: { streamingText?: string; messageCount: number; latestMessageKey?: string | null }) {
-  const { containerRef, showJump, unreadCount, scrollToBottom } = useStickToBottom(props)
-  return (
-    <div>
-      <div data-testid="scroller" ref={containerRef}>
-        <div data-testid="content">content</div>
-      </div>
-      <span data-testid="jump">{showJump ? 'show' : 'hide'}</span>
-      <span data-testid="unread">{unreadCount}</span>
-      <button data-testid="btn" onClick={() => scrollToBottom('auto')}>jump</button>
-      <button data-testid="btn-smooth" onClick={() => scrollToBottom('smooth')}>jump smoothly</button>
-    </div>
-  )
-}
-
-/** Install controllable scroll metrics on the element (jsdom defaults them to 0). */
-function setMetrics(el: HTMLElement, scrollHeight: number, clientHeight: number, scrollTop = 0) {
-  let top = scrollTop
-  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
-  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => clientHeight })
-  Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v } })
-}
-
-function dist(el: HTMLElement) {
-  return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
-}
+beforeEach(() => { roInstances = stubScrollEnvironment() })
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe('useStickToBottom — behaviour', () => {
   it('mount-snap: pins to the bottom the first time messages appear', () => {
@@ -226,6 +180,28 @@ describe('useStickToBottom — behaviour', () => {
     act(() => { rerender(<Harness messageCount={6} />) })
     expect(el.scrollTop).toBe(readingPos)
     expect(getByTestId('unread').textContent).toBe('1')
+  })
+
+  it('re-measure: content grows under a stationary scrollTop — follow survives', () => {
+    const { getByTestId, rerender } = render(<Harness messageCount={0} />)
+    const el = getByTestId('scroller')
+    setMetrics(el, 1000, 200, 0)
+    act(() => { rerender(<Harness messageCount={5} />) }) // pinned, following
+    expect(dist(el)).toBe(0)
+
+    // A virtualised row re-measures taller, so the spacer grows under a scroll
+    // position that never moved. The transcript changed; the reader did not.
+    const pinned = el.scrollTop
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 1400 })
+    act(() => { fireEvent.scroll(el) })
+
+    expect(el.scrollTop).toBe(pinned)
+    expect(getByTestId('jump').textContent).toBe('hide')
+
+    // Still following for real: the next append pins to the new bottom.
+    setMetrics(el, 1600, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} />) })
+    expect(dist(el)).toBe(0)
   })
 
   it('bottom clamp: scrollTop drops while still at the bottom — follow survives', () => {
