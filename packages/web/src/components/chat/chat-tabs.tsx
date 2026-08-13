@@ -96,10 +96,10 @@ export function ChatHeaderPills({
 
       {/* MOBILE — thread nav bar: back · centered title · compose · more. Hidden
           over the list (the tab bar + list header own that screen). No hairline
-          at rest; content scrolls under it via the thread's top scrim. The
-          ~96%-opaque --material-thick fill is the material; the blur on top is a
-          pointer:fine finish, dropped on touch so it stops re-rasterising over
-          the scrolling thread. */}
+          at rest; content scrolls under it via the thread's top scrim. Frosted
+          on pointer:fine; coarse pointers get the same material composited to
+          alpha 1 (--material-thick-opaque) instead, so the backdrop filter stops
+          re-rasterising over the scrolling thread. */}
       {!hideOnMobile && (
         <div
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
@@ -109,7 +109,7 @@ export function ChatHeaderPills({
               are sized in rem, so at a large browser text size a viewport-capped
               centred title grows straight under the action buttons. The middle
               track truncates against its real neighbours at any text size. */}
-          <div className="relative grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 bg-[var(--material-thick)] px-1.5 [@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)] [@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]">
+          <div className="relative grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 bg-[var(--material-thick-opaque)] px-1.5 [@media(pointer:fine)]:bg-[var(--material-thick)] [@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)] [@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]">
             {/* Back control. A drill-in reads `‹ Parent` and returns to the
                 parent thread (iOS previous-screen-title idiom); otherwise the
                 bare chevron pops to the chat list (accessible name in

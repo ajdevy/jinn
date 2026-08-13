@@ -311,6 +311,9 @@
   --bg-tertiary: #2A2720;
   --material-regular: rgba(30,28,22,0.92);
   --material-thick: rgba(20,18,15,0.96);
+  /* --material-thick composited over --bg at alpha 1, for the coarse-pointer
+     bars that drop the backdrop filter (see --pill-bg-opaque). */
+  --material-thick-opaque: #14120F;
   --material-thin: rgba(255,255,255,0.05);
   --material-ultra-thin: rgba(255,255,255,0.03);
   --fill-primary: rgba(255,255,255,0.10);
@@ -386,6 +389,7 @@
   --bg-tertiary: #ECE8DC;
   --material-regular: rgba(251,249,242,0.94);
   --material-thick: rgba(244,241,232,0.97);
+  --material-thick-opaque: #F4F1E8;
   --material-thin: rgba(33,30,22,0.04);
   --material-ultra-thin: rgba(33,30,22,0.02);
   --fill-primary: rgba(33,30,22,0.08);
@@ -458,6 +462,7 @@
     --bg-tertiary: #ECE8DC;
     --material-regular: rgba(251,249,242,0.94);
     --material-thick: rgba(244,241,232,0.97);
+    --material-thick-opaque: #F4F1E8;
     --material-thin: rgba(33,30,22,0.04);
     --material-ultra-thin: rgba(33,30,22,0.02);
     --fill-primary: rgba(33,30,22,0.08);
@@ -519,6 +524,7 @@
     --bg-tertiary: #2A2720;
     --material-regular: rgba(30,28,22,0.92);
     --material-thick: rgba(20,18,15,0.96);
+    --material-thick-opaque: #14120F;
     --material-thin: rgba(255,255,255,0.05);
     --material-ultra-thin: rgba(255,255,255,0.03);
     --fill-primary: rgba(255,255,255,0.10);

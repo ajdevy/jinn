@@ -10,9 +10,10 @@ import { useFeatures } from "@/hooks/use-features"
 // bar carrying the 4 primary destinations (Chat · Todos · Workflows · More).
 // Mobile only (lg:hidden); the parent decides when to mount it. --material-thick
 // over content with the single 0.5px top hairline iOS tab bars are allowed (the
-// one sanctioned exception to "no hairlines at rest"). The fill is ~96% opaque,
-// so the blur it carries on pointer:fine is a finish, not the material — coarse
-// pointers drop it rather than re-rasterise it over the scrolling thread.
+// one sanctioned exception to "no hairlines at rest"). Frosted on pointer:fine;
+// coarse pointers get the same material composited to alpha 1
+// (--material-thick-opaque) instead, so the backdrop filter stops re-rasterising
+// over the scrolling thread.
 //
 // Icons-only (HIG icons-over-labels): the glyphs are self-explanatory, so the
 // bar carries no text. The "you are here" cue is the active tab's --accent tint
@@ -50,7 +51,8 @@ export function MobileTabBar() {
         // Named so a route change snapshots the bar on its own rather than
         // cross-fading the one surface that is on both sides of every tap.
         "[view-transition-name:jinn-tab-bar]",
-        "border-t-[0.5px] border-[var(--separator)] bg-[var(--material-thick)]",
+        "border-t-[0.5px] border-[var(--separator)] bg-[var(--material-thick-opaque)]",
+        "[@media(pointer:fine)]:bg-[var(--material-thick)]",
         "[@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)]",
         "[@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]",
         "py-1.5 pb-[max(var(--safe-bottom),6px)]",
