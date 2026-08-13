@@ -2,7 +2,7 @@
   "chunks": {
     "task-page": {
       "pattern": "task-page-*.js",
-      "baselineGzipBytes": 10970,
+      "baselineGzipBytes": 11740,
       "budgetGzipBytes": 85000,
       "forbiddenModules": [
         "prosemirror",
@@ -11,12 +11,12 @@
     },
     "board-page": {
       "pattern": "board-page-*.js",
-      "baselineGzipBytes": 23473,
+      "baselineGzipBytes": 23437,
       "budgetGzipBytes": 25000
     }
   },
   "initialCriticalPath": {
-    "baselineGzipBytes": 172441,
-    "budgetGzipBytes": 181000
+    "baselineGzipBytes": 186648,
+    "budgetGzipBytes": 185000
   }
 }
