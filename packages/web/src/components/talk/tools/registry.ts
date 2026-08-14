@@ -1,8 +1,10 @@
+import { APPROVAL_TOOLS } from "./approval-tools"
 import { afterNextPaint, nowMs, recordToolTiming } from "./budget"
 import { CONSENT_TOOLS } from "./consent-tools"
 import { ESCAPE_HATCH_TOOL } from "./escape-hatch"
 import { FOCUS_ELEMENT_TOOL } from "./focus-element"
 import { NAVIGATE_TOOLS } from "./navigate-tools"
+import { PAGE_TOOLS } from "./page-tools"
 import { READ_TOOLS } from "./read-tools"
 import { RESOLVE_TOOLS } from "./resolve-tools"
 import { toolDefinition, type TalkTool, type ToolDefinition, type ToolResult } from "./tool-spec"
@@ -25,6 +27,8 @@ export const TALK_TOOLS: readonly TalkTool[] = [
   ...READ_TOOLS,
   ...WRITE_TOOLS,
   ...CONSENT_TOOLS,
+  ...APPROVAL_TOOLS,
+  ...PAGE_TOOLS,
   FOCUS_ELEMENT_TOOL,
   ESCAPE_HATCH_TOOL,
 ]

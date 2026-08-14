@@ -102,6 +102,13 @@ export function restoreDeferredSituation(): void {
   emit()
 }
 
+/** The situation on screen, read outside React. A caller that must not act
+ *  while the operator is being asked something consults this — a generic page
+ *  action, which would otherwise be able to reach the sheet's own cards. */
+export function currentSituation(): Situation | null {
+  return current
+}
+
 export function useSituation(): Situation | null {
   return useSyncExternalStore(
     subscribe,

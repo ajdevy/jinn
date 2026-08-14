@@ -432,18 +432,82 @@ consent lane rather than shipping an undo that lies.
 |---|---|---|---|
 | `talk_comment_todo` | fast | Internal, cheap, fully reversible. | Tombstone the comment. |
 | `talk_create_todo` | fast | Creates a draft nobody has acted on yet. | Archive it — the row and its audit survive. |
-| `talk_set_todo_status` | fast **only when the board can move it back** | A status move is a board gesture, but the edge map is one-way in places: nothing returns from `done` except to `backlog`, and `executing`/`in_review` have no edge back to where work started. `cancelled` asks whatever the edges say — closing work is not a gesture, and agents have no cancel tool server-side. | Re-`PUT` the previous status. When `canDropOn(to, from)` is false the move takes the consent lane and gets no undo, which is why it asks. |
+| `talk_set_todo_status` | fast **only when the board can move it back, and only out of a status that is not `blocked`** | A status move is a board gesture, but the edge map is one-way in places: nothing returns from `done` except to `backlog`, and `executing`/`in_review` have no edge back to where work started. `cancelled` asks whatever the edges say — closing work is not a gesture, and agents have no cancel tool server-side. Leaving `blocked` asks whatever the edges say too: `blocked → assigned` is a reversible edge, so the fast lane would have taken "move it to assigned" on the model's word, and that sentence is an unblock. | Re-`PUT` the previous status. When `canDropOn(to, from)` is false, or the Todo is leaving `blocked`, the move takes the consent lane and gets no undo, which is why it asks. |
 | `talk_assign_todo` | fast | Internal, idempotent, reversible. | Re-assign (or clear the assignee through the version-fenced edit lane), then put the status back — assigning out of `backlog` moves the item too. |
 | `talk_label_todo` | fast | Full-set replace, idempotent by construction. | `PUT` the previous set. |
 | `talk_start_workflow_run` | consent | Spends money and wakes agents the moment it starts. Cancelling later un-bills nothing. | None. |
 | `talk_record_reading` | consent | No delete route and no way to edit: a wrong reading corrupts a measurement series permanently. | None — which is exactly why it cannot be fast. |
 | `talk_send_to_session` | consent | Outward-facing. Whoever is on the session may act on the world before any window could close. | None. |
 | `jinn_action` | consent, always | The least predictable surface: the model reaches it when it has stopped matching a request to anything the app can do. | None. |
+| `talk_decide_approval` | consent | An outward-facing decision: whatever was waiting on the gate moves the moment it lands, and the gateway has no route that un-decides one. | None. |
+| `talk_decide_workflow_approval` | consent | Approving the node a run waits on lets the run carry on — on a land gate, that merges a branch. | None. |
+| `talk_unblock_todo` | consent | Unblocking releases the work to whoever picks it up; a fifteen-second window does not reach the agent that already started. | None. |
+| `click_by_text` | consent | The orb cannot see what a control does before it does it, so what it agrees to is the click, not the consequence. | None. |
+| `type_into` | consent | Replaces what is in the field, on a page whose save semantics the orb does not know. | None — the previous contents are not read back first. |
+| `find_element_by_text` | consent | Read-only, and asks anyway: it is how the model learns what a generic click would land on, and a probe that costs nothing to make is a probe worth making silently. Asking to look is a deliberate over-ask, and the one lane assignment here worth revisiting. | Nothing to reverse. |
+| `scroll_to` | consent | Read-only, and asks for the same reason as `find_element_by_text`. | Nothing to reverse. |
 
 A dismissal is a refusal, not a failure — it reports `{ ok: false, error }` so a
 model cannot read "the operator said no" as a transport error and retry it. The
 fast lane's window is `UNDO_WINDOW_MS` (15 seconds), and letting it lapse commits
 the write silently.
+
+### Driving the page directly
+
+The four generic actions exist so the orb can reach a feature nobody wrote a tool
+for. That makes them the least bounded thing it has — the model decides what they
+mean by reading words off a screen — so `dom-target.ts` is where the bound is,
+and every rule in it is there because the alternative is a class of silent wrong
+action:
+
+- **Text is compared, never compiled.** An element matches on what it says —
+  `aria-label`, `placeholder`, its own `value`, its text — case-insensitively and
+  with whitespace collapsed. A spoken string never becomes a CSS selector, for the
+  same reason `focus_element` refuses one: a model naming a selector is addressing
+  internals it cannot see, and a selector it got slightly wrong acts on the wrong
+  thing without saying so. An exact match beats a containing one, so "Save" reaches
+  Save on a page that also has "Save and close".
+- **Two matches is a refusal.** The refusal names the candidates and asks the
+  operator which they meant. It never takes the first: on a voice channel there is
+  no way for them to notice that a silent pick was the wrong one. Ancestors are not
+  counted as candidates — every element up to `<body>` contains the text, and a
+  page is not ambiguous because it has a body.
+- **Click and type only reach controls.** `button`, `a[href]`, `input`, `textarea`,
+  `select`, `[role="button"]` and `contenteditable`. Text that merely reads like a
+  button is reported as text.
+- **The orb's own surface is not addressable.** Anything inside
+  `[data-situation-phase]`, `[data-talk-undo-strip]` or `[data-talk-orb-overlay]`
+  is invisible to the resolver. Without that, a generic click could answer or
+  dismiss the very consent card raised to ask about it, and the sheet would be
+  decoration.
+- **Nothing runs while a situation is up.** The check comes before the resolver, so
+  a generic action cannot act on a page the operator is being asked a question
+  about — including the question that action itself provoked.
+- **A password field is never typed into.** A spoken password is said out loud in a
+  room, transcribed by a third party and typed by a model; no page needs that.
+- **The element has to still be there.** Consent is asked about an element resolved
+  before the sheet went up, so the write re-checks that it is still on the page.
+  A page that rerendered it away reports that, rather than clicking into nothing.
+
+### What voice still cannot reach
+
+The board has verbs the orb has no tool for. They are listed rather than built,
+because each needs a decision this pass did not make:
+
+| Verb | Why it was left |
+|---|---|
+| Request an approval | No web client method exists at all — the request surface is a gateway route and an MCP tool. Adding a client method is its own ticket. |
+| Escalate an approval | `escalateWorkItemApproval` exists but has no non-test caller in the web app, so voice would be the only way to reach it and there is no de-escalate. |
+| Archive a Todo | No unarchive anywhere in the client or the gateway, so it has no honest reversal — it is reachable only as `talk_create_todo`'s own undo, on a Todo made seconds earlier. |
+| Link / unlink Todos | Reversible, but naming two Todos in one spoken sentence needs the resolver to disambiguate twice; that is a design question, not a wiring one. |
+| Dispatch a Todo | Spawns a live session — outward-facing with no reversal, and the same shape as `talk_start_workflow_run`, which is the tool to copy when it is built. |
+| Attachments | There is nothing to attach in a voice turn. |
+| Edit priority, due date, title or body | The version-fenced edit lane needs an `expectedVersion` and a conflict story the orb has no surface for. |
+| Edit a comment | Talk can leave a comment and take it back, but not amend one; the prior text is not retained, so there is no reversal. |
+| Cron: trigger, enable, disable | `triggerCronJob` has no reversal. There is no create or delete route in the client at all, for the board either. |
+| Workflow: enable, disable, author | Revision-fenced, same conflict story as the edit lane; authoring a graph is not a voice shape. |
+| Conclude an experiment | No reopen route — a verdict is permanent, like a reading. |
+| Stop or reset a session | Reset destroys transcript state with no way back. |
 
 ### The action log
 

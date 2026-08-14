@@ -30,15 +30,9 @@ function findTarget(target: string): Element | undefined {
   return undefined
 }
 
-export function focusElement(target: string): ToolResult {
-  const element = findTarget(target)
-  if (!element) {
-    return {
-      ok: false,
-      error: `Nothing on this page is named "${target}". Only elements the app marks as talk targets can be focused; navigate to the page holding it first.`,
-    }
-  }
-
+/** Scroll something into view and mark it. Shared with the generic page tools,
+ *  so "that one" looks the same however the element was named. */
+export function revealElement(element: Element): void {
   element.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" })
 
   // Re-focusing the same element restarts the mark rather than stacking a second
@@ -58,7 +52,18 @@ export function focusElement(target: string): ToolResult {
       clearing.delete(element)
     }, FOCUS_HIGHLIGHT_MS),
   )
+}
 
+export function focusElement(target: string): ToolResult {
+  const element = findTarget(target)
+  if (!element) {
+    return {
+      ok: false,
+      error: `Nothing on this page is named "${target}". Only elements the app marks as talk targets can be focused; navigate to the page holding it first.`,
+    }
+  }
+
+  revealElement(element)
   return { ok: true, data: { target } }
 }
 
