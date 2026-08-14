@@ -103,6 +103,10 @@ export interface TodoStatusMutationArgs {
   id: string
   status: WorkItemStatusWire
   note?: string
+  /** Close this Todo's open descendants with it (legalTargets' cascade row).
+   *  Only the item itself moves in the caches here — the descendants arrive
+   *  with the settle invalidation, which is the server's word for all of them. */
+  cascade?: boolean
 }
 
 type TodoStatusMutationFn = (variables: TodoStatusMutationArgs) => ReturnType<typeof api.setWorkItemStatus>

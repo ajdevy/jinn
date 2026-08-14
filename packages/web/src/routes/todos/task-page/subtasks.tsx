@@ -2,7 +2,7 @@ import { useState } from "react"
 import { ArrowUpRight, Plus, UserRound } from "lucide-react"
 import type { Employee, WorkItemStatusWire, WorkItemTreeNodeWire } from "@/lib/api"
 import { STATUS_LABEL, stateKeyOf } from "@/lib/todos"
-import { legalTargets } from "@/lib/legal-targets"
+import { closeGateCounts, legalTargets } from "@/lib/legal-targets"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { StateCircle, StatusCircle } from "../state-glyph"
 import { PickerPopover, PickerRow } from "../pickers/picker-shell"
@@ -48,7 +48,7 @@ export function SubTasksSection({
   byName: Map<string, Employee>
   mobile: boolean
   onOpenChild: (id: string) => void
-  onChildStatus: (childId: string, status: WorkItemStatusWire) => void
+  onChildStatus: (childId: string, status: WorkItemStatusWire, cascade?: boolean) => void
   onChildAssign: (childId: string, assignee: string) => void
   onAddSubTask: (title: string) => void
 }) {
@@ -99,7 +99,6 @@ export function SubTasksSection({
             {children.map((child) => {
               const closed = child.status === "done" || child.status === "cancelled"
               const kids = (child.children ?? []).length
-              const openKids = (child.children ?? []).filter((c) => c.status !== "done" && c.status !== "cancelled").length
               const picking = openFor?.id === child.id ? openFor.kind : null
               return (
                 <div
@@ -180,7 +179,7 @@ export function SubTasksSection({
                         checked
                         onSelect={() => setOpenFor(null)}
                       />
-                      {legalTargets(child.status, { openChildren: openKids })
+                      {legalTargets(child.status, closeGateCounts(child))
                         .filter((target) => target.status !== child.status)
                         .map((target) => (
                           <PickerRow
@@ -189,8 +188,9 @@ export function SubTasksSection({
                             label={STATUS_LABEL[target.status]}
                             disabled={target.gated}
                             reason={target.reason}
+                            sub={target.gated ? undefined : target.reason}
                             onSelect={() => {
-                              onChildStatus(child.id, target.status)
+                              onChildStatus(child.id, target.status, target.cascade)
                               setOpenFor(null)
                             }}
                             testId={`subtask-status-option-${target.status}`}
