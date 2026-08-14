@@ -92,6 +92,26 @@ describe("reconcileWorkItem — attempts that predate the operator's own move ar
     expect(store.getWorkItem(id)?.status).toBe("in_review");
   });
 
+  it("does not TRUST-close a review the operator opened himself with nothing settled since", () => {
+    const item = store.createWorkItem({ title: "cron review", status: "executing", source: "cron", sourceRef: "cron:trust-hold" });
+    linkedSession("s-trust-stale", item.id, "idle", daysAgo(10), "succeeded");
+    transitions.transition(item.id, "in_review", "operator");
+
+    expect(reconcile.reconcileWorkItem(item.id)).toMatchObject({ changed: false, item: { status: "in_review" } });
+    expect(store.getWorkItem(item.id)?.status).toBe("in_review");
+    expect(statusMoves(item.id)).toEqual(["executing→in_review:operator"]);
+  });
+
+  it("TRUST-closes again once an attempt has settled after the move (the floor self-clears here too)", () => {
+    const item = store.createWorkItem({ title: "cron retried", status: "executing", source: "cron", sourceRef: "cron:trust-clear" });
+    linkedSession("s-trust-stale-2", item.id, "idle", daysAgo(10), "succeeded");
+    transitions.transition(item.id, "in_review", "operator");
+    linkedSession("s-trust-fresh", item.id, "idle", afterTheMove(), "succeeded");
+
+    expect(reconcile.reconcileWorkItem(item.id)).toMatchObject({ changed: true, item: { status: "done" } });
+    expect(store.getWorkItem(item.id)?.status).toBe("done");
+  });
+
   it("applies no floor to an agent-declared move — a session actor derives exactly as before", () => {
     const id = parkedAfterStaleAttempt("agent parked", "s-agent-move", "session:8f2c1d64-0a15-4c7e-9f3b-2d6e5a0b1c74");
 

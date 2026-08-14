@@ -32,7 +32,8 @@ export type { WorkItemAttemptEvidence } from './attempt-evidence.js';
  *     pulls an item off his queue.
  *   - ZERO linked sessions → untouched (`backlog`/`assigned` are never clobbered).
  *     Attempts older than the operator's own last status move are not linked
- *     evidence at all — see `attempt-evidence.ts`.
+ *     evidence at all — see `attempt-evidence.ts`. With nothing left to speak the
+ *     whole pass is a no-op, the TRUST close below included.
  *   - Any session in flight (`running`/`waiting`) → `executing`.
  *   - Newest attempt with an explicit `succeeded` receipt → `in_review` (the vision's "session completes →
  *     in_review, NOT done" made structural) — then the TRUST policy hook runs in
@@ -108,7 +109,12 @@ export function reconcileWorkItem(id: string): ReconcileResult | undefined {
   // TRUST-close, or otherwise rewrite them. Explicit guarded Todo actions remain
   // available through the normal operator surfaces.
   if (item.source === 'workflow') return { item, changed: false };
-  const attempts = collectAttemptEvidence(id);
+  const { attempts, humanDecisionAt } = collectAttemptEvidence(id);
+  // Every attempt predates the operator's own move, so nothing has happened
+  // since he decided where this Todo belongs and the reconciler has nothing to
+  // say — neither a derived status nor the TRUST close, which would otherwise
+  // end a review he opened himself on the strength of an older receipt.
+  if (humanDecisionAt && attempts.length === 0) return { item, changed: false };
   let derived = deriveWorkItemStatus(item.status, attempts, item.source);
   // Provenance is only needed when receipt derivation would overwrite the
   // current state. Since a Todo cannot be blocked and executing simultaneously,

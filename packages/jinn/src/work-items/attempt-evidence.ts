@@ -20,6 +20,16 @@ export interface WorkItemAttemptEvidence {
   outcome: SessionAttemptOutcome | null;
 }
 
+/** What a Todo's attempts say, and what the operator said last. */
+export interface WorkItemAttemptReading {
+  /** The receipts still entitled to speak, newest-first. */
+  attempts: WorkItemAttemptEvidence[];
+  /** When the operator last moved this Todo himself, if he ever has. Attempts at
+   *  or before it were dropped; an empty `attempts` alongside it means nothing
+   *  has happened since he decided. */
+  humanDecisionAt?: string;
+}
+
 /**
  * Settle the run ledger from the same receipts the status derivation reads, so
  * a Todo's attempt history closes the moment its attempts do. Best-effort per
@@ -63,8 +73,7 @@ function closeRunsForSettledAttempts(sessions: readonly Session[]): void {
  * Only actor `operator` raises a floor. An agent-declared move keeps today's
  * behaviour: the declared-block and review-bounce guards already cover those.
  */
-function attemptsAfterHumanDecision(workItemId: string, sessions: readonly Session[]): readonly Session[] {
-  const floor = latestHumanStatusMoveAt(workItemId);
+function attemptsAfterHumanDecision(floor: string | undefined, sessions: readonly Session[]): readonly Session[] {
   if (!floor) return sessions;
   return sessions.filter((session) => session.lastActivity > floor);
 }
@@ -76,7 +85,7 @@ function attemptsAfterHumanDecision(workItemId: string, sessions: readonly Sessi
  * bookkeeping about a finished attempt stays true regardless of whether that
  * attempt still counts as evidence.
  */
-export function collectAttemptEvidence(workItemId: string): WorkItemAttemptEvidence[] {
+export function collectAttemptEvidence(workItemId: string): WorkItemAttemptReading {
   // A Workflow phase session is linked to the run's bound Todo so the run's
   // spend rolls up there, but the RUN owns its own lifecycle: it retries,
   // parks on gates, and decides when the pipeline is finished. Deriving the
@@ -86,8 +95,12 @@ export function collectAttemptEvidence(workItemId: string): WorkItemAttemptEvide
   // run. Same rule the `source === 'workflow'` guard states for items.
   const sessions = listSessionsByWorkItem(workItemId).filter((s) => s.workflowProvenance?.kind !== 'phase');
   closeRunsForSettledAttempts(sessions);
-  return attemptsAfterHumanDecision(workItemId, sessions).map((s) => ({
-    status: s.status as SessionStatus,
-    outcome: s.attemptOutcome ?? null,
-  }));
+  const humanDecisionAt = latestHumanStatusMoveAt(workItemId);
+  return {
+    humanDecisionAt,
+    attempts: attemptsAfterHumanDecision(humanDecisionAt, sessions).map((s) => ({
+      status: s.status as SessionStatus,
+      outcome: s.attemptOutcome ?? null,
+    })),
+  };
 }
