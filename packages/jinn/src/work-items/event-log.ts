@@ -43,6 +43,9 @@ export type WorkItemEventKind =
 
 /** Actor recorded on the reconciler's own derived writes. */
 export const RECONCILER_ACTOR = 'reconciler';
+/** The actor a human's own writes carry. An employee is not a human here: the
+ *  point of both readers below is that somebody outside the loop decided this. */
+export const HUMAN_ACTOR = 'operator';
 /** Actor recorded when a Workflow run reflects its own lifecycle onto its bound
  *  Todo. Derived, not declared: a status a phase set on purpose outranks it. */
 export const WORKFLOW_RUN_ACTOR = 'workflow:run';
@@ -103,6 +106,27 @@ export function isBlockDeclared(workItemId: string): boolean {
  */
 export function isReviewBounceDeclared(workItemId: string): boolean {
   return latestStatusTransition(workItemId, 'executing')?.fromStatus === 'in_review';
+}
+
+/**
+ * When the operator last moved this Todo himself, or undefined if he never has.
+ * Any event carrying a `to_status` counts — a status change and an escalation
+ * are both him deciding where the item belongs.
+ *
+ * The reconciler reads this as an evidence floor: attempt receipts older than
+ * the decision cannot describe what happened after it.
+ */
+export function latestHumanStatusMoveAt(workItemId: string): string | undefined {
+  const db = initDb();
+  const id = parseTodoId(workItemId);
+  const row = db
+    .prepare(
+      `SELECT created_at FROM work_item_events
+       WHERE work_item_id = ? AND actor = ? AND to_status IS NOT NULL
+       ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    )
+    .get(id, HUMAN_ACTOR) as { created_at: string } | undefined;
+  return row?.created_at;
 }
 
 function rowToWorkItemEvent(row: Record<string, unknown>): WorkItemEvent {

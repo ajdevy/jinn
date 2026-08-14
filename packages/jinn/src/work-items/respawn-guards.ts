@@ -1,6 +1,6 @@
 import { initDb } from '../shared/db.js';
 import { isRateLimitMessage } from '../shared/rateLimit.js';
-import { listWorkItemEvents } from './event-log.js';
+import { HUMAN_ACTOR, listWorkItemEvents } from './event-log.js';
 import { parseTodoId } from './id.js';
 import { listWorkItemRuns, type TodoRun } from './runs.js';
 import { appendWorkItemEvent } from './store.js';
@@ -38,10 +38,6 @@ export const RESPAWN_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
 /** What "recent" means to `recent_success` and `active_pr`. Longer would park
  *  legitimate retries; shorter would not outlast a storm. */
 export const RESPAWN_RECENT_WINDOW_MS = 60 * 60_000;
-
-/** The actor a human's own writes carry. An employee is not a human here: the
- *  point of `recent_success` is that somebody outside the loop has looked. */
-const HUMAN_ACTOR = 'operator';
 
 /** Errors no retry can fix, because the credentials themselves are the problem. */
 const AUTH_ERROR_RE =

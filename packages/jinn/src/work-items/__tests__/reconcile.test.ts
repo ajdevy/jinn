@@ -158,7 +158,7 @@ describe("reconcileWorkItem — integration against real store + registry", () =
     const transitions = await import("../transitions.js");
     const wi = store.createWorkItem({ title: "manual start", status: "backlog", source: "human" });
     transitions.transition(wi.id, "executing", "operator", { human: true, manual: true });
-    linkedSession("s-manual-start", wi.id, "running", "2026-07-01T00:00:00.000Z");
+    linkedSession("s-manual-start", wi.id, "running", new Date(Date.now() + 60_000).toISOString()); // the attempt runs AFTER his dispatch, or it is not evidence about it (PLA-98)
 
     expect(reconcile.reconcileWorkItem(wi.id)).toMatchObject({ changed: false, item: { status: "executing" } });
 

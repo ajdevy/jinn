@@ -13,16 +13,11 @@ import {
 import { transitionDerived } from './transitions.js';
 import { currentApproval } from './approval-rows.js';
 import { expireWorkItemClaims } from './claims.js';
-import {
-  closeOrphanedWorkItemRuns,
-  closeRunsForSettledSessions,
-  closeWorkItemRun,
-  findOpenWorkItemRunBySession,
-  runOutcomeForReceipt,
-} from './runs.js';
-import { listSessionsByWorkItem } from '../sessions/registry.js';
+import { collectAttemptEvidence, type SessionStatus, type WorkItemAttemptEvidence } from './attempt-evidence.js';
+import { closeOrphanedWorkItemRuns, closeRunsForSettledSessions } from './runs.js';
 import { logger } from '../shared/logger.js';
-import type { Session, SessionAttemptOutcome } from '../shared/types.js';
+
+export type { WorkItemAttemptEvidence } from './attempt-evidence.js';
 
 /**
  * Work-item status reconciler (GRS-003a, elevated to the Todos vocabulary by
@@ -36,6 +31,8 @@ import type { Session, SessionAttemptOutcome } from '../shared/types.js';
  *     is a deliberate routing to the operator — session churn never silently
  *     pulls an item off his queue.
  *   - ZERO linked sessions → untouched (`backlog`/`assigned` are never clobbered).
+ *     Attempts older than the operator's own last status move are not linked
+ *     evidence at all — see `attempt-evidence.ts`.
  *   - Any session in flight (`running`/`waiting`) → `executing`.
  *   - Newest attempt with an explicit `succeeded` receipt → `in_review` (the vision's "session completes →
  *     in_review, NOT done" made structural) — then the TRUST policy hook runs in
@@ -48,14 +45,6 @@ import type { Session, SessionAttemptOutcome } from '../shared/types.js';
  * sticky-safe) — the reconciler is a consumer of the state machine, not a second
  * write path.
  */
-
-/** Session lifecycle states, mirrored from `Session.status` in shared/types.ts. */
-type SessionStatus = 'idle' | 'running' | 'error' | 'waiting' | 'interrupted';
-
-export interface WorkItemAttemptEvidence {
-  status: SessionStatus;
-  outcome: SessionAttemptOutcome | null;
-}
 
 /** A session is "in flight" (work is actively happening) in these states. */
 const IN_FLIGHT: ReadonlySet<SessionStatus> = new Set<SessionStatus>(['running', 'waiting']);
@@ -100,33 +89,6 @@ export function deriveWorkItemStatus(
   return current;
 }
 
-/**
- * Settle the run ledger from the same receipts the status derivation reads, so
- * a Todo's attempt history closes the moment its attempts do. Best-effort per
- * session: a ledger write is reporting, and reporting must never break the
- * status the platform actually routes on.
- *
- * Callers pass sessions with Workflow phase sessions already filtered out — the
- * workflow runner settles those runs itself, and racing it would close a phase
- * attempt the run is still retrying.
- */
-function closeRunsForSettledAttempts(sessions: readonly Session[]): void {
-  for (const session of sessions) {
-    if (!session.attemptOutcome) continue;
-    try {
-      const run = findOpenWorkItemRunBySession(session.id);
-      // Read the receipt through the same rate-limit-aware reading the sweep
-      // uses. Whichever of the two reaches an attempt first must settle it the
-      // same way, or a quota window becomes `blocked` purely because the
-      // reconciler got there first — and `blocked` is what the respawn guards
-      // read as "a human has to clear this".
-      if (run) closeWorkItemRun(run.id, { outcome: runOutcomeForReceipt(session.attemptOutcome, session.lastError) });
-    } catch (err) {
-      logger.warn(`Run ledger close for session ${session.id} skipped: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-}
-
 export interface ReconcileResult {
   item: WorkItem;
   changed: boolean;
@@ -146,19 +108,7 @@ export function reconcileWorkItem(id: string): ReconcileResult | undefined {
   // TRUST-close, or otherwise rewrite them. Explicit guarded Todo actions remain
   // available through the normal operator surfaces.
   if (item.source === 'workflow') return { item, changed: false };
-  // A Workflow phase session is linked to the run's bound Todo so the run's
-  // spend rolls up there, but the RUN owns its own lifecycle: it retries,
-  // parks on gates, and decides when the pipeline is finished. Deriving the
-  // Todo from phase receipts would settle it on the first phase that finished —
-  // `in_review` (and TRUST-closed to `done`) with four phases still to run, and
-  // `in_review` is not re-derivable, so it would stay wrong for the rest of the
-  // run. Same rule the `source === 'workflow'` guard above states for items.
-  const sessions = listSessionsByWorkItem(id).filter((s) => s.workflowProvenance?.kind !== 'phase');
-  closeRunsForSettledAttempts(sessions);
-  const attempts = sessions.map((s) => ({
-    status: s.status as SessionStatus,
-    outcome: s.attemptOutcome ?? null,
-  }));
+  const attempts = collectAttemptEvidence(id);
   let derived = deriveWorkItemStatus(item.status, attempts, item.source);
   // Provenance is only needed when receipt derivation would overwrite the
   // current state. Since a Todo cannot be blocked and executing simultaneously,
