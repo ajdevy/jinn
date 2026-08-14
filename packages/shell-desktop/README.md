@@ -153,14 +153,20 @@ so the same file also works pasted into a Web Inspector console.
 Real output from this machine:
 
 ```json
-{"probe":"refresh-rate-probe","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)","devicePixelRatio":1,"measuredRafHz":60,"displayHz":60,"verdict":"indeterminate","reason":"the display runs at 60Hz, so a webview pinned to 60Hz and one at the display's native rate produce the same reading — this machine cannot answer the question","frames":120,"durationMs":2000,"medianIntervalMs":17,"maxIntervalMs":22}
+{"probe":"refresh-rate-probe","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)","devicePixelRatio":1,"measuredRafHz":60,"displayHz":60,"verdict":"indeterminate","reason":"the display runs at 60Hz, so a webview pinned to 60Hz and one at the display's native rate produce the same reading — this machine cannot answer the question","frames":120,"durationMs":2000,"medianIntervalMs":17,"maxIntervalMs":20}
 ```
 
-**The question is unanswered, and this machine cannot answer it.** Its only
-display is 1920×1080 at 60Hz, so a webview honouring the panel and a webview
-pinned to 60 produce the same 60Hz reading. The probe says so rather than
-reporting a pass. Re-run it on a ProMotion display: `verdict` becomes `uncapped`
-if the reading tracks 120Hz, `capped` if it sits at 60.
+**The question is unanswered, and this machine cannot answer it — for two
+independent reasons.** It runs macOS 15.6 (24G84), not macOS 26, so the release
+that is supposed to have removed the cap is not installed. And its only display,
+on an Apple M4, is 1920×1080 at 60.00Hz, so even on macOS 26 a webview honouring
+the panel and a webview pinned to 60 would produce the same 60Hz reading. Either
+reason alone is enough; the probe reports `indeterminate` rather than a pass.
+
+Answering it needs both: macOS 26 **and** a display faster than 60Hz. On that
+machine `verdict` becomes `uncapped` if the reading tracks the panel, `capped` if
+it sits at 60. Running it on a ProMotion display still on macOS 15 measures the
+old behaviour, not the claim.
 
 The two numbers agreeing is still worth something — AppKit's 60 matches
 `system_profiler`'s 60, so the instrument is reading the right display.
@@ -262,5 +268,7 @@ pipeline to hang it on — at which point the CLI-delivered update path above is
 about a day of work. Do not adopt it before then, because an unsigned app that
 cannot update is worse for an operator than the browser tab it replaces. Do not
 drop it either: the spike's value is that this decision never has to be
-re-derived, and the one open question — the refresh-rate cap — needs nothing but
-a ProMotion display and one command.
+re-derived, and the one open question — the refresh-rate cap — needs only a
+machine on macOS 26 with a display faster than 60Hz, and then one command. This
+one is on macOS 15.6 at 1920×1080/60Hz, which is why the probe answers
+`indeterminate` instead of yes or no.
