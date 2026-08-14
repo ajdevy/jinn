@@ -623,7 +623,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 753,
+      "lines": 752,
       "exempt": [
         "complexity",
         "max-lines-per-function"

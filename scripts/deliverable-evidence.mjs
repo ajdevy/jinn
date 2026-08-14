@@ -63,18 +63,25 @@ function required(options, name) {
   return value.trim()
 }
 
-/** Hash one delivered file, refusing anything that is not plainly inside the home. */
+/** Hash one delivered file, refusing anything that is not plainly inside the home.
+ *  Judged on the file the reader will actually open, not on how it was spelled:
+ *  a link named in the home resolves to its target first, so `secrets/` cannot be
+ *  reached under an innocent name. */
 function entryFor(given, homeRoot) {
   if (toPosix(given).split("/").includes("..")) {
     fail(`${given} walks out of the home with "..": name the delivered file by its path under --home`)
   }
-  const absolute = path.resolve(homeRoot, given)
+  const named = path.resolve(homeRoot, given)
+  // A link is judged by the file it points at, so `secrets/` cannot be reached
+  // under an innocent name. A path with nothing behind it is judged as spelled
+  // and the read below reports that it is not there.
+  const absolute = fs.existsSync(named) ? fs.realpathSync(named) : named
   const relative = toPosix(path.relative(homeRoot, absolute))
   if (relative === "" || relative.startsWith("../")) {
     fail(`${given} resolves outside ${homeRoot}: only a file delivered into the home can be evidenced`)
   }
   if (isSecret(relative)) {
-    fail(`${given} is under secrets/: a secret is never hashed, named or evidenced here`)
+    fail(`${given} resolves to ${relative}, which is under secrets/: a secret is never hashed, named or evidenced here`)
   }
   let contents
   try {
@@ -103,7 +110,11 @@ function report(entries) {
 function write({ options, positional }) {
   const todoId = required(options, "todo")
   const summary = required(options, "summary")
-  const homeRoot = path.resolve(required(options, "home"))
+  // Resolved too, so that comparing a resolved file against it is a comparison
+  // of like with like — `/tmp` is a link to `/private/tmp` on macOS.
+  const givenHome = path.resolve(required(options, "home"))
+  if (!fs.existsSync(givenHome)) fail(`--home ${givenHome} does not exist: name the instance home the files were delivered into`)
+  const homeRoot = fs.realpathSync(givenHome)
   const manifestPath = options.manifest ?? MANIFEST_DEFAULT
   if (positional.length === 0) fail(`write needs at least one delivered path\n\n${USAGE}`)
 
@@ -122,7 +133,9 @@ function write({ options, positional }) {
 /** Why a manifest path cannot be evidence, or undefined when it can. */
 function pathReason(given, manifestPath) {
   if (typeof given !== "string" || !given.trim()) return `${manifestPath} has an entry with no path`
-  const normalized = toPosix(given)
+  // Collapsed before it is judged: `./secrets/x` and `secrets/x` name one file,
+  // and only one of the two spellings looked like a secret to a prefix test.
+  const normalized = path.posix.normalize(toPosix(given))
   if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
     return `${manifestPath} names ${given}, which is not a path under the home`
   }

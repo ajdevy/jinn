@@ -72,6 +72,25 @@ for (const [name, arg] of [
   })
 }
 
+test("write refuses a link whose file physically lives under secrets/", () => {
+  const { home, manifest } = fixture()
+  fs.mkdirSync(path.join(home, "secrets"))
+  fs.writeFileSync(path.join(home, "secrets", "fake.json"), '{"token":"x"}\n')
+  fs.symlinkSync(path.join(home, "secrets", "fake.json"), path.join(home, "innocent.md"))
+
+  const refused = run("write", "--todo", "AAA-802", "--home", home, "--manifest", manifest, "--summary", "s", "innocent.md")
+  assert.notEqual(refused.status, 0, `a secret was hashed through a link: ${refused.out}`)
+  assert.match(refused.out, /secrets\//)
+  assert.equal(fs.existsSync(manifest), false, "a refused write must leave no manifest behind")
+})
+
+test("check refuses a secrets/ entry spelled with a leading dot segment", () => {
+  const { manifest } = fixture()
+  writeManifest(manifest, { ...VALID, entries: [{ path: "./secrets/fake.json", sha256: "a".repeat(64), bytes: 12 }] })
+  const checked = run("check", "--todo", "AAA-802", "--manifest", manifest)
+  assert.notEqual(checked.status, 0, `a secret passed as evidence: ${checked.out}`)
+})
+
 test("check exits 0 on a valid manifest", () => {
   const { manifest } = fixture()
   writeManifest(manifest, VALID)

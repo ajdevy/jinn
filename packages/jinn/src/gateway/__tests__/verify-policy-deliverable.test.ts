@@ -21,8 +21,8 @@ function mcpTool(name: string): JinnMcpTool {
 function mcpContext() {
   const sent: unknown[] = [];
   const fetchFn = (async (_input: string | URL, init?: RequestInit) => {
-    sent.push(typeof init?.body === "string" ? JSON.parse(init.body) : undefined);
-    return { status: 201, text: async () => JSON.stringify({ workItem: { id: "AAA-1" } }) } as unknown as Response;
+    if (typeof init?.body === "string") sent.push(JSON.parse(init.body));
+    return { status: 201, text: async () => JSON.stringify({ workItem: { id: "AAA-1", version: 4 } }) } as unknown as Response;
   }) as unknown as typeof fetch;
   return {
     sent,
@@ -103,5 +103,30 @@ describe("a Todo declaring that its deliverable lands in the workspace", () => {
     const good = mcpContext();
     await mcpTool("create_work_item").handler({ title: "Deliver a Note", verifyPolicy: { mode: "verify", deliverable: "workspace" } }, good.ctx);
     expect(good.sent).toEqual([{ title: "Deliver a Note", verifyPolicy: { mode: "verify", deliverable: "workspace" } }]);
+  });
+
+  it("is declarable on the tool that moves a Todo, through the metadata pen and before the move", async () => {
+    const moved = mcpContext();
+    await mcpTool("update_work_item").handler(
+      { id: "AAA-1", status: "executing", verifyPolicy: { mode: "verify", deliverable: "workspace" } },
+      moved.ctx,
+    );
+    // The declaration goes through the operator-only PATCH pen, and it goes
+    // first: a route the gateway refuses must not leave the status already moved.
+    expect(moved.sent).toEqual([
+      { verifyPolicy: { mode: "verify", deliverable: "workspace" }, expectedVersion: 4 },
+      { status: "executing" },
+    ]);
+  });
+
+  it("is refused on update_work_item too, by the same named error and before anything moves", async () => {
+    const refused = mcpContext();
+    await expect(
+      mcpTool("update_work_item").handler(
+        { id: "AAA-1", status: "executing", verifyPolicy: { mode: "verify", deliverable: "elsewhere" } },
+        refused.ctx,
+      ),
+    ).rejects.toThrow("verifyPolicy.deliverable must be one of repo, workspace");
+    expect(refused.sent).toEqual([]);
   });
 });

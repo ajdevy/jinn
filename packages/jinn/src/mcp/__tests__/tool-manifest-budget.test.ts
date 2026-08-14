@@ -101,6 +101,17 @@ const ATTESTED = {
   // page the rest with offset" to "N chars per call; offset pages the rest"),
   // and nothing dead is left in this group to buy the remaining 14 from, so the
   // ceiling moves by exactly that. Pi stays five under it.
+  // Reattested for `verifyPolicy` on update_work_item (PLA-102): a Todo
+  // declaring that its product lands in the operator's workspace rather than in
+  // the diff has to be able to say so on the tool that moves it, or the route is
+  // one the web surface can declare and an agent cannot. It is a bare
+  // `{"type":"object"}` and not one word of prose, so its whole cost is 7 tokens
+  // on each of the three wrappers. It buys them back rather than moving the
+  // ceiling: `update_work_item`'s own description said "Also updates blocked
+  // reason, spend, budget, and dispatch fields", a list its schema properties
+  // already enumerate one line below, and dropping it pays exactly 7. The
+  // ceiling, all three totals, and the tool count are what `main` pinned; only
+  // the payload changed, so only the SHAs move.
   rpc: { tokens: 5421, sha256: "aeee2728e07eaa19d912150a50bcea08e993abef2e74864f4b694dafb627be1f" },
   pi: { tokens: 5927, sha256: "f002a3ac92d9c0d7403b6a22cc3a1079ad80ba58a4f84ccfd8f906a3c587e59f" },
   openai: { tokens: 5626, sha256: "a3959eb65526136f080efcfdb7a68dcbf2a0c69f5c8acfbf1544a48eb7d73c43" },

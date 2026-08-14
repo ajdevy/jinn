@@ -3,7 +3,7 @@ import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { parseTodoId } from "../work-items/id.js";
 import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
-import { validateVerifyPolicy } from "../work-items/verify-policy.js";
+import { validateVerifyPolicy, type VerifyPolicy } from "../work-items/verify-policy.js";
 import {
   clampInt,
   FILTER_CHAR_CAP,
@@ -112,11 +112,30 @@ function rejectApprovalFields(args: Record<string, unknown>, toolName: string): 
   }
 }
 
-function optionalObject(args: Record<string, unknown>, name: string): Record<string, unknown> | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (!v || typeof v !== "object" || Array.isArray(v)) throw new JinnMcpToolError(`${name} must be a JSON object when provided`);
-  return v as Record<string, unknown>;
+/** The declared verify policy, refused with the same named error the gateway
+ *  route would give it, or undefined when the caller declared none. */
+function validatedVerifyPolicy(args: Record<string, unknown>): VerifyPolicy | null | undefined {
+  if (args.verifyPolicy === undefined || args.verifyPolicy === null) return undefined;
+  const validated = validateVerifyPolicy(args.verifyPolicy);
+  if (!validated.ok) throw new JinnMcpToolError(validated.error);
+  return validated.value;
+}
+
+/** PATCH the metadata pen at a freshly read version, retrying ONCE on a concurrent
+ *  bump so an agent never runs the optimistic-concurrency loop itself. A second
+ *  conflict surfaces the 409. */
+async function patchWorkItem(ctx: JinnMcpContext, id: string, patch: Record<string, unknown>, what: string): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    const read = await gatewayRequest(ctx, "GET", `/api/work-items/${encodeURIComponent(id)}`);
+    if (read.status >= 400) throw gatewayFailure(what, read.status, read.body);
+    const version = ((read.body ?? {}) as { workItem?: { version?: unknown } }).workItem?.version;
+    if (typeof version !== "number") throw new JinnMcpToolError(`${what} failed: the gateway detail payload carried no version`);
+    const { status, body } = await gatewayRequest(ctx, "PATCH", `/api/work-items/${encodeURIComponent(id)}`, { ...patch, expectedVersion: version });
+    const stale = attempt === 0 && status === 409 && ((body ?? {}) as { code?: unknown }).code === "todo_version_conflict";
+    if (stale) continue;
+    if (status >= 400) throw gatewayFailure(what, status, body);
+    return body;
+  }
 }
 
 function rejectProvenance(args: Record<string, unknown>): void {
@@ -256,12 +275,8 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         const v = optionalString(args, key, key === "body" || key === "acceptance" ? WORK_ITEM_BODY_CHAR_CAP : FILTER_CHAR_CAP);
         if (v !== undefined) body[key] = v;
       }
-      const verifyPolicy = optionalObject(args, "verifyPolicy");
-      if (verifyPolicy) {
-        const validated = validateVerifyPolicy(verifyPolicy);
-        if (!validated.ok) throw new JinnMcpToolError(validated.error);
-        body.verifyPolicy = validated.value;
-      }
+      const verifyPolicy = validatedVerifyPolicy(args);
+      if (verifyPolicy !== undefined) body.verifyPolicy = verifyPolicy;
       if (args.parentId !== undefined) {
         try { body.parentId = parseTodoId(args.parentId); }
         catch { throw new JinnMcpToolError("parentId must be a canonical Todo ID such as ACM-42"); }
@@ -315,6 +330,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         asOperator: { type: "boolean", description: "Record the move as the operator's. COO only." },
         cascade: { type: "boolean", description: "With `done`, close its open sub-tasks too. Operator surface only." },
         acknowledgeEscalated: { type: "boolean", description: "Let a cascade close an escalated sub-task." },
+        verifyPolicy: { type: "object" },
       },
       required: ["id", "status"],
     },
@@ -328,6 +344,11 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       const blockKind = parseBlockKind(args.blockKind);
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
+      // Where a Todo's product lands is metadata, not a lifecycle edge: it rides
+      // the same operator-only pen the web surface writes it through, and rides
+      // it first, so a refused declaration cannot leave the status already moved.
+      const verifyPolicy = validatedVerifyPolicy(args);
+      if (verifyPolicy !== undefined) await patchWorkItem(ctx, id, { verifyPolicy }, `updating work item "${id}"`);
       const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };
       const { status, body } = await gatewayRequest(ctx, "POST", `/api/work-items/${encodeURIComponent(id)}/status`, payload);
       if (status >= 400) throw gatewayFailure(`updating work item "${id}"`, status, body);
@@ -397,29 +418,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       if (Object.keys(patch).length === 0) {
         throw new JinnMcpToolError("pass at least one editable field (title, body, acceptance, priority, dueAt)");
       }
-      // Agents should not have to run the optimistic-concurrency loop for a
-      // simple metadata edit: read a fresh version, PATCH with it, and retry
-      // ONCE on a concurrent bump. A second conflict surfaces the 409.
-      let conflict: JinnMcpToolError | undefined;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const read = await gatewayRequest(ctx, "GET", `/api/work-items/${encodeURIComponent(id)}`);
-        if (read.status >= 400) throw gatewayFailure(`editing work item "${id}"`, read.status, read.body);
-        const version = ((read.body ?? {}) as { workItem?: { version?: unknown } }).workItem?.version;
-        if (typeof version !== "number") {
-          throw new JinnMcpToolError(`editing work item "${id}" failed: the gateway detail payload carried no version`);
-        }
-        const { status, body } = await gatewayRequest(ctx, "PATCH", `/api/work-items/${encodeURIComponent(id)}`, {
-          ...patch,
-          expectedVersion: version,
-        });
-        if (status === 409 && ((body ?? {}) as { code?: unknown }).code === "todo_version_conflict") {
-          conflict = gatewayFailure(`editing work item "${id}"`, status, body);
-          continue;
-        }
-        if (status >= 400) throw gatewayFailure(`editing work item "${id}"`, status, body);
-        return mutationResult(body, "Todo metadata edited.");
-      }
-      throw conflict!;
+      return mutationResult(await patchWorkItem(ctx, id, patch, `editing work item "${id}"`), "Todo metadata edited.");
     },
   };
 
