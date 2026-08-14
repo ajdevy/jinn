@@ -43,6 +43,8 @@ export interface OpenTalkSessionOptions {
   /** The `sessions` row this talk session bills through. */
   sessionId: string;
   model: string;
+  /** The standing brief this session opens with. */
+  brief: string;
   /** Expiry of the credential minted for this open, in provider seconds. */
   tokenExpiresAt: number;
 }
@@ -69,6 +71,7 @@ export class TalkSessionRegistry {
       sessionId: options.sessionId,
       state: "live",
       model: options.model,
+      brief: options.brief,
       openedAt: at,
       lastSeenAt: at,
       turns: [],

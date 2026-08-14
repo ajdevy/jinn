@@ -23,6 +23,10 @@ export interface OpenTalkSession {
   /** Unix seconds. */
   expiresAt: number
   model: string
+  /** The standing brief the gateway built for this instance. Empty when the
+   *  gateway predates it, which the driver handles by sending page context
+   *  alone. */
+  brief: string
 }
 
 export interface TalkToken {
@@ -78,7 +82,13 @@ export async function openTalkSession(): Promise<OpenTalkSession> {
   if (typeof opened.id !== "string" || typeof opened.token !== "string") {
     throw new Error("The gateway opened a talk session without an id and a credential.")
   }
-  return { id: opened.id, token: opened.token, expiresAt: opened.expiresAt ?? 0, model: opened.model ?? "" }
+  return {
+    id: opened.id,
+    token: opened.token,
+    expiresAt: opened.expiresAt ?? 0,
+    model: opened.model ?? "",
+    brief: opened.brief ?? "",
+  }
 }
 
 /** `keepalive` because this is also what a closing tab sends, and an unload

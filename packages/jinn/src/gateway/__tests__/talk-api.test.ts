@@ -7,6 +7,8 @@ import {
   stubMintingFetch,
 } from "./helpers/talk-route-harness.js";
 import type { JinnConfig } from "../../shared/types.js";
+import { TALK_BRIEF_BUDGET_CHARS } from "../../talk/session/brief.js";
+import { TALK_CONTEXT_BUDGET_TOKENS, estimateTokens } from "../../talk/session/context.js";
 
 let config: JinnConfig;
 let minting: ReturnType<typeof stubMintingFetch>;
@@ -191,5 +193,45 @@ describe("progressive tool exposure", () => {
     const res = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["telepathy"] });
     expect(res.status).toBe(400);
     expect(String(res.body.error)).toMatch(/todos/);
+  });
+});
+
+describe("the standing brief", () => {
+  it("hands the browser the brief and reports what it costs", async () => {
+    const body = await open();
+
+    expect(String(body.brief)).toContain("Workflow");
+    expect(body.briefChars).toBe(String(body.brief).length);
+    expect(body.briefChars as number).toBeGreaterThan(0);
+    expect(body.briefChars as number).toBeLessThanOrEqual(TALK_BRIEF_BUDGET_CHARS);
+    expect(body.briefTokens).toBe(estimateTokens(String(body.brief)));
+  });
+
+  it("keeps the brief out of the turn budget it does not spend", async () => {
+    const id = (await open()).id as string;
+
+    const before = await call(config, "GET", `/api/talk/sessions/${id}`);
+    expect(before.body.contextTokens).toBe(0);
+    expect(before.body.contextBudgetTokens).toBe(TALK_CONTEXT_BUDGET_TOKENS);
+    expect(before.body.briefTokens as number).toBeGreaterThan(0);
+
+    await call(config, "POST", `/api/talk/sessions/${id}/turn`, {
+      usage: {
+        inputAudioTokens: 0,
+        outputAudioTokens: 0,
+        inputTextTokens: 0,
+        outputTextTokens: 0,
+        cachedInputAudioTokens: 0,
+        cachedInputTextTokens: 0,
+      },
+      transcript: "who works here",
+    });
+
+    // The turn transcript is the only thing the budget meters: the brief rides
+    // `instructions`, which is replaced rather than accumulated.
+    const after = await call(config, "GET", `/api/talk/sessions/${id}`);
+    expect(after.body.contextTokens).toBe(estimateTokens("who works here"));
+    expect(after.body.contextBudgetTokens).toBe(TALK_CONTEXT_BUDGET_TOKENS);
+    expect(after.body.briefChars).toBe(before.body.briefChars);
   });
 });

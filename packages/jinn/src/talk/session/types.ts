@@ -48,6 +48,10 @@ export interface TalkSession {
   sessionId: string;
   state: TalkSessionState;
   model: string;
+  /** What this instance is, built once when the session opens. The org is
+   *  scanned from disk, and a conversation that re-read it per heartbeat would
+   *  pay for a roster that cannot change under it mid-session. */
+  brief: string;
   openedAt: number;
   /** Last heartbeat. The reaper closes a session that stops sending them. */
   lastSeenAt: number;
