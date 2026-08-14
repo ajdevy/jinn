@@ -5,3 +5,9 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/tauri.conf.gen.json
+
+# Cargo resolves this from Cargo.toml on first build. A committed one would be
+# 4,600 machine-written lines in a repo that caps a reviewable file at 300, and
+# nothing in CI compiles this crate, so there is no build for it to pin. The
+# cost is stated under "What is deliberately not wired" in README.md.
+src-tauri/Cargo.lock

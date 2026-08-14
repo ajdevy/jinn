@@ -11,8 +11,7 @@
     "clean": "rm -rf dist src-tauri/tauri.conf.gen.json",
     "desktop:sync": "node tauri.config.ts",
     "desktop:dev": "pnpm run desktop:sync && cargo tauri dev --config src-tauri/tauri.conf.gen.json",
-    "desktop:build": "pnpm run desktop:sync && cargo tauri build --config src-tauri/tauri.conf.gen.json --bundles app",
-    "desktop:probe": "pnpm run desktop:sync && JINN_SHELL_PROBE=1 cargo tauri dev --config src-tauri/tauri.conf.gen.json"
+    "desktop:build": "pnpm run desktop:sync && cargo tauri build --config src-tauri/tauri.conf.gen.json --bundles app"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -140,18 +140,20 @@ as `window.__jinnDisplayHz`, from `NSScreen.maximumFramesPerSecond`
 (`src-tauri/src/display.rs`). No web API exposes it.
 
 ```sh
-pnpm --filter @jinn/shell-desktop desktop:probe
+JINN_SHELL_PROBE=1 pnpm --filter @jinn/shell-desktop desktop:dev
 ```
 
-opens a blank local window, runs the probe in it, prints one JSON line and
-quits. The probe itself knows nothing about Tauri: it prints through
-`console.log`, and the shell forwards what it printed, so the same file also
-works pasted into a Web Inspector console.
+opens a blank local window alongside the main one, runs the probe in it, prints
+one JSON line and quits. It is the variable rather than a third script because
+`desktop:dev` and `desktop:build` are the only two entry points into Rust, and
+an instrument does not earn a third. The probe itself knows nothing about
+Tauri: it prints through `console.log`, and the shell forwards what it printed,
+so the same file also works pasted into a Web Inspector console.
 
 Real output from this machine:
 
 ```json
-{"probe":"refresh-rate-probe","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)","devicePixelRatio":1,"measuredRafHz":60,"displayHz":60,"verdict":"indeterminate","reason":"the display runs at 60Hz, so a webview pinned to 60Hz and one at the display's native rate produce the same reading — this machine cannot answer the question","frames":120,"durationMs":2000,"medianIntervalMs":17,"maxIntervalMs":19}
+{"probe":"refresh-rate-probe","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)","devicePixelRatio":1,"measuredRafHz":60,"displayHz":60,"verdict":"indeterminate","reason":"the display runs at 60Hz, so a webview pinned to 60Hz and one at the display's native rate produce the same reading — this machine cannot answer the question","frames":120,"durationMs":2000,"medianIntervalMs":17,"maxIntervalMs":22}
 ```
 
 **The question is unanswered, and this machine cannot answer it.** Its only
@@ -227,13 +229,20 @@ exactly what this is.
   callers to justify a framework.
 - **Devtools off in release.** The `devtools` feature is on so the shell can be
   inspected; a shipped build would drop it.
+- **A committed `Cargo.lock`.** An application crate normally pins its
+  dependency graph. This one is gitignored instead: it is 4,600 machine-written
+  lines against a repo that caps a reviewable file at 300, and nothing in CI
+  compiles this crate, so there is no build for it to make reproducible. Two
+  people building the shell a month apart can resolve different patch versions
+  within the ranges in `Cargo.toml`. Commit it the day a release pipeline
+  compiles this crate, and record the size exemption then.
 
 ## What CI does with this package
 
 Nothing native. `build`, `typecheck`, `lint` and `test` are pure TypeScript and
 run on the Linux and Windows runners like any other package — no turbo task
-invokes `cargo` or `tauri`. Rust is reachable only through `desktop:dev`,
-`desktop:build` and `desktop:probe`, which CI never runs.
+invokes `cargo` or `tauri`. Rust is reachable only through `desktop:dev` and
+`desktop:build`, which CI never runs.
 
 ## Verdict: defer
 
