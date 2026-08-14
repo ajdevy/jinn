@@ -8,9 +8,8 @@ import type { JinnConfig, Employee } from "../../shared/types.js";
 let tmpDir: string;
 
 vi.mock("../../shared/paths.js", () => ({
-  get ORG_DIR() {
-    return tmpDir;
-  },
+  // PLA-56: org.ts resolves <home>/org at call time, so the seam is tmpDir's parent.
+  resolveJinnHome: () => path.dirname(tmpDir),
 }));
 
 vi.mock("../../shared/logger.js", () => ({
@@ -64,12 +63,13 @@ function emp(overrides: Partial<Employee> = {}): Employee {
 
 describe("updateEmployeeYaml", () => {
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-update-test-"));
+    tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "org-update-test-")), "org");
+    fs.mkdirSync(tmpDir, { recursive: true });
     invalidateModelRegistry();
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 
   it("updates alwaysNotify field in existing YAML", () => {

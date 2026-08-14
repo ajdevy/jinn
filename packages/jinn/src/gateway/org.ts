@@ -1,8 +1,7 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
-import { ORG_DIR } from "../shared/paths.js";
+import { resolveJinnHome } from "../shared/paths.js";
 import type { Employee, JinnConfig } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
@@ -11,13 +10,6 @@ import {
   resolveSystemEmployees,
   SYSTEM_EMPLOYEE_OVERRIDE_FIELDS,
 } from "./system-employees.js";
-
-function currentOrgDir(): string {
-  const instance = process.env.JINN_INSTANCE || "jinn";
-  const defaultOrgDir = path.join(os.homedir(), `.${instance}`, "org");
-  if (ORG_DIR !== defaultOrgDir) return ORG_DIR;
-  return process.env.JINN_HOME ? path.join(process.env.JINN_HOME, "org") : ORG_DIR;
-}
 
 /**
  * Recursively walk `dir`, invoking `visit` for every employee YAML file
@@ -50,7 +42,7 @@ export function scanOrg(config?: JinnConfig): Map<string, Employee> {
   const registry = new Map<string, Employee>(
     resolveSystemEmployees(config).map((employee) => [employee.name, employee]),
   );
-  const orgDir = currentOrgDir();
+  const orgDir = path.join(resolveJinnHome(), "org");
 
   if (!fs.existsSync(orgDir)) return registry;
 
@@ -120,10 +112,10 @@ export function scanOrg(config?: JinnConfig): Map<string, Employee> {
 
 /**
  * Find the YAML file for an employee by name.
- * Searches ORG_DIR recursively.
+ * Searches the current instance's org directory recursively.
  */
 function findEmployeeYamlPath(name: string): string | undefined {
-  const orgDir = currentOrgDir();
+  const orgDir = path.join(resolveJinnHome(), "org");
   if (!fs.existsSync(orgDir)) return undefined;
 
   return walkEmployeeYamls(orgDir, (fullPath) => {
@@ -354,7 +346,7 @@ export function updateEmployeeYaml(
   if (!filePath && !systemEmployee) return false;
 
   if (!filePath) {
-    const systemDir = path.join(currentOrgDir(), "system");
+    const systemDir = path.join(resolveJinnHome(), "org", "system");
     fs.mkdirSync(systemDir, { recursive: true });
     filePath = path.join(systemDir, `${name}.yaml`);
     fs.writeFileSync(filePath, yaml.dump({ name }, { lineWidth: -1 }), "utf-8");

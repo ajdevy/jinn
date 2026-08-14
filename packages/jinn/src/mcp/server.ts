@@ -1,7 +1,6 @@
 import readline from "node:readline";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { JinnMcpContext, JinnMcpTool } from "./toolkit.js";
@@ -22,6 +21,7 @@ import { buildConnectorTools } from "./connector-tools.js";
 import { buildHeartbeatTools } from "./heartbeat-tools.js";
 import { JINN_SESSION_CAPABILITY_ENV, JINN_SESSION_ID_ENV, JINN_WORKFLOW_ATTEMPT_ENV } from "./identity.js";
 import { loadConfig } from "../shared/config.js";
+import { resolveJinnHome } from "../shared/home.js";
 
 /**
  * GRS-018 (§3b) — bearer resolution with a gateway.json fallback.
@@ -42,7 +42,7 @@ export function resolveServerToken(explicit?: string): string | undefined {
   if (explicit) return explicit;
   if (process.env.JINN_GATEWAY_TOKEN) return process.env.JINN_GATEWAY_TOKEN;
   try {
-    const home = process.env.JINN_HOME || path.join(os.homedir(), ".jinn");
+    const home = resolveJinnHome();
     const raw = JSON.parse(fs.readFileSync(path.join(home, "gateway.json"), "utf-8")) as { token?: unknown };
     // Same shape check as auth.ts ensureGatewayAuthToken (>= 32 chars).
     if (typeof raw.token === "string" && raw.token.length >= 32) return raw.token;

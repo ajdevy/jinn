@@ -3,14 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-// We need to mock ORG_DIR to point to a temp directory
+// PLA-56: org.ts resolves its org dir at CALL time from resolveJinnHome(), so
+// the seam is the home (not the frozen ORG_DIR constant). tmpDir stays the org
+// dir the fixtures are written into: <tmpHome>/org.
+let tmpHome: string;
 let tmpDir: string;
 
 vi.mock("../../shared/paths.js", () => ({
-  get ORG_DIR() {
-    return tmpDir;
-  },
+  resolveJinnHome: () => tmpHome,
 }));
+
+function makeTmpOrg(prefix: string) {
+  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tmpDir = path.join(tmpHome, "org");
+  fs.mkdirSync(tmpDir, { recursive: true });
+}
 
 vi.mock("../../shared/logger.js", () => ({
   logger: {
@@ -31,11 +38,11 @@ function writeYaml(subdir: string, filename: string, content: string) {
 
 describe("scanOrg — alwaysNotify field", () => {
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-test-"));
+    makeTmpOrg("org-test-");
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
   it("defaults alwaysNotify to true when not specified in YAML", () => {
@@ -88,11 +95,11 @@ alwaysNotify: "yes"
 
 describe("scanOrg — jinnMcp per-employee override (GRS-017e-fix, live-QA phase-D catch)", () => {
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-test-"));
+    makeTmpOrg("org-test-");
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
   it("parses jinnMcp: true/false from the employee YAML (the scan whitelist previously dropped it — a YAML pilot could never arm the smoke gate)", () => {
@@ -129,11 +136,11 @@ jinnMcp: "yes"
 
 describe("scanOrg — reserved author identities", () => {
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-test-reserved-"));
+    makeTmpOrg("org-test-reserved-");
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
   it("skips employees whose name collides with the operator/system/session author namespaces and keeps scanning", async () => {

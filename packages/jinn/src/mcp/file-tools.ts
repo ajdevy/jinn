@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { assertBoundCaller, gatewayGet, gatewayRequest, JinnMcpToolError, type JinnMcpContext, type JinnMcpTool } from "./toolkit.js";
+import { resolveJinnHome } from "../shared/home.js";
 
 const LIST_LIMIT_DEFAULT = 20;
 const LIST_LIMIT_MAX = 50;
@@ -36,8 +37,8 @@ function pathWithin(candidate: string, root: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
-function managedRoots(): { home: string; filesDir: string; uploadsDir: string } {
-  const home = process.env.JINN_HOME || path.join(process.env.HOME || process.cwd(), ".jinn");
+export function managedRoots(): { home: string; filesDir: string; uploadsDir: string } {
+  const home = resolveJinnHome();
   return {
     home,
     filesDir: path.join(home, "files"),
