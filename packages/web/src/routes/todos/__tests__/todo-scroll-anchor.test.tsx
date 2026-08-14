@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
@@ -8,14 +8,13 @@ import TodoBoardPage from "../board/board-page"
 import { clearBoardScrollCache } from "../board/board-route"
 
 /**
- * Scroll anchoring on the Todos list, on both paths it now runs on.
+ * Scroll anchoring on the Todos list.
  *
  * jsdom has no layout engine, so the list is given one: every anchored row is
  * ROW_H tall, the scrollport is VIEWPORT_H tall, and a row's rect follows its
  * position in the CURRENT DOM order minus scrollTop. That makes "where is this
  * row on screen" a number the test can read before and after a status change,
- * which is the thing the reader actually notices. Forty Todos stays below
- * `VIRTUALIZE_THRESHOLD`; the windowed path has its own describe and harness.
+ * which is the thing the reader actually notices.
  */
 
 vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
@@ -223,6 +222,8 @@ describe("Todos list scroll anchoring", () => {
 /**
  * The same reflow above `VIRTUALIZE_THRESHOLD`, where the list is windowed and
  * the anchor corrects a scrollport whose rows mount and unmount underneath it.
+ * Forty Todos keeps every case above this one below the threshold, on the
+ * un-windowed harness at the top of the file; this one brings its own.
  */
 describe("Todos list scroll anchoring, windowed", () => {
   /** The virtualizer's own item estimate, so an unmeasured row is this tall. */
@@ -238,7 +239,7 @@ describe("Todos list scroll anchoring, windowed", () => {
 
     const read = 30.5 * WINDOW_ROW_H
     layout.scrollTo(read)
-    await waitFor(() => expect(layout.scrollTop()).toBe(read))
+    await vi.waitFor(() => expect(layout.scrollTop()).toBe(read))
     const anchored = layout.visibleRowIds()[0]
     const before = layout.offsetOf(anchored)
 
@@ -246,7 +247,7 @@ describe("Todos list scroll anchoring, windowed", () => {
     await settleStatusChange(client)
     // The refetch's render lands after the invalidate resolves, and the
     // correction rides with it: holding the place is what moves the scrollport.
-    await waitFor(() => expect(layout.scrollTop()).toBeGreaterThan(read))
+    await vi.waitFor(() => expect(layout.scrollTop()).toBeGreaterThan(read))
 
     // `offsetOf` throws on an unmounted row, so this also proves the window
     // still covers where the reader was left.
