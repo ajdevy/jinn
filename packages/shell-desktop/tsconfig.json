@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["node"],
+    // `desktop:sync` runs tauri.config.ts through Node's type stripping, which
+    // resolves the import specifier as written. Only this option lets a `.ts`
+    // specifier typecheck too, so one path serves the compiler and the runtime.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["tauri.config.ts", "tauri.config.test.ts", "vitest.config.ts"]
+}

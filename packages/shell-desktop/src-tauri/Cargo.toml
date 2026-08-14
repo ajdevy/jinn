@@ -1,0 +1,30 @@
+[package]
+name = "jinn-shell-desktop"
+version = "0.1.0"
+description = "Desktop shell for the Jinn dashboard"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+# macOS only, by decision rather than by omission: the spike answers a macOS
+# question (window chrome, menu bar, refresh rate), and the menu below uses
+# predefined items AppKit alone provides. See README.md for what the other two
+# platforms would need.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `devtools` in release too: this package exists to be measured, and the Web
+# Inspector is how `scripts/refresh-rate-probe.js` gets run. A shipped build
+# would drop it.
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-window-state = "2"
+# `tauri::generate_context!` expands into serde_json, so the crate has to be in
+# scope even though no line here names it.
+serde_json = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
