@@ -22,6 +22,48 @@ export interface TodoLiveEvent {
   sessionId?: string;
 }
 
+/**
+ * PLA-96 — a signal is HELD while the write that raised it is still inside an
+ * enclosing transaction, and released only once that transaction commits.
+ *
+ * A cascade closes its descendants through nested `transition` calls, and a
+ * nested call returns when its SAVEPOINT is released, not when the tree lands.
+ * Announcing there reports a completion a rollback can still take back, and a
+ * workflow trigger that has already fired cannot be unfired. Writes with no
+ * enclosing transaction (the cron mint) still emit the moment they commit.
+ */
+let openTransactions = 0;
+const heldSignals: Array<() => void> = [];
+
+/** Run `commit` — a `db.transaction(…)` handle — releasing the signals raised
+ *  under it only if it returns. A throw rolls the transaction back, so the
+ *  signals are dropped with the writes that raised them. */
+export function holdLiveSignalsUntilCommit<T>(commit: () => T): T {
+  openTransactions += 1;
+  let committed = false;
+  try {
+    const value = commit();
+    committed = true;
+    return value;
+  } finally {
+    openTransactions -= 1;
+    if (openTransactions === 0) releaseHeldSignals(committed);
+  }
+}
+
+/** The outermost transaction has ended: send everything it raised, or drop the
+ *  lot when it rolled back. */
+function releaseHeldSignals(committed: boolean): void {
+  const pending = heldSignals.splice(0);
+  if (!committed) return;
+  for (const signal of pending) signal();
+}
+
+function emitOrHold(signal: () => void): void {
+  if (openTransactions === 0) signal();
+  else heldSignals.push(signal);
+}
+
 type TodoLiveEmitter = (event: TodoLiveEvent) => void;
 
 let emitter: TodoLiveEmitter | null = null;
@@ -31,19 +73,21 @@ export function setTodoLiveEmitter(next: TodoLiveEmitter | null): void {
 }
 
 export function notifyTodoChanged(item: WorkItem, action: string, sessionId?: string): void {
-  if (!emitter) return;
-  try {
-    emitter({
-      entity: "todo",
-      action,
-      id: item.id,
-      version: item.version,
-      value: item as unknown as JsonObject,
-      ...(sessionId ? { sessionId } : {}),
-    });
-  } catch {
-    // A broken listener must never fail the write it observes.
-  }
+  emitOrHold(() => {
+    if (!emitter) return;
+    try {
+      emitter({
+        entity: "todo",
+        action,
+        id: item.id,
+        version: item.version,
+        value: item as unknown as JsonObject,
+        ...(sessionId ? { sessionId } : {}),
+      });
+    } catch {
+      // A broken listener must never fail the write it observes.
+    }
+  });
 }
 
 /** The second listener on the same write: a committed status change, handed to
@@ -64,14 +108,18 @@ export function setTodoStatusChangeListener(listener: TodoStatusChangeListener |
 }
 
 export function notifyTodoStatusChange(event: WorkItemEvent | undefined, item: WorkItem): void {
-  if (!event || !event.fromStatus || !event.toStatus || !todoStatusChangeListener) return;
-  try {
-    const maybe = todoStatusChangeListener({ ...event, fromStatus: event.fromStatus, toStatus: event.toStatus, item });
-    if (maybe && typeof (maybe as Promise<void>).catch === "function") {
-      void (maybe as Promise<void>).catch(() => undefined);
+  if (!event || !event.fromStatus || !event.toStatus) return;
+  const change = { ...event, fromStatus: event.fromStatus, toStatus: event.toStatus, item };
+  emitOrHold(() => {
+    if (!todoStatusChangeListener) return;
+    try {
+      const maybe = todoStatusChangeListener(change);
+      if (maybe && typeof (maybe as Promise<void>).catch === "function") {
+        void (maybe as Promise<void>).catch(() => undefined);
+      }
+    } catch {
+      // Best-effort bridge: a workflow-fire failure must never roll back or throw
+      // from the guarded lifecycle transition that already committed.
     }
-  } catch {
-    // Best-effort bridge: a workflow-fire failure must never roll back or throw
-    // from the guarded lifecycle transition that already committed.
-  }
+  });
 }
