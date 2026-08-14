@@ -290,6 +290,11 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+  /* Height the on-screen keyboard obscures, published from visualViewport by
+     lib/native/keyboard-inset.ts. Declared here so the variable resolves before
+     that runs and in browsers without visualViewport; compose it the same way,
+     e.g. pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))]. */
+  --keyboard-inset: 0px;
   /* Max reading measure for the assistant text column. Scroller + composer stay
      full-bleed; only the prose column caps. Single-line tune. */
   --chat-measure: 64rem;

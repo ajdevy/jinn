@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import type { OrbState } from "../orb-motion"
 import { setTalkSessionId } from "../talk-session-store"
-import { createTalkDriver } from "./session-driver"
+import { detach, useAttach, type Attachment } from "./attachment"
 import {
   closeTalkSession,
   openTalkSession,
@@ -20,12 +20,12 @@ import {
   resumeTalkSession,
   startTalkHeartbeat,
 } from "./session-client"
-import { connectRealtime, type ConnectRealtime, type TalkConnection } from "./webrtc-connection"
+import { connectRealtime, type ConnectRealtime } from "./webrtc-connection"
 
 interface LiveSession {
   id: string
   /** Null while parked: the connection is dropped so the provider bills nothing. */
-  connection: TalkConnection | null
+  attachment: Attachment | null
   stopHeartbeat: () => void
 }
 
@@ -41,7 +41,7 @@ interface SessionControls {
    *  belongs to a session nobody is waiting for, and hands itself back rather
    *  than turning the microphone on behind a closed session. */
   generationRef: RefObject<number>
-  attach: (id: string, token: string) => Promise<TalkConnection>
+  attach: (id: string, token: string) => Promise<Attachment>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
   setState: (state: OrbState) => void
@@ -62,53 +62,6 @@ function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/**
- * Bring up the provider connection for an already-open talk session.
- *
- * The driver is built before the connection so that a data channel which opens
- * before `connect` resolves still gets its `session.update` — once, and never
- * before there is something to send it on.
- */
-function useAttach(
-  connect: ConnectRealtime,
-  level: RefObject<number>,
-  setState: (state: OrbState) => void,
-  setError: (message: string) => void,
-) {
-  return useCallback(
-    async (id: string, token: string): Promise<TalkConnection> => {
-      let connection: TalkConnection | null = null
-      let channelOpen = false
-      let started = false
-      const start = () => {
-        if (started || !channelOpen || !connection) return
-        started = true
-        driver.start()
-      }
-      const driver = createTalkDriver({
-        sessionId: id,
-        send: (event) => connection?.send(event),
-        onState: setState,
-        onError: setError,
-      })
-
-      connection = await connect({
-        token,
-        level,
-        onOpen: () => {
-          channelOpen = true
-          start()
-        },
-        onFrame: driver.receive,
-        onClose: () => setState("idle"),
-      })
-      start()
-      return connection
-    },
-    [connect, level, setState, setError],
-  )
-}
-
 /** Tear the session down locally, whatever the gateway makes of the DELETE. */
 function useForget(
   liveRef: RefObject<LiveSession | null>,
@@ -120,7 +73,7 @@ function useForget(
     (live: LiveSession) => {
       generationRef.current += 1
       live.stopHeartbeat()
-      live.connection?.close()
+      if (live.attachment) detach(live.attachment)
       liveRef.current = null
       setTalkSessionId(null)
       setActive(false)
@@ -151,14 +104,14 @@ async function openSession(controls: SessionControls): Promise<void> {
     const session = await openTalkSession()
     opened = session.id
     setTalkSessionId(opened)
-    const connection = await controls.attach(opened, session.token)
+    const attachment = await controls.attach(opened, session.token)
     if (generation !== controls.generationRef.current) {
-      connection.close()
+      detach(attachment)
       setTalkSessionId(null)
       void closeTalkSession(opened).catch(() => {})
       return
     }
-    controls.liveRef.current = { id: opened, connection, stopHeartbeat: startTalkHeartbeat(opened) }
+    controls.liveRef.current = { id: opened, attachment, stopHeartbeat: startTalkHeartbeat(opened) }
     controls.setActive(true)
     controls.setState("listening")
   } catch (failure) {
@@ -192,26 +145,26 @@ async function closeSession(controls: SessionControls): Promise<void> {
 function useParkWhileHidden(controls: SessionControls): void {
   useEffect(() => {
     const park = (live: LiveSession) => {
-      if (!live.connection) return
-      live.connection.close()
-      live.connection = null
+      if (!live.attachment) return
+      detach(live.attachment)
+      live.attachment = null
       controls.setState("idle")
       void parkTalkSession(live.id).catch((failure) => controls.setError(reason(failure)))
     }
 
     const resume = (live: LiveSession) => {
-      if (live.connection) return
+      if (live.attachment) return
       const generation = controls.generationRef.current
       void resumeTalkSession(live.id)
         .then(async (resumed) => {
-          const connection = await controls.attach(live.id, resumed.token)
+          const attachment = await controls.attach(live.id, resumed.token)
           if (generation !== controls.generationRef.current) {
             // Closed while this was connecting. The microphone does not come
             // back on for a session that has already been deleted.
-            connection.close()
+            detach(attachment)
             return
           }
-          live.connection = connection
+          live.attachment = attachment
           controls.setState("listening")
         })
         .catch((failure) => {

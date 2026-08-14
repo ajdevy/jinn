@@ -30,7 +30,7 @@ import {
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
 } from './transcript-virtualizer'
-import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from './scroll-anchor'
+import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
@@ -1237,7 +1237,7 @@ export function ChatMessages({
   const requestOlderMessages = useCallback(() => {
     const node = scrollContainerRef.current
     if (!node || !hasOlderMessages || !onLoadOlderMessages || olderRequestInFlightRef.current) return
-    pendingAnchorRef.current = captureVisibleAnchor(node, firstMessageIdRef.current)
+    pendingAnchorRef.current = captureVisibleAnchor(node, 'data-message-id', firstMessageIdRef.current)
     pendingVirtualAnchorRef.current = virtualizedRef.current
       ? captureVirtualAnchor(node, virtualizer, groupKeysRef.current)
       : null
@@ -1265,7 +1265,7 @@ export function ChatMessages({
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current
     const node = scrollContainerRef.current
-    if (!anchor || !node || messages[0]?.id === anchor.firstMessageId) return
+    if (!anchor || !node || messages[0]?.id === anchor.firstId) return
     // Once virtualised the anchored row is a hundred rows above the window by the
     // time the page lands, so it is unmounted and has no rect to measure. That
     // takes two commits, and this effect is deliberately unkeyed so the second
