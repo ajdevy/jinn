@@ -119,7 +119,7 @@ way. `tauri.config.test.ts` covers all four cases.
 To regenerate the icons from the web app's mark:
 
 ```sh
-cargo tauri icon ../web/public/icons/icon-512.png   # from packages/shell-desktop/src-tauri
+cargo tauri icon ../../web/public/icons/icon-512.png   # from packages/shell-desktop/src-tauri
 ```
 
 Only two of the files it writes are kept: `icon.icns`, which is what macOS
@@ -254,8 +254,8 @@ invokes `cargo` or `tauri`. Rust is reachable only through `desktop:dev` and
 
 The engineering is done and it is cheap. Roughly 250 lines of Rust and a config
 generator buy a real window, a real icon, a real menu bar, restored geometry and
-working deep links, and the package costs CI nothing because CI never compiles
-it. On the quality-per-effort question the Todo asked, the answer is yes:
+working deep links, and the package adds no native cost to CI, which never
+compiles the Rust. On the quality-per-effort question the Todo asked, the answer is yes:
 removing browser chrome does most of the work, and the rest came nearly free.
 
 What is not done is everything between "it runs here" and "someone else can
