@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5918;
+const MAX_MANIFEST_TOKENS = 5869;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -84,19 +84,9 @@ const ATTESTED = {
   // override" to "engine/model override", "while it is executing" to "while
   // executing"), and the remaining 126 are the addition's honest cost. Pi stays
   // five under the ceiling, so the next addition still has to pay its own way.
-  // Rebased for `cascade` and `acknowledgeEscalated` on update_work_item
-  // (PLA-96): closing a container and its open sub-tasks in one move, and the
-  // separate word that lets that run over an escalated sub-task. Both have to be
-  // on the tool — the route refuses a cascade it was not asked for, and refuses
-  // one over an escalation until the caller says so, and a caller that cannot
-  // say either has to close a dozen sub-tasks one at a time. Their prose was cut
-  // to one clause each first ("the Todo's" to "its"; the repeated "Operator
-  // surface only." dropped from the second, where the first already says it),
-  // which paid 8 of the cost back. Nothing dead is left in this group to buy the
-  // remaining 49 from, so the ceiling moves by exactly that. Pi stays five under.
-  rpc: { tokens: 5407, sha256: "e32f7a394ac6e09d59cfb03474fe6323975daf48c5355bf2bf199cee80b1e276" },
-  pi: { tokens: 5913, sha256: "8a30380d73646b56cb017417434522dfc922fdb16bf8e1edca430e1fae2a1eaa" },
-  openai: { tokens: 5612, sha256: "96a8668faf669e479e7441fbf37e3558201609e8d9c3c811c6cfa8b635e95d64" },
+  rpc: { tokens: 5358, sha256: "38980ff1fa1ffc772888b7cccee64a1f3b5c39215f3a4a57ceae330c797dc1a4" },
+  pi: { tokens: 5864, sha256: "cccc4acb8375ef809aa35da5c33360a1329d4216b42b92282d2622e4818d1369" },
+  openai: { tokens: 5563, sha256: "63d51cdb583a44f49efac9ea49dd2c0b91974ff1de6f81875538fecd0831e7d2" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

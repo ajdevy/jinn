@@ -1101,11 +1101,11 @@ export const api = {
       throw error
     }
   },
-  /** Guarded status transition (legal edges only — the gateway owns legality); `cascade` closes the open descendants with it, which the gateway allows for done alone. */
-  setWorkItemStatus: (id: string, status: WorkItemStatusWire, note?: string, origin?: WriteOriginWire, options?: { cascade?: boolean }) =>
+  /** Guarded status transition (legal edges only — the gateway owns legality). */
+  setWorkItemStatus: (id: string, status: WorkItemStatusWire, note?: string, origin?: WriteOriginWire) =>
     put<{ workItem: WorkItemFullWire; escalated: boolean }>(
       `/api/work-items/${encodeURIComponent(id)}/status`,
-      { ...(note ? { status, note } : { status }), ...(options?.cascade ? { cascade: true } : {}) },
+      note ? { status, note } : { status },
       origin,
     ),
   /** GRS-021c: create a Todo (the "+ New Todo" affordance). The operator caller

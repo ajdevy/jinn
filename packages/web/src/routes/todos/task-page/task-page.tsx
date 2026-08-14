@@ -12,7 +12,6 @@ import {
 } from "@/lib/api"
 import { operatorSafeTodoError } from "@/lib/todos"
 import { isTodoId, todoPath } from "@/lib/todo-id"
-import { closeGateCounts } from "@/lib/legal-targets"
 import { useDepartments } from "@/hooks/use-departments"
 import { PageLayout } from "@/components/page-layout"
 import { useTheme } from "@/routes/providers"
@@ -183,14 +182,15 @@ export default function TaskPage() {
 
   // ── Pickers (one open at a time; §7.3) ────────────────────────────────────
   const itemNode = useMemo(() => (id ? nodeOf(rootNode, id) : undefined), [rootNode, id])
-  // Both halves of the close gate: the server weighs this item's DIRECT open
-  // children, while a cascade Done closes every open descendant under them.
-  const closeGate = useMemo(() => closeGateCounts(itemNode), [itemNode])
+  const openChildren = useMemo(
+    () => (itemNode?.children ?? []).filter((child) => child.status !== "done" && child.status !== "cancelled").length,
+    [itemNode],
+  )
   const pickers = useTaskPickers({
     detail,
     employees: org.data?.employees ?? [],
     departments: departments.data ?? [],
-    ...closeGate,
+    openChildren,
     mobile,
     announce,
   })
@@ -216,8 +216,8 @@ export default function TaskPage() {
     if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
   }, [qc, id])
   const childStatus = useMutation({
-    mutationFn: ({ childId, status, cascade }: { childId: string; status: WorkItemStatusWire; cascade?: boolean }) =>
-      cascade ? api.setWorkItemStatus(childId, status, undefined, undefined, { cascade }) : api.setWorkItemStatus(childId, status),
+    mutationFn: ({ childId, status }: { childId: string; status: WorkItemStatusWire }) =>
+      api.setWorkItemStatus(childId, status),
     onError: failWith("The gateway refused the move"),
     onSettled: invalidateTree,
   })
@@ -507,7 +507,7 @@ export default function TaskPage() {
                     byName={byName}
                     mobile={mobile}
                     onOpenChild={openTodo}
-                    onChildStatus={(childId, status, cascade) => childStatus.mutate({ childId, status, cascade })}
+                    onChildStatus={(childId, status) => childStatus.mutate({ childId, status })}
                     onChildAssign={(childId, assignee) => childAssign.mutate({ childId, assignee })}
                     onAddSubTask={(nextTitle) => addSubTask.mutate(nextTitle)}
                   />

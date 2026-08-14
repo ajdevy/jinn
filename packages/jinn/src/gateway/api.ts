@@ -219,7 +219,7 @@ import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
 import { compactWorkItem, fullWorkItemPayload, openWorkItemPayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
-import { parseStatusUpdateFields } from "./work-item-status-fields.js";
+import { BLOCK_KIND_ERROR, parseBlockKind } from "../work-items/blocks.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
 import { openWorkItemRun } from "../work-items/runs.js";
@@ -3329,20 +3329,27 @@ export async function handleApiRequest(
       if (!isOperatorPut && !(AGENT_WORK_ITEM_TARGETS as readonly string[]).includes(target)) {
         return badRequest(res, `status must be one of ${AGENT_WORK_ITEM_TARGETS.join(", ")} for agent updates; other lifecycle edits use the human surface`);
       }
-      const fields = parseStatusUpdateFields(body, target, isOperatorPut);
-      if (!fields.ok) return json(res, { error: fields.error }, fields.status);
-      const { note, blockKind, cascade, acknowledgeEscalated } = fields;
+      const note = typeof body.note === "string" ? body.note.trim() : "";
+      // Agents must say WHY up front; the operator surface asks for the reason
+      // in the opened item's banner instead (design-doc §5) — never a modal.
+      if ((target === "blocked" || target === "escalated") && !note && !isOperatorPut) return badRequest(res, `note is required when moving a Todo to ${target}`);
+      // The kind decides where a block lands, so an unknown one refuses rather than falling back to a default nobody meant.
+      const blockKind = parseBlockKind(body.blockKind);
+      if (blockKind === null) return badRequest(res, BLOCK_KIND_ERROR);
+      if (body.asOperator !== undefined && typeof body.asOperator !== "boolean") {
+        return badRequest(res, "asOperator must be a boolean");
+      }
       const item = getWorkItem(params.id);
       if (!item) return notFound(res);
       const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus);
       if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       let actingAsOperator: string | undefined;
-      if (fields.asOperator) {
+      if (body.asOperator === true) {
         const permitted = authorizeActingAsOperator(caller);
         if (!permitted.ok) return json(res, { error: permitted.error }, 403);
         actingAsOperator = permitted.actingAs;
       }
-      const actor = fields.asOperator ? "operator" : workItemActor(caller);
+      const actor = body.asOperator === true ? "operator" : workItemActor(caller);
       // Read the list per request, so adding or removing a delegate takes effect
       // on the next move rather than at the next restart.
       const armedAsDelegate = resolveArmingDelegate(caller, target, context.getConfig());
@@ -3384,8 +3391,6 @@ export async function handleApiRequest(
               // caller, so the edge map does not also govern it.
               agent: !isOperatorPut || undefined,
               callerSessionId: caller.kind === "session" ? caller.callerId : undefined, ...(blockKind ? { blockKind } : {}),
-              ...(cascade ? { cascade: true } : {}),
-              ...(acknowledgeEscalated ? { acknowledgeEscalated: true } : {}),
               detail,
             });
         const activityReceiptId = persistTodoMutationActivity(
@@ -3400,14 +3405,10 @@ export async function handleApiRequest(
       } catch (err) {
         if (err instanceof TransitionError) {
           if (err.code === "not-found") return notFound(res);
-          // A refused cascade leaves the tree intact and the caller a next move
-          // (answer the escalation, or acknowledge it): a conflict with the
-          // item's state, not a refusal of who asked.
           const human = err.code === "self-review-banned"
             ? `${err.message} — use the human review surface / a reviewer session to mark done`
-            : err.code === "escalated-descendant" ? err.message
             : `${err.message} — use the human surface for this transition if it is intentional`;
-          const statusCode = err.code === "illegal-edge" ? 400 : err.code === "escalated-descendant" ? 409 : 403;
+          const statusCode = err.code === "illegal-edge" ? 400 : 403;
           return json(res, { error: human }, statusCode);
         }
         throw err;

@@ -26,30 +26,26 @@ const STATUS_DISPLAY_ORDER: readonly WorkItemStatusWire[] = [
   "backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled",
 ]
 
-/** The close gate's counts (see legal-targets.ts) travel as the rest of the
- *  props: a surface that knows only its direct children passes `openChildren`
- *  alone and the module falls back to it. */
 interface StatusPickerProps {
   openChildren: number
-  openDescendants?: number
-  escalatedDescendants?: number
-  commit: (status: WorkItemStatusWire, options?: { cascade?: boolean }) => void
+  commit: (status: WorkItemStatusWire) => void
   showCurrent?: boolean
 }
 
 export function StatusPickerContent({
   detail,
+  openChildren,
   commit,
   sheet,
   showCurrent = true,
   onDone,
-  ...gate
 }: PickerContentProps & StatusPickerProps) {
   const from = detail.workItem.status
-  const targets = legalTargets(from, gate)
+  const targets = legalTargets(from, { openChildren })
     .filter((t) => t.status !== from)
     .sort((a, b) => STATUS_DISPLAY_ORDER.indexOf(a.status) - STATUS_DISPLAY_ORDER.indexOf(b.status))
-  const omitted = ALL_STATUSES.filter((s) => s !== from && !targets.some((t) => t.status === s))
+  const offered = new Set<WorkItemStatusWire>([from, ...targets.map((t) => t.status)])
+  const omitted = ALL_STATUSES.filter((s) => !offered.has(s))
   return (
     <>
       {showCurrent && (
@@ -70,9 +66,8 @@ export function StatusPickerContent({
           label={STATUS_LABEL[target.status]}
           disabled={target.gated}
           reason={target.reason}
-          sub={target.gated ? undefined : target.reason}
           onSelect={() => {
-            commit(target.status, target.cascade ? { cascade: true } : undefined)
+            commit(target.status)
             onDone()
           }}
           testId={`status-option-${target.status}`}

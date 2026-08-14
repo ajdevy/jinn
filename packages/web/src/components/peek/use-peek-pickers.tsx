@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
@@ -10,7 +10,6 @@ import {
 } from '@/lib/api'
 import { TODO_WRITE_KEY } from '@/lib/query-keys'
 import { operatorSafeTodoError } from '@/lib/todos'
-import { closeGateCounts, type CloseGateCounts } from '@/lib/legal-targets'
 import { PickerNote, PickerPopover, PickerSheet } from '@/routes/todos/pickers/picker-shell'
 import { AssigneePickerContent } from '@/routes/todos/pickers/picker-contents'
 import { StatusPickerContent } from '@/routes/todos/pickers/status-picker-content'
@@ -57,33 +56,31 @@ function useRefusal() {
 
 type Refusal = ReturnType<typeof useRefusal>
 
-/** The close gate's pre-check: legalTargets() needs the sub-task counts or it
+/** The close gate's pre-check: legalTargets() needs the open-child count or it
  *  offers a Done the gateway will refuse. Asked for only while it is needed, and
  *  a failed read is reported rather than counted as zero — defaulting to zero
  *  would enable a close the gateway is about to refuse and blame the write for
  *  a read that never landed. */
-function useCloseGate(id: string | undefined, active: boolean) {
+function useOpenChildren(id: string | undefined, active: boolean) {
   const tree = useQuery({
     queryKey: ['work-item-tree', id ?? ''],
     queryFn: () => api.getWorkItemTree(id!),
     enabled: !!id && active,
     staleTime: 10_000,
   })
-  // The whole subtree is in hand here, so the cascade row can name what it
-  // closes rather than counting only the children one level down. Memoized
-  // because the picker's content callback takes the counts as a dependency.
-  const counts = useMemo(() => closeGateCounts(tree.data?.tree.root), [tree.data])
-  return { counts, pending: tree.isPending, failed: tree.isError }
+  const count = (tree.data?.tree.root.children ?? [])
+    .filter((child) => child.status !== 'done' && child.status !== 'cancelled').length
+  return { count, pending: tree.isPending, failed: tree.isError }
 }
 
 function useStatusLane(id: string | undefined, refusal: Refusal) {
   const setStatus = useSetWorkItemStatus()
-  return useCallback((status: WorkItemStatusWire, options?: { cascade?: boolean }) => {
+  return useCallback((status: WorkItemStatusWire) => {
     if (!id) return
     refusal.clear()
     // The shared lane patches every cache that holds this Todo — the preview one
     // this panel reads included — so the row moves before the request resolves.
-    setStatus.mutate({ id, status, cascade: options?.cascade }, {
+    setStatus.mutate({ id, status }, {
       onError: (cause) => refusal.fromGateway(cause, 'The gateway refused the move'),
     })
   }, [id, setStatus, refusal])
@@ -157,8 +154,8 @@ function usePickerContent({ detail, employees, close, children, transitionTo, co
   detail: WorkItemDetailWire | undefined
   employees: Employee[]
   close: () => void
-  children: { counts: CloseGateCounts; pending: boolean; failed: boolean }
-  transitionTo: (status: WorkItemStatusWire, options?: { cascade?: boolean }) => void
+  children: { count: number; pending: boolean; failed: boolean }
+  transitionTo: (status: WorkItemStatusWire) => void
   commitAssignee: (assignee: string | null) => void
 }) {
   return useCallback((key: PeekPickerKey, inSheet: boolean): ReactNode => {
@@ -175,12 +172,12 @@ function usePickerContent({ detail, employees, close, children, transitionTo, co
         </PickerNote>
       )
     }
-    // Rows wait for the counts rather than offering a Done that may not be legal.
+    // Rows wait for the count rather than offering a Done that may not be legal.
     if (children.pending) return <PickerNote>Checking sub-tasks…</PickerNote>
     return (
-      <StatusPickerContent {...shared} {...children.counts} commit={transitionTo} showCurrent={false} />
+      <StatusPickerContent {...shared} openChildren={children.count} commit={transitionTo} showCurrent={false} />
     )
-  }, [detail, close, employees, commitAssignee, children.pending, children.failed, children.counts, transitionTo])
+  }, [detail, close, employees, commitAssignee, children.pending, children.failed, children.count, transitionTo])
 }
 
 export function usePeekPickers({ detail, employees, sheet, onOpenChange }: {
@@ -191,7 +188,7 @@ export function usePeekPickers({ detail, employees, sheet, onOpenChange }: {
 }) {
   const [open, setOpen] = useState<PeekPickerKey | null>(null)
   const refusal = useRefusal()
-  const children = useCloseGate(detail?.workItem.id, open === 'status')
+  const children = useOpenChildren(detail?.workItem.id, open === 'status')
   const transitionTo = useStatusLane(detail?.workItem.id, refusal)
   const commitAssignee = useAssignLane(detail, refusal)
   const close = useCloseToAnchor(setOpen)

@@ -117,7 +117,7 @@ const BTN_QUIET = `${BTN} text-[var(--text-tertiary)] hover:bg-[var(--fill-terti
 const BTN_FILLED = `${BTN} bg-[var(--fill-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)]`
 
 /** Legal-exit menu (Route… / Unblock…): the same legalTargets() map the board
- *  drag and the pickers consume; every row carries its reason, gated ones at 50%. */
+ *  drag and the pickers consume; gated rows disabled at 50% + inline reason. */
 function RouteMenu({
   label,
   item,
@@ -130,7 +130,7 @@ function RouteMenu({
   item: WorkItemCompactWire
   openChildren: number
   busy: boolean
-  onTransition: (id: string, status: WorkItemStatusWire, cascade?: boolean) => void
+  onTransition: (id: string, status: WorkItemStatusWire) => void
   testId: string
 }) {
   const targets = legalTargets(item.status, { openChildren })
@@ -152,7 +152,7 @@ function RouteMenu({
             disabled={target.gated}
             aria-disabled={target.gated || undefined}
             onClick={() => {
-              if (!target.gated) onTransition(item.id, target.status, target.cascade)
+              if (!target.gated) onTransition(item.id, target.status)
             }}
             className={`flex min-h-10 cursor-pointer flex-col items-start justify-center gap-0 rounded-[9px] px-2.5 text-[length:var(--text-footnote)] font-medium text-[var(--text-primary)] focus:bg-[var(--fill-secondary)] ${
               target.gated ? "cursor-default opacity-50" : ""
@@ -162,7 +162,7 @@ function RouteMenu({
               <StatusCircle status={target.status} size={18} />
               {STATUS_LABEL[target.status]}
             </span>
-            {target.reason && (
+            {target.gated && target.reason && (
               <span className="pl-[26px] text-[11px] font-normal text-[var(--text-tertiary)]">{target.reason}</span>
             )}
           </DropdownMenuItem>
@@ -190,7 +190,7 @@ function NeedsYouCard({
   resolving: boolean
   onApprove: (id: string) => void
   onReject: (id: string, note: string) => void
-  onTransition: (id: string, status: WorkItemStatusWire, cascade?: boolean) => void
+  onTransition: (id: string, status: WorkItemStatusWire) => void
   onOpen: (id: string) => void
 }) {
   const [composing, setComposing] = useState(false)
@@ -453,10 +453,10 @@ export function NeedsYouView({
   // the gateway's words in the view's own transient callout.
   const setStatus = useSetWorkItemStatus()
   const [callout, setCallout] = useState<string | null>(null)
-  const onTransition = (id: string, status: WorkItemStatusWire, cascade?: boolean) => {
+  const onTransition = (id: string, status: WorkItemStatusWire) => {
     setCallout(null)
     setStatus.mutate(
-      { id, status, cascade },
+      { id, status },
       {
         onError: (error) => {
           setCallout(operatorSafeTodoError(error, "The gateway refused the move"))

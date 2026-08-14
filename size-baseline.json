@@ -901,7 +901,7 @@
       "lines": 324
     },
     "packages/jinn/src/work-items/approvals.ts": {
-      "lines": 459,
+      "lines": 476,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -934,7 +934,7 @@
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 311,
+      "lines": 335,
       "exempt": [
         "complexity",
         "max-lines-per-function"

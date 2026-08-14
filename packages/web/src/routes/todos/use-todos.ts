@@ -115,9 +115,6 @@ export function useSetWorkItemStatus() {
   const qc = useQueryClient()
   return useMutation(todoStatusMutationOptions(
     qc,
-    ({ id, status, note, cascade }) =>
-      cascade
-        ? api.setWorkItemStatus(id, status, note, undefined, { cascade })
-        : api.setWorkItemStatus(id, status, note),
+    ({ id, status, note }) => api.setWorkItemStatus(id, status, note),
   ))
 }

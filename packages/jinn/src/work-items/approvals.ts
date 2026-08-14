@@ -3,7 +3,6 @@ import { initDb } from '../shared/db.js';
 import { resolveApprovalRouteTarget, resolveRootApprovalTarget } from '../gateway/approval-authority.js';
 import { parseTodoApprovalRef } from '../workflows/todo-approval-ref.js';
 import { currentApproval, type WorkItemApproval } from './approval-rows.js';
-import { openDescendantsDeepestFirst } from './cascade.js';
 import { appendWorkItemEvent, getWorkItem, type ApprovalTargetKind, type WorkItem } from './store.js';
 import { transition } from './transitions.js';
 
@@ -264,6 +263,19 @@ function resolveChoice(
   return undefined;
 }
 
+/** True when candidate sits under ancestorId following parent links. */
+function isDescendantOf(candidateId: string, ancestorId: string): boolean {
+  const db = initDb();
+  let cursor: string | null = candidateId;
+  for (let hops = 0; cursor && hops <= 3; hops++) {
+    const row = db.prepare('SELECT parent_id FROM work_items WHERE id = ?').get(cursor) as { parent_id: string | null } | undefined;
+    if (!row) return false;
+    if (row.parent_id === ancestorId) return true;
+    cursor = row.parent_id;
+  }
+  return false;
+}
+
 /**
  * Cancel a Todo while closing any outstanding approval record in the same SQLite
  * transaction. Callers are authority-checked by the gateway before reaching this
@@ -280,7 +292,12 @@ export function archiveWorkItem(id: string, actor: string, opts: ArchiveWorkItem
     }
     if (item.status === 'cancelled') return item;
     if (opts.cascade && opts.human) {
-      for (const descendant of openDescendantsDeepestFirst(db, item)) {
+      const descendants = (db
+        .prepare("SELECT id, depth FROM work_items WHERE root_id = ? AND id != ? AND status NOT IN ('done', 'cancelled')")
+        .all(item.rootId, item.id) as Array<{ id: string; depth: number }>)
+        .filter((row) => isDescendantOf(row.id, item.id))
+        .sort((a, b) => b.depth - a.depth);
+      for (const descendant of descendants) {
         transition(descendant.id, 'cancelled', actor, {
           human: true,
           detail: { ...(opts.note ? { note: opts.note } : {}), cascadeFrom: item.id },

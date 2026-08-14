@@ -14,7 +14,6 @@ import {
   type WorkItemStatusWire,
 } from "@/lib/api"
 import { operatorSafeTodoError } from "@/lib/todos"
-import type { CloseGateCounts } from "@/lib/legal-targets"
 import { newTodoEditRequest, invalidateTodoCaches, saveTodoDetailRemote } from "../todo-edit-request"
 import { useSetWorkItemStatus } from "../use-todos"
 import { PickerPopover, PickerSheet } from "../pickers/picker-shell"
@@ -53,17 +52,16 @@ export function useTaskPickers({
   employees,
   departments,
   openChildren,
-  openDescendants,
-  escalatedDescendants,
   mobile,
   announce,
 }: {
   detail: WorkItemDetailWire | undefined
   employees: Employee[]
   departments: DepartmentSummaryWire[]
+  openChildren: number
   mobile: boolean
   announce: (message: string) => void
-} & CloseGateCounts) {
+}) {
   const qc = useQueryClient()
   const [openPicker, setOpenPicker] = useState<PickerKey | null>(null)
   const id = detail?.workItem.id
@@ -84,7 +82,7 @@ export function useTaskPickers({
 
   const setStatus = useSetWorkItemStatus()
   const transitionTo = useCallback(
-    (status: WorkItemStatusWire, options?: { cascade?: boolean }) => {
+    (status: WorkItemStatusWire) => {
       if (!id) return
       // On the gesture, not in onSuccess: the row already moves optimistically,
       // so a tap that waited for the round trip would trail its own animation.
@@ -95,7 +93,7 @@ export function useTaskPickers({
         current ? { ...current, workItem: { ...current.workItem, status } } : current,
       )
       setStatus.mutate(
-        { id, status, cascade: options?.cascade },
+        { id, status },
         {
           // The board's refusal idiom: mapped safe copy where a code exists,
           // otherwise the gateway's own words for a typed API refusal.
@@ -163,15 +161,7 @@ export function useTaskPickers({
       const shared = { detail, sheet, onDone: close }
       switch (key) {
         case "status":
-          return (
-            <StatusPickerContent
-              {...shared}
-              openChildren={openChildren}
-              openDescendants={openDescendants}
-              escalatedDescendants={escalatedDescendants}
-              commit={transitionTo}
-            />
-          )
+          return <StatusPickerContent {...shared} openChildren={openChildren} commit={transitionTo} />
         case "priority":
           return <PriorityPickerContent {...shared} commit={(priority) => patchField({ priority })} />
         case "assignee":
@@ -186,7 +176,7 @@ export function useTaskPickers({
           return <VerifyPickerContent {...shared} commit={commitVerify} />
       }
     },
-    [detail, close, openChildren, openDescendants, escalatedDescendants, transitionTo, patchField, employees, departments, commitLabels, commitVerify],
+    [detail, close, openChildren, transitionTo, patchField, employees, departments, commitLabels, commitVerify],
   )
 
   /** The superimposed row index (law 1): the current value's option row sits
