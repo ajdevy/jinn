@@ -128,14 +128,22 @@ describe('EdgeBackLayer', () => {
     for (let step = 0; step < 8; step += 1) await goForward()
     expect(screen.getByText(labelAt(8))).toBeTruthy()
 
+    const reveals: string[] = []
     for (let depth = 7; depth >= 0; depth -= 1) {
       expect(screen.getByTestId('edge-back-gutter')).toBeTruthy()
+      reveals.push(screen.getByTestId('edge-back-layer').textContent ?? '')
       await edgeBack()
       expect(screen.getByText(labelAt(depth))).toBeTruthy()
       expect(stepsTaken).toHaveLength(8 - depth)
     }
 
     expect(stepsTaken).toEqual(Array.from({ length: 8 }, () => -1))
+    // And at least one of those steps had nothing to reveal, which is the only
+    // reason to walk a trail this long: the budget cannot hold nine of these, so
+    // a step somewhere down here drags against an empty backdrop — and the
+    // assertions above already counted its `navigate(-1)` with all the others.
+    // How much of the trail goes dark is the retention unit test's business.
+    expect(reveals).toContain('')
   }, 30_000)
 
   it('falls back to a plain backdrop, and still goes back at every step, with nothing photographed', async () => {

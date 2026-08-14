@@ -9,7 +9,8 @@ export interface RetainedView {
 
 /**
  * Copies of the views the shell has shown, so the back gesture can reveal where
- * it is going instead of dragging the screen off a void.
+ * it is going instead of dragging the screen off a void. As many of them as the
+ * budget holds, which on a long history is not all of them.
  *
  * The copies are held at module scope rather than in a ref because React
  * unmounts the whole page tree between routes — including the shell that owns
@@ -117,8 +118,16 @@ function evictionOrder(trail: readonly string[], at: number): string[] {
  * forward half above the predecessors the gesture is about to walk into, and the
  * trail goes dark from its far end just before the finger gets there.
  *
- * The view `navigate(-1)` lands on is never a candidate, whatever the budget
- * says: evicting that one is what turned a full history into a dead reveal.
+ * The view `navigate(-1)` lands on is never a candidate here, whatever the
+ * budget says: evicting the one the drag is already revealing is what turned a
+ * full history into a dead reveal.
+ *
+ * What that buys is a capacity rule, not a promise. The budget holds a fixed
+ * number of photographs, a history longer than that cannot be held whole, and a
+ * view that is no longer rendered cannot be photographed a second time. So the
+ * stops nearest the cursor keep their reveal and the deepest ones lose it — by
+ * arithmetic, not by fault. A stop that lost its copy drags against a plain
+ * backdrop and navigates like any other.
  */
 export function forgetViewsOverBudget(
   views: Map<string, RetainedView>,
