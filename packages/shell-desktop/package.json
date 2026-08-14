@@ -1,0 +1,22 @@
+{
+  "name": "@jinn/shell-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist src-tauri/tauri.conf.gen.json",
+    "desktop:sync": "node tauri.config.ts",
+    "desktop:dev": "pnpm run desktop:sync && cargo tauri dev --config src-tauri/tauri.conf.gen.json",
+    "desktop:build": "pnpm run desktop:sync && cargo tauri build --config src-tauri/tauri.conf.gen.json --bundles app",
+    "desktop:probe": "pnpm run desktop:sync && JINN_SHELL_PROBE=1 cargo tauri dev --config src-tauri/tauri.conf.gen.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}

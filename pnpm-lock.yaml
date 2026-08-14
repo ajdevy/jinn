@@ -164,6 +164,18 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(jsdom@29.0.0)(vite@8.0.0(@emnapi/core@1.9.0)(@emnapi/runtime@1.11.2)(@types/node@22.19.15)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.50.0)(yaml@2.9.0))
 
+  packages/shell-desktop:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.20.1)(jsdom@29.0.0)(vite@8.0.0(@emnapi/core@1.9.0)(@emnapi/runtime@1.11.2)(@types/node@22.20.1)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.50.0)(yaml@2.9.0))
+
   packages/shell-ios:
     dependencies:
       '@capacitor/core':
@@ -12990,11 +13002,11 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.1
       pathe: 2.0.3
-      picomatch: 4.0.3
+      picomatch: 4.0.5
       std-env: 4.0.0
       tinybench: 2.9.0
       tinyexec: 1.0.4
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
       vite: 7.3.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.33.0)(terser@5.50.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
@@ -13018,11 +13030,11 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.1
       pathe: 2.0.3
-      picomatch: 4.0.3
+      picomatch: 4.0.5
       std-env: 4.0.0
       tinybench: 2.9.0
       tinyexec: 1.0.4
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
       vite: 8.0.0(@emnapi/core@1.9.0)(@emnapi/runtime@1.11.2)(@types/node@22.19.15)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.50.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
@@ -13046,11 +13058,11 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.1
       pathe: 2.0.3
-      picomatch: 4.0.3
+      picomatch: 4.0.5
       std-env: 4.0.0
       tinybench: 2.9.0
       tinyexec: 1.0.4
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
       vite: 8.0.0(@emnapi/core@1.9.0)(@emnapi/runtime@1.11.2)(@types/node@22.20.1)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.50.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0
