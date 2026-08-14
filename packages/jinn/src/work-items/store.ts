@@ -8,6 +8,7 @@ import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
+import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
 
 /**
@@ -44,7 +45,6 @@ export type WorkItemStatus =
 export type WorkItemSource = 'human' | 'delegation' | 'cron' | 'workflow' | 'session' | 'connector' | 'goal';
 export type ApprovalState = 'pending' | 'approved' | 'rejected';
 export type ApprovalTargetKind = 'employee' | 'virtual' | 'none';
-export type VerifyMode = 'trust' | 'verify' | 'thorough';
 
 /** Statuses that close an item — writes stamp/clear `closed_at` on these. */
 const CLOSED_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>(['done', 'cancelled']);
@@ -53,11 +53,7 @@ const CLOSED_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>(['d
  *  to the operator that session churn must not silently undo. */
 export const STICKY_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>(['done', 'cancelled', 'escalated']);
 
-export interface VerifyPolicy {
-  mode: VerifyMode;
-  verifier?: { employee?: string; engine?: string; model?: string };
-  maxRounds?: number;
-}
+export type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 
 /** Provenance defaults when `verify_policy` is NULL (design §1.5, operator-ruled):
  *  machine pulses auto-close (cron per fire; workflow runs carry their own gates),

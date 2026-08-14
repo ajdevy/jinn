@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5923,
+      "lines": 5877,
       "exempt": [
         "complexity",
         "max-depth",
@@ -623,7 +623,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 778,
+      "lines": 753,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -927,7 +927,7 @@
       ]
     },
     "packages/jinn/src/work-items/store.ts": {
-      "lines": 999,
+      "lines": 995,
       "exempt": [
         "complexity",
         "max-lines-per-function"

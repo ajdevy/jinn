@@ -3,6 +3,7 @@ import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { parseTodoId } from "../work-items/id.js";
 import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
+import { validateVerifyPolicy } from "../work-items/verify-policy.js";
 import {
   clampInt,
   FILTER_CHAR_CAP,
@@ -29,7 +30,6 @@ const WORK_ITEM_NOTE_CHAR_CAP = 8_000;
 const STATUSES = ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"] as const;
 const SOURCES = ["human", "delegation", "cron", "workflow", "session", "connector", "goal"] as const;
 const AGENT_UPDATE_STATUSES = ["backlog", "assigned", "executing", "in_review", "blocked", "escalated", "done"] as const;
-const VERIFY_MODES = ["trust", "verify", "thorough"] as const;
 const ACTIVITY_RECEIPT_HINT = "Preview or Open the persisted activity receipt in this chat.";
 const TODO_ID_SCHEMA = { type: "string", pattern: "^[A-Z]{3}-[1-9][0-9]*$" } as const;
 const COMMENT_ID_SCHEMA = { type: "string", pattern: "^wic_[0-9a-f]{12}$" } as const;
@@ -117,35 +117,6 @@ function optionalObject(args: Record<string, unknown>, name: string): Record<str
   if (v === undefined || v === null) return undefined;
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new JinnMcpToolError(`${name} must be a JSON object when provided`);
   return v as Record<string, unknown>;
-}
-
-function validateVerifyPolicy(policy: Record<string, unknown>): Record<string, unknown> {
-  const allowed = new Set(["mode", "verifier", "maxRounds"]);
-  const extras = Object.keys(policy).filter((key) => !allowed.has(key));
-  if (extras.length > 0) throw new JinnMcpToolError(`verifyPolicy has unknown key(s) ${extras.join(", ")}; only mode, verifier, and maxRounds are allowed`);
-  if (!(VERIFY_MODES as readonly unknown[]).includes(policy.mode)) {
-    throw new JinnMcpToolError(`verifyPolicy.mode must be one of ${VERIFY_MODES.join(", ")}`);
-  }
-  if (policy.maxRounds !== undefined && (typeof policy.maxRounds !== "number" || !Number.isInteger(policy.maxRounds) || policy.maxRounds < 1 || policy.maxRounds > 20)) {
-    throw new JinnMcpToolError("verifyPolicy.maxRounds must be an integer from 1 to 20");
-  }
-  if (policy.verifier !== undefined) {
-    if (!policy.verifier || typeof policy.verifier !== "object" || Array.isArray(policy.verifier)) {
-      throw new JinnMcpToolError("verifyPolicy.verifier must be a JSON object when provided");
-    }
-    const verifier = policy.verifier as Record<string, unknown>;
-    const verifierAllowed = new Set(["employee", "engine", "model"]);
-    const verifierExtras = Object.keys(verifier).filter((key) => !verifierAllowed.has(key));
-    if (verifierExtras.length > 0) {
-      throw new JinnMcpToolError(`verifyPolicy.verifier has unknown key(s) ${verifierExtras.join(", ")}; only employee, engine, and model are allowed`);
-    }
-    for (const key of ["employee", "engine", "model"]) {
-      if (verifier[key] !== undefined && (typeof verifier[key] !== "string" || !verifier[key].trim())) {
-        throw new JinnMcpToolError(`verifyPolicy.verifier.${key} must be a non-empty string`);
-      }
-    }
-  }
-  return policy;
 }
 
 function rejectProvenance(args: Record<string, unknown>): void {
@@ -286,7 +257,11 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         if (v !== undefined) body[key] = v;
       }
       const verifyPolicy = optionalObject(args, "verifyPolicy");
-      if (verifyPolicy) body.verifyPolicy = validateVerifyPolicy(verifyPolicy);
+      if (verifyPolicy) {
+        const validated = validateVerifyPolicy(verifyPolicy);
+        if (!validated.ok) throw new JinnMcpToolError(validated.error);
+        body.verifyPolicy = validated.value;
+      }
       if (args.parentId !== undefined) {
         try { body.parentId = parseTodoId(args.parentId); }
         catch { throw new JinnMcpToolError("parentId must be a canonical Todo ID such as ACM-42"); }

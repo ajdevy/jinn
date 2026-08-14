@@ -175,11 +175,11 @@ import {
   WorkItemVersionConflictError,
   type CreateWorkItemInput,
   type UpdateWorkItemInput,
-  type VerifyPolicy,
   type WorkItem,
   type WorkItemSource,
   type WorkItemStatus,
 } from "../work-items/store.js";
+import { validateVerifyPolicy } from "../work-items/verify-policy.js";
 import { isTodoId, resolveTodoIdPrefix } from "../work-items/id.js";
 import {
   addComment,
@@ -783,8 +783,6 @@ const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ['backlog', 'assigned', 'e
  *  terminals are unreachable from here anyway — leaving `done`, `cancelled` or
  *  `escalated` still needs the human surface. */
 const AGENT_WORK_ITEM_TARGETS: readonly WorkItemStatus[] = ['backlog', 'assigned', 'executing', 'in_review', 'blocked', 'escalated', 'done'];
-const VERIFY_MODES = ['trust', 'verify', 'thorough'] as const;
-const VERIFY_POLICY_KEYS = new Set(['mode', 'verifier', 'maxRounds']);
 
 
 function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
@@ -1340,50 +1338,6 @@ function findApprovalKeysDeep(value: unknown, path = 'body', found: string[] = [
   return found;
 }
 
-function objectKeys(value: unknown, name: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
-  if (value === undefined || value === null) return { ok: true, value: {} };
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: `${name} must be a JSON object` };
-  return { ok: true, value: value as Record<string, unknown> };
-}
-
-function validateVerifyPolicy(value: unknown): { ok: true; value: VerifyPolicy | null } | { ok: false; error: string } {
-  if (value === undefined || value === null) return { ok: true, value: null };
-  const rec = objectKeys(value, 'verifyPolicy');
-  if (!rec.ok) return rec;
-  const extras = Object.keys(rec.value).filter((key) => !VERIFY_POLICY_KEYS.has(key));
-  if (extras.length > 0) return { ok: false, error: `verifyPolicy has unknown key(s) ${extras.join(', ')}; only mode, verifier, and maxRounds are allowed` };
-  const mode = rec.value.mode;
-  if (!(VERIFY_MODES as readonly unknown[]).includes(mode)) {
-    return { ok: false, error: `verifyPolicy.mode must be one of ${VERIFY_MODES.join(', ')}` };
-  }
-  const policy: VerifyPolicy = { mode: mode as VerifyPolicy['mode'] };
-  if (rec.value.maxRounds !== undefined) {
-    if (typeof rec.value.maxRounds !== 'number' || !Number.isInteger(rec.value.maxRounds) || rec.value.maxRounds < 1 || rec.value.maxRounds > 20) {
-      return { ok: false, error: 'verifyPolicy.maxRounds must be an integer from 1 to 20' };
-    }
-    policy.maxRounds = rec.value.maxRounds;
-  }
-  if (rec.value.verifier !== undefined) {
-    const verifier = objectKeys(rec.value.verifier, 'verifyPolicy.verifier');
-    if (!verifier.ok) return verifier;
-    const allowed = new Set(['employee', 'engine', 'model']);
-    const extraVerifier = Object.keys(verifier.value).filter((key) => !allowed.has(key));
-    if (extraVerifier.length > 0) {
-      return { ok: false, error: `verifyPolicy.verifier has unknown key(s) ${extraVerifier.join(', ')}; only employee, engine, and model are allowed` };
-    }
-    const out: NonNullable<VerifyPolicy['verifier']> = {};
-    for (const key of ['employee', 'engine', 'model'] as const) {
-      if (verifier.value[key] !== undefined) {
-        if (typeof verifier.value[key] !== 'string' || !verifier.value[key].trim()) {
-          return { ok: false, error: `verifyPolicy.verifier.${key} must be a non-empty string` };
-        }
-        out[key] = verifier.value[key].trim();
-      }
-    }
-    policy.verifier = out;
-  }
-  return { ok: true, value: policy };
-}
 
 function ownsWorkItem(session: Session, item: WorkItem, linked: Session[]): boolean {
   if (linked.some((s) => s.id === session.id)) return true;
