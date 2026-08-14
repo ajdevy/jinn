@@ -124,6 +124,16 @@ const setTodoStatus: TalkTool = {
     } catch (error) {
       return fastWriteFailed({ tool: "talk_set_todo_status", subject: id }, `move ${id} to ${status}`, error)
     }
+    // Leaving `blocked` is an unblock however it was phrased, and the edge map
+    // does not know that: `blocked → assigned` is reversible, so the fast lane
+    // would take it on the model's word. Releasing work puts an agent on it, and
+    // a fifteen-second undo does not reach whoever already started.
+    if (wasStatus === "blocked") {
+      return withConsent(
+        { tool: "talk_set_todo_status", title: `Move ${id} out of blocked?`, hint: "Unblocking releases the work to whoever picks it up. There is no undo once it does.", confirm: "Move it", subject: id },
+        () => moveTodoOneWay(id, status, note, `Moved ${id} to ${status}.`),
+      )
+    }
     // The board does not rewind every move: work that has started or closed has
     // no edge back to where it came from. `canDropOn` is the same parity-tested
     // legality the board drags on, read in the reverse direction — so a move the

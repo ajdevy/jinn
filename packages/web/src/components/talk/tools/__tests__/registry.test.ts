@@ -58,6 +58,17 @@ describe("the registered set", () => {
     expect(alwaysOnDefinitions()).toHaveLength(5)
   })
 
+  it("keeps the decision verbs and the generic page actions off the resident list", () => {
+    // A session that has not talked about deciding anything, or about driving
+    // the page by hand, is not carrying the vocabulary to.
+    for (const name of [
+      "talk_decide_approval", "talk_decide_workflow_approval", "talk_unblock_todo",
+      "click_by_text", "type_into", "find_element_by_text", "scroll_to",
+    ]) {
+      expect(TOOL_EXPOSURE[name], name).toBe("on-intent")
+    }
+  })
+
   it("covers all six domains with a navigate tool and the four read shapes", () => {
     const names = new Set(TALK_TOOLS.map((tool) => tool.name))
     for (const name of [

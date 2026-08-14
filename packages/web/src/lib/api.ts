@@ -15,6 +15,7 @@ import {
 } from "@/lib/work-item-edit-wire"
 import type { WorkItemCommentPageWire, WorkItemCommentWire } from "@/lib/work-item-comment-wire"
 import type { WorkItemRunWire } from "@/lib/work-item-runs-wire"
+import type { ApprovalStateWire, WorkItemApprovalWire } from "@/lib/work-item-approval-wire"
 
 export interface TranscriptContentBlock {
   type: 'text' | 'tool_use' | 'tool_result' | 'thinking'
@@ -578,7 +579,6 @@ export type WorkItemStatusWire =
   | "backlog" | "assigned" | "executing" | "in_review" | "done" | "blocked" | "escalated" | "cancelled"
 export type WorkItemSourceWire =
   | "human" | "delegation" | "cron" | "workflow" | "session" | "connector" | "goal"
-export type ApprovalStateWire = "pending" | "approved" | "rejected"
 export type VerifyModeWire = "trust" | "verify" | "thorough"
 
 /** The compact row's session provenance (gateway `sessionRef()`): the session
@@ -688,6 +688,12 @@ export interface WorkItemFullWire {
   approvalState: ApprovalStateWire | null
   approvalRequest: string | null
   approvalRef: string | null
+  /** Offered variants when the pending gate asks for a PICK (older gateways omit). */
+  approvalOptions?: string[] | null
+  approvalChoice?: string | null
+  /** The gate is reserved for the operator: no employee may decide it, not the
+   *  COO and not through escalation (older gateways omit). */
+  approvalOperatorOnly?: boolean
   approvalTarget: string | null
   approvalEscalatedAt: string | null
   approvalDecidedBy: string | null
@@ -727,27 +733,9 @@ export interface WorkItemEventWire {
   createdAt: string
 }
 
-/** One approval history row (Todos v2 slice 4). The legacy approval* fields on
- *  the work item mirror the CURRENT row (pending, else latest decided). */
-export interface WorkItemApprovalWire {
-  id: string
-  workItemId: string
-  state: ApprovalStateWire
-  request: string
-  ref: string | null
-  /** Offered variants when this gate asks for a PICK, not a plain yes/no. */
-  options: string[] | null
-  /** The picked option, once approved. */
-  choice: string | null
-  target: string | null
-  targetKind: string | null
-  requestedBy: string
-  requestedAt: string
-  escalatedAt: string | null
-  decidedBy: string | null
-  decidedAt: string | null
-  note: string | null
-}
+/** The approval gate's shapes live in work-item-approval-wire.ts; re-exported
+ *  so the client surface stays one import. */
+export type { ApprovalStateWire, WorkItemApprovalWire } from "./work-item-approval-wire"
 
 /** One node of GET /api/work-items/:id/tree — a full row plus nested children
  *  (rank-then-id ordered, depth-capped server-side). */
