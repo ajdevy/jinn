@@ -2519,13 +2519,6 @@ export async function handleApiRequest(
       });
     }
 
-    // GET /api/sessions/interrupted — list sessions that can be resumed after a restart
-    if (method === "GET" && pathname === "/api/sessions/interrupted") {
-      const { getInterruptedSessions } = await import("../sessions/registry.js");
-      const interrupted = getInterruptedSessions();
-      return json(res, serializeSessionList(interrupted, context));
-    }
-
     // GET /api/sessions/:id/messages?before=<messageId>&limit=N
     // Bounded older-history page for seamless transcript prepending in the web UI.
     let params = matchRoute("/api/sessions/:id/messages", pathname);
