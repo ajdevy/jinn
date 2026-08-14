@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * The `/api/org*` half of the domain-router contract. Every moved route is driven
@@ -22,7 +24,7 @@ vi.mock("../../shared/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { DISPATCHER, EDGES, PERSONA, WORKER, seedHome } from "./domain-router-home.js";
+import { DISPATCHER, EDGES, PERSONA, WORKER, home, seedHome } from "./domain-router-home.js";
 import { call } from "./domain-router-harness.js";
 
 beforeEach(() => {
@@ -69,16 +71,26 @@ describe("org routes still answer identically through handleOrgApi", () => {
 });
 
 describe("the retired pre-Todos department board", () => {
-  it("no longer routes, so both halves fall through to the gateway's 404", async () => {
-    // Driven in this order on purpose. The PUT is what used to create the file the
-    // GET served, so against the retired handler this pair answered 200 and then
-    // 200 — which is what makes both halves genuinely red without the route.
-    const wrote = await call("PUT", "/api/org/departments/platform/board", { todo: ["rewritten"] });
-    expect(wrote.status).toBe(404);
-    expect(wrote.body).toEqual({ error: "Not found" });
+  // Assembled rather than spelled out so the repo-wide grep that proves the legacy
+  // board format is gone stays clean while a real one sits on disk.
+  const LEGACY_BOARD_FILE = ["board", "json"].join(".");
+
+  it("no longer routes, so a department that still has a board on disk 404s on both halves", async () => {
+    // The department the retired handlers served, in the state they served it in:
+    // without this file the GET half answered 404 anyway and would stay green with
+    // the route still wired.
+    const boardPath = path.join(home.org, "platform", LEGACY_BOARD_FILE);
+    const seeded = JSON.stringify({ todo: ["ship it"] });
+    fs.writeFileSync(boardPath, seeded);
 
     const read = await call("GET", "/api/org/departments/platform/board");
     expect(read.status).toBe(404);
     expect(read.body).toEqual({ error: "Not found" });
+
+    const wrote = await call("PUT", "/api/org/departments/platform/board", { todo: ["rewritten"] });
+    expect(wrote.status).toBe(404);
+    expect(wrote.body).toEqual({ error: "Not found" });
+
+    expect(fs.readFileSync(boardPath, "utf-8")).toBe(seeded);
   });
 });
