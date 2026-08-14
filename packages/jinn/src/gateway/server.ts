@@ -411,6 +411,18 @@ export async function reloadConnectorRegistry({
   return { started, stopped, errors };
 }
 
+/** Boot-time startup. Returns without awaiting any `start()`, so a hung handshake cannot delay the HTTP listen. */
+export function startConnectorInstances(instances: NormalizedConnector[], initConnector: (instance: NormalizedConnector) => Promise<void>, describeConnector: (instance: NormalizedConnector) => string): void {
+  for (const instance of instances) {
+    try {
+      initConnector(instance).catch((err) => logger.error(`Failed to start ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`));
+      logger.info(`Starting ${describeConnector(instance)}`);
+    } catch (err) {
+      logger.error(`Failed to initialize ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+}
+
 export type GatewayCleanup = () => Promise<void>;
 
 export async function startGateway(
@@ -708,9 +720,7 @@ export async function startGateway(
   /**
    * Create one connector, wire its message routing, and register it. Registration
    * happens before start so shutdown can clean up even while a handshake is in
-   * flight. Returns the start() promise so the caller decides: boot
-   * fire-and-forgets it (a slow handshake must not delay HTTP listen), reload
-   * awaits it to report start failures in its response.
+   * flight. Returns the start() promise so each caller picks its own wait policy.
    */
   const initConnector = (instance: NormalizedConnector): Promise<void> => {
     const connector = createConnector(instance);
@@ -735,17 +745,7 @@ export async function startGateway(
   // first connector can deliver a message.
   sessionManager.setConnectorProvider(() => connectorMap);
 
-  for (const instance of connectorInstancesFromConfig(config)) {
-    try {
-      // Fire-and-forget: don't block boot — a slow handshake must not delay HTTP listen.
-      initConnector(instance).catch((err) => {
-        logger.error(`Failed to start ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`);
-      });
-      logger.info(`Starting ${describeConnector(instance)}`);
-    } catch (err) {
-      logger.error(`Failed to initialize ${describeConnector(instance)}: ${err instanceof Error ? err.message : err}`);
-    }
-  }
+  startConnectorInstances(connectorInstancesFromConfig(config), initConnector, describeConnector);
 
   /** Stop every running connector and restart from fresh config (POST /api/connectors/reload). */
   async function reloadConnectorInstances(): Promise<{ started: string[]; stopped: string[]; errors: string[] }> {

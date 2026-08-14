@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { connectorInstancesFromConfig, createConnector, reloadConnectorRegistry } from "../server.js";
+import { connectorInstancesFromConfig, createConnector, reloadConnectorRegistry, startConnectorInstances } from "../server.js";
 import { SlackConnector } from "../../connectors/slack/index.js";
 import { DiscordConnector } from "../../connectors/discord/index.js";
 import { RemoteDiscordConnector } from "../../connectors/discord/remote.js";
@@ -167,14 +168,26 @@ describe("connector wiring", () => {
   const stubConnector = (start: () => Promise<void>): Connector =>
     ({ name: "stub", start, stop: async () => {}, sendMessage: async () => undefined, onMessage: () => {} }) as unknown as Connector;
 
-  it("registers a connector before start resolves, so a hung handshake cannot block boot", async () => {
-    const registry = new Map<string, Connector>();
-    const hung = stubConnector(() => new Promise<void>(() => {}));
-    // Mirrors server.ts: register first, then fire-and-forget start().
-    registry.set("hung", hung);
-    const pending = hung.start().catch(() => {});
-    expect(registry.has("hung")).toBe(true);
-    expect(await Promise.race([pending, Promise.resolve("still-booting")])).toBe("still-booting");
+  it("starts every connector without awaiting one, so a hung handshake cannot block boot", () => {
+    const started: string[] = [];
+    const hungHandshake = new Promise<void>(() => {});
+    startConnectorInstances(
+      connectorInstancesFromConfig(mixedConfig),
+      async (instance) => {
+        started.push(instance.id);
+        await hungHandshake;
+      },
+      (instance) => `connector "${instance.id}"`,
+    );
+    // Control is back here with all three handshakes still pending — that is what lets boot reach listen().
+    started.push("listening");
+    expect(started).toEqual(["slack", "telegram", "slack-second", "listening"]);
+  });
+
+  it("boots connectors through that starter instead of awaiting them inline", () => {
+    const source = readFileSync(new URL("../server.ts", import.meta.url), "utf8");
+    expect(source).toMatch(/\bstartConnectorInstances\(connectorInstancesFromConfig\(config\)/);
+    expect(source).not.toMatch(/await\s+startConnectorInstances/);
   });
 
   it("keeps a rejecting start() from throwing into the boot path", async () => {
