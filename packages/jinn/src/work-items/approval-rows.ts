@@ -3,15 +3,15 @@ import { parseTodoId } from './id.js';
 import type { ApprovalState, ApprovalTargetKind } from './store.js';
 
 /**
- * Read surface over `work_item_approvals` (Todos v2 slice 4) — the only storage
- * for approval facts, since PLA-48 dropped the `approval_*` columns from
- * work_items. Every read resolves through the "current row": the PENDING row
- * when one exists (the partial unique index guarantees at most one), else the
- * most recently decided row.
+ * Read surface over `work_item_approvals` (Todos v2 slice 4). Approvals live in
+ * their own history table; the legacy `approval_*` columns on work_items are
+ * frozen (dual-read window) and every read resolves through the "current row":
+ * the PENDING row when one exists (the partial unique index guarantees at most
+ * one), else the most recently decided row.
  *
  * This module is deliberately free of work-item runtime imports (types only) so
- * `store.ts` can hydrate a WorkItem's approval fields from it without an import
- * cycle; the WRITE orchestration (request/decide/escalate) stays in `approvals.ts`.
+ * `store.ts` can hydrate the legacy fields from it without an import cycle; the
+ * WRITE orchestration (request/decide/escalate) stays in `approvals.ts`.
  */
 
 export interface WorkItemApproval {
