@@ -27,7 +27,9 @@ function mcpContext() {
   return {
     sent,
     ctx: {
-      gatewayUrl: "http://127.0.0.1:7777",
+      // Never dialed — fetchFn below answers every request — and deliberately
+      // not a real port, so nothing here can reach a live gateway.
+      gatewayUrl: "http://gateway.invalid",
       fetchFn,
       callerSessionId: "session-test",
       sessionCapability: "cap-test",
