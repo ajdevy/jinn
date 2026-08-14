@@ -1,58 +1,29 @@
 import { act, render, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  authFetch,
+  activate,
+  calls,
+  CONFIGURED,
+  handle,
+  json,
+  openSucceeds,
+  Probe,
+  resetHarness,
+} from "./talk-session-harness"
 
-const authFetch = vi.fn()
-vi.mock("@/lib/auth", () => ({ authFetch: (...args: unknown[]) => authFetch(...args) }))
+vi.mock("@/lib/auth", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/auth")>()
+  return { ...original, authFetch: (...args: unknown[]) => authFetch(...args) }
+})
 
-const { useTalkSession } = await import("../use-talk-session")
-const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
 const { HEARTBEAT_INTERVAL_MS } = await import("../session-client")
 const { FakeConnection, connect, holdNextConnect } = await import("./fake-connection")
 
-let handle: ReturnType<typeof useTalkSession>
-
-function Probe() {
-  handle = useTalkSession(connect)
-  return <span data-testid="open-session">{useTalkSessionId() ?? "none"}</span>
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
-}
-
-const OPENED = { id: "talk-1", token: "secret-1", expiresAt: 1_700_000_600, model: "gpt-realtime-2.1" }
-
-/** Every request this test made against one path suffix. */
-function calls(match: string) {
-  return authFetch.mock.calls.filter(([url]) => String(url).endsWith(match))
-}
-
-const CONFIGURED = { configured: true, provider: "openai", providers: ["openai"] }
-
-function openSucceeds() {
-  authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
-    if (url === "/api/talk/config") return json(CONFIGURED)
-    if (url === "/api/talk/sessions" && init.method === "POST") return json(OPENED, 201)
-    if (url.endsWith("/resume")) return json({ token: "secret-2", expiresAt: 1_700_001_200 })
-    return json({ ok: true })
-  })
-}
-
-async function activate() {
-  await act(async () => handle.toggle())
-  await waitFor(() => expect(handle.active).toBe(true))
-}
-
-beforeEach(() => {
-  authFetch.mockReset()
-  connect.mockClear()
-  FakeConnection.opened = []
-  setTalkSessionId(null)
-})
+beforeEach(resetHarness)
 
 afterEach(() => {
   vi.useRealTimers()
-  Object.defineProperty(document, "hidden", { configurable: true, value: false })
 })
 
 describe("mounting", () => {
@@ -179,53 +150,7 @@ describe("the heartbeat", () => {
   })
 })
 
-describe("leaving and coming back", () => {
-  function setHidden(hidden: boolean) {
-    Object.defineProperty(document, "hidden", { configurable: true, value: hidden })
-    document.dispatchEvent(new Event("visibilitychange"))
-  }
-
-  it("parks and cools the microphone when the tab goes away", async () => {
-    openSucceeds()
-    render(<Probe />)
-    await activate()
-
-    await act(async () => setHidden(true))
-
-    await waitFor(() => expect(calls("/park")).toHaveLength(1))
-    expect(FakeConnection.opened[0]!.closes).toBe(1)
-    expect(handle.state).toBe("idle")
-  })
-
-  it("resumes on the credential the gateway hands back", async () => {
-    openSucceeds()
-    render(<Probe />)
-    await activate()
-    await act(async () => setHidden(true))
-    await waitFor(() => expect(calls("/park")).toHaveLength(1))
-
-    await act(async () => setHidden(false))
-
-    await waitFor(() => expect(FakeConnection.opened).toHaveLength(2))
-    expect(calls("/resume")).toHaveLength(1)
-    expect(FakeConnection.opened[1]!.token).toBe("secret-2")
-    await waitFor(() => expect(handle.state).toBe("listening"))
-  })
-
-  it("stands down when the session it parked has been reaped", async () => {
-    openSucceeds()
-    render(<Probe />)
-    await activate()
-    await act(async () => setHidden(true))
-    await waitFor(() => expect(calls("/park")).toHaveLength(1))
-    authFetch.mockResolvedValue(json({ error: "Talk session talk-1 does not exist" }, 404))
-
-    await act(async () => setHidden(false))
-
-    await waitFor(() => expect(handle.error).toContain("does not exist"))
-    expect(handle.active).toBe(false)
-  })
-
+describe("the page going away", () => {
   it("closes the session when the page goes away", async () => {
     openSucceeds()
     render(<Probe />)
@@ -258,23 +183,5 @@ describe("leaving and coming back", () => {
     expect(calls("/heartbeat")).toHaveLength(0)
     expect(handle.active).toBe(false)
     expect(getByTestId("open-session").textContent).toBe("none")
-  })
-
-  it("does not bring the microphone back for a session closed while it was resuming", async () => {
-    openSucceeds()
-    render(<Probe />)
-    await activate()
-    await act(async () => setHidden(true))
-    await waitFor(() => expect(calls("/park")).toHaveLength(1))
-    const finishConnecting = holdNextConnect()
-    await act(async () => setHidden(false))
-    await waitFor(() => expect(connect).toHaveBeenCalledTimes(2))
-
-    await act(async () => handle.toggle())
-    await waitFor(() => expect(handle.active).toBe(false))
-    await act(async () => finishConnecting())
-
-    await waitFor(() => expect(FakeConnection.opened[1]!.closes).toBe(1))
-    expect(handle.state).toBe("idle")
   })
 })

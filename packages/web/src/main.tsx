@@ -4,9 +4,12 @@ import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject
 import { ClientProviders } from './routes/client-providers'
 import { ContributedRoute, reservedSegments } from './routes/contributed-route'
 import { registerTalkNavigator } from './components/talk/tools/router-handle'
+import { describeLocation } from './components/talk/context/page-snapshot'
+import { publishPageContext } from './components/talk/context/page-context-store'
 import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
+import { startKeyboardInset } from './lib/native/keyboard-inset'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import './routes/globals.css'
@@ -160,6 +163,15 @@ const router = createBrowserRouter([
 // has actually landed, which is the only honest end for its latency clock.
 registerTalkNavigator((path) => router.navigate(path))
 
+// The orb is told where the operator is without being asked, and the URL is
+// where almost every Jinn surface already keeps that. Subscribing to the router
+// rather than rendering a hook keeps this on the same React-free seam the
+// navigator uses: the talk transport is not a component either.
+const publishLocation = (location: { pathname: string; search: string }) =>
+  publishPageContext(describeLocation(location.pathname, location.search))
+publishLocation(router.state.location)
+router.subscribe((state) => publishLocation(state.location))
+
 // A plugin navigates from an event handler or a backend callback rather than
 // from a render, so it reaches the router through a module-level handle for the
 // same reason Talk does. The promise is dropped rather than handed back: unlike
@@ -186,6 +198,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     })
   })
 }
+
+// Runs for the life of the document, so the unsubscribe is deliberately dropped.
+startKeyboardInset()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element #root not found')

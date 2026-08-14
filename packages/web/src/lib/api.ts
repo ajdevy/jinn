@@ -847,8 +847,8 @@ export const api = {
   ...createExperimentsApi({ get, post }),
   getFeatures: () => get<{ notesEnabled: boolean; staleChat: StaleChatPolicy }>("/api/features"),
   getStatus: () => get<Record<string, unknown>>("/api/status"),
-  listWorkflowDefinitionsV2: () =>
-    get<{ items: WorkflowDefinitionSummaryV2Wire[]; nextCursor: string | null }>("/api/workflows"),
+  listWorkflowDefinitionsV2: (cursor?: string) =>
+    get<{ items: WorkflowDefinitionSummaryV2Wire[]; nextCursor: string | null }>(`/api/workflows${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   getWorkflowDefinitionV2: (id: string) =>
     get<WorkflowDefinitionV2Wire>(`/api/workflows/${encodeURIComponent(id)}`),
   listWorkflowRunsV2: (id: string, limit = 50) =>

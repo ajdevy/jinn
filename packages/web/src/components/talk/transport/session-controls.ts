@@ -7,12 +7,12 @@
  */
 import type { RefObject } from "react"
 import type { OrbState } from "../orb-motion"
-import type { TalkConnection } from "./webrtc-connection"
+import type { Attachment } from "./attachment"
 
 export interface LiveSession {
   id: string
   /** Null while parked: the connection is dropped so the provider bills nothing. */
-  connection: TalkConnection | null
+  attachment: Attachment | null
   stopHeartbeat: () => void
 }
 
@@ -34,7 +34,7 @@ export interface SessionControls {
    *  belongs to a session nobody is waiting for, and hands itself back rather
    *  than turning the microphone on behind a closed session. */
   generationRef: RefObject<number>
-  attach: (id: string, token: string) => Promise<TalkConnection>
+  attach: (id: string, token: string) => Promise<Attachment>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
   setState: (state: OrbState) => void

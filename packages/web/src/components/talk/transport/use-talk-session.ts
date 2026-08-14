@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import type { OrbState } from "../orb-motion"
 import { setTalkSessionId } from "../talk-session-store"
-import { createTalkDriver } from "./session-driver"
+import { detach, useAttach } from "./attachment"
 import { fetchTalkCapability } from "@/lib/talk-capability"
 import { useParkWhileHidden } from "./park-while-hidden"
 import {
@@ -22,7 +22,7 @@ import {
   startTalkHeartbeat,
 } from "./session-client"
 import { reason, type LiveSession, type SessionControls, type TalkSetupNeeded } from "./session-controls"
-import { connectRealtime, type ConnectRealtime, type TalkConnection } from "./webrtc-connection"
+import { connectRealtime, type ConnectRealtime } from "./webrtc-connection"
 
 export type { TalkSetupNeeded }
 
@@ -39,53 +39,6 @@ export interface TalkSessionHandle {
   toggle: () => void
 }
 
-/**
- * Bring up the provider connection for an already-open talk session.
- *
- * The driver is built before the connection so that a data channel which opens
- * before `connect` resolves still gets its `session.update` — once, and never
- * before there is something to send it on.
- */
-function useAttach(
-  connect: ConnectRealtime,
-  level: RefObject<number>,
-  setState: (state: OrbState) => void,
-  setError: (message: string) => void,
-) {
-  return useCallback(
-    async (id: string, token: string): Promise<TalkConnection> => {
-      let connection: TalkConnection | null = null
-      let channelOpen = false
-      let started = false
-      const start = () => {
-        if (started || !channelOpen || !connection) return
-        started = true
-        driver.start()
-      }
-      const driver = createTalkDriver({
-        sessionId: id,
-        send: (event) => connection?.send(event),
-        onState: setState,
-        onError: setError,
-      })
-
-      connection = await connect({
-        token,
-        level,
-        onOpen: () => {
-          channelOpen = true
-          start()
-        },
-        onFrame: driver.receive,
-        onClose: () => setState("idle"),
-      })
-      start()
-      return connection
-    },
-    [connect, level, setState, setError],
-  )
-}
-
 /** Tear the session down locally, whatever the gateway makes of the DELETE. */
 function useForget(
   liveRef: RefObject<LiveSession | null>,
@@ -97,7 +50,7 @@ function useForget(
     (live: LiveSession) => {
       generationRef.current += 1
       live.stopHeartbeat()
-      live.connection?.close()
+      if (live.attachment) detach(live.attachment)
       liveRef.current = null
       setTalkSessionId(null)
       setActive(false)
@@ -142,14 +95,14 @@ async function openSession(controls: SessionControls): Promise<void> {
     const session = await openTalkSession()
     opened = session.id
     setTalkSessionId(opened)
-    const connection = await controls.attach(opened, session.token)
+    const attachment = await controls.attach(opened, session.token)
     if (generation !== controls.generationRef.current) {
-      connection.close()
+      detach(attachment)
       setTalkSessionId(null)
       void closeTalkSession(opened).catch(() => {})
       return
     }
-    controls.liveRef.current = { id: opened, connection, stopHeartbeat: startTalkHeartbeat(opened) }
+    controls.liveRef.current = { id: opened, attachment, stopHeartbeat: startTalkHeartbeat(opened) }
     controls.setActive(true)
     controls.setState("listening")
   } catch (failure) {

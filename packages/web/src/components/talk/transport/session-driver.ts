@@ -7,11 +7,22 @@
  * calls and responses are still open — so `use-talk-session.ts` is left with
  * lifecycle alone.
  */
+import { describeInstance } from "../context/instance-identity"
+import { getPageContext, subscribePageContext } from "../context/page-context-store"
+import { renderPageContext } from "../context/render-page-context"
+import { visibleObjects } from "../context/visible-objects"
 import { executeToolCall, toolDefinitions } from "../tools/registry"
 import type { OrbState } from "../orb-motion"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
 import { postTalkTurn } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
+
+/**
+ * How long the page has to settle before the orb is told about it. Typing in the
+ * board's search box rewrites the URL on every keystroke, and a push per
+ * keystroke would be a `session.update` per keystroke.
+ */
+export const PAGE_CONTEXT_DEBOUNCE_MS = 400
 
 export interface TalkDriverOptions {
   sessionId: string
@@ -22,10 +33,14 @@ export interface TalkDriverOptions {
 }
 
 export interface TalkDriver {
-  /** Declare the tool catalog. Called once, when the channel opens. */
+  /** Declare the tool catalog and the page, and start following the page.
+   *  Called once, when the channel opens. */
   start: () => void
   /** Handle one raw data-channel frame. */
   receive: (data: string) => void
+  /** Stop following the page. Called wherever the connection is dropped — a
+   *  driver that outlived its channel would keep pushing context at nothing. */
+  stop: () => void
 }
 
 /**
@@ -64,6 +79,41 @@ interface DriverState {
   /** A tool answered while a response was in flight, so a request is still
    *  owed once that response ends. */
   owed: boolean
+  /** How this driver lets go of the page store, and the push it is currently
+   *  waiting out the debounce on. Both live exactly as long as the connection. */
+  unfollow: (() => void) | null
+  settling: ReturnType<typeof setTimeout> | null
+}
+
+/**
+ * Declare the session: the tool catalog, and where the operator is.
+ *
+ * The tools ride along on every push rather than leaning on the provider to
+ * merge one field at a time. `instructions` is a replaced field, and a context
+ * push that silently cleared the tool list would take the whole orb down — the
+ * extra bytes are on a local data channel and cost nothing worth having.
+ */
+function sendSessionConfig(driver: DriverState): void {
+  const page = getPageContext()
+  driver.options.send({
+    type: "session.update",
+    session: {
+      type: "realtime",
+      tools: functionTools(),
+      instructions: renderPageContext(page, visibleObjects(page), describeInstance()),
+    },
+  })
+}
+
+/** Follow the page, one push per settled change. */
+function followPage(driver: DriverState): void {
+  driver.unfollow = subscribePageContext(() => {
+    if (driver.settling) clearTimeout(driver.settling)
+    driver.settling = setTimeout(() => {
+      driver.settling = null
+      sendSessionConfig(driver)
+    }, PAGE_CONTEXT_DEBOUNCE_MS)
+  })
 }
 
 function show(driver: DriverState, next: OrbState): void {
@@ -179,13 +229,24 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
     outstanding: 0,
     responding: false,
     owed: false,
+    unfollow: null,
+    settling: null,
   }
   const read = createFrameReader()
   return {
-    start: () => options.send({ type: "session.update", session: { type: "realtime", tools: functionTools() } }),
+    start: () => {
+      sendSessionConfig(driver)
+      followPage(driver)
+    },
     receive: (data: string) => {
       const frame = read(data)
       if (frame) handle(driver, frame)
+    },
+    stop: () => {
+      driver.unfollow?.()
+      driver.unfollow = null
+      if (driver.settling) clearTimeout(driver.settling)
+      driver.settling = null
     },
   }
 }

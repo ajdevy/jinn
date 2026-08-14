@@ -6,9 +6,10 @@ import { toolDefinition, type TalkTool, type ToolDefinition, type ToolExposure }
  *
  * A voice session pays for its tool list in every turn, so only the tools the
  * operator reaches for without preamble stay resident. The always-on set is
- * small enough to name: the Todo board, one Todo, chat, reading a Todo, and
- * focusing something on screen. Everything else — workflows, experiments, org,
- * cron, sessions, and the catch-all — loads once the conversation is about it.
+ * small enough to name: the Todo board, opening whatever they just named,
+ * chat, reading a Todo, and focusing something on screen. Everything else —
+ * workflows, experiments, org, cron, sessions, opening a Todo by id alone, and
+ * the catch-all — loads once the conversation is about it.
  *
  * The transport consumes this rather than re-deriving it, so there is one place
  * the split is decided and one place to change it.

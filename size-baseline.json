@@ -1694,7 +1694,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 914
+      "lines": 911
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 340,
@@ -1709,7 +1709,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 1109,
+      "lines": 1093,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

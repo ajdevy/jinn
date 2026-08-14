@@ -182,9 +182,9 @@ export const BoardCard = memo(function BoardCard({
         if (e.key === "Enter" && e.target === e.currentTarget) onOpen(item.id, item)
       }}
       onPointerDown={(e) => onLiftPointerDown?.(e, item)}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 160px" }}
       className={[
-        "group focus-ring cursor-pointer select-none rounded-[var(--radius-lg)] px-[13px] py-3 outline-none transition-colors duration-150",
+        // A phone card never skips its render: an estimated height moved the container's scrollHeight 2721 → 3981 mid-commit and scroll anchoring chased it to an edge. Desktop keeps skipping, at a fixed intrinsic size rather than `auto`, which remembers each card's last rendered height and revises it mid-scroll (8129 → 6112).
+        "group focus-ring cursor-pointer select-none rounded-[var(--radius-lg)] px-[13px] py-3 outline-none transition-colors duration-150 [content-visibility:auto] [contain-intrinsic-size:83px] max-[700px]:[content-visibility:visible] max-[700px]:[contain-intrinsic-size:auto]",
         ghost
           ? "bg-[var(--bg-tertiary)] shadow-[var(--shadow-overlay)]"
           : "bg-[var(--bg-secondary)] shadow-[var(--shadow-ambient),var(--shadow-subtle),var(--inset-shine)] hover:bg-[var(--bg-tertiary)]",

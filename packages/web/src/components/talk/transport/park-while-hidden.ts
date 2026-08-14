@@ -5,32 +5,33 @@
  * session it collects is one the operator cannot come back to.
  */
 import { useEffect } from "react"
+import { detach } from "./attachment"
 import { parkTalkSession, resumeTalkSession } from "./session-client"
 import { reason, type LiveSession, type SessionControls } from "./session-controls"
 
 export function useParkWhileHidden(controls: SessionControls): void {
   useEffect(() => {
     const park = (live: LiveSession) => {
-      if (!live.connection) return
-      live.connection.close()
-      live.connection = null
+      if (!live.attachment) return
+      detach(live.attachment)
+      live.attachment = null
       controls.setState("idle")
       void parkTalkSession(live.id).catch((failure) => controls.setError(reason(failure)))
     }
 
     const resume = (live: LiveSession) => {
-      if (live.connection) return
+      if (live.attachment) return
       const generation = controls.generationRef.current
       void resumeTalkSession(live.id)
         .then(async (resumed) => {
-          const connection = await controls.attach(live.id, resumed.token)
+          const attachment = await controls.attach(live.id, resumed.token)
           if (generation !== controls.generationRef.current) {
             // Closed while this was connecting. The microphone does not come
             // back on for a session that has already been deleted.
-            connection.close()
+            detach(attachment)
             return
           }
-          live.connection = connection
+          live.attachment = attachment
           controls.setState("listening")
         })
         .catch((failure) => {
