@@ -130,8 +130,12 @@ describe("a contributed path", () => {
   })
 
   it("sends a URL nobody claims back to chat rather than to a router error", async () => {
-    // One pass, so the host knows the plugins have been looked for. There is no
-    // gateway here, so it finds nothing and settles anyway, which is the point.
+    // One pass, so the host knows the plugins have been looked for. "No gateway"
+    // is stubbed rather than left to a real connection refusal: the refusal is
+    // what this waited on, and on a loaded machine it does not always come back
+    // inside the default timeout. A pass that fails still settles, which is the
+    // point.
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no gateway"))
     await scanDiskPlugins()
 
     render(
