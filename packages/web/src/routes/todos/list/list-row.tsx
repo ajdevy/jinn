@@ -1,3 +1,4 @@
+import { memo } from "react"
 import type { Employee, WorkItemCompactWire } from "@/lib/api"
 import { emojiForName } from "@/lib/emoji-pool"
 import { StatusCircle } from "../state-glyph"
@@ -24,7 +25,9 @@ function PriorityBars({ priority }: { priority: number }) {
   )
 }
 
-export function TodoListRow({
+/** Memoised: the list re-renders whenever a poll, a filter or a group toggle
+ *  lands, and a row that was handed the same facts has nothing new to draw. */
+export const TodoListRow = memo(function TodoListRow({
   item,
   priority,
   byName,
@@ -84,4 +87,4 @@ export function TodoListRow({
       </span>
     </button>
   )
-}
+})

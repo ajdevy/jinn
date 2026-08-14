@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
+import { installVirtualLayout } from "@/test/virtual-layout"
 import TodoBoardPage from "../board/board-page"
 import { clearBoardScrollCache } from "../board/board-route"
 
@@ -215,6 +216,42 @@ describe("Todos list scroll anchoring", () => {
 
     expect(layout.rowIds()[0]).toBe("PLA-90")
     expect(layout.scroller.scrollTop).toBe(0)
+  })
+})
+
+/**
+ * The same reflow above `VIRTUALIZE_THRESHOLD`, where the list is windowed and
+ * the anchor corrects a scrollport whose rows mount and unmount underneath it.
+ * Forty Todos keeps every case above this one below the threshold, on the
+ * un-windowed harness at the top of the file; this one brings its own.
+ */
+describe("Todos list scroll anchoring, windowed", () => {
+  /** The virtualizer's own item estimate, so an unmeasured row is this tall. */
+  const WINDOW_ROW_H = 44
+
+  it("holds the read position when the group above the reader grows", async () => {
+    rows.backlog = Array.from({ length: 80 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
+    const layout = installVirtualLayout(WINDOW_ROW_H, VIEWPORT_H, {
+      scroller: '[data-testid="todo-list-scroll"]', row: "[data-anchor-id]", rowId: "data-anchor-id",
+    })
+    const { client } = renderBoard()
+    await screen.findByTestId("todo-list-row-PLA-1")
+
+    const read = 30.5 * WINDOW_ROW_H
+    layout.scrollTo(read)
+    await vi.waitFor(() => expect(layout.scrollTop()).toBe(read))
+    const anchored = layout.visibleRowIds()[0]
+    const before = layout.offsetOf(anchored)
+
+    rows.executing = [compact("PLA-90", "executing", 0), compact("PLA-91", "executing", 1)]
+    await settleStatusChange(client)
+    // The refetch's render lands after the invalidate resolves, and the
+    // correction rides with it: holding the place is what moves the scrollport.
+    await vi.waitFor(() => expect(layout.scrollTop()).toBeGreaterThan(read))
+
+    // `offsetOf` throws on an unmounted row, so this also proves the window
+    // still covers where the reader was left.
+    expect(Math.abs(layout.offsetOf(anchored) - before)).toBeLessThanOrEqual(2)
   })
 })
 

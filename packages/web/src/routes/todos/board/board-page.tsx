@@ -376,9 +376,8 @@ export default function TodoBoardPage() {
   )
 
   // ── Scroll position (per board on POP, anchored across every reflow) ────────
-  const { boardScrollRef, listScrollRef, onBoardScroll, onListScroll } = useBoardScroll(
-    key, navigationType, { dragging: drag !== null, attention: isAttention },
-  )
+  const { boardScrollRef, listScrollRef, onBoardScroll, onListScroll } =
+    useBoardScroll(key, navigationType, { dragging: drag !== null, attention: isAttention })
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)
@@ -738,6 +737,7 @@ export default function TodoBoardPage() {
             ) : (
               <TodoList
                 columns={listColumns}
+                scrollRef={listScrollRef}
                 statusInScope={listStatusInScope}
                 closedInitiallyOpen={closedFilter}
                 needsAttention={needsYou}
