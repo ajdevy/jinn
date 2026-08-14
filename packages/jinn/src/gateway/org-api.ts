@@ -1,11 +1,9 @@
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import fs from "node:fs";
-import path from "node:path";
 import { ORG_DIR } from "../shared/paths.js";
-import { logger } from "../shared/logger.js";
 import { compactEmployeeRole } from "../shared/employee-role.js";
 import { readJsonBody } from "./http-helpers.js";
-import { badRequest, json, matchRoute, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
+import { badRequest, json, matchRoute, notFound, type ParsedRoute } from "./route-helpers.js";
 import type { OrgNode } from "../shared/types.js";
 import type { ApiContext } from "./api.js";
 
@@ -97,29 +95,6 @@ async function patchEmployee(
   json(res, { status: "ok", employee: updated ?? null });
 }
 
-function getBoard(res: ServerResponse, name: string): void {
-  const boardPath = path.join(ORG_DIR, name, "board.json");
-  if (!fs.existsSync(boardPath)) return notFound(res);
-  let board: unknown;
-  try { board = JSON.parse(fs.readFileSync(boardPath, "utf-8")); }
-  catch (err) {
-    logger.warn(`GET /api/org/departments/${name}/board: corrupt board.json — ${err instanceof Error ? err.message : String(err)}`);
-    return serverError(res, "board.json is corrupt");
-  }
-  json(res, board);
-}
-
-async function putBoard(req: HttpRequest, res: ServerResponse, name: string): Promise<void> {
-  const boardPath = path.join(ORG_DIR, name, "board.json");
-  const deptDir = path.join(ORG_DIR, name);
-  if (!fs.existsSync(deptDir)) return notFound(res);
-  const _parsed = await readJsonBody(req, res);
-  if (!_parsed.ok) return;
-  const body = _parsed.body as any;
-  fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
-  json(res, { status: "ok" });
-}
-
 async function handleOrgReads(res: ServerResponse, route: ParsedRoute, context: ApiContext): Promise<boolean> {
   const { method, pathname } = route;
   if (method !== "GET") return false;
@@ -130,11 +105,6 @@ async function handleOrgReads(res: ServerResponse, route: ParsedRoute, context: 
   const employee = matchRoute("/api/org/employees/:name", pathname);
   if (employee) {
     await getEmployee(res, employee.name, context);
-    return true;
-  }
-  const board = matchRoute("/api/org/departments/:name/board", pathname);
-  if (board) {
-    getBoard(res, board.name);
     return true;
   }
   return false;
@@ -151,11 +121,6 @@ async function handleOrgWrites(
   const employee = matchRoute("/api/org/employees/:name", pathname);
   if (method === "PATCH" && employee) {
     await patchEmployee(req, res, employee.name, context);
-    return true;
-  }
-  if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) {
-    const p = matchRoute("/api/org/departments/:name/board", pathname)!;
-    await putBoard(req, res, p.name);
     return true;
   }
   return false;

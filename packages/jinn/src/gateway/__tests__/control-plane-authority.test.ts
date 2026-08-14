@@ -420,7 +420,6 @@ describe("control-plane writes require operator authority", () => {
     { method: "DELETE", path: "/api/cron/existing", body: undefined, label: "cron delete" },
     { method: "POST", path: "/api/cron/existing/trigger", body: {}, label: "cron manual trigger" },
     { method: "PATCH", path: "/api/org/employees/platform-worker", body: { displayName: "Renamed Worker" }, label: "org employee update" },
-    { method: "PUT", path: "/api/org/departments/platform/board", body: { todo: [] }, label: "legacy board write" },
     { method: "DELETE", path: "/api/skills/sample-skill", body: undefined, label: "skill removal" },
     { method: "POST", path: "/api/engines/refresh", body: {}, label: "engine registry refresh" },
     { method: "POST", path: "/api/engine-limits/refresh", body: {}, label: "engine limits refresh" },

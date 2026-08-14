@@ -43,7 +43,6 @@ const READ_ROUTES = [
   { method: "GET", path: "/api/cron/daily/runs", label: "cron run history" },
   { method: "GET", path: "/api/org", label: "org list" },
   { method: "GET", path: "/api/org/employees/coo", label: "org employee get" },
-  { method: "GET", path: "/api/org/departments/platform/board", label: "legacy board read" },
   { method: "GET", path: "/api/workflows", label: "workflow visual list" },
   { method: "GET", path: "/api/workflows/demo", label: "workflow visual get" },
   { method: "GET", path: "/api/workflows/demo/runs", label: "workflow runs list" },

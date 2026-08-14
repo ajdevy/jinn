@@ -58,7 +58,6 @@ export function seedHome(): void {
     path.join(home.org, "platform", "worker.yaml"),
     `name: ${WORKER.name}\ndisplayName: ${WORKER.displayName}\ndepartment: ${WORKER.department}\nrank: ${WORKER.rank}\nengine: ${WORKER.engine}\nmodel: ${WORKER.model}\npersona: ${PERSONA}\n`,
   );
-  fs.writeFileSync(path.join(home.org, "platform", "board.json"), JSON.stringify({ todo: ["ship it"] }));
 }
 
 // A home exists from the moment this module loads, so a paths getter read before
