@@ -10,7 +10,7 @@
 // conflict, a child created mid-drag) still snaps back with the gateway's words.
 
 import edgesFixture from "./transition-edges.json"
-import type { WorkItemStatusWire } from "./api"
+import type { WorkItemStatusWire, WorkItemTreeNodeWire } from "./api"
 
 interface EdgesFixture {
   edges: Record<WorkItemStatusWire, WorkItemStatusWire[]>
@@ -30,17 +30,78 @@ export interface LegalTargetOption {
   status: WorkItemStatusWire
   gated: boolean
   reason?: string
+  /** Taking this target also closes the item's open descendants, so the commit
+   *  must send `cascade: true` — without it the gateway refuses the same move. */
+  cascade?: boolean
 }
 
 export interface LegalTargetsContext {
   /** Count of this item's children not yet done/cancelled (from the card's own
    *  roll-up counts — the pre-check for the close gate). */
   openChildren?: number
+  /** Open items at every depth below this one — what a cascade close actually
+   *  closes. A surface that knows only its direct children leaves it out. */
+  openDescendants?: number
+  /** Descendants sitting in escalated. A cascade cannot close through one. */
+  escalatedDescendants?: number
+}
+
+/** The three counts read off a loaded tree node, for the surfaces that hold one. */
+export interface CloseGateCounts {
+  openChildren: number
+  openDescendants: number
+  escalatedDescendants: number
+}
+
+const isOpen = (node: WorkItemTreeNodeWire) => node.status !== "done" && node.status !== "cancelled"
+
+/** The close gate's pre-check, off the tree a surface already loaded. Children
+ *  and descendants are different numbers and the gate needs both: the server
+ *  weighs the direct children, a cascade closes everything under them. */
+export function closeGateCounts(node: WorkItemTreeNodeWire | undefined): CloseGateCounts {
+  const children = node?.children ?? []
+  let openDescendants = 0
+  let escalatedDescendants = 0
+  for (const child of children) {
+    const below = closeGateCounts(child)
+    if (isOpen(child)) openDescendants += 1
+    if (child.status === "escalated") escalatedDescendants += 1
+    openDescendants += below.openDescendants
+    escalatedDescendants += below.escalatedDescendants
+  }
+  return { openChildren: children.filter(isOpen).length, openDescendants, escalatedDescendants }
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`
+
+/** The close targets when children are still open. Done is one cascade close
+ *  (PLA-96): the gateway takes the open subtree deepest-first in the same
+ *  transaction, so the row stays live and says what else it closes. Cancel has
+ *  no such lane, and neither has a subtree holding an escalation — that question
+ *  is owed an answer before anything closes over it. */
+function closeTarget(to: WorkItemStatusWire, ctx: LegalTargetsContext): LegalTargetOption {
+  const openChildren = ctx.openChildren ?? 0
+  const escalated = ctx.escalatedDescendants ?? 0
+  if (to !== "done") return { status: to, gated: true, reason: `${plural(openChildren, "sub-task")} still open` }
+  if (escalated > 0) {
+    return {
+      status: to,
+      gated: true,
+      reason: `${plural(escalated, "escalated sub-task")} ${escalated === 1 ? "needs" : "need"} an answer first`,
+    }
+  }
+  return {
+    status: to,
+    gated: false,
+    cascade: true,
+    reason: `also closes ${plural(ctx.openDescendants ?? openChildren, "open sub-task")}`,
+  }
 }
 
 /** Legal manual-move targets from `from` on the operator surface, in the
  *  gateway's declared edge order. Illegal edges are ABSENT (never disabled);
- *  gated edges are present with `gated: true` + the reason. */
+ *  gated edges are present with `gated: true` + the reason; a Done over open
+ *  sub-tasks is live and carries `cascade`. */
 export function legalTargets(
   from: WorkItemStatusWire,
   ctx: LegalTargetsContext = {},
@@ -53,25 +114,19 @@ export function legalTargets(
     // item (bounce, rounds++), never a drag; from blocked/escalated, work
     // resumes through reassignment. Illegal ≠ gated: the edge is absent.
     if (to === "executing" && !MANUAL_EXECUTING_FROM.has(from)) continue
-    if (CLOSE_GATED.has(to) && openChildren > 0) {
-      out.push({
-        status: to,
-        gated: true,
-        reason: `${openChildren} sub-task${openChildren === 1 ? "" : "s"} still open`,
-      })
-      continue
-    }
-    out.push({ status: to, gated: false })
+    out.push(CLOSE_GATED.has(to) && openChildren > 0 ? closeTarget(to, ctx) : { status: to, gated: false })
   }
   return out
 }
 
 /** Drag convenience: a column is a live drop target only when the edge is
- *  legal AND ungated (a gated column dims like an illegal one — §5). */
+ *  legal AND ungated (a gated column dims like an illegal one — §5). A cascade
+ *  target dims with them: dropping a card says nothing about closing the
+ *  sub-tasks under it, and a drag is not where that gets decided. */
 export function canDropOn(
   from: WorkItemStatusWire,
   to: WorkItemStatusWire,
   ctx: LegalTargetsContext = {},
 ): boolean {
-  return legalTargets(from, ctx).some((t) => t.status === to && !t.gated)
+  return legalTargets(from, ctx).some((t) => t.status === to && !t.gated && !t.cascade)
 }

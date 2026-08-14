@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "@/lib/api"
+import { legalTargets } from "@/lib/legal-targets"
 import { clearTalkActions, talkActions } from "../../talk-action-log"
 import { answerSituation, currentSituation, dismissSituation } from "../../talk-situation-store"
 import { pendingUndo } from "../../talk-undo-store"
@@ -210,6 +211,28 @@ describe("unblocking a Todo", () => {
     expect(currentSituation()).toBeNull()
     expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining("1 sub-task") })
+  })
+
+  it("will not cascade a close by voice, however many sub-tasks it would take", async () => {
+    // The premise, guarded so this cannot pass vacuously: the BOARD offers this
+    // close live, as a cascade. The refusal below therefore has to be the tool's
+    // own — reading only `gated` is what let the voice surface pick the cascade
+    // up without ever deciding to.
+    expect(legalTargets("blocked", { openChildren: 2 })).toContainEqual(
+      expect.objectContaining({ status: "done", gated: false, cascade: true }),
+    )
+    mocked.getWorkItem.mockResolvedValue(todo({ status: "blocked" }))
+    mocked.getWorkItemTree.mockResolvedValue({
+      tree: { root: { id: "ABC-59", children: [{ id: "ABC-60", status: "executing" }, { id: "ABC-61", status: "assigned" }] } },
+    } as never)
+
+    const result = await executeToolCall("talk_unblock_todo", '{"id":"ABC-59","status":"done","note":"finished"}')
+
+    expect(currentSituation()).toBeNull()
+    expect(mocked.setWorkItemStatus).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("2 sub-tasks") })
+    if (result.ok) throw new Error("expected a refusal")
+    expect(result.error).toContain("on the board")
   })
 
   it("refuses a target the board does not offer out of blocked", async () => {

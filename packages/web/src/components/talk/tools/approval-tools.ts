@@ -181,6 +181,31 @@ async function openChildrenOf(id: string): Promise<number | { error: string }> {
   }
 }
 
+/**
+ * Why the unblock as spoken cannot be made, or null when it can.
+ *
+ * The board offers a Done over open sub-tasks live, as a cascade that closes
+ * the whole subtree with it. Voice does not get that verb, so this refuses it
+ * in its own words rather than taking the edge map's verdict: it is the same
+ * call `canDropOn` already makes about a drag — a spoken sentence says nothing
+ * about the sub-tasks it would close, and speech is a weaker confirmation than
+ * a drag, not a stronger one. The cascade stays where it was designed to be
+ * decided: on a row that names what it closes, under a deliberate click.
+ */
+function refuseUnblock(id: string, status: WorkItemStatusWire, openChildren: number): string | null {
+  const offered = legalTargets("blocked", { openChildren })
+  const target = offered.find((option) => option.status === status)
+  if (!target || target.gated) {
+    const open = offered.filter((option) => !option.gated && !option.cascade).map((option) => option.status).join(", ")
+    const why = target?.reason ? ` (${target.reason})` : ""
+    return `${id} cannot move from blocked to ${status}${why}. It can go to: ${open}.`
+  }
+  if (target.cascade) {
+    return `Closing ${id} would close ${openChildren} sub-task${openChildren === 1 ? "" : "s"} still open under it, and a spoken command is not where that gets decided. Open ${id} on the board and use its close action, which names everything it takes with it.`
+  }
+  return null
+}
+
 const unblockTodo: TalkTool = {
   name: "talk_unblock_todo",
   description:
@@ -212,13 +237,8 @@ const unblockTodo: TalkTool = {
     const children = await openChildrenOf(id)
     if (typeof children !== "number") return { ok: false, error: children.error }
 
-    const offered = legalTargets("blocked", { openChildren: children })
-    const target = offered.find((option) => option.status === status)
-    if (!target || target.gated) {
-      const open = offered.filter((option) => !option.gated).map((option) => option.status).join(", ")
-      const why = target?.reason ? ` (${target.reason})` : ""
-      return { ok: false, error: `${id} cannot move from blocked to ${status}${why}. It can go to: ${open}.` }
-    }
+    const refusal = refuseUnblock(id, status, children)
+    if (refusal) return { ok: false, error: refusal }
 
     return withConsent(
       {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { legalTargets, canDropOn } from "../legal-targets"
-import type { WorkItemStatusWire } from "../api"
+import { legalTargets, canDropOn, closeGateCounts } from "../legal-targets"
+import type { WorkItemStatusWire, WorkItemTreeNodeWire } from "../api"
 
 /* Slice 6 — the client legality map. The full matrix is pinned here; the
  * SERVER parity lives in packages/jinn/src/work-items/__tests__/
@@ -44,25 +44,72 @@ describe("legalTargets — manual operator moves, ungated", () => {
 })
 
 describe("legalTargets — the roll-up close gate", () => {
-  it("gates done AND cancelled with the open-children reason", () => {
+  it("gates cancelled with the open-children reason", () => {
     const targets = legalTargets("executing", { openChildren: 3 })
-    const done = targets.find((t) => t.status === "done")
     const cancelled = targets.find((t) => t.status === "cancelled")
-    expect(done).toEqual({ status: "done", gated: true, reason: "3 sub-tasks still open" })
     expect(cancelled).toEqual({ status: "cancelled", gated: true, reason: "3 sub-tasks still open" })
-    // Gated ≠ illegal: the rows are PRESENT (pickers render them disabled).
-    expect(statuses(targets)).toContain("done")
+    // Gated ≠ illegal: the row is PRESENT (pickers render it disabled).
+    expect(statuses(targets)).toContain("cancelled")
   })
 
   it("singular reason for one open child", () => {
-    const done = legalTargets("in_review", { openChildren: 1 }).find((t) => t.status === "done")
-    expect(done?.reason).toBe("1 sub-task still open")
+    const cancelled = legalTargets("in_review", { openChildren: 1 }).find((t) => t.status === "cancelled")
+    expect(cancelled?.reason).toBe("1 sub-task still open")
   })
 
   it("does not gate non-close targets", () => {
     const targets = legalTargets("executing", { openChildren: 2 })
     expect(targets.find((t) => t.status === "in_review")?.gated).toBe(false)
     expect(targets.find((t) => t.status === "blocked")?.gated).toBe(false)
+  })
+})
+
+describe("legalTargets — the cascade close (PLA-96)", () => {
+  it("offers done live, saying what the one close takes with it", () => {
+    const done = legalTargets("in_review", { openChildren: 3 }).find((t) => t.status === "done")
+    expect(done).toEqual({ status: "done", gated: false, cascade: true, reason: "also closes 3 open sub-tasks" })
+  })
+
+  it("counts every open descendant, not only the direct children", () => {
+    const done = legalTargets("in_review", { openChildren: 3, openDescendants: 7 }).find((t) => t.status === "done")
+    expect(done).toEqual({ status: "done", gated: false, cascade: true, reason: "also closes 7 open sub-tasks" })
+  })
+
+  it("singular when the cascade closes one", () => {
+    const done = legalTargets("in_review", { openChildren: 1 }).find((t) => t.status === "done")
+    expect(done?.reason).toBe("also closes 1 open sub-task")
+  })
+
+  it("keeps done gated while an escalation sits under it — that answer is owed first", () => {
+    const done = legalTargets("in_review", { openChildren: 3, escalatedDescendants: 1 }).find((t) => t.status === "done")
+    expect(done).toEqual({ status: "done", gated: true, reason: "1 escalated sub-task needs an answer first" })
+    const two = legalTargets("in_review", { openChildren: 3, escalatedDescendants: 2 }).find((t) => t.status === "done")
+    expect(two?.reason).toBe("2 escalated sub-tasks need an answer first")
+  })
+
+  it("never cascades cancelled", () => {
+    const cancelled = legalTargets("in_review", { openChildren: 3, openDescendants: 7 }).find((t) => t.status === "cancelled")
+    expect(cancelled).toEqual({ status: "cancelled", gated: true, reason: "3 sub-tasks still open" })
+  })
+})
+
+describe("closeGateCounts — the pre-check read off a loaded tree", () => {
+  const node = (status: WorkItemStatusWire, children: unknown[] = []) =>
+    ({ status, children }) as unknown as WorkItemTreeNodeWire
+
+  it("keeps direct children apart from the whole open subtree, and finds escalations at depth", () => {
+    const counts = closeGateCounts(node("executing", [
+      node("executing", [node("escalated"), node("done")]),
+      node("done"),
+      node("backlog"),
+    ]))
+    expect(counts).toEqual({ openChildren: 2, openDescendants: 3, escalatedDescendants: 1 })
+  })
+
+  it("reads a leaf — and a tree that never loaded — as nothing to close", () => {
+    const nothing = { openChildren: 0, openDescendants: 0, escalatedDescendants: 0 }
+    expect(closeGateCounts(node("executing"))).toEqual(nothing)
+    expect(closeGateCounts(undefined)).toEqual(nothing)
   })
 })
 
@@ -77,7 +124,10 @@ describe("canDropOn — drag legality", () => {
     expect(canDropOn("done", "done")).toBe(false)
   })
   it("a gated column dims like an illegal one", () => {
-    expect(canDropOn("executing", "done", { openChildren: 2 })).toBe(false)
+    expect(canDropOn("executing", "cancelled", { openChildren: 2 })).toBe(false)
     expect(canDropOn("executing", "done", { openChildren: 0 })).toBe(true)
+  })
+  it("a cascade column dims too — a drag says nothing about closing the children", () => {
+    expect(canDropOn("executing", "done", { openChildren: 2 })).toBe(false)
   })
 })
