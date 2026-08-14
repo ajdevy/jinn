@@ -20,7 +20,7 @@ let db: import("better-sqlite3").Database;
 /** The operator's moves land at wall-clock now, so an attempt's age is only
  *  meaningful relative to that clock. */
 const daysAgo = (days: number): string => new Date(Date.now() - days * 86_400_000).toISOString();
-const afterTheMove = (): string => new Date(Date.now() + 60_000).toISOString();
+const afterTheMove = (minutesLater = 1): string => new Date(Date.now() + minutesLater * 60_000).toISOString();
 
 type SessionStatus = "idle" | "running" | "error" | "waiting" | "interrupted";
 type AttemptOutcome = "succeeded" | "failed" | "interrupted" | null;
@@ -122,5 +122,52 @@ describe("reconcileWorkItem — attempts that predate the operator's own move ar
     const id = parkedAfterStaleAttempt("reconciler parked", "s-reconciler-move", store.RECONCILER_ACTOR);
 
     expect(reconcile.reconcileWorkItem(id)).toMatchObject({ changed: true, item: { status: "in_review" } });
+  });
+});
+
+/** A trust-tier Todo the operator himself moved into review, which the floor above
+ *  then lets speak again as soon as any attempt appears after the move. */
+function operatorOpenedTrustReview(title: string, sourceRef: string): string {
+  const item = store.createWorkItem({ title, status: "executing", source: "cron", sourceRef });
+  transitions.transition(item.id, "in_review", "operator");
+  return item.id;
+}
+
+describe("reconcileWorkItem — a fresh attempt licenses the TRUST close only once it has settled successfully (PLA-99)", () => {
+  it("does not close a review the operator opened when the fresh attempt FAILED", () => {
+    const id = operatorOpenedTrustReview("cron retry failed", "cron:trust-failed");
+    linkedSession("s-trust-failed", id, "idle", afterTheMove(), "failed");
+
+    expect(reconcile.reconcileWorkItem(id)).toMatchObject({ changed: false, item: { status: "in_review" } });
+    expect(store.getWorkItem(id)?.status).toBe("in_review");
+    // The whole complaint: `done` reached on the strength of an attempt that broke.
+    expect(statusMoves(id)).toEqual(["executing→in_review:operator"]);
+  });
+
+  it("does not close it while the fresh attempt is still running", () => {
+    const id = operatorOpenedTrustReview("cron retry in flight", "cron:trust-running");
+    linkedSession("s-trust-running", id, "running", afterTheMove(), null);
+
+    expect(reconcile.reconcileWorkItem(id)).toMatchObject({ changed: false, item: { status: "in_review" } });
+    expect(store.getWorkItem(id)?.status).toBe("in_review");
+    expect(statusMoves(id)).toEqual(["executing→in_review:operator"]);
+  });
+
+  it("does not close it when a newer failure lands on top of a settled success", () => {
+    const id = operatorOpenedTrustReview("cron finished then broke", "cron:trust-broke-again");
+    linkedSession("s-trust-ok-then", id, "idle", afterTheMove(1), "succeeded");
+    linkedSession("s-trust-broke", id, "idle", afterTheMove(2), "failed");
+
+    expect(reconcile.reconcileWorkItem(id)).toMatchObject({ changed: false, item: { status: "in_review" } });
+    expect(statusMoves(id)).toEqual(["executing→in_review:operator"]);
+  });
+
+  it("closes a review NO human opened, on a receipt older than the move (no floor, no new condition)", () => {
+    const item = store.createWorkItem({ title: "cron agent review", status: "executing", source: "cron", sourceRef: "cron:trust-agent" });
+    linkedSession("s-trust-agent", item.id, "idle", daysAgo(10), "succeeded");
+    transitions.transition(item.id, "in_review", "session:8f2c1d64-0a15-4c7e-9f3b-2d6e5a0b1c74");
+
+    expect(reconcile.reconcileWorkItem(item.id)).toMatchObject({ changed: true, item: { status: "done" } });
+    expect(store.getWorkItem(item.id)?.status).toBe("done");
   });
 });

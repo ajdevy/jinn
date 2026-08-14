@@ -33,7 +33,9 @@ export type { WorkItemAttemptEvidence } from './attempt-evidence.js';
  *   - ZERO linked sessions → untouched (`backlog`/`assigned` are never clobbered).
  *     Attempts older than the operator's own last status move are not linked
  *     evidence at all — see `attempt-evidence.ts`. With nothing left to speak the
- *     whole pass is a no-op, the TRUST close below included.
+ *     whole pass is a no-op, the TRUST close below included; and once something
+ *     does speak, ending a review HE opened still needs the newest surviving
+ *     attempt to have settled `succeeded`, not merely to exist.
  *   - Any session in flight (`running`/`waiting`) → `executing`.
  *   - Newest attempt with an explicit `succeeded` receipt → `in_review` (the vision's "session completes →
  *     in_review, NOT done" made structural) — then the TRUST policy hook runs in
@@ -49,6 +51,25 @@ export type { WorkItemAttemptEvidence } from './attempt-evidence.js';
 
 /** A session is "in flight" (work is actively happening) in these states. */
 const IN_FLIGHT: ReadonlySet<SessionStatus> = new Set<SessionStatus>(['running', 'waiting']);
+
+/**
+ * Whether the TRUST close may end a review the operator moved into himself.
+ *
+ * His move raised an evidence floor (`attempt-evidence.ts`), and any surviving
+ * attempt clears it — but merely existing is not a finished review. Closing over
+ * his decision needs what derivation needs to PUT an item in review: nothing in
+ * flight, and the newest surviving attempt settled `succeeded`. Newest-first, so
+ * a failure landing after a success withholds the close too; those receipts say
+ * "it broke again", not "it is finished".
+ *
+ * With no floor the reconciler is not authority over itself and the close is
+ * unconditional, exactly as before.
+ */
+function trustCloseIsLicensed(attempts: readonly WorkItemAttemptEvidence[], humanDecisionAt?: string): boolean {
+  if (!humanDecisionAt) return true;
+  if (attempts.some((attempt) => IN_FLIGHT.has(attempt.status))) return false;
+  return attempts[0]?.outcome === 'succeeded';
+}
 
 /** Declaration provenance that cannot be derived from attempt receipts alone. */
 export interface DeriveWorkItemOptions {
@@ -158,6 +179,7 @@ export function reconcileWorkItem(id: string): ReconcileResult | undefined {
   // Todo-bound Workflow run, which parks its gates here — a trust-tier item would
   // otherwise reach `done` inside one sweep with the merge still unapproved.
   if (current.status === 'in_review' && effectiveVerifyMode(current) === 'trust'
+    && trustCloseIsLicensed(attempts, humanDecisionAt)
     && currentApproval(current.id)?.state !== 'pending') {
     const closed = transitionDerived(id, 'done', 'policy:trust', { policy: 'trust', auto: true });
     if (closed) {
