@@ -1219,7 +1219,7 @@
       ]
     },
     "packages/web/src/components/chat/file-view.tsx": {
-      "lines": 364,
+      "lines": 320,
       "exempt": [
         "complexity",
         "max-lines-per-function"

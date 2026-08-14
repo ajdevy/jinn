@@ -40,7 +40,7 @@ function stub(responder: () => { status: number; body: unknown }) {
     const { status, body } = responder();
     return { status, text: async () => JSON.stringify(body) } as unknown as Response;
   }) as unknown as typeof fetch;
-  const ctx: JinnMcpContext = { gatewayUrl: "http://127.0.0.1:7777", fetchFn, callerSessionId: "session-test", sessionCapability: "cap-test" };
+  const ctx: JinnMcpContext = { gatewayUrl: "http://gateway.test", fetchFn, callerSessionId: "session-test", sessionCapability: "cap-test" };
   return { calls, ctx };
 }
 

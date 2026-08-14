@@ -2,66 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { MarkdownView, SyntaxHighlighter, oneDark, oneLight } from "../markdown-view";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 import { useTheme } from "@/routes/providers";
-import { buildFileReadRequest, type FileReadResponse } from "@/lib/file-read-request";
+import { buildFileReadRequest } from "@/lib/file-read-request";
+import { EXT_TO_LANG, MARKDOWN_EXTS, getExt } from "@/lib/file-language";
 
-/** Map a file extension to a Prism language identifier. Falls back to plaintext. */
-const EXT_TO_LANG: Record<string, string> = {
-  ts: "typescript",
-  tsx: "tsx",
-  mts: "typescript",
-  cts: "typescript",
-  js: "javascript",
-  jsx: "jsx",
-  mjs: "javascript",
-  cjs: "javascript",
-  py: "python",
-  rb: "ruby",
-  go: "go",
-  rs: "rust",
-  java: "java",
-  kt: "kotlin",
-  swift: "swift",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  cc: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  php: "php",
-  json: "json",
-  jsonc: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  ini: "ini",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  fish: "bash",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "markup",
-  htm: "markup",
-  xml: "markup",
-  svg: "markup",
-  vue: "markup",
-  sql: "sql",
-  graphql: "graphql",
-  gql: "graphql",
-  dockerfile: "docker",
-  md: "markdown",
-  markdown: "markdown",
-};
-
-const MARKDOWN_EXTS = new Set(["md", "markdown"]);
-
-/** Extract a lowercase extension (without the dot) from a path, "" if none. */
-function getExt(p: string): string {
-  const base = p.split(/[\\/]/).pop() ?? p;
-  const dot = base.lastIndexOf(".");
-  if (dot <= 0) return base.toLowerCase(); // e.g. "Dockerfile" → "dockerfile"
-  return base.slice(dot + 1).toLowerCase();
+/** What the scoped knowledge and managed-file readers return. */
+interface FileReadResponse {
+  content?: string;
+  mime?: string;
+  size?: number;
+  path: string;
+  resolvedPath?: string;
+  binary?: boolean;
+  tooLarge?: boolean;
+  /** Knowledge reads only: this is a capped slice, and how big a slice of what. */
+  truncated?: boolean;
+  totalChars?: number;
+  returnedChars?: number;
 }
 
 /** Human-readable byte size. */
