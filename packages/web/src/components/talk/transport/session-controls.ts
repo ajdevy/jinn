@@ -13,6 +13,10 @@ export interface LiveSession {
   id: string
   /** Null while parked: the connection is dropped so the provider bills nothing. */
   attachment: Attachment | null
+  /** Kept here rather than re-fetched, because a resume builds a new driver and
+   *  one that opened without the brief would be an orb that forgot the company
+   *  on a tab switch. */
+  brief: string
   stopHeartbeat: () => void
 }
 
@@ -34,7 +38,7 @@ export interface SessionControls {
    *  belongs to a session nobody is waiting for, and hands itself back rather
    *  than turning the microphone on behind a closed session. */
   generationRef: RefObject<number>
-  attach: (id: string, token: string) => Promise<Attachment>
+  attach: (id: string, token: string, brief: string) => Promise<Attachment>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
   setState: (state: OrbState) => void

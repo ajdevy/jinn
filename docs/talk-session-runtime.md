@@ -167,7 +167,7 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 
 | Method and path | Does |
 |---|---|
-| `POST /api/talk/sessions` | Open. Creates the `sessions` row, mints a token scoped to the always-on tool set, returns `{ id, token, expiresAt, model, tools, contextBudgetTokens }`. |
+| `POST /api/talk/sessions` | Open. Creates the `sessions` row, mints a token scoped to the always-on tool set, builds the standing brief, returns `{ id, token, expiresAt, model, tools, brief, contextBudgetTokens }`. |
 | `POST /api/talk/sessions/:id/token` | Re-mint, on expiry or on resume. |
 | `POST /api/talk/sessions/:id/park` | live to parked. |
 | `POST /api/talk/sessions/:id/resume` | parked to live, returns a fresh token. |
@@ -176,7 +176,7 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 | `POST /api/talk/sessions/:id/turn` | `{ usage: RealtimeUsage, transcript? }` prices the delta, calls `recordTurnAccounting`, appends to history, applies rolling truncation, returns `{ spendUsd, contextTokens, truncatedTurns, handoffSuggested }`. |
 | `POST /api/talk/sessions/:id/actions` | `{ tool, subject, lane, consent, undoOf? }` logs one attempted write, refusals included, and returns the stored record with the id and timestamp the gateway stamped. |
 | `POST /api/talk/sessions/:id/handoff` | `{ prompt }` spawns a normal text Session with the talk session as parent, returns `{ sessionId }`. |
-| `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, actions, spendUsd, contextTokens, exposedTools }`. |
+| `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, actions, spendUsd, contextTokens, briefChars, briefTokens, exposedTools }`. |
 | `DELETE /api/talk/sessions/:id` | Close. Idempotent. |
 | `GET/POST /api/tts` | Moved verbatim out of `gateway/api.ts`. Behaviour unchanged: `GET` returns `{ available, voice }`, `POST` streams length-prefixed WAV frames, 503s when Kokoro is unavailable, 400s on invalid text. |
 
@@ -388,13 +388,16 @@ and names the instance and port so a machine running several Jinns side by side
 is never ambiguous. Nothing here fetches: a cold cache renders as a view with no
 object list rather than as traffic the operator did not ask for.
 
-**The browser owns `instructions`.** `RealtimeConfig` carries model, voice and
-turn detection only, and `createRealtimeProvider` forwards nothing else, so no
-talk session has instructions from the gateway today and the field is free for
-the browser to hold. It is a *replaced* field rather than a conversation item,
-which is exactly the shape ambient context wants: the snapshot costs its length
-once and is overwritten on the next push, instead of accumulating down the
-transcript one page view at a time.
+**The browser composes `instructions`.** `RealtimeConfig` carries model, voice
+and turn detection only, and `createRealtimeProvider` forwards nothing else, so
+the provider is never handed instructions at mint time — the browser writes the
+whole field on the data channel. It holds two things, in this order: the standing
+brief the gateway built at session-open (below), then the live page snapshot. It
+is a *replaced* field rather than a conversation item, which is exactly the shape
+both want: they cost their length once and are overwritten on the next push,
+instead of accumulating down the transcript one page view at a time. That is also
+why the brief is re-sent on every push — a push carrying the page alone would
+erase it.
 
 **Every push carries the full tool list.** `sendSessionConfig` sends tools and
 instructions together rather than relying on the provider to merge one field at a
@@ -418,6 +421,40 @@ channel would go on pushing at nothing.
 One thing is deliberately absent: the workflow editor's selected node is local
 component state rather than a URL param, so the snapshot cannot see it. That is
 recorded rather than fixed here.
+
+### The standing brief
+
+The page snapshot says where the operator is. The brief says what this instance
+is, so the orb does not spend its first turn being told what a Workflow is.
+`talk/session/brief.ts` builds it once, when the session opens, and the open
+response carries it to the browser alongside the credential.
+
+**Everything instance-specific is read at runtime.** The company name and Todo
+prefix come from `config.portal` through the same `resolveTodoIdPrefix` the Todo
+store uses; the roster comes from `scanOrg` resolved through
+`resolveOrgHierarchy`. Nothing about any particular operator, company or project
+is compiled in — the module's own text is the posture, what Jinn is, the blocks
+glossary, and the eight Todo statuses.
+
+**Bounded, and the roster is the only part that gives ground.**
+`TALK_BRIEF_BUDGET_CHARS` is 3000. The four doctrine sections are fixed-size, and
+the roster steps down a ladder to fit whatever room is left: `full` is one row per
+employee with their reporting line, `summary` is one row per department with its
+headcount and leaders, and `counts` is a single headcount line naming as many
+departments as fit. An org with no employees at all reports `empty` and the
+section is simply absent. A large org therefore loses employee rows before it
+loses the glossary, because an orb that can name three hundred people but cannot
+say what a Workflow is has kept the wrong half.
+
+**It is not in the turn budget.** `GET /api/talk/sessions/:id` reports
+`briefChars` and `briefTokens` next to `contextTokens`, but the brief rides
+`instructions`, which the provider replaces rather than accumulates.
+`TALK_CONTEXT_BUDGET_TOKENS` meters the turn transcript, which is the thing that
+grows, and truncation is unaffected by the brief.
+
+**It does not change under a live session.** The org is scanned once at open. A
+hire made mid-conversation reaches the next session, not this one; re-reading it
+per heartbeat would pay for a roster that is stable in practice.
 
 ### The consent policy
 

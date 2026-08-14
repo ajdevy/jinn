@@ -15,10 +15,11 @@ type Fake = InstanceType<typeof FakeConnection>
 
 /** A driver speaking over a fake data channel, exactly as `useAttach` wires the
  *  real one: the driver is built first, and sends through the connection. */
-function attached() {
+function attached(brief?: string) {
   let connection: Fake | null = null
   const driver = createTalkDriver({
     sessionId: "talk-1",
+    brief,
     send: (event) => connection?.send(event),
     onState: () => {},
     onError: () => {},
@@ -154,6 +155,50 @@ describe("following the operator around the app", () => {
       const tools = (update.session as { tools: Array<{ name: string }> }).tools
       expect(tools.map((tool) => tool.name)).toEqual(toolDefinitions().map((tool) => tool.name))
     }
+  })
+})
+
+describe("carrying the standing brief the gateway built", () => {
+  /** Stands in for whatever `talk/session/brief.ts` produced: the driver treats
+   *  it as opaque text and only decides where it goes. */
+  const BRIEF = "This instance is Northwind Freight. A Workflow is the reusable how."
+
+  it("leads with the brief and keeps the page context after it, in one update", () => {
+    go("/todos/b/platform")
+    const { driver, connection } = attached(BRIEF)
+
+    driver.start()
+
+    expect(updates(connection)).toHaveLength(1)
+    const instructions = instructionsOf(updates(connection)[0]!)
+    expect(instructions.startsWith(BRIEF)).toBe(true)
+    expect(instructions).toContain("live page context")
+    expect(instructions).toContain("/todos/b/platform")
+  })
+
+  it("prepends and changes nothing else: without a brief the instructions are what they were", () => {
+    go("/todos/ABC-744")
+    const withBrief = attached(BRIEF)
+    const without = attached()
+
+    withBrief.driver.start()
+    without.driver.start()
+
+    expect(instructionsOf(updates(withBrief.connection)[0]!)).toBe(
+      `${BRIEF}\n\n${instructionsOf(updates(without.connection)[0]!)}`,
+    )
+  })
+
+  it("re-sends the brief on a page push, because instructions is replaced rather than merged", () => {
+    const { driver, connection } = attached(BRIEF)
+    driver.start()
+
+    go("/org")
+    vi.advanceTimersByTime(PAGE_CONTEXT_DEBOUNCE_MS)
+
+    expect(updates(connection)).toHaveLength(2)
+    expect(instructionsOf(updates(connection)[1]!)).toContain(BRIEF)
+    expect(instructionsOf(updates(connection)[1]!)).toContain("/org")
   })
 })
 

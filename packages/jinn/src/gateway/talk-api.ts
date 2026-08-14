@@ -15,8 +15,10 @@ import { logger } from "../shared/logger.js";
 import type { JinnConfig, Session } from "../shared/types.js";
 import type { RealtimeTool } from "../shared/voice.js";
 import { createSession, getSessionSpend } from "../sessions/registry.js";
+import { scanOrg } from "./org.js";
 import { UnknownRealtimeProviderError, createRealtimeProvider } from "../talk/realtime/index.js";
-import { TALK_CONTEXT_BUDGET_TOKENS, contextTokens } from "../talk/session/context.js";
+import { buildStandingBrief } from "../talk/session/brief.js";
+import { TALK_CONTEXT_BUDGET_TOKENS, contextTokens, estimateTokens } from "../talk/session/context.js";
 import { UNPINNED_MODEL, isPricingKnown } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
 import { alwaysOnTools, estimateToolTokens, toolsByName } from "../talk/session/tools.js";
@@ -113,6 +115,12 @@ function statusOf(session: TalkSession) {
     turns: session.turns,
     truncatedTurns: session.truncatedTurns,
     actions: session.actions,
+    brief: session.brief,
+    // Reported alongside the turn budget, and deliberately not inside it: the
+    // brief rides `instructions`, which the provider replaces rather than
+    // accumulates, so it is not what truncation is defending against.
+    briefChars: session.brief.length,
+    briefTokens: estimateTokens(session.brief),
     contextTokens: contextTokens(session.turns),
     contextBudgetTokens: TALK_CONTEXT_BUDGET_TOKENS,
     exposedTools: session.exposedTools,
@@ -139,6 +147,7 @@ async function openRoute(res: ServerResponse, config: JinnConfig, method: string
   const session = talkSessions.open({
     sessionId: row.id,
     model: pinnedModel(config),
+    brief: buildStandingBrief(config, scanOrg(config)).text,
     tokenExpiresAt: token.expiresAt,
   });
   send(res, 201, { ...statusOf(session), token: token.value, expiresAt: token.expiresAt, tools });

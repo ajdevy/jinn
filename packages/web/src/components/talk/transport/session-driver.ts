@@ -26,6 +26,10 @@ export const PAGE_CONTEXT_DEBOUNCE_MS = 400
 
 export interface TalkDriverOptions {
   sessionId: string
+  /** What this instance is, as the gateway described it when the session opened
+   *  — the company, its conventions, and who works here. Absent on a session
+   *  opened against a gateway that does not send one. */
+  brief?: string
   /** Send one client event over the `oai-events` data channel. */
   send: (event: Record<string, unknown>) => void
   onState: (state: OrbState) => void
@@ -86,21 +90,28 @@ interface DriverState {
 }
 
 /**
- * Declare the session: the tool catalog, and where the operator is.
+ * Declare the session: the tool catalog, what this instance is, and where the
+ * operator is.
  *
  * The tools ride along on every push rather than leaning on the provider to
  * merge one field at a time. `instructions` is a replaced field, and a context
  * push that silently cleared the tool list would take the whole orb down — the
  * extra bytes are on a local data channel and cost nothing worth having.
+ *
+ * The brief is re-sent for the same reason, and it leads: it is the standing
+ * half, and the page underneath it is what changes. A push that carried only
+ * the page would erase everything the orb knows about the company.
  */
 function sendSessionConfig(driver: DriverState): void {
   const page = getPageContext()
+  const context = renderPageContext(page, visibleObjects(page), describeInstance())
+  const brief = driver.options.brief
   driver.options.send({
     type: "session.update",
     session: {
       type: "realtime",
       tools: functionTools(),
-      instructions: renderPageContext(page, visibleObjects(page), describeInstance()),
+      instructions: brief ? `${brief}\n\n${context}` : context,
     },
   })
 }

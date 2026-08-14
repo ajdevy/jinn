@@ -37,7 +37,7 @@ export function useAttach(
   setError: (message: string) => void,
 ) {
   return useCallback(
-    async (id: string, token: string): Promise<Attachment> => {
+    async (id: string, token: string, brief: string): Promise<Attachment> => {
       let connection: TalkConnection | null = null
       let channelOpen = false
       let started = false
@@ -48,6 +48,7 @@ export function useAttach(
       }
       const driver = createTalkDriver({
         sessionId: id,
+        brief,
         send: (event) => connection?.send(event),
         onState: setState,
         onError: setError,
