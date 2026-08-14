@@ -2,7 +2,7 @@ import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { initDb } from '../shared/db.js';
 import { clearBlockRecord, DEFAULT_BLOCK_KIND, recordBlock, resolveBlock, type BlockKind } from './blocks.js';
 import { cascadeCloseDescendants } from './cascade.js';
-import { notifyTodoChanged, notifyTodoStatusChange } from './live-events.js';
+import { holdLiveSignalsUntilCommit, notifyTodoChanged, notifyTodoStatusChange } from './live-events.js';
 import {
   appendWorkItemEvent,
   effectiveMaxRounds,
@@ -286,7 +286,7 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
 
     return { item: getWorkItem(id)!, escalated, event };
   });
-  const result = txn();
+  const result = holdLiveSignalsUntilCommit(txn);
   // ICI-749: the board's live signal belongs to the status write, not to the HTTP
   // routes. A workflow reflecting its run, the reconciler, and an approval's
   // consequence all commit here with no route to announce them, so the dashboard

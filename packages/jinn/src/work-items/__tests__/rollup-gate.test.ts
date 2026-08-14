@@ -10,17 +10,43 @@ process.env.JINN_HOME = tmp;
 type Store = typeof import("../store.js");
 type Transitions = typeof import("../transitions.js");
 type Approvals = typeof import("../approvals.js");
+type LiveEvents = typeof import("../live-events.js");
 let store: Store;
 let transitions: Transitions;
 let approvals: Approvals;
+let liveEvents: LiveEvents;
 let db: Database;
 
 beforeAll(async () => {
   store = await import("../store.js");
   transitions = await import("../transitions.js");
   approvals = await import("../approvals.js");
+  liveEvents = await import("../live-events.js");
   db = (await import("../../shared/db.js")).initDb();
 });
+
+/** The two observers a cascade reaches OUTSIDE SQLite — the dashboard's live
+ *  feed and the Workflow `todo-status` bridge — recorded as one ordered list.
+ *  Neither can be taken back once it has been sent, so what they hear is the
+ *  boundary a rollback has to be invisible from. */
+function recordAnnouncements(): { heard: string[]; stopRecording: () => void } {
+  const heard: string[] = [];
+  liveEvents.setTodoLiveEmitter((event) => {
+    heard.push(`live ${event.action} ${event.id}`);
+  });
+  transitions.setTodoStatusChangeListener((event) => {
+    heard.push(`status ${event.toStatus} ${event.workItemId}`);
+  });
+  return {
+    heard,
+    stopRecording: () => {
+      liveEvents.setTodoLiveEmitter(null);
+      transitions.setTodoStatusChangeListener(null);
+    },
+  };
+}
+
+const announcementsFor = (id: string): string[] => [`live status-transitioned ${id}`, `status done ${id}`];
 
 /** Run a transition expected to be refused and hand back its code + message. */
 function refusalOf(run: () => unknown): { code: string; message: string } {
@@ -99,20 +125,29 @@ describe("cascade close", () => {
     const parent = store.createWorkItem({ title: "cascade parent" });
     const mid = store.createWorkItem({ title: "cascade mid", parentId: parent.id });
     const leaf = store.createWorkItem({ title: "cascade leaf", parentId: mid.id });
-    const result = transitions.transition(parent.id, "done", "operator", { human: true, cascade: true });
+    const { heard, stopRecording } = recordAnnouncements();
+    let result;
+    try {
+      result = transitions.transition(parent.id, "done", "operator", { human: true, cascade: true });
+    } finally {
+      stopRecording();
+    }
     expect(result.item.status).toBe("done");
     expect(store.getWorkItem(mid.id)!.status).toBe("done");
     expect(store.getWorkItem(leaf.id)!.status).toBe("done");
     expect(closedInOrder([parent.id, mid.id, leaf.id])).toEqual([leaf.id, mid.id, parent.id]);
+    // Held until the tree landed, then released in the order it was written.
+    expect(heard).toEqual([...announcementsFor(leaf.id), ...announcementsFor(mid.id), ...announcementsFor(parent.id)]);
     expect(cascadeFrom(leaf.id)).toBe(parent.id);
     expect(cascadeFrom(mid.id)).toBe(parent.id);
     expect(cascadeFrom(parent.id)).toBeUndefined();
   });
 
-  it("leaves the whole tree at its pre-call status when a descendant's write fails", () => {
+  it("leaves the whole tree at its pre-call status, and unannounced, when a descendant's write fails", () => {
     const parent = store.createWorkItem({ title: "rollback parent" });
     const mid = store.createWorkItem({ title: "rollback mid", parentId: parent.id });
     const leaf = store.createWorkItem({ title: "rollback leaf", parentId: mid.id });
+    const { heard, stopRecording } = recordAnnouncements();
     // A trigger is the only deterministic mid-cascade failure available: every
     // status in an open tree has a legal `done` edge, so nothing the caller can
     // pass makes the second descendant refuse on its own.
@@ -124,10 +159,15 @@ describe("cascade close", () => {
         .toThrowError(/forced mid-cascade failure/);
     } finally {
       db.exec("DROP TRIGGER cascade_rollback_probe");
+      stopRecording();
     }
     for (const id of [parent.id, mid.id, leaf.id]) {
       expect(store.getWorkItem(id)!.status).toBe("backlog");
     }
+    // The leaf's close was released as a SAVEPOINT before the tree failed. If
+    // its signal went out with it, the board shows a Todo that is still open and
+    // a `todo-status` workflow has fired on a completion that never happened.
+    expect(heard).toEqual([]);
   });
 
   it("refuses over an escalated descendant, names it, and changes nothing", () => {
