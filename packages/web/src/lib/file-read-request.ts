@@ -2,6 +2,21 @@ const CONTROL_BYTES = /[\u0000-\u001f\u007f]/;
 const KNOWLEDGE_ROOTS = new Set(["knowledge", "docs"]);
 const MANAGED_ROOTS = new Set(["files", "uploads"]);
 
+/** Shared fields returned by the scoped knowledge and managed-file readers. */
+export interface FileReadResponse {
+  content?: string;
+  mime?: string;
+  size?: number;
+  path: string;
+  resolvedPath?: string;
+  binary?: boolean;
+  tooLarge?: boolean;
+  /** Knowledge reads only: this is a capped slice, and how big a slice of what. */
+  truncated?: boolean;
+  totalChars?: number;
+  returnedChars?: number;
+}
+
 export type FileReadRequest =
   | { ok: true; url: string }
   | { ok: false; error: string };

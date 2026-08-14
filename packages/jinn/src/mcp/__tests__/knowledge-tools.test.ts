@@ -80,11 +80,8 @@ describe("knowledge tools — registry + schemas", () => {
     expect(tools.map((t) => t.name)).toEqual(["search_knowledge", "read_knowledge"]);
     expect(tool("search_knowledge").inputSchema.required).toEqual(["query"]);
     expect(tool("read_knowledge").inputSchema.required).toEqual(["path"]);
-    for (const t of tools) {
-      for (const prop of Object.values(t.inputSchema.properties) as Array<{ type?: string }>) {
-        expect(prop.type).toBe("string");
-      }
-    }
+    expect(tool("search_knowledge").inputSchema.properties).toEqual({ query: { type: "string" } });
+    expect(tool("read_knowledge").inputSchema.properties).toEqual({ path: { type: "string" }, offset: { type: "number" } });
   });
 
   it("the belt registers the knowledge group", () => {
@@ -120,7 +117,8 @@ describe("knowledge tools — unit (stub gateway)", () => {
   });
 
   it("read_knowledge accepts any relative instance path and leaves containment to the gateway", async () => {
-    const { calls, ctx } = stub(() => ({ status: 200, body: {} }));
+    const body = { path: "knowledge/a.md", title: "A", content: "ok", truncated: false, totalChars: 2, returnedChars: 2, offset: 0 };
+    const { calls, ctx } = stub(() => ({ status: 200, body }));
     for (const accepted of ["knowledge/nested/foo.md", "secrets/api-keys.json", "config.yaml"]) {
       await expect(tool("read_knowledge").handler({ path: accepted }, ctx)).resolves.toBeDefined();
     }

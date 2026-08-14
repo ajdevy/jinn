@@ -132,9 +132,19 @@ describe("GET /api/knowledge/read", () => {
   it("reads a file by relative path with the exact payload keys", async () => {
     const { status, body } = await get("/api/knowledge/read?path=knowledge%2Fpricing-strategy.md");
     expect(status).toBe(200);
-    expect(Object.keys(body).sort()).toEqual(["content", "path", "title", "totalChars", "truncated"]);
+    expect(Object.keys(body).sort()).toEqual(["content", "offset", "path", "returnedChars", "title", "totalChars", "truncated"]);
     expect(body.content).toContain("approved at 19 euro");
     expect(body.truncated).toBe(false);
+    expect(body.offset).toBe(0);
+    expect(body.returnedChars).toBe(body.totalChars);
+  });
+
+  it("400s an offset that is not a non-negative integer", async () => {
+    for (const bad of ["-1", "abc", "1.5", "1e999"]) {
+      const { status, body } = await get(`/api/knowledge/read?path=knowledge%2Fpricing-strategy.md&offset=${bad}`);
+      expect(status, `expected 400 for offset=${bad}`).toBe(400);
+      expect(JSON.stringify(body)).toContain("offset must be a non-negative integer");
+    }
   });
 
   it("reads nested and non-Markdown files anywhere inside the instance", async () => {

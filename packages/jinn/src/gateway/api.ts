@@ -2436,7 +2436,7 @@ export async function handleApiRequest(
 
     // GET /api/knowledge/read — read ONE file inside the active Jinn instance.
     // SECURITY-CRITICAL: the store enforces instance-root containment, so
-    // `..`, absolute paths, and symlink escapes are refused (400/403). This route is
+    // `..`, absolute paths, symlink escapes and bad offsets are refused (400/403). This route is
     // deliberately SEPARATE from the operator/UI GET /api/files/read.
     if (method === "GET" && pathname === "/api/knowledge/read") {
       // GRS-020b-fix: REJECT control bytes on the RAW path — never strip. The
@@ -2451,7 +2451,7 @@ export async function handleApiRequest(
       }
       const rel = readCleanSearchParam(url, "path");
       if (!rel) return badRequest(res, 'path is required — use a relative path inside the Jinn instance, e.g. "knowledge/some-file.md"');
-      const result = readKnowledgeFile(rel, jinnHome);
+      const result = readKnowledgeFile(rel, jinnHome, Number(url.searchParams.get("offset") ?? 0));
       if (!result.ok) {
         if (result.reason === "forbidden") return json(res, { error: result.detail }, 403);
         if (result.reason === "not-found") return json(res, { error: result.detail }, 404);

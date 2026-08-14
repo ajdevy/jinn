@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5918;
+const MAX_MANIFEST_TOKENS = 5932;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -94,9 +94,16 @@ const ATTESTED = {
   // surface only." dropped from the second, where the first already says it),
   // which paid 8 of the cost back. Nothing dead is left in this group to buy the
   // remaining 49 from, so the ceiling moves by exactly that. Pi stays five under.
-  rpc: { tokens: 5407, sha256: "e32f7a394ac6e09d59cfb03474fe6323975daf48c5355bf2bf199cee80b1e276" },
-  pi: { tokens: 5913, sha256: "8a30380d73646b56cb017417434522dfc922fdb16bf8e1edca430e1fae2a1eaa" },
-  openai: { tokens: 5612, sha256: "96a8668faf669e479e7441fbf37e3558201609e8d9c3c811c6cfa8b635e95d64" },
+  // Rebased for `offset` on read_knowledge and the cap it now names (PLA-100).
+  // Both have to be on the tool: an agent that cannot see the boundary reads a
+  // truncated file believing it whole, and one that cannot page has no way to
+  // reach the rest. Its own description paid 2 back first ("N chars at a time;
+  // page the rest with offset" to "N chars per call; offset pages the rest"),
+  // and nothing dead is left in this group to buy the remaining 14 from, so the
+  // ceiling moves by exactly that. Pi stays five under it.
+  rpc: { tokens: 5421, sha256: "aeee2728e07eaa19d912150a50bcea08e993abef2e74864f4b694dafb627be1f" },
+  pi: { tokens: 5927, sha256: "f002a3ac92d9c0d7403b6a22cc3a1079ad80ba58a4f84ccfd8f906a3c587e59f" },
+  openai: { tokens: 5626, sha256: "a3959eb65526136f080efcfdb7a68dcbf2a0c69f5c8acfbf1544a48eb7d73c43" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

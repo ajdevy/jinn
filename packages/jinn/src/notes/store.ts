@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { JINN_HOME } from "../shared/paths.js";
 import { hasControlBytes, stripControlChars } from "../shared/sanitize.js";
+import { KNOWLEDGE_FILE_CHAR_CAP, type KnowledgeReadResult } from "../shared/knowledge-read.js";
 import type {
   NoteDocument,
   NoteFolder,
@@ -606,7 +607,7 @@ export function updateNote(
 /** Context-bomb guards: hit count, snippet chars, read chars, snippet word window. */
 export const KNOWLEDGE_SEARCH_LIMIT = 20;
 export const KNOWLEDGE_SNIPPET_CHAR_CAP = 300;
-export const KNOWLEDGE_FILE_CHAR_CAP = 20_000;
+export { KNOWLEDGE_FILE_CHAR_CAP };
 const SNIPPET_WORDS_EACH_SIDE = 6;
 /** The allowlisted search roots — the ONLY directories search will ever touch. */
 const SEARCH_ROOTS = ["knowledge", "docs"] as const;
@@ -622,9 +623,7 @@ export interface KnowledgeSearchHit {
   matchCount: number;
 }
 
-export type KnowledgeReadResult =
-  | { ok: true; path: string; title: string; content: string; truncated: boolean; totalChars: number }
-  | { ok: false; reason: "invalid-path" | "forbidden" | "not-found"; detail: string };
+export type { KnowledgeReadResult } from "../shared/knowledge-read.js";
 
 function firstHeading(content: string, fallback: string): string {
   for (const line of content.split("\n", 50)) {
@@ -721,12 +720,13 @@ export function searchKnowledge(query: string, home: string = JINN_HOME): Knowle
   return hits.slice(0, KNOWLEDGE_SEARCH_LIMIT);
 }
 
-/** Read ONE file inside the active Jinn instance by relative path.
+/** Read ONE file inside the active Jinn instance by relative path, starting at
+ *  `offset` chars in and returning at most {@link KNOWLEDGE_FILE_CHAR_CAP} of them.
  *  SECURITY-CRITICAL: the path must be normalized and its realpath must resolve
  *  inside the realpath of the instance root. Traversal, absolute paths, control
- *  bytes, and symlink escapes are refused; content is capped at
- *  {@link KNOWLEDGE_FILE_CHAR_CAP} with the intentional-cap marker. */
-export function readKnowledgeFile(relPath: string, home: string = JINN_HOME): KnowledgeReadResult {
+ *  bytes, and symlink escapes are refused. `offset` is applied only after
+ *  containment, so it can never influence which file is resolved. */
+export function readKnowledgeFile(relPath: string, home: string = JINN_HOME, offset = 0): KnowledgeReadResult {
   if (typeof relPath !== "string" || relPath.length === 0 || relPath.length > 300) {
     return { ok: false, reason: "invalid-path", detail: "path must be a relative path inside the Jinn instance" };
   }
@@ -766,18 +766,17 @@ export function readKnowledgeFile(relPath: string, home: string = JINN_HOME): Kn
   }
   if (!stat.isFile()) return { ok: false, reason: "not-found", detail: `${relPath} is not a regular file` };
 
-  let content: string;
+  // Offset is read AFTER containment: it windows an already-resolved file and can
+  // never take part in resolving which file that is.
+  if (!Number.isInteger(offset) || offset < 0) return { ok: false, reason: "invalid-offset", detail: `offset must be a non-negative integer — got ${JSON.stringify(offset)}` };
+
+  let whole: string;
   try {
-    content = fs.readFileSync(realFile, "utf-8");
+    whole = fs.readFileSync(realFile, "utf-8");
   } catch {
     return { ok: false, reason: "not-found", detail: `could not read ${relPath}` };
   }
-  const totalChars = content.length;
-  const truncated = totalChars > KNOWLEDGE_FILE_CHAR_CAP;
-  if (truncated) {
-    content =
-      content.slice(0, KNOWLEDGE_FILE_CHAR_CAP) +
-      `…[truncated ${totalChars - KNOWLEDGE_FILE_CHAR_CAP} chars — intentional cap; this is an instance file excerpt]`;
-  }
-  return { ok: true, path: relPath, title: firstHeading(content, path.basename(relPath)), content, truncated, totalChars };
+  const content = whole.slice(offset, offset + KNOWLEDGE_FILE_CHAR_CAP);
+  const title = firstHeading(whole, path.basename(relPath));
+  return { ok: true, path: relPath, title, content, truncated: offset + content.length < whole.length, totalChars: whole.length, returnedChars: content.length, offset };
 }

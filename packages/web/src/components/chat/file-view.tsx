@@ -2,18 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MarkdownView, SyntaxHighlighter, oneDark, oneLight } from "../markdown-view";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 import { useTheme } from "@/routes/providers";
-import { buildFileReadRequest } from "@/lib/file-read-request";
-
-/** Shared fields returned by the scoped knowledge and managed-file readers. */
-interface FileReadResponse {
-  content?: string;
-  mime?: string;
-  size?: number;
-  path: string;
-  resolvedPath?: string;
-  binary?: boolean;
-  tooLarge?: boolean;
-}
+import { buildFileReadRequest, type FileReadResponse } from "@/lib/file-read-request";
 
 /** Map a file extension to a Prism language identifier. Falls back to plaintext. */
 const EXT_TO_LANG: Record<string, string> = {
@@ -268,6 +257,12 @@ export function FileView({
             {data.content}
           </SyntaxHighlighter>
         ))}
+
+      {!loading && data && data.truncated && (
+        <div className="pt-[var(--space-3)] text-[length:var(--text-body)] text-[var(--text-secondary)]">
+          Showing the first {data.returnedChars?.toLocaleString()} of {data.totalChars?.toLocaleString()} characters.
+        </div>
+      )}
     </>
   );
 

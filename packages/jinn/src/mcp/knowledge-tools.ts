@@ -1,5 +1,6 @@
 import { assertBoundCaller, gatewayGet, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
 import { hasControlBytes } from "../shared/sanitize.js";
+import { KNOWLEDGE_FILE_CHAR_CAP } from "../shared/knowledge-read.js";
 
 /**
  * GRS-020b — the knowledge tool group of the `jinn` MCP server: agents search
@@ -13,8 +14,10 @@ import { hasControlBytes } from "../shared/sanitize.js";
  *     routes): reads accept any relative instance file, while realpath
  *     containment rejects `..`, absolute paths, and symlink escapes.
  *   - CONTEXT-BOMB GUARDS: search returns ≤20 {path,title,snippet,matchCount}
- *     hits (snippets ~12 words, never bodies); read returns ONE file capped at
- *     ~20 KB with the intentional-cap marker.
+ *     hits (snippets ~12 words, never bodies); read returns ONE slice of ONE file,
+ *     capped at KNOWLEDGE_FILE_CHAR_CAP chars, with `offset` to page the rest.
+ *   - NO FABRICATED READS (PLA-100): a response missing `content`, `truncated`,
+ *     or the char counts is an error, never a defaulted "complete" read.
  *   - READ TIER: these are privileged company reads. Tool-marked or
  *     caller-session-claimed requests must carry a valid bound session
  *     capability; operator/browser reads without those headers remain unchanged.
@@ -36,6 +39,43 @@ function requireString(args: Record<string, unknown>, name: string, max: number)
     throw new JinnMcpToolError(`${name} is too long (${s.length} chars, max ${max}) — shorten it and try again`);
   }
   return s;
+}
+
+/** Optional paging offset, refused tool-side (no HTTP call) when it is not a
+ *  non-negative integer — the route mirrors the same rule. */
+function requireOffset(args: Record<string, unknown>): number {
+  const v = args.offset;
+  if (v === undefined || v === null) return 0;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
+    throw new JinnMcpToolError(`offset must be a non-negative integer — got ${JSON.stringify(v)}`);
+  }
+  return v;
+}
+
+interface KnowledgeReadBody {
+  path?: string;
+  title?: string;
+  content: string;
+  truncated: boolean;
+  totalChars: number;
+  returnedChars: number;
+  offset: number;
+}
+
+/** The gateway's read payload, or a loud error. Every field describing how much
+ *  of the file this is comes back required: defaulting `truncated` to false or
+ *  `content` to "" turns a broken response into a read that looks whole, which
+ *  is the failure the caller has no way to detect. */
+function requireReadBody(body: unknown, what: string): KnowledgeReadBody {
+  const rec = (body ?? {}) as Record<string, unknown>;
+  const malformed = (name: string, kind: string): JinnMcpToolError =>
+    new JinnMcpToolError(`${what} returned a malformed response: ${name} is missing or not ${kind}`);
+  if (typeof rec.content !== "string") throw malformed("content", "a string");
+  if (typeof rec.truncated !== "boolean") throw malformed("truncated", "a boolean");
+  for (const name of ["totalChars", "returnedChars", "offset"] as const) {
+    if (!Number.isInteger(rec[name])) throw malformed(name, "an integer");
+  }
+  return rec as unknown as KnowledgeReadBody;
 }
 
 function asText(body: unknown, max = 500): string {
@@ -84,11 +124,12 @@ export function buildKnowledgeTools(): JinnMcpTool[] {
 
   const readKnowledge: JinnMcpTool = {
     name: "read_knowledge",
-    description: "Read one instance file by relative path; long files are capped.",
+    description: `Read one instance file by relative path, ${KNOWLEDGE_FILE_CHAR_CAP} chars per call; offset pages the rest.`,
     inputSchema: {
       type: "object",
       properties: {
         path: { type: "string" },
+        offset: { type: "number" },
       },
       required: ["path"],
     },
@@ -100,15 +141,24 @@ export function buildKnowledgeTools(): JinnMcpTool[] {
         );
       }
       const relPath = requireString(args, "path", KNOWLEDGE_PATH_CHAR_CAP);
-      const { status, body } = await gatewayGet(ctx, `/api/knowledge/read?path=${encodeURIComponent(relPath)}`);
-      if (status >= 400) throw gatewayFailure(`reading instance file "${relPath}"`, status, body);
-      const rec = (body ?? {}) as { path?: string; title?: string; content?: string; truncated?: boolean; totalChars?: number };
+      const offset = requireOffset(args);
+      const what = `reading instance file "${relPath}"`;
+      const query = `path=${encodeURIComponent(relPath)}${offset > 0 ? `&offset=${offset}` : ""}`;
+      const { status, body } = await gatewayGet(ctx, `/api/knowledge/read?${query}`);
+      if (status >= 400) throw gatewayFailure(what, status, body);
+      const read = requireReadBody(body, what);
+      const nextOffset = read.offset + read.returnedChars;
       return {
-        path: rec.path ?? relPath,
-        title: rec.title ?? null,
-        truncated: rec.truncated === true,
-        content: typeof rec.content === "string" ? rec.content : "",
-        hint: "Cite path when useful.",
+        path: read.path ?? relPath,
+        title: read.title ?? null,
+        truncated: read.truncated,
+        totalChars: read.totalChars,
+        returnedChars: read.returnedChars,
+        offset: read.offset,
+        content: read.content,
+        hint: read.truncated
+          ? `${read.totalChars - nextOffset} chars left — read_knowledge { path, offset: ${nextOffset} } for the next slice.`
+          : "Cite path when useful.",
       };
     },
   };

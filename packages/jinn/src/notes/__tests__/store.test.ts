@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  KNOWLEDGE_FILE_CHAR_CAP,
   KNOWLEDGE_SEARCH_LIMIT,
   KNOWLEDGE_SNIPPET_CHAR_CAP,
   NOTE_FILE_MAX_BYTES,
@@ -468,16 +467,6 @@ describe("readKnowledgeFile — happy path", () => {
     const r = readKnowledgeFile("secrets/api-keys.json", instanceHome);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.content).toContain("TOPSECRET-zq9");
-  });
-
-  it("caps content at KNOWLEDGE_FILE_CHAR_CAP with the intentional-cap marker", () => {
-    seedInstance("knowledge/huge.md", `# Huge\n\n${"x".repeat(KNOWLEDGE_FILE_CHAR_CAP + 5_000)}`);
-    const r = readKnowledgeFile("knowledge/huge.md", instanceHome);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.truncated).toBe(true);
-    expect(r.content.length).toBeLessThanOrEqual(KNOWLEDGE_FILE_CHAR_CAP + 200);
-    expect(r.content).toMatch(/intentional cap/);
   });
 
   it("follows a symlink that resolves INSIDE the root", () => {
