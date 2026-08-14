@@ -121,27 +121,42 @@ describe("the status picker", () => {
     expect(picker.textContent).toContain("Backlog and Assigned aren't reachable from Executing")
   })
 
-  it("renders a gated Done disabled with the inline reason when children are open, and refuses the click", async () => {
+  it("renders a gated Done disabled with the inline reason when a sub-task is escalated, and refuses the click", async () => {
     const item = full("PLA-12")
     getWorkItem.mockResolvedValue(detailOf(item))
-    getWorkItemTree.mockResolvedValue({
-      tree: {
-        root: treeNode(item, [
-          treeNode(full("PLA-13", { status: "executing", parentId: "PLA-12", depth: 1 })),
-          treeNode(full("PLA-14", { status: "done", parentId: "PLA-12", depth: 1 })),
-        ]),
-        totals: {},
-        spendUsd: 0,
-      },
-    })
+    getWorkItemTree.mockResolvedValue({ tree: { root: treeNode(item, [
+      treeNode(full("PLA-13", { status: "escalated", parentId: "PLA-12", depth: 1 })),
+      treeNode(full("PLA-14", { status: "done", parentId: "PLA-12", depth: 1 })),
+    ]), totals: {}, spendUsd: 0 } })
     renderTask()
     fireEvent.click(await screen.findByTestId("rail-status"))
 
     const done = await screen.findByTestId("status-option-done")
     expect(done.getAttribute("aria-disabled")).toBe("true")
-    expect(done.textContent).toContain("1 sub-task still open")
+    expect(done.textContent).toContain("1 escalated sub-task needs an answer first")
     fireEvent.click(done)
     expect(setWorkItemStatus).not.toHaveBeenCalled()
+  })
+
+  it("closes the whole tree in one move: Done stays live with open sub-tasks and commits the cascade", async () => {
+    const item = full("PLA-12")
+    getWorkItem.mockResolvedValue(detailOf(item))
+    getWorkItemTree.mockResolvedValue({ tree: { root: treeNode(item, [
+      treeNode(full("PLA-13", { status: "executing", parentId: "PLA-12", depth: 1 }), [
+        treeNode(full("PLA-15", { status: "backlog", parentId: "PLA-13", depth: 2 })),
+      ]),
+      treeNode(full("PLA-14", { status: "done", parentId: "PLA-12", depth: 1 })),
+    ]), totals: {}, spendUsd: 0 } })
+    setWorkItemStatus.mockResolvedValue({ workItem: full("PLA-12", { status: "done", version: 4 }), escalated: false })
+    renderTask()
+    fireEvent.click(await screen.findByTestId("rail-status"))
+
+    const done = await screen.findByTestId("status-option-done")
+    expect(done.getAttribute("aria-disabled")).toBeNull()
+    // The count is the whole open subtree, not the one child directly below it.
+    expect(done.textContent).toContain("also closes 2 open sub-tasks")
+    fireEvent.click(done)
+    await waitFor(() => expect(setWorkItemStatus).toHaveBeenCalledWith("PLA-12", "done", undefined, undefined, { cascade: true }))
   })
 
   it("commits optimistically and snaps back with the gateway's words on refusal", async () => {

@@ -338,6 +338,8 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         blockKind: { type: "string", enum: [...BLOCK_KINDS], description: "`dependency` re-queues it; the rest wait on a human." },
         note: { type: "string" },
         asOperator: { type: "boolean", description: "Record the move as the operator's. COO only." },
+        cascade: { type: "boolean", description: "With `done`, close its open sub-tasks too. Operator surface only." },
+        acknowledgeEscalated: { type: "boolean", description: "Let a cascade close an escalated sub-task." },
       },
       required: ["id", "status"],
     },
@@ -350,10 +352,8 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       if (!(AGENT_UPDATE_STATUSES as readonly string[]).includes(rawStatus)) throw new JinnMcpToolError(`status must be one of ${AGENT_UPDATE_STATUSES.join(", ")}; cancellation/other lifecycle edits are human surface decisions.`);
       const blockKind = parseBlockKind(args.blockKind);
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
-      const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}) };
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
-      if (note !== undefined) payload.note = note;
-      if (args.asOperator !== undefined) payload.asOperator = args.asOperator;
+      const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };
       const { status, body } = await gatewayRequest(ctx, "POST", `/api/work-items/${encodeURIComponent(id)}/status`, payload);
       if (status >= 400) throw gatewayFailure(`updating work item "${id}"`, status, body);
       return mutationResult(body, "Todo status updated.");

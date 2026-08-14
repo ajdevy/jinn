@@ -111,12 +111,28 @@ describe("peek status quick action", () => {
     await openPanel()
     await openPicker("status")
 
+    const cancelled = screen.getByTestId("status-option-cancelled")
+    expect(cancelled.getAttribute("aria-disabled")).toBe("true")
+    expect(cancelled.textContent).toContain("2 sub-tasks still open")
+
+    fireEvent.click(cancelled)
+    expect(setWorkItemStatus).not.toHaveBeenCalled()
+  })
+
+  it("closes the sub-tasks with the parent when Done is taken from the rail", async () => {
+    getWorkItemTree.mockResolvedValue(treeOf(2))
+    renderChat()
+    await openPanel()
+    await openPicker("status")
+
     const done = screen.getByTestId("status-option-done")
-    expect(done.getAttribute("aria-disabled")).toBe("true")
-    expect(done.textContent).toContain("2 sub-tasks still open")
+    expect(done.getAttribute("aria-disabled")).toBeNull()
+    expect(done.textContent).toContain("also closes 2 open sub-tasks")
 
     fireEvent.click(done)
-    expect(setWorkItemStatus).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(setWorkItemStatus).toHaveBeenCalledWith("ICI-1", "done", undefined, undefined, { cascade: true }),
+    )
   })
 
   it("says the sub-task read failed rather than counting the children as none", async () => {

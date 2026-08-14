@@ -1,12 +1,11 @@
 import { listSessionsByWorkItem } from '../sessions/registry.js';
 import { initDb } from '../shared/db.js';
 import { clearBlockRecord, DEFAULT_BLOCK_KIND, recordBlock, resolveBlock, type BlockKind } from './blocks.js';
+import { cascadeCloseDescendants } from './cascade.js';
 import { notifyTodoChanged, notifyTodoStatusChange } from './live-events.js';
-import type { WriteOrigin } from './origin.js';
 import {
   appendWorkItemEvent,
   effectiveMaxRounds,
-  ensureDepartmentRegistered,
   getWorkItem,
   STICKY_STATUSES,
   type WorkItem,
@@ -54,6 +53,7 @@ export type TransitionErrorCode =
   | 'human-required'
   | 'self-review-banned'
   | 'children-open'
+  | 'escalated-descendant'
   | 'conflict';
 
 export class TransitionError extends Error {
@@ -110,6 +110,20 @@ export interface TransitionOptions {
    *  `blocks.ts` owns what each kind does. Absent, a block means `needs_input`:
    *  never `dependency`, which would re-queue work nobody asked to have back. */
   blockKind?: BlockKind;
+  /**
+   * Close this item's open descendants along with it (PLA-96), so recording one
+   * decision costs one action instead of one per sub-task. Read only for a
+   * `done` target carrying `human` — the same authority pairing `archiveWorkItem`
+   * requires for cascade-cancel, because a cascade closes work its caller never
+   * looked at.
+   */
+  cascade?: boolean;
+  /**
+   * Let a cascade close run over an `escalated` descendant. Withheld by default:
+   * an escalation is an unanswered question put to the operator, and `done`
+   * asserts an answer nobody gave. Saying so explicitly is the answer.
+   */
+  acknowledgeEscalated?: boolean;
   /** Free-form audit payload (critique text, verdict, reason) stored on the event. */
   detail?: Record<string, unknown>;
 }
@@ -127,8 +141,14 @@ export interface TransitionResult {
 // and is re-exported here, because this write path is what registering against
 // it actually observes.
 export { setTodoStatusChangeListener, type TodoStatusChangeEvent, type TodoStatusChangeListener } from './live-events.js';
+// Assignment answers who owns a Todo, not where it sits, so it has its own
+// module — re-exported here because it moves status on the way and its callers
+// reach for both through this one import.
+export { assignWorkItem } from './assignment.js';
 
-function todoProvenanceSnapshot(
+/** Exported for `assignment.ts`, the other write that moves status: both stamp
+ *  the same provenance so one event reader covers them. */
+export function todoProvenanceSnapshot(
   item: Pick<WorkItem, 'source' | 'department' | 'assignee'>,
 ): Pick<WorkItem, 'source' | 'department' | 'assignee'> {
   return {
@@ -184,12 +204,20 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
       }
     }
 
+    // The authorized cascade (PLA-96) runs FIRST, so the gate below meets a tree
+    // whose children are already closed. Without the flag nothing changes: the
+    // gate's refusal stays the default answer, word for word.
+    if (to === 'done' && opts.cascade && opts.human) {
+      cascadeCloseDescendants(db, item, actor, opts.acknowledgeEscalated === true);
+    }
+
     // Roll-up gate (Todos v2): a container cannot be closed over open children.
     // Deliberately stricter than spec §3.4's "non-terminal" wording: an
     // `escalated` child also blocks the close — an escalation awaiting the
     // operator must not be buried by closing its parent. (Human-authorized
     // cascade-cancel still cancels escalated children via the declared
-    // escalated→cancelled edge.)
+    // escalated→cancelled edge; the cascade-close above needs
+    // `acknowledgeEscalated` on top of that.)
     if (to === 'done' || to === 'cancelled') {
       const openChild = db
         .prepare("SELECT id FROM work_items WHERE parent_id = ? AND status NOT IN ('done', 'cancelled') LIMIT 1")
@@ -268,58 +296,6 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
   if (result.event) notifyTodoChanged(result.item, 'status-transitioned', opts.callerSessionId);
   notifyTodoStatusChange(result.event, result.item);
   return result;
-}
-
-/** Assign a Todo to an employee. Roster validation lives at the route layer; this
- * transition-owned write is the only assignment path so backlog→assigned emits
- * the same committed status event and live todo-status listener notification as
- * any other lifecycle move. */
-export function assignWorkItem(
-  id: string,
-  assignee: string,
-  department: string | null,
-  actor?: string | null,
-  origin?: WriteOrigin,
-): WorkItem | undefined {
-  const db = initDb();
-  const txn = db.transaction((): TransitionResult | undefined => {
-    const item = getWorkItem(id);
-    if (!item) return undefined;
-    if (STICKY_STATUSES.has(item.status)) {
-      throw new TransitionError('illegal-edge', `cannot assign work item ${id} while it is in terminal state ${item.status}`);
-    }
-    const target = item.status === 'backlog' ? 'assigned' : item.status;
-    if (item.assignee === assignee && item.department === department && item.status === target) {
-      return { item, escalated: false };
-    }
-    if (department !== null) ensureDepartmentRegistered(department); // review F2: same-transaction registry mint
-    const now = new Date().toISOString();
-    const result = db
-      .prepare('UPDATE work_items SET assignee = ?, department = ?, status = ?, updated_at = ?, version = version + 1 WHERE id = ? AND status = ?')
-      .run(assignee, department, target, now, id, item.status);
-    if (result.changes === 0) {
-      throw new TransitionError('conflict', `work item ${id} changed concurrently (expected status ${item.status})`);
-    }
-    const event = appendWorkItemEvent({
-      workItemId: id,
-      kind: item.status === target ? 'note' : 'status_change',
-      fromStatus: item.status === target ? null : item.status,
-      toStatus: item.status === target ? null : target,
-      actor: actor ?? null,
-      detail: {
-        assignee,
-        department,
-        ...(origin ? { origin } : {}),
-        todoProvenance: todoProvenanceSnapshot({ source: item.source, department, assignee }),
-      },
-      versionEffect: 'companion',
-    });
-    return { item: getWorkItem(id)!, escalated: false, event };
-  });
-  const result = txn();
-  if (!result) return undefined;
-  notifyTodoStatusChange(result.event, result.item);
-  return result.item;
 }
 
 /** Convenience: the reconciler's derived writes (agent-free, event-audited).
