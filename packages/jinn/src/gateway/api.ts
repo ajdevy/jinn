@@ -1232,7 +1232,6 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "DELETE" && matchRoute("/api/cron/:id", pathname)) return "cron delete";
   if (method === "POST" && matchRoute("/api/cron/:id/trigger", pathname)) return "cron manual trigger";
   if (method === "PATCH" && matchRoute("/api/org/employees/:name", pathname)) return "org employee update";
-  if (method === "PUT" && matchRoute("/api/org/departments/:name/board", pathname)) return "legacy org board write";
   if (method === "DELETE" && matchRoute("/api/skills/:name", pathname)) return "skill removal";
   if (method === "PUT" && matchRoute("/api/skills/:name", pathname)) return "skill update";
   return pluginAdminAction(method, pathname);

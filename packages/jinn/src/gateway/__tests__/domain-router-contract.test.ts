@@ -212,7 +212,6 @@ describe("the seam itself", () => {
       { method: "DELETE", url: "/api/cron/nightly", body: undefined },
       { method: "POST", url: "/api/cron/nightly/trigger", body: {} },
       { method: "PATCH", url: "/api/org/employees/worker", body: { model: "gpt-5.5" } },
-      { method: "PUT", url: "/api/org/departments/platform/board", body: { todo: [] } },
     ];
     for (const route of gated) {
       const r = await call(route.method, route.url, route.body, {});

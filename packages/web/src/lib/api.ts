@@ -957,8 +957,6 @@ export const api = {
       `/api/org/employees/${name}`,
       data,
     ),
-  getDepartmentBoard: (name: string) =>
-    get<Record<string, unknown>>(`/api/org/departments/${name}/board`),
   getSkills: () => get<{ name: string; description?: string }[]>("/api/skills"),
   getSkill: (name: string) =>
     get<{ name: string; content: string }>(`/api/skills/${encodeURIComponent(name)}`),
@@ -975,8 +973,6 @@ export const api = {
     get<{ needed: boolean; onboarded: boolean; sessionsCount: number; hasEmployees: boolean; companyName: string | null; companyPrefix: string | null; todoPrefix: string | null; todoPrefixFrozen: boolean; portalName: string | null; operatorName: string | null }>("/api/onboarding"),
   completeOnboarding: (data: { companyName?: string; companyPrefix?: string | null; portalName?: string; operatorName?: string; language?: string; engine?: string; model?: string; effortLevel?: string }) =>
     post<{ status: string; portal: { companyName?: string; companyPrefix?: string; portalName?: string; operatorName?: string; language?: string } }>("/api/onboarding", data),
-  updateDepartmentBoard: (name: string, data: unknown) =>
-    put<Record<string, unknown>>(`/api/org/departments/${name}/board`, data),
   sttStatus: () =>
     get<{ available: boolean; model: string | null; downloading: boolean; progress: number; languages: string[] }>("/api/stt/status"),
   sttDownload: () =>

@@ -4,7 +4,7 @@ import { matchRoute } from "../api.js";
 describe("route parameter decoding", () => {
   it("rejects encoded slashes and backslashes before filesystem paths are built", () => {
     expect(matchRoute("/api/skills/:name", "/api/skills/..%2Fsecrets")).toBeNull();
-    expect(matchRoute("/api/org/departments/:name/board", "/api/org/departments/platform%5C..%5Csecret/board")).toBeNull();
+    expect(matchRoute("/api/org/employees/:name", "/api/org/employees/platform%5C..%5Csecret")).toBeNull();
   });
 
   it("rejects dot segments and malformed encodings", () => {

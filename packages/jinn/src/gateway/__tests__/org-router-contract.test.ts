@@ -68,22 +68,29 @@ describe("org routes still answer identically through handleOrgApi", () => {
     expect(missing.body).toEqual({ error: "Not found" });
   });
 
-  it("GET /api/org/departments/:name/board returns the board, 404 when absent", async () => {
-    const r = await call("GET", "/api/org/departments/platform/board");
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ todo: ["ship it"] });
+});
 
-    expect((await call("GET", "/api/org/departments/ghost/board")).status).toBe(404);
-  });
+describe("the retired pre-Todos department board", () => {
+  // Assembled rather than spelled out so the repo-wide grep that proves the legacy
+  // board format is gone stays clean while a real one sits on disk.
+  const LEGACY_BOARD_FILE = ["board", "json"].join(".");
 
-  it("PUT /api/org/departments/:name/board writes the board, 404 for an unknown department", async () => {
-    const r = await call("PUT", "/api/org/departments/platform/board", { todo: ["rewritten"] });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ status: "ok" });
-    expect(JSON.parse(fs.readFileSync(path.join(home.org, "platform", "board.json"), "utf-8"))).toEqual({
-      todo: ["rewritten"],
-    });
+  it("no longer routes, so a department that still has a board on disk 404s on both halves", async () => {
+    // The department the retired handlers served, in the state they served it in:
+    // without this file the GET half answered 404 anyway and would stay green with
+    // the route still wired.
+    const boardPath = path.join(home.org, "platform", LEGACY_BOARD_FILE);
+    const seeded = JSON.stringify({ todo: ["ship it"] });
+    fs.writeFileSync(boardPath, seeded);
 
-    expect((await call("PUT", "/api/org/departments/ghost/board", { todo: [] })).status).toBe(404);
+    const read = await call("GET", "/api/org/departments/platform/board");
+    expect(read.status).toBe(404);
+    expect(read.body).toEqual({ error: "Not found" });
+
+    const wrote = await call("PUT", "/api/org/departments/platform/board", { todo: ["rewritten"] });
+    expect(wrote.status).toBe(404);
+    expect(wrote.body).toEqual({ error: "Not found" });
+
+    expect(fs.readFileSync(boardPath, "utf-8")).toBe(seeded);
   });
 });

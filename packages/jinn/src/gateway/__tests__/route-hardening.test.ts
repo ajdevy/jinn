@@ -5,13 +5,12 @@ import os from "node:os";
 import type { ServerResponse } from "node:http";
 
 /**
- * Route-level tests for two hardened GET handlers in ../api.ts:
+ * Route-level tests for the hardened GET handler in ../api.ts:
  *   - GET /api/cron/:id/runs   → skips corrupt JSONL lines, returns the good rows
- *   - GET /api/org/departments/:name/board → 500s on a corrupt board.json
  *
- * Both handlers resolve their on-disk paths from CRON_RUNS / ORG_DIR in
+ * The handler resolves its on-disk paths from CRON_RUNS in
  * ../../shared/paths.js, so we mock that module to point at a temp dir. The
- * handlers return early (before touching session/connector state), so a minimal
+ * handler returns early (before touching session/connector state), so a minimal
  * ApiContext stub is sufficient. We drive handleApiRequest directly with fake
  * req/res objects — no HTTP server boot required.
  */
@@ -22,22 +21,18 @@ const bootHome = fs.mkdtempSync(path.join(os.tmpdir(), "route-harden-boot-"));
 let tmpHome = bootHome;
 let cronRunsDir = path.join(tmpHome, "cron", "runs");
 let cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
-let orgDir = path.join(tmpHome, "org");
 
 vi.mock("../../shared/paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../shared/paths.js")>();
   return {
     ...actual,
-    // Only override the two dirs the target routes read. JINN_HOME is left as
+    // Only override the dirs the target routes read. JINN_HOME is left as
     // the real value so import-time consumers don't break.
     get CRON_RUNS() {
       return cronRunsDir;
     },
     get CRON_JOBS() {
       return cronJobsFile;
-    },
-    get ORG_DIR() {
-      return orgDir;
     },
   };
 });
@@ -102,10 +97,8 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "route-harden-"));
   cronRunsDir = path.join(tmpHome, "cron", "runs");
   cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
-  orgDir = path.join(tmpHome, "org");
   fs.mkdirSync(cronRunsDir, { recursive: true });
   fs.mkdirSync(path.dirname(cronJobsFile), { recursive: true });
-  fs.mkdirSync(orgDir, { recursive: true });
 });
 
 describe("GET /api/cron — read-tier summary scrubs prompt/env", () => {
@@ -293,32 +286,5 @@ describe("GET /api/cron/:id/runs — corrupt-line tolerance", () => {
     await handleApiRequest(makeReq("GET", "/api/cron/no-such-job/runs"), cap.res, ctx);
     expect(cap.status).toBe(200);
     expect(cap.body).toEqual([]);
-  });
-});
-
-describe("GET /api/org/departments/:name/board — corrupt board.json", () => {
-  it("returns 500 when board.json is not valid JSON", async () => {
-    const deptDir = path.join(orgDir, "platform");
-    fs.mkdirSync(deptDir, { recursive: true });
-    fs.writeFileSync(path.join(deptDir, "board.json"), "{ this is not json ]");
-
-    const cap = makeRes();
-    await handleApiRequest(makeReq("GET", "/api/org/departments/platform/board"), cap.res, ctx);
-
-    expect(cap.status).toBe(500);
-    expect(cap.body).toMatchObject({ error: expect.stringContaining("corrupt") });
-  });
-
-  it("returns 200 with the parsed board when board.json is valid", async () => {
-    const deptDir = path.join(orgDir, "platform");
-    fs.mkdirSync(deptDir, { recursive: true });
-    const board = { todo: ["a"], in_progress: [], done: ["b"] };
-    fs.writeFileSync(path.join(deptDir, "board.json"), JSON.stringify(board));
-
-    const cap = makeRes();
-    await handleApiRequest(makeReq("GET", "/api/org/departments/platform/board"), cap.res, ctx);
-
-    expect(cap.status).toBe(200);
-    expect(cap.body).toEqual(board);
   });
 });
