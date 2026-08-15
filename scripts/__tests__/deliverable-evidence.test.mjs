@@ -246,6 +246,12 @@ test("route fails loudly on a malformed stream rather than reporting an empty di
     // the declaration over a diff nobody had judged.
     "a score on a status git never scores": diff("A100", "docs/architecture.md"),
     "a rename missing the score git always writes": diff("R", "packages/demo/ship.ts", "docs/ship.ts"),
+    // The score is a percentage, so 100 is the top of it. Read unbounded, any
+    // three digits were a score and `R999` was a status, which put the same
+    // unjudged diff behind a stream git could not have written.
+    "a rename scored past a percentage": diff("R999", "docs/old.md", "docs/new.md"),
+    "a rewrite scored past a percentage": diff("M999", "docs/architecture.md"),
+    "a copy scored one past a percentage": diff("C101", "docs/a.md", "docs/b.md"),
   }
   for (const [name, stream] of Object.entries(malformed)) {
     const routed = route(stream, "--declared", "workspace")
@@ -254,6 +260,13 @@ test("route fails loudly on a malformed stream rather than reporting an empty di
     assert.equal(routed.status, 1, `${name}: expected a usage failure, got ${routed.status}: ${routed.out}`)
     assert.doesNotMatch(routed.out, /changed path/, `${name}: an unreadable stream was reported as a diff: ${routed.out}`)
   }
+})
+
+test("route still reads a score at the top of the percentage", () => {
+  // 100 is inside the bound, so a rewrite git scored whole is an ordinary status
+  // and its path is judged. `R100` is guarded by the rename test above.
+  const routed = route(diff("M100", "docs/architecture.md"), "--declared", "workspace")
+  assert.equal(routed.status, 0, `a score git does write was read as malformed: ${routed.out}`)
 })
 
 test("route reads the diff on stdin and refuses it as arguments", () => {

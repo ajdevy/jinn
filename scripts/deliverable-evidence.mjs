@@ -40,10 +40,10 @@ const ROUTE_MISMATCH_EXIT = 2
  *  prevent. Everything outside these prefixes ships. */
 const NON_SHIPPING_PREFIXES = ["docs/", ".jinn-build/"]
 
-/** A git status letter and the score behind it: git writes one on a rename or copy always, on a
- *  rewrite at its option, and on nothing else, so a score read as valid everywhere made `A100` a
- *  status and let the shipping diff behind it go unjudged. The scored two name a second path. */
-const DIFF_STATUS = /^(?:[ABDTUX]|M(?:[0-9]{3})?|[CR][0-9]{3})$/
+/** A git status letter and the score behind it: git scores a rename or copy always, a rewrite at
+ *  its option, and nothing else, and the score is a percentage of 000-100. Read as valid on any
+ *  letter, `A100` was a status; read unbounded, `R999` was. The scored two name a second path. */
+const DIFF_STATUS = /^(?:[ABDTUX]|M(?:0[0-9]{2}|100)?|[CR](?:0[0-9]{2}|100))$/
 const RENAME_OR_COPY = /^[RC]/
 
 const USAGE = `usage:
