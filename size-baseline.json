@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5791,
+      "lines": 5784,
       "exempt": [
         "complexity",
         "max-depth",
