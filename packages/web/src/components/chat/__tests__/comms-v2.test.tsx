@@ -13,7 +13,7 @@ import {
   turnSpacerClass,
 } from '../chat-messages'
 import { BURST_WINDOW_MS, formatBurstRange } from '../callback-burst'
-import { anchorScrollDuring, canAnchorFold, formatWorkDuration, foldSummaryWords } from '../fold-region'
+import { formatWorkDuration, foldSummaryWords } from '../fold-region'
 import type { Message } from '@/lib/conversations'
 
 vi.mock('@/lib/api', () => ({
@@ -362,27 +362,6 @@ describe('the post-turn fold', () => {
     expect(screen.getByRole('button', { name: /^1 tool\. Show the work\./ })).toBeTruthy()
     expect(screen.queryByText(/Worked for/)).toBeNull()
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
-  })
-
-  it('anchorScrollDuring compensates scrollTop by the anchor bottom delta each frame', () => {
-    const scroller = { scrollTop: 100 } as unknown as Element
-    let bottom = 500
-    const anchor = { getBoundingClientRect: () => ({ bottom }) } as unknown as Element
-    const frames: FrameRequestCallback[] = []
-    let now = 0
-    anchorScrollDuring(scroller, anchor, 100, (cb) => { frames.push(cb); return 1 }, () => now)
-
-    bottom = 480
-    now = 16
-    frames.shift()!(now)
-    expect(scroller.scrollTop).toBe(80)
-
-    bottom = 470
-    now = 200
-    frames.shift()!(now)
-    expect(scroller.scrollTop).toBe(50)
-    // Past the window: no further frames scheduled.
-    expect(frames).toHaveLength(0)
   })
 })
 
@@ -805,20 +784,6 @@ describe('streaming → final structural parity', () => {
     const finalActions = final.container.querySelector('.msg-actions')!
     expect(streamingActionsClass).toBe(finalActions.className)
     expect(streamingActionsClass).toContain('h-[26px]')
-  })
-})
-
-describe('fold slack gate', () => {
-  it('only anchors the live fold when scrollTop can absorb the shrink', () => {
-    // QA-measured clamp case: slack 27, region ~331 (delta 299) → skip.
-    expect(canAnchorFold(27, 331)).toBe(false)
-    // Enough slack: 400 ≥ 331 - 32.
-    expect(canAnchorFold(400, 331)).toBe(true)
-    // Boundary: slack + 2 tolerance against delta.
-    expect(canAnchorFold(297, 331)).toBe(true)
-    expect(canAnchorFold(296, 331)).toBe(false)
-    // A tiny region folds even at scrollTop 0 (delta ≤ summary height).
-    expect(canAnchorFold(0, 32)).toBe(true)
   })
 })
 

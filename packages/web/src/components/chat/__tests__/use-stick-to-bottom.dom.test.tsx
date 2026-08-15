@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, act, fireEvent } from '@testing-library/react'
-import { STICK_THRESHOLD_PX } from '@/hooks/use-stick-to-bottom'
+import { STICK_THRESHOLD_PX } from '@/hooks/stick-geometry'
 import { type CapturedObserver, dist, Harness, setMetrics, stubScrollEnvironment } from './stick-harness'
 
 // Drives the REAL hook through every scroll failure mode the rebuild targets.
@@ -164,7 +164,8 @@ describe('useStickToBottom — behaviour', () => {
     // follow by distance alone kept it engaged here, and every re-pin below undid it.
     act(() => { el.scrollTop = 1000 - 200 - 10; fireEvent.scroll(el) })
     expect(dist(el)).toBe(10)
-    expect(getByTestId('jump').textContent).toBe('show')
+    // Detached, but not far enough for the arrow to be worth offering.
+    expect(getByTestId('jump').textContent).toBe('hide')
     const readingPos = el.scrollTop
 
     // A freshly opened transcript keeps resizing for a second or two (arrival and

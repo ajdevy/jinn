@@ -4,7 +4,7 @@ import {
   shouldFollow,
   unreadDelta,
   STICK_THRESHOLD_PX,
-} from '@/hooks/use-stick-to-bottom'
+} from '@/hooks/stick-geometry'
 
 // Pins the pure scroll math the stick-to-bottom hook builds on. The hook's
 // DOM/observer wiring is exercised by the Playwright behaviour tests (jsdom has

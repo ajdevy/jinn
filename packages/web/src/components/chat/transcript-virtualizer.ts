@@ -72,6 +72,72 @@ export function groupKey(group: RenderGroup): string {
 
 export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
 
+/**
+ * Which virtualizers have a deliberate scroll of ours in flight.
+ *
+ * A `scrollToIndex` does not write once. The virtualizer re-issues it from its
+ * own rAF until the target holds still — for up to five seconds — and a scroll
+ * write scheduled from a rAF lands after the browser has painted the frame the
+ * reader is already looking at. That is the jump. It is also how those retries
+ * drag back a reader who has scrolled away in the meantime: they never ask who
+ * owns the position. Holding a bottom that keeps moving as rows measure belongs
+ * to `transcript-open`'s settle window, which re-targets BEFORE paint, so the
+ * only write taken here is the one `scrollTranscriptTo` is making right now.
+ *
+ * The virtualizer's own resize compensation still passes: it arrives with an
+ * `adjustments` term, and its whole job is holding a row under the same pixel
+ * while something above it re-measures. That one never travels.
+ */
+const scrolling = new WeakSet<object>()
+
+/** Where the last write left the scroller, per virtualizer — see `takeTranscriptWriteTop`. */
+const writtenTop = new WeakMap<object, number>()
+
+function transcriptScrollTo(
+  offset: number,
+  { adjustments = 0, behavior }: { adjustments?: number; behavior?: ScrollBehavior },
+  instance: TranscriptVirtualizer,
+): void {
+  const el = instance.scrollElement
+  if (!el) return
+  if (adjustments === 0 && !scrolling.has(instance)) return
+  el.scrollTo?.({ top: offset + adjustments, behavior })
+  // A smooth scroll has not moved yet, so there is no landing position to record.
+  if (behavior !== 'smooth') writtenTop.set(instance, el.scrollTop)
+}
+
+/**
+ * Take where the transcript's last scroll write left the scroller, if it made one.
+ *
+ * A scroll event that finds the scroller exactly there is that write being
+ * reported back, not the reader moving — and the resize compensation above fires
+ * dozens of times while a windowed transcript measures itself on open. Read as
+ * user intent, those are what detach a reader who never touched anything.
+ *
+ * Spent once given, because a write reports once. Left standing it would also
+ * swallow a later scroll that happened to land on the same pixel, and for a
+ * transcript that pixel is the bottom — the one place being misread costs follow.
+ */
+export function takeTranscriptWriteTop(virtualizer: TranscriptVirtualizer): number | undefined {
+  const top = writtenTop.get(virtualizer)
+  writtenTop.delete(virtualizer)
+  return top
+}
+
+/** Scroll the transcript deliberately. For the length of this call, and only then,
+ *  a write reaching the scroller is ours; everything else there is a retry. */
+export function scrollTranscriptTo(
+  virtualizer: TranscriptVirtualizer,
+  scroll: (virtualizer: TranscriptVirtualizer) => void,
+): void {
+  scrolling.add(virtualizer)
+  try {
+    scroll(virtualizer)
+  } finally {
+    scrolling.delete(virtualizer)
+  }
+}
+
 export function useTranscriptVirtualizer(
   groups: RenderGroup[],
   keys: string[],
@@ -90,6 +156,7 @@ export function useTranscriptVirtualizer(
     estimateSize: (index) => estimateGroupSize(groups[index]),
     getItemKey: useCallback((index: number) => keysRef.current[index], []),
     overscan: OVERSCAN,
+    scrollToFn: transcriptScrollTo,
   })
 }
 
@@ -145,7 +212,7 @@ export function restoreVirtualAnchor(
   // Through the virtualizer rather than straight onto `scrollTop`: it has to
   // know the position moved, or the window it renders stays the one it worked
   // out for the old offset and the reader lands among the rows just inserted.
-  virtualizer.scrollToOffset(node.scrollTop + (start - anchor.start))
+  scrollTranscriptTo(virtualizer, (v) => v.scrollToOffset(node.scrollTop + (start - anchor.start)))
   return true
 }
 
@@ -163,7 +230,7 @@ function alignAnchoredRow(
   const target = node.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
   if (!target) return false
   const drift = target.getBoundingClientRect().top - node.getBoundingClientRect().top - offset
-  if (Math.abs(drift) > 0.5) virtualizer.scrollToOffset(node.scrollTop + drift)
+  if (Math.abs(drift) > 0.5) scrollTranscriptTo(virtualizer, (v) => v.scrollToOffset(node.scrollTop + drift))
   return true
 }
 

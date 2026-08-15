@@ -172,8 +172,8 @@ function CodeBlock({ code, lang, keyProp }: { code: string; lang?: string; keyPr
 // `summary` is here because a leaked compaction message is `<analysis>…</analysis>`
 // followed by `<summary>…</summary>` — folding only the first half still dumps the
 // whole recap into the chat.
-const TRACE_TAGS = new Set(['analysis', 'thinking', 'reasoning', 'reflection', 'scratchpad', 'summary'])
-const TRACE_OPEN_RE = /^<([a-z_]+)>$/i
+export const TRACE_TAGS = new Set(['analysis', 'thinking', 'reasoning', 'reflection', 'scratchpad', 'summary'])
+export const TRACE_OPEN_RE = /^<([a-z_]+)>$/i
 const TRACE_CLOSE_RE = /^<\/([a-z_]+)>$/i
 
 function TraceBlock({ tag, body }: { tag: string; body: string }) {

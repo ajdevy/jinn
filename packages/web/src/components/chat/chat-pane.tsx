@@ -68,6 +68,8 @@ interface ChatPaneProps {
   onPeek?: (peek: CommsPeekData) => void
   /** First meaningful destination paint; used to release a preview handoff. */
   onContentReady?: (sessionId: string) => void
+  /** Where the reader left this transcript. Opens there rather than at the bottom. */
+  initialScrollTop?: number
   /** Live list-derived descendant activity. `null` is authoritative rest;
    *  `undefined` falls back to the session detail payload. */
   delegatedActivity?: DelegatedActivity | null
@@ -102,6 +104,7 @@ export function ChatPane({
   initialEmployee,
   onPeek,
   onContentReady,
+  initialScrollTop,
   delegatedActivity,
   onStartFreshChat,
 }: ChatPaneProps) {
@@ -473,16 +476,12 @@ export function ChatPane({
     resetPane()
   }, [resetPane])
 
+  // Before paint, not a frame after it: what "ready" releases touches the scroller.
   const readySessionRef = useRef<string | null>(null)
   useLayoutEffect(() => {
-    if (!sessionId || hydrating || (!currentSession && messages.length === 0 && !streamingText)) return
-    if (readySessionRef.current === sessionId) return
-    const frame = requestAnimationFrame(() => {
-      if (readySessionRef.current === sessionId) return
-      readySessionRef.current = sessionId
-      onContentReady?.(sessionId)
-    })
-    return () => cancelAnimationFrame(frame)
+    if (!sessionId || hydrating || readySessionRef.current === sessionId || (!currentSession && messages.length === 0 && !streamingText)) return
+    readySessionRef.current = sessionId
+    onContentReady?.(sessionId)
   }, [sessionId, hydrating, currentSession, messages.length, streamingText, onContentReady])
 
   // Drag & drop state
@@ -596,6 +595,7 @@ export function ChatPane({
         </Suspense>
       ) : (
         <ChatMessages
+          initialScrollTop={initialScrollTop}
           messages={messages}
           loading={loading}
           hydrating={hydrating}

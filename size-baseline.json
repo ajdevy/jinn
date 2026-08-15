@@ -1103,7 +1103,7 @@
       "lines": 527
     },
     "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": {
-      "lines": 862,
+      "lines": 827,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "max-depth"
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1554,
+      "lines": 1524,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1226,7 +1226,6 @@
       ]
     },
     "packages/web/src/components/chat/fold-region.tsx": {
-      "lines": 339,
       "exempt": [
         "complexity",
         "max-lines-per-function",
@@ -1565,7 +1564,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1201,
+      "lines": 1196,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

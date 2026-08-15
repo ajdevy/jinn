@@ -876,6 +876,17 @@ h1, h2, h3, h4, h5, h6 {
   .user-msg-bubble[data-msg-enter], .assistant-transcript[data-msg-enter] { animation: none; }
 }
 
+/* Opening a chat. Opacity and transform only, so nothing reflows and the frame
+   this plays over is already painted at the bottom — the open position is decided
+   before paint, not animated to. Deliberately no `both` fill: the end state is the
+   resting state, so the transform is gone once it finishes and the transcript's
+   ancestor is not left promoted underneath a scroll. */
+[data-chat-pane-session] { animation: jinn-chat-open var(--duration-base) var(--ease-smooth); }
+@keyframes jinn-chat-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-chat-pane-session] { animation: none; }
+}
+
 /* ============================================
    Talk focus mark
    The orb scrolls something into view and marks it for the length of the

@@ -34,7 +34,17 @@ export function stubScrollEnvironment(): CapturedObserver[] {
   return instances
 }
 
-export function Harness(props: { streamingText?: string; messageCount: number; latestMessageKey?: string | null }) {
+export interface HarnessProps {
+  streamingText?: string
+  messageCount: number
+  latestMessageKey?: string | null
+  scrollToEnd?: (behavior: ScrollBehavior) => void
+  takeLastWriteTop?: () => number | undefined
+  initialScrollTop?: number
+  contentSize?: () => number
+}
+
+export function Harness(props: HarnessProps) {
   const { containerRef, showJump, unreadCount, scrollToBottom } = useStickToBottom(props)
   return (
     <div>
@@ -55,6 +65,19 @@ export function setMetrics(el: HTMLElement, scrollHeight: number, clientHeight: 
   Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
   Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => clientHeight })
   Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v } })
+}
+
+/** As above, but clamping writes the way a browser does — what a scroll that aims
+ *  past a stale estimate actually lands on. */
+export function setClampedMetrics(el: HTMLElement, scrollHeight: () => number, clientHeight: number) {
+  let top = 0
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: scrollHeight })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => clientHeight })
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (v: number) => { top = Math.max(0, Math.min(v, Math.max(0, scrollHeight() - clientHeight))) },
+  })
 }
 
 export function dist(el: HTMLElement) {
