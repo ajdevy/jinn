@@ -144,13 +144,13 @@ function buildTerminalFields(run: TurnRun, contextTokens: number | undefined, cl
 }
 
 /**
- * A stale engine-session id makes every resume fail. Drop the cached ids so the
- * next attempt starts a fresh engine session instead of retrying a dead one.
+ * A stale engine-session id makes every resume fail. Drop this engine's typed ref
+ * so the next attempt starts a fresh engine session instead of retrying a dead one,
+ * and drop any rate-limit override that would otherwise restore the dead id.
  */
 export function clearDeadEngineSession(sessionId: string, engineName: string): void {
   logger.warn(`Dead session detected for ${sessionId} — clearing stale engine IDs`);
   const meta = { ...(getSession(sessionId)?.transportMeta || {}) } as Record<string, unknown>;
-  delete meta["engineSessions"];
   delete meta["engineOverride"];
   clearEngineSessionRefs(sessionId, engineName);
   updateSession(sessionId, { transportMeta: meta as UpdateSessionFields["transportMeta"] });

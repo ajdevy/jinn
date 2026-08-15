@@ -16,6 +16,13 @@ vi.mock("../registry.js", () => ({
   getSession: (...a: unknown[]) => getSessionMock(...a),
   getMessages: vi.fn(() => []),
   updateSessionForAttempt: (...a: Parameters<typeof updateSessionForAttemptMock>) => updateSessionForAttemptMock(...a),
+  // Faithful enough for the calls this module makes: it only ever reads an
+  // INACTIVE engine's ref, where the real accessor also skips the mirror.
+  getEngineSessionRef: (session: Session, engine: string) => session.engineSessions?.[engine] ?? {},
+  nextEngineSessionFields: (session: Session, engine: string, id: string) => ({
+    engineSessions: { ...(session.engineSessions ?? {}), [engine]: { id } },
+    ...(session.engine === engine ? { engineSessionId: id } : {}),
+  }),
 }));
 
 const recordClaudeRateLimitMock = vi.fn();
@@ -124,6 +131,27 @@ describe("handleRateLimit — Codex fallback guard (#40)", () => {
     if (outcome.kind === "fallback") {
       expect(outcome.result.result).toBe("from-codex");
     }
+  });
+
+  it("never hands Claude's thread id to the fallback engine, and records Codex's typed", async () => {
+    engineAvailableMock.mockReturnValue(true);
+    const fallbackRun = vi.fn(async () => ({ result: "from-codex", sessionId: "codex-1" }) as EngineResult);
+
+    await handleRateLimit(makeOpts(fallbackRun));
+
+    // No typed codex ref exists yet, so the fallback starts a fresh thread rather
+    // than resuming Claude's — the mirror is never consulted for another engine.
+    expect(fallbackRun).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: undefined }));
+    // The flip parks Claude's id in its typed ref and empties the mirror.
+    expect(updateSessionForAttemptMock).toHaveBeenCalledWith("sess-1", "attempt-1", expect.objectContaining({
+      engine: "codex",
+      engineSessionId: null,
+      engineSessions: { claude: { id: "claude-thread-1" } },
+    }));
+    // The post-run write records the fallback's own thread id, typed.
+    expect(updateSessionForAttemptMock).toHaveBeenCalledWith("sess-1", "attempt-1", expect.objectContaining({
+      engineSessions: expect.objectContaining({ codex: { id: "codex-1" } }),
+    }));
   });
 });
 

@@ -19,6 +19,7 @@ import {
   getMessages,
   insertMessage,
   updateSession,
+  getEngineSessionRef, nextEngineSessionFields,
   beginSessionAttempt, claimWorkflowAttemptDispatch, cancelWorkflowAttemptDispatch,
   listPendingWorkflowAttemptDispatches, interruptSessionAttempt,
   listChildSessions,
@@ -45,7 +46,8 @@ export interface RouteOptions {
 
 const WORKFLOW_CAPABILITIES = { threading: false, messageEdits: false, reactions: false, attachments: false };
 const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
-function maybeRevertEngineOverride(session: Session): Session {
+/** Restore the pre-rate-limit engine once the override window has expired. */
+export function maybeRevertEngineOverride(session: Session): Session {
   const meta = (session.transportMeta || {}) as Record<string, unknown>;
   const override = meta["engineOverride"] as Record<string, unknown> | undefined;
   if (!override) return session;
@@ -62,25 +64,20 @@ function maybeRevertEngineOverride(session: Session): Session {
   if (Number.isNaN(until.getTime())) return session;
   if (until.getTime() > Date.now()) return session;
 
-  const engineSessionsRaw = meta["engineSessions"];
-  const engineSessions = (engineSessionsRaw && typeof engineSessionsRaw === "object" && !Array.isArray(engineSessionsRaw))
-    ? { ...(engineSessionsRaw as Record<string, unknown>) }
+  // Park the fallback engine's own thread id under its typed ref before handing
+  // the mirror back to the engine being restored.
+  const preserved = session.engineSessionId
+    ? nextEngineSessionFields(session, session.engine, session.engineSessionId)
     : {};
+  const restoredSessionId = originalEngineSessionId ?? getEngineSessionRef(session, originalEngine).id ?? null;
 
-  // Preserve the current engine session ID under its engine key
-  if (session.engine && session.engineSessionId) {
-    engineSessions[String(session.engine)] = session.engineSessionId;
-  }
-
-  const restoredSessionId = originalEngineSessionId
-    ?? (typeof engineSessions[originalEngine] === "string" ? (engineSessions[originalEngine] as string) : null);
-
-  const nextMeta = { ...meta, engineSessions } as Record<string, unknown>;
+  const nextMeta = { ...meta } as Record<string, unknown>;
   if (originalEngine === "claude" && syncSince && session.engine !== "claude") {
     nextMeta["claudeSyncSince"] = syncSince;
   }
-  delete (nextMeta as Record<string, unknown>)["engineOverride"];
+  delete nextMeta["engineOverride"];
   return updateSession(session.id, {
+    ...preserved,
     engine: originalEngine,
     engineSessionId: restoredSessionId,
     transportMeta: nextMeta as any,
@@ -102,9 +99,10 @@ export function mergeTransportMeta(
   const merged: Record<string, unknown> = { ...baseExisting, ...baseIncoming };
 
   // Preserve Jinn internal keys from being overwritten by transport adapters.
+  // Engine thread ids are not among them: they live in the typed engineSessions
+  // column the registry owns, out of reach of any connector merge.
   for (const key of [
     "engineOverride",
-    "engineSessions",
     "claudeSyncSince",
     "engineSyncTarget",
     "engineSyncSince",

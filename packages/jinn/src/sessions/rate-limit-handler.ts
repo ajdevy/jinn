@@ -14,6 +14,10 @@
  * the two call sites — only the transport-side UI/notification details differ.
  * This module owns the common bits; per-transport behavior is injected via hooks.
  *
+ * Per-engine thread ids live in the typed `engineSessions` refs the registry owns
+ * (read with getEngineSessionRef, written with nextEngineSessionFields folded into
+ * this module's existing attempt fences) — never in a transport-meta blob.
+ *
  * Behavior is intentionally preserved verbatim from the original inlined
  * implementations — do not "improve" the wait math, the per-step state writes,
  * or the order of side effects without auditing both call sites.
@@ -26,7 +30,7 @@ import { resolveEffort } from "../shared/effort.js";
 import { effortLevelsForModel, engineAvailable, type EngineName } from "../shared/models.js";
 import { computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
 import { recordClaudeRateLimit } from "../shared/usageAwareness.js";
-import { getSession, getMessages, updateSessionForAttempt } from "./registry.js";
+import { getSession, getMessages, updateSessionForAttempt, getEngineSessionRef, nextEngineSessionFields } from "./registry.js";
 import { runtimeSessionSource } from "./context.js";
 
 const WAIT_CANCEL_POLL_MS = 5000;
@@ -137,7 +141,7 @@ export interface RateLimitHandlerOpts {
   engine: Engine;
   /** Result of detectRateLimit() on the original turn. */
   rateLimit: RateLimitInfo;
-  /** The original failed result — used for its sessionId field when updating engineSessionId. */
+  /** The original failed result — used for its sessionId field when recording the engine's thread id. */
   originalResult: EngineResult;
   hooks: RateLimitHandlerHooks;
 }
@@ -175,14 +179,6 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until });
 
       const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-      const engineSessionsRaw = nextMeta.engineSessions;
-      const engineSessions = (engineSessionsRaw && typeof engineSessionsRaw === "object" && !Array.isArray(engineSessionsRaw))
-        ? { ...(engineSessionsRaw as Record<string, unknown>) }
-        : {};
-      if (session.engineSessionId) {
-        engineSessions.claude = session.engineSessionId;
-      }
-      nextMeta.engineSessions = engineSessions;
       nextMeta.engineOverride = {
         originalEngine: "claude",
         originalEngineSessionId: session.engineSessionId,
@@ -191,8 +187,12 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       };
 
       const fallbackStarted = updateSessionForAttempt(session.id, attemptToken, {
+        // Claude's thread id moves to its own typed ref (the override record keeps a
+        // second copy). The mirror belongs to whichever engine is actually running, so
+        // it goes null until the fallback returns a thread id of its own.
+        ...(session.engineSessionId ? nextEngineSessionFields(session, "claude", session.engineSessionId) : {}),
         engine: fallbackName,
-        // Keep Claude engine_session_id intact for later restore; Codex will return its own thread id.
+        engineSessionId: null,
         transportMeta: nextMeta as any,
         status: "running",
         lastActivity: new Date().toISOString(),
@@ -212,7 +212,7 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
         employee,
         effortLevelsForModel(config, fallbackName, fallbackConfig.model),
       );
-      const codexResume = typeof engineSessions.codex === "string" ? (engineSessions.codex as string) : undefined;
+      const codexResume = getEngineSessionRef(session, fallbackName).id;
       const history = getMessages(session.id)
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
@@ -239,15 +239,12 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
         ...(hooks.onFallbackStream ? { onStream: hooks.onFallbackStream } : {}),
       });
 
-      // Persist Codex thread id so future fallbacks can resume it.
-      const nextEngineSessions = { ...engineSessions };
-      if (fallbackResult.sessionId) {
-        nextEngineSessions.codex = fallbackResult.sessionId;
+      // Persist the fallback engine's thread id so future fallbacks can resume it —
+      // and so the mirror stops lying about which engine the id belongs to.
+      const live = getSession(session.id);
+      if (live && fallbackResult.sessionId) {
+        updateSessionForAttempt(session.id, attemptToken, nextEngineSessionFields(live, fallbackName, fallbackResult.sessionId));
       }
-      const liveMeta = (getSession(session.id)?.transportMeta || nextMeta) as Record<string, unknown>;
-      const metaAfter = { ...liveMeta } as Record<string, unknown>;
-      metaAfter.engineSessions = nextEngineSessions;
-      updateSessionForAttempt(session.id, attemptToken, { transportMeta: metaAfter as any });
 
       await hooks.onFallbackComplete?.(fallbackResult);
 
@@ -268,7 +265,7 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
   );
 
   const enteredWaiting = updateSessionForAttempt(session.id, attemptToken, {
-    ...(originalResult.sessionId?.trim() ? { engineSessionId: originalResult.sessionId } : {}),
+    ...(originalResult.sessionId?.trim() ? nextEngineSessionFields(session, session.engine, originalResult.sessionId) : {}),
     status: "waiting",
     lastActivity: new Date().toISOString(),
     lastError: resumeAt
@@ -359,7 +356,7 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
         nextDelayMs = next.delayMs;
 
         const waitingAgain = updateSessionForAttempt(session.id, attemptToken, {
-          ...(retryResult.sessionId?.trim() ? { engineSessionId: retryResult.sessionId } : {}),
+          ...(retryResult.sessionId?.trim() ? nextEngineSessionFields(currentSession, currentSession.engine, retryResult.sessionId) : {}),
           status: "waiting",
           lastActivity: new Date().toISOString(),
           lastError: next.resumeAt

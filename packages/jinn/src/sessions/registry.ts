@@ -958,7 +958,7 @@ export function ensureCallbackAttemptToken(
 export function getEngineSessionRef(session: Session, engine = session.engine): EngineSessionRef {
   const stored = cleanEngineSessionRef(session.engineSessions?.[engine] ?? {});
   if (engine === session.engine) {
-    if (!stored.id && session.engineSessionId) stored.id = session.engineSessionId;
+    if (!stored.id && session.engineSessionId && !session.transportMeta?.engineOverride) stored.id = session.engineSessionId; // a live override parks the PREVIOUS engine's id in the mirror
     if (!stored.model && session.model) stored.model = session.model;
     if (!stored.effortLevel && session.effortLevel) stored.effortLevel = session.effortLevel;
   }

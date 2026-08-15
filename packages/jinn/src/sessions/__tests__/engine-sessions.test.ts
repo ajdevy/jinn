@@ -156,6 +156,22 @@ describe("engine session refs", () => {
     expect(switched?.engineSessionId).toBeNull();
   });
 
+  it("refuses the mirror as the active engine's resume id while a rate-limit override is live", () => {
+    const s = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:override-mirror" });
+    reg.recordEngineSessionId(s.id, "claude", "claude-native-1");
+
+    // The exact state the rate-limit fallback used to persist: the engine flipped to
+    // codex while the mirror kept Claude's thread id and no typed codex ref existed.
+    const override = { originalEngine: "claude", originalEngineSessionId: "claude-native-1", until: "2099-01-01T00:00:00.000Z" };
+    const midOverride = reg.updateSession(s.id, { engine: "codex", transportMeta: { engineOverride: override } })!;
+    expect(midOverride.engineSessionId).toBe("claude-native-1");
+
+    // Resuming codex with a Claude thread id is the defect — the ref must come back empty.
+    expect(reg.getEngineSessionRef(midOverride, "codex").id).toBeUndefined();
+    // Claude's own ref is untouched, so the revert can still restore it.
+    expect(reg.getEngineSessionRef(midOverride, "claude").id).toBe("claude-native-1");
+  });
+
   it("does not resume a saved Grok native session when switching back with a different Grok model", () => {
     const s = reg.createSession({
       engine: "grok",

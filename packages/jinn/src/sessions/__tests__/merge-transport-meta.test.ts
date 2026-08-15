@@ -5,9 +5,12 @@ import { describe, it, expect, vi } from "vitest";
  *
  * The rate-limit onRetrySuccess path used to write `transportMeta:
  * msg.transportMeta ?? null` — a raw overwrite that destroyed internal
- * bookkeeping (engineSessions, engineOverride), so a session that fell back to
- * another engine during a rate limit could never revert. Every update path now
- * goes through mergeTransportMeta; this locks in its semantics.
+ * bookkeeping (engineOverride), so a session that fell back to another engine
+ * during a rate limit could never revert. Every update path now goes through
+ * mergeTransportMeta; this locks in its semantics.
+ *
+ * Engine thread ids are deliberately absent: they live in the typed
+ * engineSessions column, which no connector merge can reach.
  */
 
 vi.mock("../../shared/logger.js", () => ({
@@ -18,7 +21,7 @@ import { mergeTransportMeta } from "../manager.js";
 
 describe("mergeTransportMeta", () => {
   it("keeps existing meta when incoming is undefined (no wipe)", () => {
-    const existing = { channelName: "general", engineSessions: { claude: "c-1" } } as any;
+    const existing = { channelName: "general", claudeSyncSince: "2026-06-10T00:00:00Z" } as any;
     expect(mergeTransportMeta(existing, undefined)).toEqual(existing);
   });
 
@@ -34,14 +37,12 @@ describe("mergeTransportMeta", () => {
   it("preserves internal bookkeeping keys against incoming overwrites", () => {
     const existing = {
       engineOverride: { originalEngine: "claude", until: "2099-01-01T00:00:00Z" },
-      engineSessions: { claude: "c-1", codex: "x-1" },
       claudeSyncSince: "2026-06-10T00:00:00Z",
       delegationCompletionTracked: true,
       delegationCompletionContract: { workItemId: "wi-live", state: "nudged" },
     } as any;
     const incoming = {
       engineOverride: null,
-      engineSessions: {},
       claudeSyncSince: "stomped",
       delegationCompletionTracked: false,
       delegationCompletionContract: null,
@@ -50,7 +51,6 @@ describe("mergeTransportMeta", () => {
 
     const merged = mergeTransportMeta(existing, incoming) as Record<string, unknown>;
     expect(merged.engineOverride).toEqual(existing.engineOverride);
-    expect(merged.engineSessions).toEqual(existing.engineSessions);
     expect(merged.claudeSyncSince).toBe("2026-06-10T00:00:00Z");
     expect(merged.delegationCompletionTracked).toBe(true);
     expect(merged.delegationCompletionContract).toEqual(existing.delegationCompletionContract);
