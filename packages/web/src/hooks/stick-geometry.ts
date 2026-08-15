@@ -21,6 +21,19 @@ export function shouldFollow(distance: number, threshold: number = STICK_THRESHO
   return distance <= threshold
 }
 
+/**
+ * Whether auto-follow is engaged after a scroll event that moved the position.
+ *
+ * Re-engaging takes a move TOWARD the bottom: an event that changes the position
+ * without changing the gap is compensation — a fold anchoring, the browser
+ * clamping a shrink — and compensation carries no intent to follow.
+ */
+export function followAfterScroll(dist: number, prevDist: number, following: boolean, threshold: number): boolean {
+  if (dist > prevDist) return false
+  if (dist < prevDist) return shouldFollow(dist, threshold)
+  return following
+}
+
 /** New messages accumulated while detached (current count − count when last caught up), ≥ 0. */
 export function unreadDelta(currentCount: number, seenCount: number): number {
   return Math.max(0, currentCount - seenCount)

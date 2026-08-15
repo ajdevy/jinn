@@ -36,8 +36,8 @@ export interface TranscriptOpenOptions {
   /** Where the reader left this transcript, when they left a position behind. */
   initialScrollTop?: number
   /** Puts the view at the true bottom. On a windowed transcript this goes through
-   *  the virtualizer, which re-targets as row measurements land — a single
-   *  `scrollTop = scrollHeight` write aims at the estimate and stops short. */
+   *  the virtualizer, which resolves it to the scroller's own clamped maximum —
+   *  a `scrollTop = scrollHeight` write aims at the estimate and stops short. */
   scrollToBottom: (node: HTMLDivElement) => void
   /** Total content height as the transcript currently believes it. */
   contentSize: (node: HTMLDivElement) => number

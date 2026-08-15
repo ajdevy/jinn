@@ -39,6 +39,7 @@ export interface HarnessProps {
   messageCount: number
   latestMessageKey?: string | null
   scrollToEnd?: (behavior: ScrollBehavior) => void
+  takeLastWriteTop?: () => number | undefined
   initialScrollTop?: number
   contentSize?: () => number
 }

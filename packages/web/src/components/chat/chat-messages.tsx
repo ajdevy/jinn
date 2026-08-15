@@ -28,7 +28,7 @@ import {
   applyTranscriptAnchor,
   captureVirtualAnchor,
   groupKey,
-  scrollTranscriptTo,
+  scrollTranscriptTo, takeTranscriptWriteTop,
   useTranscriptVirtualizer,
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
@@ -1198,8 +1198,7 @@ export function ChatMessages({
   const expansionStore = useTranscriptExpansionStore()
 
   // The true bottom of a virtualised thread is only known once the last row has
-  // measured. `scrollToIndex` re-targets when that lands mid-flight; a smooth
-  // `scrollTo(scrollHeight)` animates toward the stale estimate and stops short.
+  // measured: `scrollToIndex` on the last row resolves to the scroller's own maximum.
   const scrollToEnd = useCallback((behavior: ScrollBehavior) => {
     const count = groupKeysRef.current.length
     if (count > 0) scrollTranscriptTo(virtualizer, (v) => v.scrollToIndex(count - 1, { align: 'end', behavior }))
@@ -1212,6 +1211,7 @@ export function ChatMessages({
     messageCount: messages.length,
     latestMessageKey: messages.at(-1)?.id ?? null,
     scrollToEnd: virtualized ? scrollToEnd : undefined,
+    takeLastWriteTop: virtualized ? () => takeTranscriptWriteTop(virtualizer) : undefined,
     initialScrollTop,
     contentSize: virtualized ? () => virtualizer.getTotalSize() : undefined,
   })

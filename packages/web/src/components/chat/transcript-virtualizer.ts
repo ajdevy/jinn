@@ -73,17 +73,25 @@ export function groupKey(group: RenderGroup): string {
 export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
 
 /**
- * Where our last scroll left the scroller, per virtualizer.
+ * Which virtualizers have a deliberate scroll of ours in flight.
  *
- * After a `scrollToIndex` the virtualizer keeps re-issuing that scroll from its
- * own rAF until the target holds still — for up to five seconds. Those retries
- * are how a windowed open reaches a bottom that keeps moving as rows measure,
- * and they are also, unguarded, how it drags a reader who has scrolled away in
- * the meantime back down: it never asks who owns the position. Finding the
- * scroller somewhere other than where the last write left it answers that.
- * `null` means "the next write is ours to make" — see `scrollTranscriptTo`.
+ * A `scrollToIndex` does not write once. The virtualizer re-issues it from its
+ * own rAF until the target holds still — for up to five seconds — and a scroll
+ * write scheduled from a rAF lands after the browser has painted the frame the
+ * reader is already looking at. That is the jump. It is also how those retries
+ * drag back a reader who has scrolled away in the meantime: they never ask who
+ * owns the position. Holding a bottom that keeps moving as rows measure belongs
+ * to `transcript-open`'s settle window, which re-targets BEFORE paint, so the
+ * only write taken here is the one `scrollTranscriptTo` is making right now.
+ *
+ * The virtualizer's own resize compensation still passes: it arrives with an
+ * `adjustments` term, and its whole job is holding a row under the same pixel
+ * while something above it re-measures. That one never travels.
  */
-const lastWrite = new WeakMap<object, number | null>()
+const scrolling = new WeakSet<object>()
+
+/** Where the last write left the scroller, per virtualizer — see `takeTranscriptWriteTop`. */
+const writtenTop = new WeakMap<object, number>()
 
 function transcriptScrollTo(
   offset: number,
@@ -92,23 +100,42 @@ function transcriptScrollTo(
 ): void {
   const el = instance.scrollElement
   if (!el) return
-  const written = lastWrite.get(instance)
-  if (written != null && Math.abs(el.scrollTop - written) > 1) return
+  if (adjustments === 0 && !scrolling.has(instance)) return
   el.scrollTo?.({ top: offset + adjustments, behavior })
-  // A smooth scroll lands over many frames, so there is no position to read back
-  // yet; it is user-commanded anyway, and its retries are what carry it to a
-  // bottom that is still moving.
-  lastWrite.set(instance, behavior === 'smooth' ? null : el.scrollTop)
+  // A smooth scroll has not moved yet, so there is no landing position to record.
+  if (behavior !== 'smooth') writtenTop.set(instance, el.scrollTop)
 }
 
-/** Scroll the transcript deliberately, re-arming the guard above. Every scroll we
- *  ask for goes through here; everything else reaching the scroller is a retry. */
+/**
+ * Take where the transcript's last scroll write left the scroller, if it made one.
+ *
+ * A scroll event that finds the scroller exactly there is that write being
+ * reported back, not the reader moving — and the resize compensation above fires
+ * dozens of times while a windowed transcript measures itself on open. Read as
+ * user intent, those are what detach a reader who never touched anything.
+ *
+ * Spent once given, because a write reports once. Left standing it would also
+ * swallow a later scroll that happened to land on the same pixel, and for a
+ * transcript that pixel is the bottom — the one place being misread costs follow.
+ */
+export function takeTranscriptWriteTop(virtualizer: TranscriptVirtualizer): number | undefined {
+  const top = writtenTop.get(virtualizer)
+  writtenTop.delete(virtualizer)
+  return top
+}
+
+/** Scroll the transcript deliberately. For the length of this call, and only then,
+ *  a write reaching the scroller is ours; everything else there is a retry. */
 export function scrollTranscriptTo(
   virtualizer: TranscriptVirtualizer,
   scroll: (virtualizer: TranscriptVirtualizer) => void,
 ): void {
-  lastWrite.set(virtualizer, null)
-  scroll(virtualizer)
+  scrolling.add(virtualizer)
+  try {
+    scroll(virtualizer)
+  } finally {
+    scrolling.delete(virtualizer)
+  }
 }
 
 export function useTranscriptVirtualizer(

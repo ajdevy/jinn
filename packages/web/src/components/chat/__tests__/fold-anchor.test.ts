@@ -60,6 +60,29 @@ describe('anchorScrollDuring', () => {
     expect(top).toBe(860)
     expect(frames).toHaveLength(0)
   })
+
+  it('yields even when the flick lands before the loop has written anything', () => {
+    // The gap between scheduling the loop and its first frame is a whole frame
+    // long, and a flick fits in it. Taking the scheduling position as the last
+    // written one is what makes that first frame able to tell.
+    let top = 1000
+    let bottom = 500
+    const scroller = {
+      get scrollTop() { return top },
+      set scrollTop(next: number) { bottom -= next - top; top = next },
+    } as unknown as Element
+    const anchor = { getBoundingClientRect: () => ({ bottom }) } as unknown as Element
+    const frames: FrameRequestCallback[] = []
+    let now = 0
+    anchorScrollDuring(scroller, anchor, 480, { raf: (cb) => { frames.push(cb); return 1 }, now: () => now })
+
+    scroller.scrollTop = 860
+    now = 16
+    frames.shift()!(now)
+
+    expect(top).toBe(860)
+    expect(frames).toHaveLength(0)
+  })
 })
 
 describe('fold slack gate', () => {

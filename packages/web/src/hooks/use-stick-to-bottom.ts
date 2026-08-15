@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranscriptOpen } from '@/components/chat/transcript-open'
-import { distanceFromBottom, shouldFollow, STICK_THRESHOLD_PX, unreadDelta } from './stick-geometry'
+import { distanceFromBottom, followAfterScroll, shouldFollow, STICK_THRESHOLD_PX, unreadDelta } from './stick-geometry'
 
 /**
  * Stick-to-bottom for the chat thread.
@@ -39,10 +39,14 @@ export interface UseStickToBottomOptions {
   latestMessageKey?: string | null
   /** Override the at-bottom threshold (px). */
   threshold?: number
-  /** Replaces the jump control's scroll-to-bottom. A virtualised transcript's true
-   *  bottom is only known once the last row has measured, so it scrolls through the
-   *  virtualizer, which re-targets as that measurement lands. */
+  /** Replaces every scroll-to-bottom this hook makes. A virtualised transcript's
+   *  true bottom is only known once the last row has measured, so it scrolls
+   *  through the virtualizer, which resolves it to the scroller's own maximum. */
   scrollToEnd?: (behavior: ScrollBehavior) => void
+  /** Takes where the transcript's own last scroll write left the scroller, when
+   *  something other than this hook also writes to it — see the virtualizer's
+   *  `takeTranscriptWriteTop`. */
+  takeLastWriteTop?: () => number | undefined
   /** Where the reader left this transcript. Opens there instead of at the bottom. */
   initialScrollTop?: number
   /** Total content height, when the transcript knows it better than `scrollHeight`. */
@@ -68,6 +72,7 @@ export function useStickToBottom({
   latestMessageKey,
   threshold = STICK_THRESHOLD_PX,
   scrollToEnd,
+  takeLastWriteTop,
   initialScrollTop,
   contentSize,
 }: UseStickToBottomOptions): StickToBottom {
@@ -93,6 +98,8 @@ export function useStickToBottom({
   // Fresh override for stable callbacks (avoids stale closures).
   const scrollToEndRef = useRef(scrollToEnd)
   scrollToEndRef.current = scrollToEnd
+  const takeLastWriteTopRef = useRef(takeLastWriteTop)
+  takeLastWriteTopRef.current = takeLastWriteTop
   // Count at the moment we were last caught up — the baseline for unreadDelta.
   const seenCountRef = useRef(messageCount)
   // Fresh message count for stable callbacks (avoids stale closures).
@@ -110,6 +117,16 @@ export function useStickToBottom({
     node.scrollTop = node.scrollHeight
     prevTopRef.current = node.scrollTop
   }, [])
+
+  // The bottom, reached the way this transcript can reach it: through the
+  // virtualizer when it has one, because `scrollHeight` there is the estimate
+  // it is currently painting and the last row has not measured yet.
+  const pinToEnd = useCallback((node: HTMLDivElement) => {
+    const toEnd = scrollToEndRef.current
+    if (!toEnd) { pinNow(node); return }
+    toEnd('auto')
+    prevTopRef.current = node.scrollTop
+  }, [pinNow])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const node = elRef.current
@@ -135,12 +152,7 @@ export function useStickToBottom({
     node: el,
     ready: messageCount > 0,
     initialScrollTop,
-    // The bottom, reached the way this transcript can reach it: through the
-    // virtualizer when it has one, since `scrollHeight` is only an estimate.
-    scrollToBottom: (node) => {
-      if (scrollToEndRef.current) scrollToEndRef.current('auto')
-      else pinNow(node)
-    },
+    scrollToBottom: pinToEnd,
     contentSize: (node) => contentSize?.() ?? node.scrollHeight,
     isPinned: () => followRef.current,
     onOpened: (node) => {
@@ -161,11 +173,14 @@ export function useStickToBottom({
     const onScroll = () => {
       const dist = distanceFromBottom(el)
       const top = el.scrollTop
-      // A scroll event that left the position where it was cannot be the user:
-      // it is the content re-measuring underneath them, which on the virtualised
-      // path happens whenever a row off-window resolves its real height. Take the
-      // new distance as the baseline and decide nothing.
-      if (top === prevTopRef.current) {
+      const written = takeLastWriteTopRef.current?.()
+      // A scroll event reporting the position a write already left the scroller at
+      // cannot be the user: it is the content re-measuring underneath them, which
+      // on the virtualised path happens whenever a row off-window resolves its real
+      // height — sometimes moving the position to hold that row still. Take the new
+      // distance as the baseline and decide nothing.
+      if (top === prevTopRef.current || top === written) {
+        prevTopRef.current = top
         prevDistRef.current = dist
         return
       }
@@ -173,7 +188,8 @@ export function useStickToBottom({
       // Distance, not scrollTop direction: when content above shrinks the browser
       // clamps scrollTop down while we are still at the bottom, and a direction
       // check would detach a live stream there.
-      const movedAway = dist > prevDistRef.current
+      const prevDist = prevDistRef.current
+      const movedAway = dist > prevDist
       prevDistRef.current = dist
       if (animatingRef.current) {
         // Our own smooth scroll only ever closes the gap to the bottom. Reaching
@@ -187,7 +203,7 @@ export function useStickToBottom({
         }
         animatingRef.current = false
       }
-      const follow = movedAway ? false : shouldFollow(dist, threshold)
+      const follow = followAfterScroll(dist, prevDist, followRef.current, threshold)
       // The arrow is gated on the gap alone — see the note at the top of the file.
       const showArrow = !shouldFollow(dist, threshold)
       followRef.current = follow
@@ -225,7 +241,7 @@ export function useStickToBottom({
       seenCountRef.current += messageCount - prevCount
     }
     if (followRef.current) {
-      pinNow(node)
+      pinToEnd(node)
       seenCountRef.current = messageCount
       if (unreadCount !== 0) setUnreadCount(0)
     } else {
@@ -233,7 +249,7 @@ export function useStickToBottom({
     }
     prevCountRef.current = messageCount
     prevLatestKeyRef.current = latestKey
-  }, [el, streamingText, messageCount, latestKey, pinNow])
+  }, [el, streamingText, messageCount, latestKey, pinToEnd])
 
   // ── Viewport resize / mobile keyboard: re-pin when following (RO on the container). ──
   useEffect(() => {

@@ -53,10 +53,12 @@ export function anchorScrollDuring(
   // else owns the position now — the reader mid-flick, or the browser's own
   // overflow-anchor, which is already doing this loop's job. Either way the
   // compensation is over: writing on top of a fling is what kills the fling.
-  let written: number | null = null
+  // It starts at the position the fold was scheduled from, because a frame is
+  // long enough for the reader to flick before the loop's first write.
+  let written = scroller.scrollTop
   const step = () => {
     if (cancelled) return
-    if (written !== null && Math.abs(scroller.scrollTop - written) > 1) return
+    if (Math.abs(scroller.scrollTop - written) > 1) return
     const delta = anchorEl.getBoundingClientRect().bottom - bottom0
     if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
     written = scroller.scrollTop

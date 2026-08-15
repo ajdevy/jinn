@@ -40,6 +40,24 @@ describe('useStickToBottom — the jump arrow is a second decision', () => {
     expect(el.scrollTop).toBe(readingPos)
   })
 
+  it('is not re-engaged by a compensating scroll that leaves the gap alone', () => {
+    const { getByTestId, el, rerender } = open()
+    // Detached inside the band, arrow hidden — the case a fold's anchor loop runs in.
+    act(() => { el.scrollTop = 1000 - 200 - 4; fireEvent.scroll(el) })
+    expect(getByTestId('jump').textContent).toBe('hide')
+
+    // A fold shrinks and the compensation scrolls up by the same amount: the
+    // position moved, the reader's distance from the bottom did not.
+    setMetrics(el, 1300, 200, el.scrollTop + 300)
+    act(() => { fireEvent.scroll(el) })
+
+    // Still theirs: the next message does not pin them.
+    const readingPos = el.scrollTop
+    setMetrics(el, 1700, 200, el.scrollTop)
+    act(() => { rerender(<Harness messageCount={6} latestMessageKey="m6" />) })
+    expect(el.scrollTop).toBe(readingPos)
+  })
+
   it('is not toggled by a programmatic scroll', () => {
     const { getByTestId, el, rerender } = open()
     // Growth pins the reader from far above the bottom: our write, not theirs.
@@ -72,6 +90,57 @@ describe('useStickToBottom — opening a virtualised transcript', () => {
     scrollHeight = 5200
     act(() => { view.rerender(<Harness messageCount={80} scrollToEnd={scrollToEnd} />) })
     expect(el.scrollTop).toBe(5200 - 200)
+  })
+
+  it('makes no raw scrollHeight write of its own on the way there', () => {
+    // The open and the growth commit both want the bottom, and both land on the
+    // same commit. A raw `scrollTop = scrollHeight` from either aims at the
+    // estimate the window is painting, and lands after the virtualizer's answer.
+    const scrollHeight = 4000
+    let insideVirtualizer = false
+    const sources: string[] = []
+    const view = render(<Harness messageCount={0} />)
+    const el = view.getByTestId('scroller')
+    setClampedMetrics(el, () => scrollHeight, 200)
+    const raw = Object.getOwnPropertyDescriptor(el, 'scrollTop')!
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: raw.get,
+      set: (v: number) => { sources.push(insideVirtualizer ? 'virtualizer' : 'raw'); raw.set!.call(el, v) },
+    })
+    const scrollToEnd = (_behavior: ScrollBehavior) => {
+      insideVirtualizer = true
+      el.scrollTop = scrollHeight
+      insideVirtualizer = false
+    }
+    act(() => { view.rerender(<Harness messageCount={80} scrollToEnd={scrollToEnd} />) })
+
+    expect(sources).not.toContain('raw')
+    expect(el.scrollTop).toBe(4000 - 200)
+  })
+
+  it('is not detached by the transcript holding a row still while it measures', () => {
+    // A windowed transcript measures itself for a beat after opening: a row that
+    // resolves taller ABOVE the reader is held still by moving the position, and
+    // one below moves the bottom down. Both arrive as scroll events, and reading
+    // them as the reader scrolling up is what leaves an open above the bottom.
+    let scrollHeight = 4000
+    let written: number | undefined
+    const view = render(<Harness messageCount={0} />)
+    const el = view.getByTestId('scroller')
+    setClampedMetrics(el, () => scrollHeight, 200)
+    const scrollToEnd = () => { el.scrollTop = scrollHeight; written = el.scrollTop }
+    const takeLastWriteTop = () => { const top = written; written = undefined; return top }
+    const props = { scrollToEnd, takeLastWriteTop }
+    act(() => { view.rerender(<Harness messageCount={80} {...props} />) })
+    expect(el.scrollTop).toBe(4000 - 200)
+
+    scrollHeight = 4600
+    act(() => { el.scrollTop = 3920; written = el.scrollTop; fireEvent.scroll(el) })
+
+    // Still theirs to follow: the next message pins to the bottom that moved.
+    act(() => { view.rerender(<Harness messageCount={81} latestMessageKey="m81" {...props} />) })
+    expect(el.scrollTop).toBe(4600 - 200)
   })
 
   it('opens on a remembered offset without snapping to the bottom first', () => {
