@@ -607,26 +607,18 @@ export function ChatPane({
       )}
       {showSessionHydration && <ChatHydrationOverlay />}
 
-      {/* Employee picker for new chat (any view mode — the CLI terminal mounts after first message creates the session) */}
-      {!sessionId && messages.length === 0 && (
-        <div className="flex flex-1 items-center justify-center">
-          <ChatEmployeePicker
-            employees={pickerEmployees}
-            selectedEmployee={selectedEmployee}
-            onSelect={setSelectedEmployee}
-            portalName={portalName}
-          />
-        </div>
-      )}
-
-      {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below sends. */}
+      {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below
+          sends. The transcript mounts on a blank composer too, with the employee
+          picker as its empty state (any view mode — the CLI terminal mounts once
+          the first message has created the session). Mounting it up front is what
+          lets the first message land in a node that was already on screen. */}
       {viewMode === 'cli' && sessionId ? (
         // Reserve flex space during lazy-chunk load so the ChatInput below stays
         // pinned to the bottom instead of flashing to the top for a frame.
         <Suspense fallback={<div style={{ flex: 1, minHeight: 0, background: 'var(--bg)' }} />}>
           <CliTerminal ref={cliTerminalRef} sessionId={sessionId} />
         </Suspense>
-      ) : sessionId || messages.length > 0 ? (
+      ) : (
         <ChatMessages
           messages={messages}
           loading={loading}
@@ -651,8 +643,16 @@ export function ChatPane({
               onStartFresh={handleStartFreshChat}
             />
           ) : undefined}
+          emptyState={sessionId ? undefined : (
+            <ChatEmployeePicker
+              employees={pickerEmployees}
+              selectedEmployee={selectedEmployee}
+              onSelect={setSelectedEmployee}
+              portalName={portalName}
+            />
+          )}
         />
-      ) : null}
+      )}
 
       {/* Queue panel — hidden in the live xterm view (noise on top of the PTY). */}
       {!(viewMode === 'cli' && sessionId) && (

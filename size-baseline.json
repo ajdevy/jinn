@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1561,
+      "lines": 1555,
       "exempt": [
         "complexity",
         "max-depth",

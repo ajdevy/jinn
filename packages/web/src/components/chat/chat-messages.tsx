@@ -17,6 +17,7 @@ import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { CollapsibleUserText } from './collapsible-user-text'
 import { JumpToLatestButton } from './jump-to-latest'
+import { TranscriptEmptyState } from './chat-transcript-empty'
 import {
   TranscriptExpansionProvider,
   usePersistentExpansion,
@@ -1121,6 +1122,8 @@ interface ChatMessagesProps {
   blockAnnouncement?: string
   /** Final in-thread object. It remains inside the transcript scroll owner. */
   footer?: React.ReactNode
+  /** Shown in place of the message list while there is nothing to show yet. */
+  emptyState?: React.ReactNode
 }
 
 function latestTurnId(messages: Message[]): string | null {
@@ -1147,6 +1150,7 @@ export function ChatMessages({
   liveTerminalDelegationIds = new Set(),
   blockAnnouncement = '',
   footer,
+  emptyState,
 }: ChatMessagesProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
@@ -1417,24 +1421,14 @@ export function ChatMessages({
     )
   }
 
-  // Not while hydrating: a transcript still on its way is not an empty one.
-  if (messages.length === 0 && !loading && !hydrating) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-tertiary)]">Start a conversation</div>
-          <div className="text-[length:var(--text-footnote)] text-[var(--text-quaternary)] mt-[var(--space-2)]">Send a message or use /new to begin</div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <TranscriptExpansionProvider value={expansionStore}>
     <div className="relative flex-1 min-h-0 bg-[var(--bg)]">
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {blockAnnouncement}
       </span>
+      {/* Not while hydrating: a transcript still on its way is not an empty one. */}
+      {messages.length === 0 && !loading && !hydrating && <TranscriptEmptyState>{emptyState}</TranscriptEmptyState>}
       <div ref={setScrollContainerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll h-full overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
         <div className={`mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] lg:pt-[88px] ${footer ? 'flex min-h-full flex-col justify-end pb-0' : 'pb-[var(--space-6)]'}`}>
           {loadingOlderMessages && (

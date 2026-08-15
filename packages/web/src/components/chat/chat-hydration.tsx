@@ -21,11 +21,15 @@ export function useHydrationSpinner(pending: boolean): boolean {
 /**
  * Sits over the transcript instead of replacing it — unmounting the transcript
  * to show a spinner is what blanked the chat on the first message.
+ *
+ * The z-index is load-bearing: the transcript is a later, positioned, opaque
+ * sibling, so at `z-index: auto` it paints over this and the spinner is
+ * invisible even though it is in the tree. Stays under the drop-zone overlay.
  */
 export function ChatHydrationOverlay() {
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex items-center justify-center"
+      className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
       role="status"
       aria-label="Loading chat"
     >
