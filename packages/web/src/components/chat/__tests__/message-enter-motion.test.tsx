@@ -60,6 +60,19 @@ describe('stream-preceded swaps do not animate', () => {
     expect(marked).toHaveLength(1)
     expect(marked[0].textContent).toContain('answer')
   })
+
+  it('does not let a stopped stream silence the next reply', () => {
+    const messages = [user('u1', 'ask')]
+    const { container, rerender } = render(<ChatMessages messages={messages} loading streamingText="" />)
+    rerender(<ChatMessages messages={messages} loading streamingText="partial" />)
+    // Stop: the stream is discarded without ever committing a final row.
+    rerender(<ChatMessages messages={messages} loading={false} streamingText="" />)
+    rerender(<ChatMessages messages={[...messages, assistant('a1', 'answer')]} loading={false} streamingText="" />)
+
+    const marked = container.querySelectorAll('.assistant-transcript[data-msg-enter]')
+    expect(marked).toHaveLength(1)
+    expect(marked[0].textContent).toContain('answer')
+  })
 })
 
 describe('reconcile does not re-animate or duplicate', () => {
@@ -109,7 +122,32 @@ describe('failed send', () => {
     render(<ChatMessages messages={[failed]} loading={false} onRetry={onRetry} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(onRetry).toHaveBeenCalledWith('hello')
+    expect(onRetry).toHaveBeenCalledWith('hello', undefined)
+  })
+
+  it('resends what was sent, not what the bubble displays', () => {
+    const onRetry = vi.fn()
+    const sent = 'verify http://127.0.0.1:7790/retry.png'
+    const failed = user('u1', sent, { sendState: 'failed' })
+    render(<ChatMessages messages={[failed]} loading={false} onRetry={onRetry} />)
+
+    // The bubble strips the url to render a thumbnail, so display text is 'verify'.
+    // Retrying that would send a different message and strand the failed row, which
+    // the send path supersedes by content.
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onRetry).toHaveBeenCalledWith(sent, undefined)
+  })
+
+  it('keeps Retry live for an attachment-only failure and carries its media', () => {
+    const onRetry = vi.fn()
+    const media = [{ type: 'image' as const, url: 'blob:local', name: 'shot.png' }]
+    const failed = user('u1', '', { sendState: 'failed', media })
+    render(<ChatMessages messages={[failed]} loading={false} onRetry={onRetry} />)
+
+    const retry = screen.getByRole('button', { name: 'Retry' }) as HTMLButtonElement
+    expect(retry.disabled).toBe(false)
+    fireEvent.click(retry)
+    expect(onRetry).toHaveBeenCalledWith('', media)
   })
 
   it('renders no failure row for a pending or settled message', () => {

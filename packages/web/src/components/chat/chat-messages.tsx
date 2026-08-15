@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Message } from '@/lib/conversations'
-import { parseMedia, stripAttachedFilesBlock } from '@/lib/conversations'
+import { parseMedia, stripAttachedFilesBlock, type MediaAttachment, type Message } from '@/lib/conversations'
 import { MessageMedia } from './message-media'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useMessageTts, stopMessageTts } from './use-message-tts'
@@ -925,7 +924,7 @@ interface MessageRowProps {
   prevRole: Message['role'] | null
   prevUserText: string
   loading?: boolean
-  onRetry?: (text: string) => void
+  onRetry?: (text: string, media?: MediaAttachment[]) => void
   onPeek?: (peek: CommsPeekData) => void
   /** Live-arrival stagger index for comms rows (null = not arriving). */
   arrival?: number | null
@@ -1044,7 +1043,8 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
             </div>
           )}
           {msg.sendState === 'failed' && (
-            <SendFailureRow reason={msg.sendError} onRetry={onRetry && textContent ? () => onRetry(textContent) : undefined} />
+            // Resend what was SENT, not the url-stripped display text — the send path supersedes the failed row by content, and an attachment-only failure retries on its media.
+            <SendFailureRow reason={msg.sendError} onRetry={onRetry && (msg.content || media.length > 0) ? () => onRetry(msg.content, msg.media) : undefined} />
           )}
         </div>
       )}
@@ -1129,7 +1129,7 @@ interface ChatMessagesProps {
   liveFinalResponseId?: string | null
   streamingText?: string
   /** Resend a prior user message (assistant action-row "retry"). */
-  onRetry?: (text: string) => void
+  onRetry?: (text: string, media?: MediaAttachment[]) => void
   hasOlderMessages?: boolean
   loadingOlderMessages?: boolean
   olderMessagesError?: Error | null
@@ -1253,7 +1253,7 @@ export function ChatMessages({
   // identity and read the live callback through a ref.
   const onRetryRef = useRef(onRetry)
   onRetryRef.current = onRetry
-  const stableRetry = useCallback((text: string) => onRetryRef.current?.(text), [])
+  const stableRetry = useCallback((text: string, media?: MediaAttachment[]) => onRetryRef.current?.(text, media), [])
   const retry = onRetry ? stableRetry : undefined
 
   const requestOlderMessages = useCallback(() => {

@@ -49,9 +49,9 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
   const seenIdsRef = useRef<Set<string> | null>(null)
   const commsRef = useRef<Map<string, number>>(new Map())
   const enteringRef = useRef<Set<string>>(new Set())
-  // Latched rather than sampled: a render can land between the last token and
-  // the commit that swaps the streaming bubble for the final row, and by then
-  // `streamingText` has already read back empty.
+  // Latched rather than sampled: the commit that swaps the streaming bubble for
+  // the final row is the same one that empties `streamingText`, so by the time the
+  // memo below judges that row the stream has already read back empty.
   const streamedRef = useRef(false)
   if (streamingText.length > 0) streamedRef.current = true
 
@@ -74,6 +74,12 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
       if (isCommsRow(message)) commsRef.current.set(id, batchIndex++)
     }
   }, [messages])
+
+  // A stop or an interruption empties the stream without ever committing a final
+  // row, and a latch left standing would silence the next assistant arrival. Once
+  // this render has had its chance to hand the stream to a row, an empty stream
+  // owns nothing: whatever arrives next is a fresh row and earns its entrance.
+  if (streamingText.length === 0) streamedRef.current = false
 
   useEffect(() => {
     if (!seenIdsRef.current) {

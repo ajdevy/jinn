@@ -234,3 +234,29 @@ describe('reconcileMessages — failed sends', () => {
     expect(merged.filter((m) => m.content === 'lost')).toHaveLength(1)
   })
 })
+
+describe('reconcileMessages — repeated text', () => {
+  const now = 2000
+  const settled: Message = { id: 'y1', role: 'user', content: 'yes', timestamp: 1400 }
+
+  it('does not let an older settled row stand in for a newer failed one', () => {
+    const failed: Message = { id: 'y2', role: 'user', content: 'yes', timestamp: 1500, sendState: 'failed' }
+    const merged = reconcileMessages([settled, failed], [settled], now)
+    expect(merged.map((m) => m.id)).toEqual(['y1', 'y2'])
+    expect(merged.find((m) => m.id === 'y2')?.sendState).toBe('failed')
+  })
+
+  it('keeps an in-flight send the snapshot has not caught up with', () => {
+    const pending: Message = { id: 'y2', role: 'user', content: 'yes', timestamp: 1500, sendState: 'pending' }
+    const merged = reconcileMessages([settled, pending], [settled], now)
+    expect(merged.map((m) => m.id)).toEqual(['y1', 'y2'])
+  })
+
+  it('shows the in-flight send exactly once when its server twin lands', () => {
+    const pending: Message = { id: 'y2', role: 'user', content: 'yes', timestamp: 1500, sendState: 'pending' }
+    const twin: Message = { id: 'srv', role: 'user', content: 'yes', timestamp: 1600 }
+    const merged = reconcileMessages([settled, pending], [settled, twin], now)
+    expect(merged.filter((m) => m.content === 'yes')).toHaveLength(2)
+    expect(merged.map((m) => m.id)).toEqual(['y1', 'y2'])
+  })
+})

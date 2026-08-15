@@ -76,7 +76,8 @@ export function messageIdentityKey(m: Message): string {
  * commit returns a snapshot WITHOUT it. Replacing wholesale would make the live
  * message vanish until the next reload. We therefore keep any locally-known
  * attachment (media-bearing) message that the snapshot does not yet contain, and
- * likewise any message whose send failed — that one has no server twin at all.
+ * likewise any message whose send is still pending or has failed — neither has a
+ * server twin yet, and a failed one never will.
  *
  * "Does not contain" is checked by BOTH id and content-identity: an optimistic
  * user message carries a client-generated random id while its persisted twin has
@@ -137,21 +138,45 @@ export function reconcileMessages(
   // `=== snapshot` to skip re-renders when the merge is a no-op.
   const base = rekeyed ? aligned : snapshot
 
+  const preserved = unsyncedRows(current, base, now)
+  if (preserved.length === 0) return base
+  return [...base, ...preserved].sort((a, b) => a.timestamp - b.timestamp)
+}
+
+/** Worth keeping past a snapshot that omits it: an in-flight or failed send has
+ *  no server twin yet, and a live-pushed attachment may just be racing the commit. */
+function isUnsynced(m: Message, now: number): boolean {
+  const unsettled = m.sendState === 'pending' || m.sendState === 'failed'
+  const carriesMedia = Boolean(m.media && m.media.length > 0)
+  return (unsettled || carriesMedia) && now - m.timestamp <= RECONCILE_PRESERVE_MAX_AGE_MS
+}
+
+/**
+ * The local rows `base` does not account for.
+ *
+ * Coverage is COUNTED, not tested for membership: identity keys are content-only,
+ * so a single older settled "yes" would otherwise stand in for every later "yes"
+ * and silently swallow a newer pending or failed one. Walking `current` in order
+ * lets each row consume at most one base row, mirroring the per-match queue in
+ * `reconcileMessages`.
+ */
+function unsyncedRows(current: Message[], base: Message[], now: number): Message[] {
   const baseIds = new Set(base.map((m) => m.id))
-  const baseKeys = new Set(base.map(messageIdentityKey))
-  // A failed send never reached the server, so no snapshot will ever carry it.
-  // Dropping it would delete the reader's own text along with the only retry
-  // affordance for it; the age cap below still bounds how long it survives.
-  const pending = current.filter(
-    (m) =>
-      (m.sendState === 'failed' || (m.media && m.media.length > 0)) &&
-      m.id &&
-      now - m.timestamp <= RECONCILE_PRESERVE_MAX_AGE_MS &&
-      !baseIds.has(m.id) &&
-      !baseKeys.has(messageIdentityKey(m)),
-  )
-  if (pending.length === 0) return base
-  return [...base, ...pending].sort((a, b) => a.timestamp - b.timestamp)
+  const credits = new Map<string, number>()
+  for (const m of base) {
+    const key = messageIdentityKey(m)
+    credits.set(key, (credits.get(key) ?? 0) + 1)
+  }
+  const preserved: Message[] = []
+  for (const m of current) {
+    if (!m.id) continue
+    const key = messageIdentityKey(m)
+    const covered = credits.get(key) ?? 0
+    if (covered > 0) credits.set(key, covered - 1)
+    if (baseIds.has(m.id) || covered > 0) continue
+    if (isUnsynced(m, now)) preserved.push(m)
+  }
+  return preserved
 }
 
 // --- Intermediate message persistence (localStorage) ---

@@ -634,7 +634,7 @@ export function ChatPane({
           turnPending={turnPending}
           liveFinalResponseId={liveFinalResponseId}
           streamingText={streamingText}
-          onRetry={(t) => void handleSend(t)}
+          onRetry={(t, m) => void handleSend(t, m)}
           hasOlderMessages={hasOlderMessages}
           loadingOlderMessages={loadingOlderMessages}
           olderMessagesError={olderMessagesError}
