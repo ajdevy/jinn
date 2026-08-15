@@ -40,13 +40,18 @@ const ROUTE_MISMATCH_EXIT = 2
  *  prevent. Everything outside these prefixes ships. */
 const NON_SHIPPING_PREFIXES = ["docs/", ".jinn-build/"]
 
+/** A git diff status letter with the similarity score a rename or copy carries.
+ *  Dropped rather than judged, so `--name-status` output can be handed to
+ *  `route` whole — see changedPaths. */
+const DIFF_STATUS = /^[ABCDMRTUX][0-9]{0,3}$/
+
 const USAGE = `usage:
   deliverable-evidence.mjs write --todo <ID> --home <dir> --summary <text> [--manifest <path>] <path>...
   deliverable-evidence.mjs check --todo <ID> [--manifest <path>]
   deliverable-evidence.mjs route --declared <repo|workspace> <changed path>...
 
 manifest defaults to ${MANIFEST_DEFAULT}. Delivered paths are relative to --home.
-Changed paths are repo-relative, as \`git diff --name-only\` prints them.`
+Changed paths are repo-relative, as \`git diff --name-status\` prints them.`
 
 function fail(reason) {
   console.error(`deliverable evidence FAILED — ${reason}`)
@@ -67,6 +72,19 @@ function isSecret(posixPath) {
 function isShipping(changedPath) {
   const normalized = path.posix.normalize(toPosix(changedPath))
   return !NON_SHIPPING_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+}
+
+/** Every path the diff touches, on both sides of a rename.
+ *
+ *  `--name-only` names only where a rename landed, so moving a shipping file
+ *  under `docs/` read as a diff of nothing but docs while it was still removing
+ *  source. `--name-status` names both sides; the fields split on the tab git
+ *  writes between them and on the spaces an unquoted `$(...)` leaves behind, and
+ *  the status letters are dropped so what is judged is paths only. */
+function changedPaths(positional) {
+  return positional
+    .flatMap((argument) => argument.split(/\s+/))
+    .filter((field) => field !== "" && !DIFF_STATUS.test(field))
 }
 
 function parseArgs(argv) {
@@ -245,7 +263,8 @@ function route({ options, positional }) {
     return
   }
 
-  const shipping = positional.filter(isShipping)
+  const changed = changedPaths(positional)
+  const shipping = changed.filter(isShipping)
   if (shipping.length > 0) {
     console.error(`deliverable route FAILED — the Todo declares deliverable "workspace", but the diff changes ${shipping.length === 1 ? "a shipping file" : "shipping files"}:`)
     for (const changed of shipping) console.error(`  ${changed}`)
@@ -253,7 +272,7 @@ function route({ options, positional }) {
     process.exit(ROUTE_MISMATCH_EXIT)
   }
 
-  console.log(`deliverable route OK — workspace, ${positional.length} changed ${positional.length === 1 ? "path" : "paths"}, none of them shipping`)
+  console.log(`deliverable route OK — workspace, ${changed.length} changed ${changed.length === 1 ? "path" : "paths"}, none of them shipping`)
 }
 
 const [command, ...rest] = process.argv.slice(2)

@@ -165,6 +165,40 @@ describe("who may declare where a Todo's product lands", () => {
     expect(moved?.status).toBe("executing");
   });
 
+  it("lets a session with no employee declare the route on the Todo it created", async () => {
+    // Such a session is recorded as `session:<id>` and has no other name to be
+    // known by, so keying the creator lane on the employee name alone shut it
+    // out of a Todo it had created itself.
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "employee-less-creator" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+    expect(store.getWorkItem(item.id)?.createdBy).toBe(`session:${caller.id}`);
+
+    const declared = await patchPolicy(caller.id, item, { mode: "verify", deliverable: "workspace" });
+    expect(declared.status).toBe(200);
+
+    const read = makeRes();
+    await api.handleApiRequest(makeReq("GET", `/api/work-items/${item.id}`, undefined, toolHeaders(caller.id)), read.res, ctx);
+    expect(read.status).toBe(200);
+    expect(read.body.workItem.verifyPolicy).toEqual({ mode: "verify", deliverable: "workspace" });
+  });
+
+  it("reports the declaration it already wrote when the status move is refused", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "refused-status-move", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+
+    // Two writes: the declaration lands, the move does not. An error naming only
+    // the refusal would leave the caller reading "nothing happened" over a Todo
+    // whose policy had changed.
+    await expect(mcpTool("update_work_item").handler(
+      { id: item.id, status: "executing", asOperator: true, verifyPolicy: { mode: "verify", deliverable: "workspace" } },
+      boundMcpContext(caller.id),
+    )).rejects.toThrow(/the deliverable declaration was written and stands/);
+
+    const after = store.getWorkItem(item.id);
+    expect(after?.verifyPolicy).toEqual({ mode: "verify", deliverable: "workspace" });
+    expect(after?.status).not.toBe("executing");
+  });
+
   it("still lets the operator set every key", async () => {
     const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "operator-sets-all", employee: "platform-worker" });
     const item = await workerTodo(caller.id, { mode: "verify" });

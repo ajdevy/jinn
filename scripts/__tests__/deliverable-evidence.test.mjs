@@ -181,6 +181,26 @@ test("route judges a path by the file it names, not by how it is spelled", () =>
   assert.equal(routed.status, 2, `a leading dot segment slipped past the shipping check: ${routed.out}`)
 })
 
+test("route judges both sides of a rename, so moving source under docs/ does not hide it", () => {
+  // What `git diff --name-status` prints for a shipping file moved into docs/.
+  // Under `--name-only` this diff read as `docs/ship.ts` alone and the false
+  // declaration was honoured, while the diff was still removing source.
+  const routed = run("route", "--declared", "workspace", "R100\tpackages/demo/ship.ts\tdocs/ship.ts")
+  assert.equal(routed.status, 2, `a rename out of packages/ slipped past the shipping check: ${routed.out}`)
+  // Named as the path it is, not as the raw record it arrived in: the pipeline
+  // reads these lines back to the operator.
+  assert.match(routed.out, /^ {2}packages\/demo\/ship\.ts$/m, `the refusal does not name the file the rename removed: ${routed.out}`)
+})
+
+test("route reads a status-and-path stream, whether or not the shell split it", () => {
+  // An unquoted `$(git diff --name-status ...)` arrives split on whitespace, so
+  // the status letters land as arguments of their own and must not be judged as
+  // paths — a dropped `M` is not a top-level file called M.
+  const routed = run("route", "--declared", "workspace", "M", "docs/architecture.md", "A", "docs/new.md")
+  assert.equal(routed.status, 0, `a status letter was judged as a shipping path: ${routed.out}`)
+  assert.ok(routed.out.includes("2 changed paths"), `the status letters were counted as paths: ${routed.out}`)
+})
+
 test("route lets the repo declaration through whatever the diff holds", () => {
   for (const changed of [DOCS_ONLY, TOUCHES_SOURCE]) {
     const routed = run("route", "--declared", "repo", ...changed)

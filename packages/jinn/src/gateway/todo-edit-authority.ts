@@ -68,9 +68,14 @@ export function resolveTodoEditAuthority(
   }
   const employee = caller.session.employee;
   const fields = new Set<keyof UpdateWorkItemInput>(TODO_CONTENT_FIELDS);
+  // Same reading of "the Todo's own" the dispatch-config and labels routes use:
+  // a session with no employee is recorded as `session:<id>` when it creates a
+  // Todo, so keying only on the employee name shut the creator lane out of
+  // exactly the sessions that have no other name to be known by.
+  const ownsTodo = item.createdBy === workItemActor(caller)
+    || (employee !== undefined && (employee === item.assignee || employee === item.createdBy));
   if (
-    employee !== undefined
-    && (employee === item.assignee || employee === item.createdBy)
+    ownsTodo
     && patch.verifyPolicy !== undefined
     && declaresOnlyDeliverable(item.verifyPolicy, patch.verifyPolicy, effectiveVerifyMode(item))
   ) {

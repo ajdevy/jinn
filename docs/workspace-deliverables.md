@@ -61,7 +61,7 @@ Left there, a self-declared route would be a way around review: declare
 against the real diff before honouring it:
 
 ```
-node scripts/deliverable-evidence.mjs route --declared workspace $(git diff --name-only <base>..HEAD)
+node scripts/deliverable-evidence.mjs route --declared workspace $(git diff --name-status <base>..HEAD)
 ```
 
 `workspace` is honoured only when the diff is empty or confined to non-shipping
@@ -71,6 +71,12 @@ escaping review. A diff touching anything else exits `2` — distinct from the
 usage failure `1` — and names every offending file. A Todo carrying real source
 changes is verified on the normal route; a false declaration buys nothing, and
 the mismatch is loud rather than a silent downgrade.
+
+The status form is what is fed in, not `--name-only`, because `--name-only`
+names only where a rename landed: moving a shipping file under `docs/` read as
+a diff of nothing but docs while it was still removing source. `--name-status`
+names both sides of the rename, the command judges both, and the status letters
+themselves are dropped.
 
 This command is pure path arithmetic. It opens no file, stats nothing, and runs
 no git.

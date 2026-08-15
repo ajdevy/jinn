@@ -344,14 +344,14 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       const blockKind = parseBlockKind(args.blockKind);
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
-      // Where a Todo's product lands is metadata, not a lifecycle edge: it rides
-      // the same pen the web surface writes it through, and rides it first, so a
-      // refused declaration cannot leave the status already moved.
+      // Where a Todo's product lands is metadata, not a lifecycle edge: it rides the same
+      // pen the web surface writes it through, and rides it first, so a refused declaration
+      // cannot move the status — and a refused move says what did land, not "nothing happened".
       const verifyPolicy = validatedVerifyPolicy(args);
       if (verifyPolicy !== undefined) await patchWorkItem(ctx, id, { verifyPolicy }, `updating work item "${id}"`);
       const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };
       const { status, body } = await gatewayRequest(ctx, "POST", `/api/work-items/${encodeURIComponent(id)}/status`, payload);
-      if (status >= 400) throw gatewayFailure(`updating work item "${id}"`, status, body);
+      if (status >= 400) throw new JinnMcpToolError(`${gatewayFailure(`updating work item "${id}"`, status, body).message}${verifyPolicy === undefined ? "" : " — the deliverable declaration was written and stands; only the status move failed, so a retry does not need to carry verifyPolicy again"}`);
       return mutationResult(body, "Todo status updated.");
     },
   };
