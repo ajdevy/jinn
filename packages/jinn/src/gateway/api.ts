@@ -21,7 +21,7 @@ import {
 } from "../shared/models.js";
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
-import type { SessionManager } from "../sessions/manager.js";
+import { maybeRevertEngineOverride, type SessionManager } from "../sessions/manager.js";
 import { runtimeSessionSource } from "../sessions/context.js";
 import { stripControlChars, hasControlBytes } from "../shared/sanitize.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
@@ -590,49 +590,6 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
   if (resumed > 0) {
     logger.info(`Re-dispatched ${resumed} pending web queue item(s) after gateway restart`);
   }
-}
-
-function maybeRevertEngineOverride(session: Session): Session {
-  const meta = (session.transportMeta || {}) as Record<string, unknown>;
-  const override = meta["engineOverride"] as Record<string, unknown> | undefined;
-  if (!override) return session;
-
-  const originalEngine = typeof override.originalEngine === "string" ? override.originalEngine : null;
-  const originalEngineSessionId = typeof override.originalEngineSessionId === "string"
-    ? override.originalEngineSessionId
-    : null;
-  const syncSince = typeof override.syncSince === "string" ? override.syncSince : null;
-  const untilIso = typeof override.until === "string" ? override.until : null;
-  if (!originalEngine || !untilIso) return session;
-
-  const until = new Date(untilIso);
-  if (Number.isNaN(until.getTime())) return session;
-  if (until.getTime() > Date.now()) return session;
-
-  const engineSessionsRaw = meta["engineSessions"];
-  const engineSessions = (engineSessionsRaw && typeof engineSessionsRaw === "object" && !Array.isArray(engineSessionsRaw))
-    ? { ...(engineSessionsRaw as Record<string, unknown>) }
-    : {};
-
-  // Preserve the current engine session ID under its engine key
-  if (session.engine && session.engineSessionId) {
-    engineSessions[String(session.engine)] = session.engineSessionId;
-  }
-
-  const restoredSessionId = originalEngineSessionId
-    ?? (typeof engineSessions[originalEngine] === "string" ? (engineSessions[originalEngine] as string) : null);
-
-  const nextMeta = { ...meta, engineSessions } as Record<string, unknown>;
-  if (originalEngine === "claude" && syncSince && session.engine !== "claude") {
-    nextMeta["claudeSyncSince"] = syncSince;
-  }
-  delete (nextMeta as Record<string, unknown>)["engineOverride"];
-  return updateSession(session.id, {
-    engine: originalEngine,
-    engineSessionId: restoredSessionId,
-    transportMeta: nextMeta as any,
-    lastError: null,
-  }) ?? session;
 }
 
 /** Find managed attachment IDs that have no registry row or readable file. */
@@ -2652,7 +2609,6 @@ export async function handleApiRequest(
       killSessionEngines(context, session, "Interrupted: session reset");
       context.sessionManager.getQueue().clearQueue(session.sessionKey || session.sourceRef || session.id);
       const meta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-      delete meta["engineSessions"];
       delete meta["engineOverride"];
       clearEngineSessionRefs(params.id);
       ptySnapshotStore.deleteSync(params.id);
@@ -2663,7 +2619,7 @@ export async function handleApiRequest(
         lastError: "Interrupted: session reset",
         transportMeta: meta as any,
       });
-      logger.info(`Session ${params.id} reset via API (cleared engineSessions, engineOverride, engineSessionId, lastError)`);
+      logger.info(`Session ${params.id} reset via API (cleared engine session refs, engineOverride, engineSessionId, lastError)`);
       context.emit("session:updated", { sessionId: params.id });
       return json(res, { status: "reset", sessionId: params.id });
     }
