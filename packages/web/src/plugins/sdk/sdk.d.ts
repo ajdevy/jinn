@@ -1,5 +1,5 @@
 /**
- * The public type contract of `@jinn/plugin-sdk`, version 1.1.0.
+ * The public type contract of `@jinn/plugin-sdk`, version 1.2.0.
  *
  * Hand-authored, and deliberately never generated from `index.ts`. A derived
  * `.d.ts` inlines the app's own import paths into the public API, so renaming
@@ -25,7 +25,7 @@ import type { ClassValue } from 'clsx'
 
 /** The contract this file describes. A plugin can refuse to load against a
  *  version it predates. */
-export declare const SDK_CONTRACT_VERSION: '1.1.0'
+export declare const SDK_CONTRACT_VERSION: '1.2.0'
 
 /* React, the app's own instances. A plugin that resolved a second React would
  * get a second dispatcher and every hook it called would throw, so these are
@@ -139,6 +139,12 @@ export type AreaId =
   | 'statusbar.right'
   | 'todo.detail.actions'
   | 'todo.detail.sections'
+
+/** What the current `routes` contribution's path captured, keyed by the names
+ *  it declared: `{ id: '42' }` at `/x/42` for a `data.path` of `/x/:id`. Empty
+ *  outside a contributed route. The host parses the URL, so a page never has to
+ *  read `window.location` and guess at the grammar. */
+export declare function useRouteParams(): Record<string, string>
 
 export type GatewayStatus = 'connected' | 'disconnected'
 

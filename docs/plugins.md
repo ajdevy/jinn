@@ -135,6 +135,7 @@ What the module exports:
 - **UI primitives.** `Button`, `Card` and its parts, `Dialog` and its parts, `Select` and its parts, `Skeleton`, `Switch`, `Tabs` and its parts, `Textarea`, plus `cn` for merging Tailwind classes.
 - **The query client.** `queryClient`, the app's single instance with its cache and defaults already set.
 - **Areas.** `AREAS`, the ids a contribution may target.
+- **Route parameters.** `useRouteParams()`, what the current contributed page's path captured.
 - **The host.** `host`, plus the `PluginSdkError` and `PluginHostDeniedError` classes so a plugin can tell an SDK failure from one of its own.
 - **The contract version.** `SDK_CONTRACT_VERSION`, so a plugin can refuse to load against a contract it predates.
 
@@ -152,7 +153,21 @@ The `AREAS` values are the contract, and the property names are only an ergonomi
 
 The first three have a host today. The two Todo detail ids are declared so both sides spell them the same way, but nothing renders them yet: a contribution targeting one registers without error and appears nowhere.
 
-`data.path` on a `routes` contribution is one absolute segment, without nested segments or route parameters, and it may not be one of the app's own routes. A contribution that breaks either rule is dropped with the reason on the console rather than served, and the router matches its own routes first, so a contributed page cannot shadow one in any case. `icon` on a `sidebar.nav` row is optional because the loader's import allowlist does not reach an icon library; a row without one gets the app's fallback glyph.
+`icon` on a `sidebar.nav` row is optional because the loader's import allowlist does not reach an icon library; a row without one gets the app's fallback glyph.
+
+### What a `routes` path may say
+
+`data.path` is an absolute path of one or more segments. A segment is either a literal or `:name`, which captures whatever the URL has in that position — so a plugin can register `/inbox`, `/inbox/settings` and `/inbox/:messageId` and have all three resolve. Parameter names are letters, digits and underscores, starting with a letter or an underscore, and no name may appear twice in one path.
+
+**The first segment must be a literal.** A path starting with a parameter would capture every URL the app does not claim, which is a plugin sitting in front of the whole app rather than owning a corner of it.
+
+**Where two of a plugin's paths both fit a URL, the more specific one wins.** At `/inbox/settings`, `/inbox/settings` is served and `/inbox/:messageId` is not: the first segment where two matching paths differ decides, and a literal beats a capture. Paths of equal specificity go to whichever registered first, so a second plugin claiming a taken path cannot displace it.
+
+**A plugin route can never shadow one of the app's.** The first segment may not be one of the app's own — `/settings`, `/settings/plugins` and `/todos/:id` are all rejected, because `/settings` and `/todos` are the app's. That is the rule said twice on purpose: the contributed host is mounted last, on the splat, so the router matches every app route before it in any case, and the check exists to say *why* a contribution never rendered instead of leaving its author to guess.
+
+A path that breaks any of these is dropped with the reason on the console rather than served, and so is a contribution with no `render()`.
+
+Inside the page, `useRouteParams()` returns what the path captured, keyed by the names it declared — `{ messageId: '42' }` at `/inbox/42`. The host parses the URL and hands the result down, so a page never reads `window.location` and never has to know the grammar. Outside a contributed route it returns an empty object.
 
 ### Only three specifiers resolve
 

@@ -39,6 +39,8 @@ export { Textarea } from '@/components/ui/textarea'
 export { AREAS } from './areas'
 export type { AreaId } from './areas'
 
+export { useRouteParams } from './route-params'
+
 export { host, PluginSdkError } from './host'
 export type { PluginHost } from './host'
 export { PluginHostDeniedError } from './host-permissions'

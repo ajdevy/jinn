@@ -17,13 +17,24 @@ import { ContributionOutlet } from '@/contrib/slot'
 import { AREAS, type ResolvedContribution } from '@/contrib/types'
 import { useContributions } from '@/contrib/use-contributions'
 import { diskPluginsSettled, subscribeDiskPluginsSettled } from '@/plugins/disk-plugins'
+import { RouteParamsProvider } from '@/plugins/sdk/route-params'
 
 /** What a `routes` contribution declares. The element itself comes from
  *  `render()`, like every other UI contribution. */
 export interface RouteContributionData {
-  /** One absolute path segment, e.g. `/inbox-demo`. */
+  /** An absolute path of one or more segments, each either a literal or a
+   *  `:name` that captures whatever the URL has there — `/inbox-demo`,
+   *  `/inbox-demo/settings`, `/inbox-demo/:messageId`. */
   path: string
 }
+
+/** One segment of a contributed path. */
+type PathSegment = { kind: 'static'; value: string } | { kind: 'param'; name: string }
+
+/** A parsed path, or the one reason it is not one. */
+type ParsedPath = { segments: PathSegment[] } | { problem: string }
+
+const PARAM_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** The first segment of a router path, which is the unit a contributed page
  *  competes for: `/notes/*` and `/todos/:todoId` both claim their whole subtree. */
@@ -50,32 +61,112 @@ function reject(contribution: ResolvedContribution, problem: string): null {
   return null
 }
 
-/** The path a contribution may be rendered at, or null with the reason logged. */
-function claimedPath(contribution: ResolvedContribution, reserved: ReadonlySet<string>): string | null {
+/** A contributed path broken into segments, or the reason it cannot be one. */
+function parsePath(path: string): ParsedPath {
+  if (!path.startsWith('/')) return { problem: `path "${path}" must be absolute, starting with a "/"` }
+
+  const segments: PathSegment[] = []
+  const names = new Set<string>()
+  for (const raw of path.slice(1).split('/')) {
+    if (raw === '') return { problem: `path "${path}" has an empty segment` }
+    if (raw.includes('*')) return { problem: `path "${path}" may not use a wildcard segment` }
+    if (!raw.startsWith(':')) {
+      segments.push({ kind: 'static', value: raw })
+      continue
+    }
+    const name = raw.slice(1)
+    if (!PARAM_NAME.test(name)) {
+      return { problem: `path "${path}" has "${raw}" where a parameter name of letters, digits and underscores belongs` }
+    }
+    if (names.has(name)) return { problem: `path "${path}" names the parameter ":${name}" twice` }
+    names.add(name)
+    segments.push({ kind: 'param', name })
+  }
+  // A leading parameter captures anything, which would put the contribution in
+  // front of every URL the app does not claim — the reserved check below can
+  // only speak for the segments the app has actually spelled out.
+  if (segments[0]?.kind !== 'static') {
+    return { problem: `path "${path}" must begin with a static segment rather than a parameter` }
+  }
+  return { segments }
+}
+
+/** The segments a contribution may be rendered at, or null with the reason logged. */
+function claimedSegments(
+  contribution: ResolvedContribution,
+  reserved: ReadonlySet<string>,
+): PathSegment[] | null {
   const path = (contribution.data as Partial<RouteContributionData> | undefined)?.path
-  if (typeof path !== 'string' || !path.startsWith('/')) {
+  if (typeof path !== 'string') {
     return reject(contribution, 'a routes contribution needs data.path as an absolute path')
   }
-  if (path.slice(1).includes('/') || path.includes(':') || path.includes('*')) {
-    return reject(contribution, `path "${path}" must be one plain segment, without nested segments or parameters`)
-  }
+  const parsed = parsePath(path)
+  if ('problem' in parsed) return reject(contribution, parsed.problem)
   if (typeof contribution.render !== 'function') {
     return reject(contribution, `path "${path}" has no render(), so there is nothing to show there`)
   }
   if (reserved.has(firstSegment(path))) {
     return reject(contribution, `path "${path}" is one of the app's own routes and will not be served`)
   }
-  return path
+  return parsed.segments
 }
 
-/** The contribution that owns `pathname`, or null when none does. Ties go to the
- *  first registered, so a second plugin claiming a taken path cannot displace it. */
+/** What `pathname` gives these segments — the parameters they capture, empty
+ *  when they declare none — or null when the two do not line up. */
+function capture(segments: readonly PathSegment[], pathname: string): Record<string, string> | null {
+  const parts = pathname.split('/').slice(1)
+  if (parts.length !== segments.length || parts.includes('')) return null
+
+  const params: Record<string, string> = {}
+  for (const [index, segment] of segments.entries()) {
+    const part = parts[index]!
+    if (segment.kind === 'param') params[segment.name] = part
+    else if (segment.value !== part) return null
+  }
+  return params
+}
+
+/** Whether `candidate` beats `incumbent` at a pathname they both match: the
+ *  first segment where the two differ decides it, and a literal beats a
+ *  capture. Both matched the same pathname, so they are the same length. */
+function isMoreSpecific(candidate: readonly PathSegment[], incumbent: readonly PathSegment[]): boolean {
+  for (const [index, segment] of candidate.entries()) {
+    const other = incumbent[index]!
+    if (segment.kind !== other.kind) return segment.kind === 'static'
+  }
+  return false
+}
+
+/** What a pathname resolved to: the contribution that owns it, and what its
+ *  path captured. */
+export interface ContributedRouteMatch {
+  contribution: ResolvedContribution
+  params: Record<string, string>
+}
+
+/**
+ * The contribution that owns `pathname`, or null when none does.
+ *
+ * Where two paths both fit — `/x/settings` and `/x/:id` at `/x/settings` — the
+ * more specific one wins, so a detail page never swallows a sibling that was
+ * spelled out. Equally specific ties go to the first registered, so a second
+ * plugin claiming a taken path cannot displace it.
+ */
 export function contributedRouteFor(
   pathname: string,
   candidates: readonly ResolvedContribution[],
   reserved: ReadonlySet<string>,
-): ResolvedContribution | null {
-  return candidates.find((contribution) => claimedPath(contribution, reserved) === pathname) ?? null
+): ContributedRouteMatch | null {
+  let best: (ContributedRouteMatch & { segments: readonly PathSegment[] }) | null = null
+  for (const contribution of candidates) {
+    const segments = claimedSegments(contribution, reserved)
+    if (!segments) continue
+    const params = capture(segments, pathname)
+    if (params && (!best || isMoreSpecific(segments, best.segments))) {
+      best = { contribution, params, segments }
+    }
+  }
+  return best ? { contribution: best.contribution, params: best.params } : null
 }
 
 /**
@@ -90,8 +181,8 @@ export function contributedRouteFor(
 export function ContributedRoute({ reserved }: { reserved: ReadonlySet<string> }) {
   const pathname = useLocation().pathname
   const settled = useSyncExternalStore(subscribeDiskPluginsSettled, diskPluginsSettled, () => true)
-  const contribution = contributedRouteFor(pathname, useContributions(AREAS.routes), reserved)
-  if (!contribution) return settled ? <Navigate to="/" replace /> : null
+  const match = contributedRouteFor(pathname, useContributions(AREAS.routes), reserved)
+  if (!match) return settled ? <Navigate to="/" replace /> : null
 
   // The app's chrome and the scroll container come from the host, not from the
   // plugin. `PageLayout` is not on the SDK's export list, so a contributed page
@@ -100,8 +191,10 @@ export function ContributedRoute({ reserved }: { reserved: ReadonlySet<string> }
   return (
     <PageLayout>
       <div className="h-full overflow-y-auto" data-scrollable>
-        <ContribBoundary id={contribution.id} variant="pane">
-          <ContributionOutlet contribution={contribution} />
+        <ContribBoundary id={match.contribution.id} variant="pane">
+          <RouteParamsProvider params={match.params}>
+            <ContributionOutlet contribution={match.contribution} />
+          </RouteParamsProvider>
         </ContribBoundary>
       </div>
     </PageLayout>
