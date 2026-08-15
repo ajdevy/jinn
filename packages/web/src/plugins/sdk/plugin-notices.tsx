@@ -32,7 +32,8 @@ const LEVEL_DOT: Record<HostNotifyLevel, string> = {
 
 interface Notice {
   id: number
-  message: string
+  title: string
+  description?: string
   level: HostNotifyLevel
 }
 
@@ -43,9 +44,9 @@ export function PluginNotices() {
 
   useEffect(() => {
     const pending = timers.current
-    registerHostNotificationSink((message, level) => {
+    registerHostNotificationSink((notice) => {
       const id = (nextId.current += 1)
-      setNotices((current) => [...current, { id, message, level }].slice(-MAX_VISIBLE))
+      setNotices((current) => [...current, { ...notice, id }].slice(-MAX_VISIBLE))
       // Per notice rather than one clock for the stack: a notice that arrives
       // while an older one is on screen has its own full reading time.
       const timer = setTimeout(() => {
@@ -106,9 +107,16 @@ function NoticeCard({ notice, onDismiss }: { notice: Notice; onDismiss: () => vo
         className="mt-[7px] size-1.5 shrink-0 rounded-full"
         style={{ background: LEVEL_DOT[notice.level] }}
       />
-      <p className="min-w-0 flex-1 break-words text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
-        {notice.message}
-      </p>
+      <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+        <p className="break-words text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
+          {notice.title}
+        </p>
+        {notice.description && (
+          <p className="break-words text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+            {notice.description}
+          </p>
+        )}
+      </div>
       <button
         type="button"
         aria-label="Dismiss"

@@ -18,6 +18,7 @@ export { Fragment, jsx, jsxs } from 'react/jsx-runtime'
 export { queryClient } from '@/lib/query-client'
 export { cn } from '@/lib/utils'
 
+export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'
 export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 export {
@@ -30,11 +31,27 @@ export {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+export {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+// Name-keyed rather than a component the plugin imports: the loader's allowlist
+// is this module, React and the JSX runtime, so an icon library is out of reach.
+export { Icon } from '@/components/ui/icon'
+export type { IconName } from '@/components/ui/icon'
+export { Input } from '@/components/ui/input'
+export { ScrollArea } from '@/components/ui/scroll-area'
 export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 export { Skeleton } from '@/components/ui/skeleton'
 export { Switch } from '@/components/ui/switch'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 export { Textarea } from '@/components/ui/textarea'
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 export { AREAS } from './areas'
 export type { AreaId } from './areas'
@@ -74,6 +91,6 @@ export type {
 } from './host-verbs'
 export type { HostEvent, HostEventHandler } from './host-events'
 export type { GatewayStatus, HostState } from './host-state'
-export type { HostNotifyLevel } from './host-bridge'
+export type { HostNotice, HostNotifyLevel } from './host-bridge'
 
 export { SDK_CONTRACT_VERSION } from './version'

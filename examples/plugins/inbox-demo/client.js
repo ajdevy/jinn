@@ -13,12 +13,31 @@
  * rejected by the loader with a named error, and React in particular has to come
  * from here rather than from a copy of its own, or every hook would throw.
  */
-import { AREAS, React, jsx, jsxs } from '@jinn/plugin-sdk'
+import {
+  AREAS,
+  Badge,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Icon,
+  Input,
+  React,
+  ScrollArea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  host,
+  jsx,
+  jsxs,
+} from '@jinn/plugin-sdk'
 
-const STATE_COLOR = {
-  pending: 'var(--text-secondary)',
-  approved: 'var(--system-green)',
-  rejected: 'var(--system-red)',
+/** The badge variant each state reads as, so a plugin's chip and the app's own
+ *  say the same thing the same way. */
+const STATE_VARIANT = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'destructive',
 }
 
 export default {
@@ -60,6 +79,13 @@ export default {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
+      })
+      // The object form of notify: a title with the detail under it, landing on
+      // the same stack `host.notify('…')` writes to.
+      host.notify({
+        title: `Message ${verdict}d`,
+        description: `${id} is out of the pending queue.`,
+        level: verdict === 'reject' ? 'warning' : 'info',
       })
     }
 
@@ -109,10 +135,7 @@ export default {
                 },
                 children: message.subject,
               }),
-              jsx('span', {
-                style: { fontSize: 'var(--text-caption1)', color: STATE_COLOR[message.state] },
-                children: message.state,
-              }),
+              jsx(Badge, { variant: STATE_VARIANT[message.state], children: message.state }),
             ],
           }),
           message.state === 'pending' &&
@@ -135,32 +158,111 @@ export default {
       })
     }
 
+    /** The header's overflow menu, and the one place the page talks back: every
+     *  item raises a notice rather than changing anything. */
+    function ActionsMenu({ onFilterPending }) {
+      return jsxs(DropdownMenu, {
+        children: [
+          jsx(DropdownMenuTrigger, {
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-1)',
+              height: 34,
+              padding: '0 12px',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--fill-tertiary)',
+              color: 'var(--text-secondary)',
+              font: 'inherit',
+              fontSize: 'var(--text-footnote)',
+              cursor: 'pointer',
+            },
+            children: 'Actions',
+          }),
+          jsxs(DropdownMenuContent, {
+            align: 'end',
+            children: [
+              jsx(DropdownMenuItem, {
+                onSelect: onFilterPending,
+                children: 'Show only pending',
+              }),
+              jsx(DropdownMenuItem, {
+                onSelect: () =>
+                  host.notify({
+                    title: 'Inbox is watched',
+                    description: 'New files in the watched directory arrive here on their own.',
+                  }),
+                children: 'How this works',
+              }),
+            ],
+          }),
+        ],
+      })
+    }
+
     function InboxPage() {
       const { messages } = useMessages()
+      const [query, setQuery] = React.useState('')
+
+      const visible = messages.filter((message) =>
+        message.subject.toLowerCase().includes(query.trim().toLowerCase()),
+      )
 
       return jsxs('div', {
         style: { maxWidth: 840, margin: '0 auto', padding: 'var(--space-6) var(--space-5)' },
         children: [
-          jsx('h1', {
-            style: {
-              fontFamily: 'var(--font-display)',
-              fontSize: 'var(--text-title1)',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-            },
-            children: 'Inbox Demo',
+          jsxs('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
+            children: [
+              // A glyph named rather than imported: the loader resolves the SDK,
+              // React and the JSX runtime, and no icon library.
+              jsx(Icon, { name: 'inbox', size: 20 }),
+              jsx('h1', {
+                style: {
+                  flex: 1,
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 'var(--text-title1)',
+                  fontWeight: 700,
+                  color: 'var(--text-primary)',
+                },
+                children: 'Inbox Demo',
+              }),
+              jsx(ActionsMenu, { onFilterPending: () => setQuery('') }),
+            ],
           }),
-          jsx('p', {
-            style: {
-              marginTop: 'var(--space-1)',
-              fontSize: 'var(--text-footnote)',
-              color: 'var(--text-tertiary)',
-            },
-            children: `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}. Drop a file in the watched inbox to add one.`,
+          jsxs(Tooltip, {
+            children: [
+              jsx(TooltipTrigger, {
+                style: {
+                  display: 'block',
+                  marginTop: 'var(--space-1)',
+                  padding: 0,
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--text-tertiary)',
+                  font: 'inherit',
+                  fontSize: 'var(--text-footnote)',
+                  cursor: 'default',
+                  textAlign: 'left',
+                },
+                children: `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`,
+              }),
+              jsx(TooltipContent, {
+                children: 'Drop a file in the watched inbox to add one.',
+              }),
+            ],
           }),
-          jsx('div', {
+          jsx(Input, {
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+            placeholder: 'Filter by subject',
+            style: { marginTop: 'var(--space-4)' },
+          }),
+          jsx(ScrollArea, {
             style: {
-              marginTop: 'var(--space-5)',
+              marginTop: 'var(--space-4)',
+              maxHeight: 360,
               borderRadius: 'var(--radius-xl)',
               background: 'var(--bg-secondary)',
               boxShadow: 'var(--shadow-card)',
@@ -168,7 +270,7 @@ export default {
             },
             // The third argument to jsx() is the key, which is how a no-build
             // plugin writes what `key={...}` would have written.
-            children: messages.map((message) => jsx(MessageRow, { message }, message.id)),
+            children: visible.map((message) => jsx(MessageRow, { message }, message.id)),
           }),
         ],
       })
@@ -209,9 +311,9 @@ export default {
       {
         id: 'nav',
         area: AREAS.sidebarNav,
-        // No icon: a disk plugin cannot import an icon library, so the host
-        // renders contributed rows with its own fallback glyph.
-        data: { href: '/inbox-demo', label: 'Inbox Demo' },
+        // A name out of the SDK's icon set. A row that names none, or one the
+        // set does not carry, gets the host's fallback glyph instead.
+        data: { href: '/inbox-demo', label: 'Inbox Demo', icon: 'inbox' },
       },
       {
         id: 'chip',

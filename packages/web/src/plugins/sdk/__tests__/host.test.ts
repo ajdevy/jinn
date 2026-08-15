@@ -145,7 +145,7 @@ describe('host.notify', () => {
 
     host.notify('the watcher stopped', 'error')
 
-    expect(sink).toHaveBeenCalledWith('the watcher stopped', 'error')
+    expect(sink).toHaveBeenCalledWith({ title: 'the watcher stopped', level: 'error' })
   })
 
   it('sends an unlevelled notification as info', () => {
@@ -154,7 +154,22 @@ describe('host.notify', () => {
 
     host.notify('the watcher started')
 
-    expect(sink).toHaveBeenCalledWith('the watcher started', 'info')
+    expect(sink).toHaveBeenCalledWith({ title: 'the watcher started', level: 'info' })
+  })
+
+  /* The description is the whole reason the object form exists, and the level
+   * still defaults, so the surface never has to decide what an absent one meant. */
+  it('carries a description through, and still defaults the level', () => {
+    const sink = vi.fn()
+    registerHostNotificationSink(sink)
+
+    host.notify({ title: 'Import finished', description: '42 messages arrived.' })
+
+    expect(sink).toHaveBeenCalledWith({
+      title: 'Import finished',
+      description: '42 messages arrived.',
+      level: 'info',
+    })
   })
 
   it('does not surface a throwing sink to the plugin that called it', () => {

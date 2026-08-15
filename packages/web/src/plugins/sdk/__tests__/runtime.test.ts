@@ -79,4 +79,31 @@ describe('sdkImportMap', () => {
   it('hands out the same URLs on every call', () => {
     expect(sdkImportMap()).toEqual(sdkImportMap())
   })
+
+  /* Deriving the names is only half of it: what a plugin writes in an import
+   * statement has to appear in the destructuring, or the import throws at
+   * evaluation. These are what 1.2.0 added. */
+  it('destructures the primitives the barrel exports', async () => {
+    const sdk = await import('../index')
+
+    const names = /export const \{ (.+) \} = m;/
+      .exec(shimSource('__JINN_PLUGIN_SDK__', sdk))?.[1]
+      ?.split(', ')
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Icon',
+        'Input',
+        'Badge',
+        'Tooltip',
+        'TooltipTrigger',
+        'TooltipContent',
+        'DropdownMenu',
+        'DropdownMenuTrigger',
+        'DropdownMenuContent',
+        'DropdownMenuItem',
+        'ScrollArea',
+      ]),
+    )
+  })
 })

@@ -28,7 +28,7 @@ function deliverPluginNotice(frame: GatewayEvent): void {
     return
   }
   try {
-    sink(message, level)
+    sink({ title: message, level })
   } catch (error) {
     console.error(`[plugin-sdk] the notification surface threw on ${level} from ${pluginId}: ${message}`, error)
   }

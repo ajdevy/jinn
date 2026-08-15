@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as sdk from '@jinn/plugin-sdk'
+import { ICONS } from '@/components/ui/icon'
 import { SDK_CONTRACT_VERSION } from '../version'
 
 const SDK_DIR = path.resolve(__dirname, '..')
@@ -124,5 +125,67 @@ describe('the hand-authored contract cannot drift from the barrel', () => {
     const declared = /export declare const SDK_CONTRACT_VERSION: '([^']+)'/.exec(CONTRACT)?.[1]
 
     expect(declared).toBe(SDK_CONTRACT_VERSION)
+  })
+
+  /* `IconName` is a hand-written union over a map the contract cannot see, so
+   * the two drift the moment an icon is added. A plugin typechecks against the
+   * union and renders against the map; a name in one and not the other is a
+   * missing glyph in the app or a rejected build in the plugin. */
+  it('declares an icon name for every icon the set carries, and no others', () => {
+    const union = /export type IconName =\s*([\s\S]*?)\n\n/.exec(CONTRACT)?.[1] ?? ''
+    const declared = [...union.matchAll(/'([^']+)'/g)].map((match) => match[1]!)
+
+    expect(declared.sort()).toEqual(Object.keys(ICONS).sort())
+  })
+})
+
+/* 1.2.0 is additive, and the only thing that makes that true rather than
+ * intended is a list of what 1.1.0 shipped. A plugin written against 1.1.0
+ * imports these names; losing or renaming one breaks it at load, which is the
+ * one failure a version bump is supposed to rule out. */
+describe('the v1.1.0 surface survives every later version', () => {
+  const V1_1_0_EXPORTS = [
+    'AREAS',
+    'Button',
+    'Card',
+    'CardContent',
+    'CardDescription',
+    'CardFooter',
+    'CardHeader',
+    'CardTitle',
+    'Dialog',
+    'DialogClose',
+    'DialogContent',
+    'DialogDescription',
+    'DialogFooter',
+    'DialogHeader',
+    'DialogTitle',
+    'DialogTrigger',
+    'Fragment',
+    'PluginHostDeniedError',
+    'PluginSdkError',
+    'React',
+    'SDK_CONTRACT_VERSION',
+    'Select',
+    'SelectContent',
+    'SelectItem',
+    'SelectTrigger',
+    'SelectValue',
+    'Skeleton',
+    'Switch',
+    'Tabs',
+    'TabsContent',
+    'TabsList',
+    'TabsTrigger',
+    'Textarea',
+    'cn',
+    'host',
+    'jsx',
+    'jsxs',
+    'queryClient',
+  ]
+
+  it('still exports every name it did', () => {
+    expect(Object.keys(sdk)).toEqual(expect.arrayContaining(V1_1_0_EXPORTS))
   })
 })

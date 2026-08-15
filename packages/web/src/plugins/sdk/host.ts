@@ -1,6 +1,7 @@
 import {
   hostNavigator,
   hostNotificationSink,
+  type HostNotice,
   type HostNotifyLevel,
 } from './host-bridge'
 import { PluginSdkError } from './errors'
@@ -41,6 +42,7 @@ export interface PluginHost {
   onEvent(type: string, handler: HostEventHandler): () => void
   navigate(path: string): void
   notify(message: string, level?: HostNotifyLevel): void
+  notify(notice: HostNotice): void
   todos: PluginHostTodos
   sessions: PluginHostSessions
   employees: PluginHostEmployees
@@ -63,21 +65,34 @@ function navigate(path: string): void {
   navigateTo(path)
 }
 
-function notify(message: string, level: HostNotifyLevel = 'info'): void {
+/**
+ * One entry point rather than two, because a title with a description is the
+ * same notification with more to say. A second verb would grow a second surface
+ * the day someone forgot the two were meant to be one stack.
+ */
+function notify(input: string | HostNotice, level: HostNotifyLevel = 'info'): void {
   assertVerbAllowed('notify')
+  const notice =
+    typeof input === 'string' ? { title: input, level } : { ...input, level: input.level ?? 'info' }
+
   const sink = hostNotificationSink()
   if (!sink) {
     // Not silent, and not fatal either: a dropped notification is worth a line
     // in the console, but it is never worth taking a plugin down over.
-    console.warn(`[plugin-sdk] no notification surface is mounted; dropping ${level}: ${message}`)
+    console.warn(
+      `[plugin-sdk] no notification surface is mounted; dropping ${notice.level}: ${notice.title}`,
+    )
     return
   }
   try {
-    sink(message, level)
+    sink(notice)
   } catch (error) {
     // A notification surface that throws is the host's bug, and the plugin that
     // asked for the notification is the wrong place for it to land.
-    console.error(`[plugin-sdk] the notification surface threw on ${level}: ${message}`, error)
+    console.error(
+      `[plugin-sdk] the notification surface threw on ${notice.level}: ${notice.title}`,
+      error,
+    )
   }
 }
 
