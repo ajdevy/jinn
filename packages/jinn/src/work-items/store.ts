@@ -971,7 +971,7 @@ export function getWorkItemSpend(id: string): number {
  *
  * Idempotent-in-writes: if the session already carries this exact `work_item_id`,
  * the call verifies both rows exist and then returns WITHOUT writing — so a
- * redundant re-link (e.g. the GRS-003b-2b guard-time bridge repair on a re-fire)
+ * redundant re-link (e.g. a cron re-fire re-linking the same item to the same session)
  * does not churn `work_items.updated_at` or the event log.
  */
 export function linkSession(workItemId: string, sessionId: string): void {

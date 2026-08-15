@@ -80,8 +80,8 @@ function createTask(job: CronJob): cron.ScheduledTask {
     job.schedule,
     () => {
       // Capture the fire identity once, at fire time, so it's owned by this fire
-      // (not recomputed inside runCronJob). A retry reusing this fireIso is
-      // idempotent across session/work-item/link (GRS-003b-1).
+      // (not recomputed inside runCronJob) and names the same session/work-item/link
+      // on any re-invocation of this fire (GRS-003b-1).
       const fireIso = new Date().toISOString();
       runCronJob(job, currentSessionManager, currentConfig, currentConnectors, { fireIso, emit: currentEmit }).catch((err) => {
         logger.error(`Cron job "${job.name}" crashed: ${err instanceof Error ? err.message : err}`);
@@ -96,10 +96,8 @@ export async function triggerCronJob(idOrName: string): Promise<CronJob | undefi
   if (!job) return undefined;
   // Manual `/cron run <job>` is a human "run it now" — like the gateway's HTTP
   // run-now (api.ts), it passes NO `fireIso`. Each manual trigger is a fresh fire
-  // (runner defaults to a new per-call ISO), so it is never subject to the
-  // single-shot execution guard (GRS-003b-2a) and always runs. Only the scheduled
-  // TICK carries a deterministic per-fire identity — the locus a future retrying
-  // dispatcher (GRS-003b-2c) leans on for at-most-once execution.
+  // (runner defaults to a new per-call ISO). Only the scheduled TICK carries a
+  // deterministic per-fire identity (GRS-003b-1).
   await runCronJob(job, currentSessionManager, currentConfig, currentConnectors, { emit: currentEmit });
   return job;
 }
