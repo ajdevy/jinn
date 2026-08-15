@@ -7,13 +7,7 @@ import { RunGlyph, runDurationMs, runOutcome, runTimestamp, type CronRunWire } f
  * when it ran, the word for anything other than a plain success, and how long
  * it took. */
 
-const RUN_STATUS_WORD: Record<string, string> = {
-  error: "error",
-  started: "running",
-  skipped: "skipped",
-  duplicate: "duplicate",
-  expired: "expired",
-}
+const RUN_STATUS_WORD: Record<string, string> = { error: "error" }
 
 const RUN_ROW_CLASS = "flex min-h-[44px] items-center gap-2.5 rounded-[13px] py-1.5 pl-2.5 pr-3.5"
 const RUN_ROW_LINK_CLASS = `${RUN_ROW_CLASS} transition-colors duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-quaternary)] focus-visible:bg-[var(--fill-quaternary)] focus-visible:outline-none`
@@ -35,9 +29,9 @@ export function RunRow({ run, now }: { run: CronRunWire; now: Date }) {
       </span>
     </>
   )
-  // A fire that never spawned a session — skipped, duplicate, expired, or history
-  // written before the field existed — stays inert: a hover fill on a row that
-  // goes nowhere is a false affordance.
+  // An errored fire that never spawned a session, or history written before the
+  // field existed, stays inert: a hover fill on a row that goes nowhere is a
+  // false affordance.
   if (!run.sessionId) return <div className={RUN_ROW_CLASS}>{columns}</div>
   return <Link to={sessionPath(run.sessionId)} className={RUN_ROW_LINK_CLASS}>{columns}</Link>
 }

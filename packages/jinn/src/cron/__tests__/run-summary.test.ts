@@ -10,9 +10,9 @@ describe("summarizeCronRun sessionId", () => {
   });
 
   it("omits sessionId for a fire that never spawned a session", () => {
-    // The runner writes `sessionId: null` for skipped/duplicate/expired fires.
-    expect(summarizeCronRun({ status: "skipped", sessionId: null })).not.toHaveProperty("sessionId");
-    expect(summarizeCronRun({ status: "skipped" })).not.toHaveProperty("sessionId");
+    // An errored fire can fail before it spawns a session.
+    expect(summarizeCronRun({ status: "error", sessionId: null })).not.toHaveProperty("sessionId");
+    expect(summarizeCronRun({ status: "error" })).not.toHaveProperty("sessionId");
   });
 
   it("omits a sessionId that is not a UUID string", () => {

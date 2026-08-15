@@ -121,7 +121,7 @@
       ]
     },
     "packages/jinn/src/cron/__tests__/runner.test.ts": {
-      "lines": 582
+      "lines": 490
     },
     "packages/jinn/src/cron/run-summary.ts": {
       "exempt": [
@@ -129,7 +129,6 @@
       ]
     },
     "packages/jinn/src/cron/runner.ts": {
-      "lines": 302,
       "exempt": [
         "complexity",
         "max-depth",

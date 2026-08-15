@@ -302,7 +302,7 @@ export default function CronDetailPage() {
                 ) : (
                   <div className="rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] p-[5px] shadow-[var(--shadow-card)]" data-testid="cron-runs">
                     {runs.map((run, i) => (
-                      <RunRow key={run.id ?? `${runTimestamp(run) ?? "run"}-${i}`} run={run} now={now} />
+                      <RunRow key={`${runTimestamp(run) ?? "run"}-${i}`} run={run} now={now} />
                     ))}
                   </div>
                 )}
