@@ -347,7 +347,7 @@ target, not its fix.
 | `t = 0`, first paint | The transcript paints **already at the bottom**. Not scrolled there — painted there. | as above |
 | `t = 0 → 180ms` | The pane fades and rises in: `jinn-chat-open`, `opacity 0 → 1` with `translateY(4px) → 0`, `var(--duration-base)` = `180ms`, `var(--ease-smooth)`. Opacity and transform only, so nothing reflows and the paint above is not delayed by it. | new rule, `web/routes/globals.css` |
 | `t = 0` → settle | Late row measurements re-pin to the bottom. Some of these land after the opening paint: the content `ResizeObserver` is a `useEffect` (`web/hooks/use-stick-to-bottom.ts:256-267`), so it fires after a paint, not before one. They are allowed only as §3.2's settle exception — pinned-only, bottom-only, bounded. The window closes at the first commit where `virtualizer.getTotalSize()` is unchanged from the previous commit, or at `400ms` from `t = 0`, whichever comes first. | §3.2, over `web/components/chat/transcript-virtualizer.ts` + `web/hooks/use-stick-to-bottom.ts:256-267` |
-| after settle | **Nothing writes `scrollTop`.** | §3.2 |
+| after settle | **The chat-open transition owns no further writes.** The transcript's standing rules resume and govern alone: a growth commit pins or holds under Invariant S, and the down-arrow scrolls on command. §3 is done. | §2.2, §4 |
 
 On mobile (`<1024px`) the list→pane switch is a `hidden` / `flex` class toggle today with no
 transition at all (`web/routes/chat/page.tsx:1101,1122`). `jinn-chat-open` applies there too, on
@@ -361,9 +361,15 @@ that changes which content sits under the reader's eye in the next one. That is 
 section forbids, and the word doing the work is *visible*.
 
 **No code path may write `scrollTop`, or call `scrollTo` / `scrollToIndex` / `scrollIntoView`, on
-the transcript scroller after the browser has painted the opening frame, except under the settle
-exception below.** If the correct position is not known before paint, the transcript is not
-painted until it is.
+the transcript scroller *in order to establish or correct the chat-open position*, after the
+browser has painted the opening frame, except under the settle exception below.** If the correct
+opening position is not known before paint, the transcript is not painted until it is.
+
+The scoping clause carries weight and is not decoration. This section governs exactly one class of
+write: the ones whose purpose is to put the reader where the open should have put them. It has
+never been a prohibition on scrolling a chat. A write that serves the transcript's ongoing
+behaviour — a pinned growth commit (§2.2 S1), a tap on the down-arrow (§4.4) — is not a chat-open
+correction, so §3 does not reach it whatever the clock reads.
 
 **The settle exception.** A re-pin during the settle window is the one post-paint write that is
 not a visible jump-scroll, because it does not move the reader's frame of reference — it holds it.
@@ -380,13 +386,14 @@ holds only while all three conditions do:
    target, no partial scroll — a write that lands anywhere other than the bottom has moved the
    reader, and that is a jump-scroll whatever triggered it.
 3. **Bounded.** It stops at the settle condition in §3.1 — unchanged `virtualizer.getTotalSize()`,
-   or `400ms` from `t = 0`, whichever comes first. Once the window closes the rule above is
-   absolute.
+   or `400ms` from `t = 0`, whichever comes first. When the window closes, §3 is finished with the
+   transcript: a later write is judged by §2.2 and §4, not by this section. Closing the window ends
+   the exception, not the transcript's right to scroll.
 
 Before first paint, `measureElement` (`web/components/chat/chat-messages.tsx:1457`) writes its
 measurements in a layout effect and a re-pin keyed on the resulting size lands in the same commit,
-so nothing short is ever painted. After first paint the settle exception is the only route, and
-it is the three conditions or nothing.
+so nothing short is ever painted. After first paint the settle exception is the only route left to
+a chat-open correction, and it is the three conditions or nothing.
 
 One shipped path violates it today. `onContentReady` fires inside a `requestAnimationFrame`
 (`web/components/chat/chat-pane.tsx:503-506`), and `handlePaneContentReady` then schedules
@@ -396,6 +403,31 @@ scroll by construction, and the visible jump. The settle exception does not cove
 *remembered* offset rather than the bottom, failing condition 2, and it is keyed on a frame count
 rather than on measured size, failing condition 3. The remembered position must move into the same
 layout effect as the mount snap, or be dropped.
+
+**Every write site, with one owner and one verdict.** A slice implementer reads this table instead
+of inferring an answer from two rules at once. Each row is classified by exactly one section, and
+no site appears under two.
+
+| Write site | Phase | Verdict | Owned by |
+| --- | --- | --- | --- |
+| mount snap, `web/hooks/use-stick-to-bottom.ts:213-223` | before first paint | **required** | §3.1 |
+| growth effect `:225-244`, pinned | any time, during settle or long after | **required** | §2.2 S1 |
+| growth effect `:225-244`, detached | any time | **forbidden** | §2.2 S2 |
+| viewport-resize RO `:246-254` / content RO `:256-267`, pinned | during settle | **allowed**, bottom-only | §3.2 settle exception |
+| viewport-resize RO `:246-254` / content RO `:256-267`, pinned | after settle | **allowed**, bottom-only | §2.2 S1 |
+| `visibilitychange` / `pageshow` resync `:269-282`, pinned | after settle | **allowed**, bottom-only | §2.2 S1 |
+| `scrollToEnd` from the down-arrow, `web/components/chat/chat-messages.tsx:1206-1209` | any time | **allowed**, user-commanded | §4.4 |
+| remembered-offset rAF, `web/components/chat/chat-pane.tsx:503-506` → `web/routes/chat/page.tsx:698-703` | after first paint | **forbidden** | §3.2 |
+
+Row two is the one that settles the question this table exists to answer. A pinned reader receives
+one streamed token at `t = 500ms`, past the `400ms` cutoff: that is a growth commit, so §2.2 S1
+**requires** the pin and §3 never reaches it. The settle window closing ends §3's involvement; it
+does not turn a required write into a forbidden one.
+
+The last row is the defect §3 exists to kill, and the scoping above does not spare it. That write's
+whole purpose is to establish the opening position, which puts it squarely inside the narrowed rule
+— and even read as an ordinary transcript write it lands nowhere near the bottom, so §2.2 has no
+clause that would permit it either.
 
 ### 3.3 The "sometimes it doesn't" case has a named cause
 
