@@ -39,6 +39,11 @@ export interface Message {
   blocks?: ChatBlock[]
   /** Safe structured UI metadata persisted with notification messages. */
   meta?: Record<string, unknown>
+  /** Client-only send lifecycle of an optimistic user row. Absent means settled:
+   *  the resting bubble IS the "sent" signal, so there is no value for it. */
+  sendState?: 'pending' | 'failed'
+  /** Transport error behind `sendState: 'failed'`, surfaced on hover. */
+  sendError?: string
 }
 
 /**
@@ -70,7 +75,8 @@ export function messageIdentityKey(m: Message): string {
  * event) is persisted server-side, but a history refetch that races ahead of that
  * commit returns a snapshot WITHOUT it. Replacing wholesale would make the live
  * message vanish until the next reload. We therefore keep any locally-known
- * attachment (media-bearing) message that the snapshot does not yet contain.
+ * attachment (media-bearing) message that the snapshot does not yet contain, and
+ * likewise any message whose send failed — that one has no server twin at all.
  *
  * "Does not contain" is checked by BOTH id and content-identity: an optimistic
  * user message carries a client-generated random id while its persisted twin has
@@ -133,10 +139,12 @@ export function reconcileMessages(
 
   const baseIds = new Set(base.map((m) => m.id))
   const baseKeys = new Set(base.map(messageIdentityKey))
+  // A failed send never reached the server, so no snapshot will ever carry it.
+  // Dropping it would delete the reader's own text along with the only retry
+  // affordance for it; the age cap below still bounds how long it survives.
   const pending = current.filter(
     (m) =>
-      m.media &&
-      m.media.length > 0 &&
+      (m.sendState === 'failed' || (m.media && m.media.length > 0)) &&
       m.id &&
       now - m.timestamp <= RECONCILE_PRESERVE_MAX_AGE_MS &&
       !baseIds.has(m.id) &&

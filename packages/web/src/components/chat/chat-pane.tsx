@@ -441,7 +441,7 @@ export function ChatPane({
           onRefresh?.()
         }
       } catch (err) {
-        failSend(`Error: ${err instanceof Error ? err.message : 'Failed to send message'}`)
+        failSend(err instanceof Error ? err.message : 'Failed to send message')
       }
     },
     // viewMode MUST be in deps — without it, toggling chat↔CLI keeps the stale

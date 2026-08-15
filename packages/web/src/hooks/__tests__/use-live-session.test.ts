@@ -1489,14 +1489,16 @@ describe("useLiveSession (editable write path)", () => {
     const { subscribe } = makeBus()
     const { result } = renderHook(() => useLiveSession("s-race", { subscribe }))
 
+    // beginSend appends it pending; the server has not acknowledged it yet.
+    const sending = { ...optimistic, sendState: "pending" as const }
     await act(async () => { await Promise.resolve() })
     act(() => { result.current.beginSend(optimistic) })
-    expect(result.current.messages).toEqual([existing, optimistic])
+    expect(result.current.messages).toEqual([existing, sending])
 
     // The tail sync wins the race with persistence and does not contain the POST yet.
     getSession.mockResolvedValueOnce({ status: "idle", messages: [existing] })
     await act(async () => { await result.current.reload("s-race") })
-    expect(result.current.messages).toEqual([existing, optimistic])
+    expect(result.current.messages).toEqual([existing, sending])
 
     // Once the canonical row arrives, it dedupes to ONE user message — and the
     // optimistic id is preserved (content adopts the server row) so the row and
@@ -1904,22 +1906,6 @@ describe("useLiveSession (editable write path)", () => {
       await Promise.resolve()
     })
     expect(getSession).toHaveBeenCalledTimes(1)
-  })
-
-  it("failSend clears loading and appends the error bubble", async () => {
-    getSession.mockResolvedValue({ status: "idle", messages: [] })
-    const { subscribe } = makeBus()
-    const { result } = renderHook(() => useLiveSession("s1", { subscribe }))
-    await act(async () => { await Promise.resolve() })
-
-    act(() => {
-      result.current.beginSend({ id: "u1", role: "user", content: "x", timestamp: 1 })
-    })
-    expect(result.current.loading).toBe(true)
-
-    act(() => { result.current.failSend("Error: nope") })
-    expect(result.current.loading).toBe(false)
-    expect(result.current.messages.at(-1)?.content).toBe("Error: nope")
   })
 })
 

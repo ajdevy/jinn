@@ -334,6 +334,7 @@
   --text-quaternary: rgba(232,228,216,0.22);
   --accent: #E0A33C;
   --accent-fill: rgba(224,163,60,0.14);
+  --danger-fill: rgba(224,103,90,0.14);
   --accent-contrast: #14130F;
   --talk-focus-ring: rgba(224,163,60,0.55);
   --system-blue: #5B9BD5;
@@ -410,6 +411,7 @@
   --text-quaternary: rgba(33,30,22,0.30);
   --accent: #926516;
   --accent-fill: rgba(146,101,22,0.14);
+  --danger-fill: rgba(178,59,51,0.14);
   --accent-contrast: #FBF9F2;
   --talk-focus-ring: rgba(146,101,22,0.55);
   --system-blue: #2D6CB5;
@@ -483,6 +485,7 @@
     --text-quaternary: rgba(33,30,22,0.30);
     --accent: #B07A1A;
     --accent-fill: rgba(176,122,26,0.12);
+    --danger-fill: rgba(178,59,51,0.12);
     --accent-contrast: #FBF9F2;
     --talk-focus-ring: rgba(176,122,26,0.55);
     --system-blue: #2D6CB5;
@@ -545,6 +548,7 @@
     --text-quaternary: rgba(232,228,216,0.22);
     --accent: #E0A33C;
     --accent-fill: rgba(224,163,60,0.14);
+    --danger-fill: rgba(224,103,90,0.14);
     --accent-contrast: #14130F;
     --talk-focus-ring: rgba(224,163,60,0.55);
     --system-blue: #5B9BD5;
@@ -823,6 +827,53 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .comm-arrive, .comm-arrive .comm-row, .comm-arrive .comm-chip > span { animation: none; }
   .comm-arrive .comm-row::after { animation: jinn-comm-wash 0.8s linear both; }
+}
+
+/* ============================================
+   Message enter + send state
+   The reader's own bubble grows out of its bottom-right corner — the one
+   nearest the composer the text came from — so the scale reads as the message
+   leaving the send control rather than inflating in place. A reply rises
+   without scale: the assistant column is full-width prose with no bubble
+   chrome, and scaling a text block reads as a glitch. Both play once, on live
+   arrival only; `data-msg-enter` is absent for anything present at mount and
+   for the row that ends a stream, whose text is already on screen.
+   ============================================ */
+
+.user-msg-bubble[data-msg-enter] {
+  animation: jinn-msg-send-in var(--duration-base) var(--ease-smooth) backwards;
+  transform-origin: 100% 100%;
+}
+.assistant-transcript[data-msg-enter] {
+  animation: jinn-msg-receive-in var(--duration-slow) var(--ease-smooth) backwards;
+}
+@keyframes jinn-msg-send-in { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes jinn-msg-receive-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* The three send states are token deltas on ONE geometry. Radius, padding,
+   weight and size are identical in all three: a size change would reflow the
+   row and move the transcript under the reader. `sent` adds nothing — the
+   absence of the pending delta is the signal. */
+.user-msg-bubble {
+  transition: opacity var(--duration-fast) var(--ease-smooth),
+              background-color var(--duration-base) var(--ease-smooth),
+              box-shadow var(--duration-base) var(--ease-smooth);
+}
+.user-msg-bubble[data-send-state="pending"] { opacity: 0.72; box-shadow: none; }
+.user-msg-bubble[data-send-state="failed"] { background: var(--danger-fill); box-shadow: none; }
+
+/* `Not delivered · Retry`. A transition, not an animation, so the reduced-motion
+   token block collapses it without a rule of its own; @starting-style is what
+   gives a just-inserted element something to transition from. */
+.send-failure-row { opacity: 1; transition: opacity var(--duration-base) var(--ease-smooth); }
+@starting-style { .send-failure-row { opacity: 0; } }
+@media (pointer: coarse) { .send-retry-btn { min-height: 34px; min-width: 34px; } }
+
+/* Both enter animations end on the resting state, so switching them off leaves
+   every bubble exactly where it belongs. The optimistic insert is not motion
+   and still happens. */
+@media (prefers-reduced-motion: reduce) {
+  .user-msg-bubble[data-msg-enter], .assistant-transcript[data-msg-enter] { animation: none; }
 }
 
 /* ============================================

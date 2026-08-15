@@ -211,3 +211,26 @@ describe('reconcileMessages — age cap on preserved messages', () => {
     expect(merged.find((m) => m.id === 'stale')).toBeUndefined()
   })
 })
+
+describe('reconcileMessages — failed sends', () => {
+  const now = 2000
+  const failed: Message = { id: 'f1', role: 'user', content: 'lost', timestamp: 1500, sendState: 'failed' }
+
+  it('keeps a failed send: no snapshot will ever carry it, and it owns the retry', () => {
+    const merged = reconcileMessages([userMsg, failed], [userMsg], now)
+    expect(merged.map((m) => m.id)).toEqual(['u1', 'f1'])
+    expect(merged.find((m) => m.id === 'f1')?.sendState).toBe('failed')
+  })
+
+  it('still drops one past the age cap, so it cannot be re-appended forever', () => {
+    const stale = { ...failed, timestamp: now - RECONCILE_PRESERVE_MAX_AGE_MS - 1 }
+    expect(reconcileMessages([userMsg, stale], [userMsg], now).find((m) => m.id === 'f1')).toBeUndefined()
+  })
+
+  it('does not resurrect a failed row once the retry has superseded it', () => {
+    // beginSendMessages drops the failed row before re-sending, so it is not in
+    // `current` any more and the retry's server twin carries the same text.
+    const merged = reconcileMessages([userMsg], [userMsg, { ...failed, id: 's1', sendState: undefined }], now)
+    expect(merged.filter((m) => m.content === 'lost')).toHaveLength(1)
+  })
+})

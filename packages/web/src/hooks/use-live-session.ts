@@ -38,6 +38,7 @@ import {
   type ChatBlockType,
   type LiveBlockArrival,
 } from '@/lib/blocks'
+import { beginSendMessages, clearPendingSend, markSendFailed } from '@/components/chat/message-send-state'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
 
 /** After a reconnect, if a turn is still 'loading' but no delta has arrived for
@@ -136,8 +137,8 @@ export interface UseLiveSessionResult {
   // --- write API (editable pane only) ---
   /** Optimistically append the user message + arm loading for a send. */
   beginSend: (userMsg: Message) => void
-  /** A send failed: clear loading + append an error bubble. */
-  failSend: (text: string) => void
+  /** A send failed: clear loading + mark that user message failed. */
+  failSend: (reason: string) => void
   /** Append a local-only message (status replies, etc.). */
   appendLocal: (msg: Message) => void
   /** Clear the pane (new chat). */
@@ -697,6 +698,9 @@ export function useLiveSession(
       const p = payload as Record<string, unknown>
       const sid = sessionIdRef.current
       if (!sid || p.sessionId !== sid) return
+      // The first frame of the turn IS the acknowledgement of the send, so the
+      // bubble settles here rather than waiting for the reply to finish.
+      if (event === 'session:started' || event === 'session:delta') setMessages(clearPendingSend)
 
       if (event === 'session:started') {
         setLoading(true)
@@ -1314,10 +1318,13 @@ export function useLiveSession(
   // --- write API (editable pane) ---
   const beginSend = useCallback((userMsg: Message) => {
     loadTokenRef.current += 1
-    pendingUserMessageRef.current = userMsg
     setMessages((prev) => {
-      intermediateStartRef.current = prev.length + 1
-      return [...prev, userMsg]
+      const next = beginSendMessages(prev, userMsg)
+      // The ref carries the same row the transcript holds, pending flag and all:
+      // a stale snapshot re-appends this copy, and a bare one would read as sent.
+      pendingUserMessageRef.current = next[next.length - 1]
+      intermediateStartRef.current = next.length
+      return next
     })
     setLoading(true)
     setTurnPending(true)
@@ -1327,21 +1334,12 @@ export function useLiveSession(
     lastDeltaAtRef.current = Date.now()
   }, [])
 
-  const failSend = useCallback((text: string) => {
-    const finalResponseId = crypto.randomUUID()
+  const failSend = useCallback((reason: string) => {
+    const failed = pendingUserMessageRef.current
     pendingUserMessageRef.current = null
     setLoading(false)
     setTurnPending(false)
-    setLiveFinalResponseId(finalResponseId)
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: finalResponseId,
-        role: 'assistant' as const,
-        content: text,
-        timestamp: Date.now(),
-      },
-    ])
+    setMessages((prev) => markSendFailed(prev, failed?.id, reason))
   }, [])
 
   const appendLocal = useCallback((msg: Message) => {

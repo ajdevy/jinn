@@ -16,6 +16,7 @@ import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { CollapsibleUserText } from './collapsible-user-text'
+import { useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import {
   TranscriptExpansionProvider,
@@ -786,17 +787,33 @@ export function TimestampDivider({ label }: { label: string }) {
   )
 }
 
-export function AssistantRowShell({ transcript, children }: { transcript?: React.ReactNode; children?: React.ReactNode }) {
+export function AssistantRowShell({ transcript, entering, children }: { transcript?: React.ReactNode; entering?: boolean; children?: React.ReactNode }) {
   return (
     <div className="assistant-msg-row flex min-w-0 justify-start mb-[var(--space-1)]">
       <div className="assistant-msg-bubble flex min-w-0 flex-col">
         {transcript != null && (
-          <div className="assistant-transcript py-[var(--space-1)] text-[var(--text-primary)] text-[length:var(--text-body)] leading-[var(--leading-relaxed)]">
+          <div data-msg-enter={entering || undefined} className="assistant-transcript py-[var(--space-1)] text-[var(--text-primary)] text-[length:var(--text-body)] leading-[var(--leading-relaxed)]">
             {transcript}
           </div>
         )}
         {children}
       </div>
+    </div>
+  )
+}
+
+/* ── SendFailureRow — recovery affordance under a failed bubble ─ */
+
+/** `Not delivered · Retry`, right-aligned under the bubble that failed. The
+ *  label is far under the coarse-pointer target, so `.send-retry-btn` carries
+ *  the padding that reaches it. `reason` is the transport error, kept out of the
+ *  copy but reachable rather than discarded. */
+function SendFailureRow({ reason, onRetry }: { reason?: string; onRetry?: () => void }) {
+  return (
+    <div className="send-failure-row mt-0.5 flex items-center gap-1 px-1 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]" title={reason}>
+      <span>Not delivered</span>
+      <span aria-hidden="true">·</span>
+      <button type="button" onClick={onRetry} disabled={!onRetry} className="send-retry-btn inline-flex items-center justify-center border-none bg-transparent px-1 text-[var(--system-red)] cursor-pointer disabled:cursor-default disabled:opacity-40">Retry</button>
     </div>
   )
 }
@@ -912,12 +929,14 @@ interface MessageRowProps {
   onPeek?: (peek: CommsPeekData) => void
   /** Live-arrival stagger index for comms rows (null = not arriving). */
   arrival?: number | null
+  /** The row arrived live and owes its one enter animation. */
+  entering?: boolean
   blockArrivals?: ReadonlyMap<string, LiveBlockArrival>
   /** Windowed rows must not skip their own layout — see ROW_SKIP_STYLE. */
   virtualized?: boolean
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, loading, onRetry, onPeek, arrival, blockArrivals, virtualized }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
   const media = messageMedia(msg)
@@ -1015,21 +1034,24 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
       {isUser && (
         <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
           {textContent && (
-            <div className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
+            <div data-send-state={msg.sendState} data-msg-enter={entering || undefined} className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
               <CollapsibleUserText messageId={msg.id || `idx-${i}`}>{formattedContent}</CollapsibleUserText>
             </div>
           )}
           {media.length > 0 && (
-            <div className="user-msg-bubble">
+            <div data-send-state={msg.sendState} className="user-msg-bubble">
               <MessageMedia media={media} isUser={true} />
             </div>
+          )}
+          {msg.sendState === 'failed' && (
+            <SendFailureRow reason={msg.sendError} onRetry={onRetry && textContent ? () => onRetry(textContent) : undefined} />
           )}
         </div>
       )}
 
       {/* Assistant message — same shell as the streaming container. */}
       {!isUser && !isNotification && (
-        <AssistantRowShell transcript={textContent ? formattedContent : undefined}>
+        <AssistantRowShell transcript={textContent ? formattedContent : undefined} entering={entering}>
           {blocks.length > 0 && (
             <div className="mt-1.5 flex min-w-0 max-w-full flex-col items-start gap-1.5">
               {blocks.map((block) => (
@@ -1282,31 +1304,7 @@ export function ChatMessages({
     pendingVirtualAnchorRef.current = null
   })
 
-  // Live-arrival tracking for the comms choreography: ids present at mount
-  // never animate; comms rows appended while mounted play the arrival once,
-  // staggered +90ms per row within a delivery batch. The refs are mutated in
-  // this memo on purpose — assignments must be visible to the SAME render.
-  const seenIdsRef = useRef<Set<string> | null>(null)
-  const arrivalsRef = useRef<Map<string, number>>(new Map())
-  useMemo(() => {
-    const seen = seenIdsRef.current
-    if (!seen) return
-    let batchIndex = 0
-    for (const message of messages) {
-      if (!message.id || seen.has(message.id)) continue
-      seen.add(message.id)
-      if (message.role === 'notification' && (parseTeammateReply(message) || parseAgentRelay(message))) {
-        arrivalsRef.current.set(message.id, batchIndex++)
-      }
-    }
-  }, [messages])
-  useEffect(() => {
-    if (!seenIdsRef.current) {
-      seenIdsRef.current = new Set(messages.map((message) => message.id).filter(Boolean) as string[])
-    }
-  }, [messages])
-  const arrivalFor = (id: string | undefined): number | null =>
-    id != null ? arrivalsRef.current.get(id) ?? null : null
+  const { commsArrivals, commsArrival, isEntering } = useMessageArrivals(messages, streamingText ?? '')
 
   // Captured when the first token lands so the streaming container can render
   // the same timestamp-divider decision as the final row that will replace it.
@@ -1362,7 +1360,7 @@ export function ChatMessages({
               <CallbackBurst
                 entries={item.entries}
                 onPeek={onPeek}
-                arrivals={arrivalsRef.current}
+                arrivals={commsArrivals}
               />
             </div>
           )}
@@ -1390,7 +1388,8 @@ export function ChatMessages({
         loading={loading}
         onRetry={retry}
         onPeek={onPeek}
-        arrival={arrivalFor(msg.id)}
+        arrival={commsArrival(msg.id)}
+        entering={isEntering(msg.id)}
         blockArrivals={blockArrivals}
         virtualized={virtualized}
       />
