@@ -2,9 +2,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { seedProbeHome, workflowServiceStub } from "./probe-plugin.js";
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-perms-"));
 process.env.JINN_HOME = tmpHome;
+seedProbeHome(tmpHome);
 
 /**
  * The gateway half of the permission seam, proved by denying one verb at a time.
@@ -28,23 +30,32 @@ vi.mock("../host/permissions.js", async (importOriginal) => {
   };
 });
 
+// The mock spreads the real module, so the table and the error class below are
+// the real ones — only the gate is swapped. Driving `it.each` off the table
+// rather than off a copy is what makes a verb added without a `callsFor` row
+// fail here instead of going untested.
+import { PLUGIN_HOST_VERBS, PluginHostDeniedError, type PluginHostVerb } from "../host/permissions.js";
+
 type Permissions = typeof import("../host/permissions.js");
-let permissions: Permissions;
 let createPluginHost: typeof import("../host/index.js").createPluginHost;
 let setPluginHostGateway: typeof import("../host/gateway-link.js").setPluginHostGateway;
 
 beforeAll(async () => {
-  permissions = await import("../host/permissions.js");
   ({ createPluginHost } = await import("../host/index.js"));
   ({ setPluginHostGateway } = await import("../host/gateway-link.js"));
 });
 
-/** One call per verb, so every verb in the union is exercised by name. */
-function callsFor(pluginId: string): Record<Permissions["PLUGIN_HOST_VERBS"][number], () => unknown> {
+/**
+ * One call per verb, so every verb in the union is exercised by name.
+ *
+ * The rows that need something to point at mint it here, before any verb is
+ * denied, so commenting exercises `todos.comment` alone rather than failing on
+ * the `todos.create` that set it up.
+ */
+function callsFor(pluginId: string): Record<PluginHostVerb, () => unknown> {
   const host = createPluginHost(pluginId);
-  // Minted before any verb is denied, so commenting exercises `todos.comment`
-  // alone rather than failing on the `todos.create` that set it up.
   const commentable = host.todos.create({ title: "commentable" });
+  const readable = host.notes.create({ title: "readable", body: "a body" });
   return {
     "todos.list": () => host.todos.list(),
     "todos.create": () => host.todos.create({ title: "a todo" }),
@@ -52,6 +63,16 @@ function callsFor(pluginId: string): Record<Permissions["PLUGIN_HOST_VERBS"][num
     "sessions.spawn": () => host.sessions.spawn({ prompt: "draft a reply" }),
     "employees.list": () => host.employees.list(),
     notify: () => host.notify("something happened"),
+    "workflows.list": () => host.workflows.list(),
+    "workflows.get": () => host.workflows.get("nightly"),
+    "workflows.start": () => host.workflows.start("nightly"),
+    "notes.list": () => host.notes.list(),
+    "notes.read": () => host.notes.read(readable.path),
+    "notes.create": () => host.notes.create({ title: "another note", body: "more" }),
+    "connectors.send": () => host.connectors.send("slack", { channel: "C1", text: "hello" }),
+    "cron.jobs": () => host.cron.jobs(),
+    "cron.runs": () => host.cron.runs("digest"),
+    "knowledge.search": () => host.knowledge.search("kestrel"),
   };
 }
 
@@ -60,6 +81,8 @@ beforeEach(() => {
   setPluginHostGateway({
     spawnSession: async () => ({ ok: true, session: { id: "sess-stub" } as never, dispatched: false }),
     emitNotice: () => {},
+    workflowService: workflowServiceStub(),
+    sendConnectorMessage: async () => ({ ok: true }),
   });
 });
 
@@ -68,24 +91,21 @@ afterEach(() => {
 });
 
 describe("denying one verb", () => {
-  it.each(["todos.list", "todos.create", "todos.comment", "sessions.spawn", "employees.list", "notify"] as const)(
-    "refuses %s and leaves the other five working",
-    async (target) => {
-      const calls = callsFor("mailbox");
-      denied.verb = target;
+  it.each(PLUGIN_HOST_VERBS)("refuses %s and leaves the other fifteen working", async (target) => {
+    const calls = callsFor("mailbox");
+    denied.verb = target;
 
-      for (const verb of permissions.PLUGIN_HOST_VERBS) {
-        const attempt = Promise.resolve().then(() => calls[verb]());
-        if (verb === target) {
-          await expect(attempt).rejects.toBeInstanceOf(permissions.PluginHostDeniedError);
-        } else {
-          // Settling at all is the assertion: a refusal would reject, and
-          // `notify` legitimately resolves to nothing.
-          await expect(attempt).resolves.not.toBeInstanceOf(Error);
-        }
+    for (const verb of PLUGIN_HOST_VERBS) {
+      const attempt = Promise.resolve().then(() => calls[verb]());
+      if (verb === target) {
+        await expect(attempt).rejects.toBeInstanceOf(PluginHostDeniedError);
+      } else {
+        // Settling at all is the assertion: a refusal would reject, and
+        // `notify` legitimately resolves to nothing.
+        await expect(attempt).resolves.not.toBeInstanceOf(Error);
       }
-    },
-  );
+    }
+  });
 
   it("names the plugin and the verb on the error", async () => {
     denied.verb = "sessions.spawn";

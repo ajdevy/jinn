@@ -5,7 +5,13 @@ import * as sdk from '@jinn/plugin-sdk'
 import { SDK_CONTRACT_VERSION } from '../version'
 
 const SDK_DIR = path.resolve(__dirname, '..')
-const CONTRACT = readFileSync(path.join(SDK_DIR, 'sdk.d.ts'), 'utf8')
+
+/* The contract is two files: `sdk.d.ts` and the typed verb tier it re-exports
+ * from `sdk-host.d.ts`. Reading both is what keeps the split from being a way to
+ * declare a name the barrel does not export — the sync below is over the pair,
+ * not over whichever half a name happened to land in. */
+const CONTRACT_FILES = ['sdk.d.ts', 'sdk-host.d.ts'] as const
+const CONTRACT = CONTRACT_FILES.map((file) => readFileSync(path.join(SDK_DIR, file), 'utf8')).join('\n')
 const BARREL = readFileSync(path.join(SDK_DIR, 'index.ts'), 'utf8')
 
 /** The names `sdk.d.ts` declares as values, which is what a runtime export is. */

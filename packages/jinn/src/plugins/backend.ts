@@ -20,10 +20,11 @@ export interface PluginServerContext {
   id: string;
   log: (message: string) => void;
   storage: PluginStorage;
-  /** The typed verb door: Todos, a scoped session spawn, the org, and a
-   *  dashboard notice. The same object the plugin's registrar gets is the one
-   *  its watcher starts with, so a background task and a route act as one
-   *  plugin rather than as two with the same id. */
+  /** The typed verb door: Todos, a scoped session spawn, the org, Workflows,
+   *  notes, a connector send, cron reads, knowledge search, and a dashboard
+   *  notice. The same object the plugin's registrar gets is the one its watcher
+   *  starts with, so a background task and a route act as one plugin rather
+   *  than as two with the same id. */
   host: PluginHost;
   /** Append an event to this plugin's ring, readable at `/api/plugins/<id>/events`
    *  by polling and over that path's socket. Bounded and in memory — the channel

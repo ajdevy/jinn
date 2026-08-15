@@ -6,4 +6,4 @@
  * contract, not against a release, and the two move at different speeds. A
  * plugin that reads this can refuse to load against a contract it predates.
  */
-export const SDK_CONTRACT_VERSION = '1.1.0'
+export const SDK_CONTRACT_VERSION = '1.2.0'

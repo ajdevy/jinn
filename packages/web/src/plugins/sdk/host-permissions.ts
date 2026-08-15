@@ -1,7 +1,7 @@
 /**
  * The one gate every typed host verb passes through.
  *
- * v1 grants all six verbs, so nothing is refused today. The gate exists now
+ * v1 grants every verb, so nothing is refused today. The gate exists now
  * rather than when the first denial does, because a door that was never narrow
  * cannot be narrowed afterwards without breaking every plugin at once. When a
  * policy arrives it replaces `GRANTED` and nothing else moves.
@@ -17,6 +17,16 @@ export const PLUGIN_HOST_VERBS = [
   'sessions.spawn',
   'employees.list',
   'notify',
+  'workflows.list',
+  'workflows.get',
+  'workflows.start',
+  'notes.list',
+  'notes.read',
+  'notes.create',
+  'connectors.send',
+  'cron.jobs',
+  'cron.runs',
+  'knowledge.search',
 ] as const
 
 export type PluginHostVerb = (typeof PLUGIN_HOST_VERBS)[number]

@@ -8,12 +8,22 @@ import { onHostEvent, type HostEventHandler } from './host-events'
 import { assertVerbAllowed } from './host-permissions'
 import { getHostState, subscribeHostState, type HostState } from './host-state'
 import {
+  connectors,
+  cron,
   employees,
+  knowledge,
+  notes,
   sessions,
   todos,
+  workflows,
+  type PluginHostConnectors,
+  type PluginHostCron,
   type PluginHostEmployees,
+  type PluginHostKnowledge,
+  type PluginHostNotes,
   type PluginHostSessions,
   type PluginHostTodos,
+  type PluginHostWorkflows,
 } from './host-verbs'
 
 export { PluginSdkError }
@@ -34,6 +44,11 @@ export interface PluginHost {
   todos: PluginHostTodos
   sessions: PluginHostSessions
   employees: PluginHostEmployees
+  workflows: PluginHostWorkflows
+  notes: PluginHostNotes
+  connectors: PluginHostConnectors
+  cron: PluginHostCron
+  knowledge: PluginHostKnowledge
 }
 
 function navigate(path: string): void {
@@ -77,4 +92,9 @@ export const host: PluginHost = {
   todos,
   sessions,
   employees,
+  workflows,
+  notes,
+  connectors,
+  cron,
+  knowledge,
 }

@@ -1,34 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { host } from '../host'
 import { PluginSdkError } from '../errors'
+import { requestOf, respond, stubFetch } from './host-verbs-harness'
 
-/**
- * One stubbed `fetch` for the whole file. Counting calls is the point of the
- * suite as much as reading them: a verb that fanned out into two requests, or
- * that retried, would spend a plugin's authority twice for one call.
- */
+/** The company verbs: Todos, sessions, the org — plus how a refusal reads. */
 let fetchMock: ReturnType<typeof vi.fn>
 
-function respond(body: unknown, init: { ok?: boolean; status?: number } = {}) {
-  return {
-    ok: init.ok ?? true,
-    status: init.status ?? 200,
-    statusText: '',
-    json: async () => body,
-  } as unknown as Response
-}
-
-/** The single request the verb made, with its URL made relative again — the
- *  app prefixes a base the plugin never sees. */
-function onlyRequest(): { path: string; init: RequestInit } {
-  expect(fetchMock).toHaveBeenCalledTimes(1)
-  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-  return { path: url.replace(/^https?:\/\/[^/]+/, ''), init }
+function onlyRequest() {
+  return requestOf(fetchMock)
 }
 
 beforeEach(() => {
-  fetchMock = vi.fn()
-  vi.stubGlobal('fetch', fetchMock)
+  fetchMock = stubFetch()
 })
 
 afterEach(() => {

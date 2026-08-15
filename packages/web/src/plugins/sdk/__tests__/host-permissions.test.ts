@@ -35,20 +35,47 @@ const CALL: Record<PluginHostVerb, () => unknown> = {
   'sessions.spawn': () => host.sessions.spawn({ prompt: 'draft a reply' }),
   'employees.list': () => host.employees.list(),
   notify: () => host.notify('something happened'),
+  'workflows.list': () => host.workflows.list(),
+  'workflows.get': () => host.workflows.get('nightly'),
+  'workflows.start': () => host.workflows.start('nightly'),
+  'notes.list': () => host.notes.list(),
+  'notes.read': () => host.notes.read('knowledge/a.md'),
+  'notes.create': () => host.notes.create({ title: 'a note', body: 'a body' }),
+  'connectors.send': () => host.connectors.send('slack', { channel: 'C1', text: 'hello' }),
+  'cron.jobs': () => host.cron.jobs(),
+  'cron.runs': () => host.cron.runs('digest'),
+  'knowledge.search': () => host.knowledge.search('kestrel'),
 }
 
 beforeEach(() => {
   denied.verb = null
   clearHostBridge()
   registerHostNotificationSink(() => {})
+  // One body carrying every envelope, so whichever verb is under test finds the
+  // key it unwraps. The cron routes answer a bare array, so they get one.
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      statusText: '',
-      json: async () => ({ workItems: [], workItem: {}, comment: {}, employees: [] }),
-    } as unknown as Response),
+    vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: async () =>
+          url.includes('/api/cron')
+            ? []
+            : {
+                workItems: [],
+                workItem: {},
+                comment: {},
+                employees: [],
+                items: [],
+                notes: [],
+                note: {},
+                results: [],
+                status: 'sent',
+              },
+      } as unknown as Response),
+    ),
   )
 })
 
@@ -58,7 +85,7 @@ afterEach(() => {
 })
 
 describe('denying one verb', () => {
-  it.each(PLUGIN_HOST_VERBS)('refuses %s and leaves the other five working', async (target) => {
+  it.each(PLUGIN_HOST_VERBS)('refuses %s and leaves the other fifteen working', async (target) => {
     denied.verb = target
 
     for (const verb of PLUGIN_HOST_VERBS) {
