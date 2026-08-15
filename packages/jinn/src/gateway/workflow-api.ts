@@ -186,16 +186,15 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
     send(res, 201, await service.rerun({ workflowId, runId, definition: value.definition as never, idempotencyKey: value.idempotencyKey as string })); return true;
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "approval" && method === "POST") {
-    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["decision", "reason", "expectedRevision"]);
-    const boundTodo = service.getRun(workflowId, runId)?.trigger.todoId;
-    if (boundTodo) throw new WorkflowServiceError("forbidden", `Workflow run ${runId} is bound to Todo ${boundTodo}; its gates are decided on that Todo. `
-      + `Decide it with decide_work_item_approval { id: "${boundTodo}" } on the Todos surface, not the Workflow-side approval.`);
+    const parsed = await body(req, res); if (parsed === undefined) return true;
+    const value = record(parsed, ["decision", "reason", "expectedRevision"]);
     send(res, 200, await service.decideApproval({ workflowId, runId, nodeId: parts[6]!,
       decision: value.decision as never, expectedRevision: value.expectedRevision as number,
       decidedBy: approvalActor(req), ...(value.reason === undefined ? {} : { reason: value.reason as string }) })); return true;
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "retry" && method === "POST") {
-    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["idempotencyKey"]);
+    const parsed = await body(req, res); if (parsed === undefined) return true;
+    const value = record(parsed, ["idempotencyKey"]);
     send(res, 200, await service.retryNode({ workflowId, runId, nodeId: parts[6]!,
       idempotencyKey: value.idempotencyKey as string })); return true;
   }

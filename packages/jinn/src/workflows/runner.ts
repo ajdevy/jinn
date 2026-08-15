@@ -457,9 +457,12 @@ export class WorkflowRunner {
     if (capacity > 0 && indexes.length > 0) this.changed(run);
   }
 
-  /** Mirror a parked gate onto the bound Todo (Gap 2: the operator picks and approves
-   *  from Todos), then wake its routed employee. Both best-effort; reached only from the
-   *  transition INTO parked, so an employee notification fires once per gate. */
+  /** Mirror a parked gate onto the run's bound Todo (Gap 2: the operator picks
+   *  and approves from Todos), then wake its routed employee when it has one.
+   *  Best-effort — neither a mirror nor a notification failure may fail a run
+   *  whose gate is already parked and decidable through the workflow API.
+   *  Reached only from the transition INTO parked, so an employee notification
+   *  fires once per gate rather than on every recovery sweep. */
   private mirrorApproval(run: WorkflowRunDetail, node: ApprovalNode, approver: string | undefined): void {
     const todoId = run.trigger.todoId;
     if (!todoId || !this.options.todoApprovals) return;
@@ -468,10 +471,7 @@ export class WorkflowRunner {
       this.options.todoApprovals.request({ todoId, request: node.config.description, ref,
         ...(node.config.options ? { options: node.config.options } : {}),
         ...(approver ? { approver } : {}) });
-    } catch (error) {
-      logger.warn(`Workflow run ${run.id} could not mirror gate ${node.id} onto Todo ${todoId}: `
-        + `${error instanceof Error ? error.message : String(error)}`);
-    }
+    } catch { /* the workflow-side gate stands on its own */ }
     try {
       this.options.todoApprovals.notifyParked({ todoId, workflowId: run.workflowId, runId: run.id,
         nodeId: node.id, request: node.config.description, ref });

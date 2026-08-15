@@ -93,7 +93,7 @@ describe("Workflow v2 canonical API", () => {
     const service = {
       getDefinition: vi.fn(() => result), saveDefinition: vi.fn(() => result), duplicateDefinition: vi.fn(() => result),
       retireDefinition: vi.fn(() => result), setEnabled: vi.fn(() => result), startManual: vi.fn(async () => result),
-      listRuns: vi.fn(() => ({ items: [result], nextCursor: null })), getRun: vi.fn(() => ({ ...result, trigger: { kind: "manual" }, attempts: [] })),
+      listRuns: vi.fn(() => ({ items: [result], nextCursor: null })), getRun: vi.fn(() => ({ ...result, attempts: [] })),
       getRunSpend: vi.fn(() => 0),
       cancelRun: vi.fn(async () => result), rerun: vi.fn(async () => result), getAttemptTranscript: vi.fn(() => []),
       decideApproval: vi.fn(async () => result), retryNode: vi.fn(async () => result),
@@ -351,7 +351,7 @@ describe("Workflow v2 canonical API", () => {
 
   it("rejects approval actor spoofing before the service and maps approval authority/conflict errors", async () => {
     const decideApproval = vi.fn();
-    const context = { gatewayAuthToken: "test-token", workflowService: { decideApproval, getRun: () => ({ trigger: { kind: "manual" } }) }, getConfig: () => ({ gateway: {}, engines: {} }),
+    const context = { gatewayAuthToken: "test-token", workflowService: { decideApproval }, getConfig: () => ({ gateway: {}, engines: {} }),
       connectors: new Map(), sessionManager: { getQueue: () => ({}) }, emit: vi.fn(), startTime: 1 } as unknown as ApiContext;
     const spoof = response();
     await handleApiRequest(request("POST", "/api/workflows/release-flow/runs/run_11111111-1111-4111-8111-111111111111/nodes/review/approval",

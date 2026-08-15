@@ -24,7 +24,7 @@ For company state, the Jinn MCP is the hands. Employees should use it to read an
 
 The same contract should hold everywhere: sources emit events, Workflow Triggers match events, Workflows run repeatable procedures, Todos are deliberately authored to record owned work, and Notes preserve Markdown knowledge. Avoid parallel concepts that do the same job in different shapes.
 
-An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo. A Todo-status trigger binds its run to the Todo that fired it; the run reflects its lifecycle onto the bound Todo and parks its approval gates there, decided with `decide_work_item_approval`. Only an unbound run's gates are decided on the run itself with `decide_workflow_approval`, and cancelling a Workflow run changes no Todo status.
+A Workflow invocation never creates, links, transitions, approves, or mutates a Todo. A Todo-status trigger is a one-way input; the resulting Workflow run is independent. Human gates use Workflow run approval, never Todo approval, and cancelling a Workflow run touches no Todo.
 
 Workflow runs are durable records, not Sessions. Manual, schedule, event, Todo-status, and Workflow-call starts all enter the same durable runner.
 

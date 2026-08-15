@@ -59,39 +59,39 @@ describe("template company doctrine", () => {
       {
         rel: "CLAUDE.md",
         required: [
-          "An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.",
-          "A Todo-status trigger binds its run to the Todo that fired it; the run reflects its lifecycle onto the bound Todo and parks its approval gates there, decided with `decide_work_item_approval`.",
+          "A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.",
+          "A Todo-status trigger is a one-way input; the resulting Workflow run is independent.",
           "Workflow runs are durable records, not Sessions.",
         ],
       },
       {
         rel: "docs/company-doctrine.md",
         required: [
-          "An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.",
-          "A Todo-status trigger binds its run to the Todo that fired it; the run reflects its lifecycle onto the bound Todo and parks its approval gates there, decided with `decide_work_item_approval`.",
+          "A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.",
+          "A Todo-status trigger is a one-way input; the resulting Workflow run is independent.",
           "Workflow runs are durable records, not Sessions.",
         ],
       },
       {
         rel: "docs/org.md",
         required: [
-          "An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.",
-          "A Todo-status trigger binds its run to the Todo that fired it; the run reflects its lifecycle onto the bound Todo and parks its approval gates there, decided with `decide_work_item_approval`.",
+          "A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.",
+          "A Todo-status trigger is a one-way input; the resulting Workflow run is independent.",
           "Workflow runs are durable records, not Sessions.",
         ],
       },
       {
         rel: "skills/todo-handling/SKILL.md",
         required: [
-          "An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.",
-          "A gate parked on a Todo by its bound Workflow run is decided here with `decide_work_item_approval`",
-          "an unbound Workflow run never mutates a Todo.",
+          "A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.",
+          "Todo approvals affect only the Todo.",
+          "Workflow operations never mutate Todos.",
         ],
       },
       {
         rel: "skills/workflow/SKILL.md",
         required: [
-          "An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.",
+          "A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.",
           "Workflow runs are durable records, not Sessions.",
           "cancel_workflow_run",
           "decide_workflow_approval",
@@ -428,8 +428,8 @@ describe("template company doctrine", () => {
     expect(todoSkill).toContain("rootsOnly");
     expect(todoSkill).toContain("identical pending request");
     expect(todoSkill).toContain("does not perform approval decisions");
-    expect(todoSkill).toContain("A gate parked on a Todo by its bound Workflow run is decided here");
-    expect(todoSkill).toContain("an unbound Workflow run never mutates a Todo");
+    expect(todoSkill).toContain("Todo approvals affect only the Todo");
+    expect(todoSkill).toContain("Workflow operations never mutate Todos");
     expect(todoSkill).not.toContain("Workflow gate");
     expect(todoSkill).not.toContain("cancel_workflow_run");
     expect(todoSkill).toContain("maxRounds");

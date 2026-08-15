@@ -24,8 +24,8 @@ Questions and approvals route to the manager/COO by default. Escalate directly t
 
 ## Company contracts
 
-- An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.
-- A Todo-status trigger binds its run to the Todo that fired it; the run reflects its lifecycle onto the bound Todo and parks its approval gates there, decided with `decide_work_item_approval`.
+- A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.
+- A Todo-status trigger is a one-way input; the resulting Workflow run is independent.
 - Workflow runs are durable records, not Sessions.
 - Triggers are a Workflow detail: bindings that wake a Workflow from supported events or polls.
 - Workers move finished Todos to in review; reviewers, not producers, close them.
