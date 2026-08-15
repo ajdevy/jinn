@@ -67,17 +67,56 @@ function unload(gatewayId: string): void {
   door.delete(gatewayId)
 }
 
-/** The client source, or null when the gateway will not serve it — unknown,
- *  disabled, or missing its client half, which all mean "not installed now". */
-async function fetchClient(id: string): Promise<string | null> {
+/** What the client route answered: the source, the plugin no longer being
+ *  served, or a file that is there and would not compile. */
+type ClientFetch =
+  | { ok: true; source: string }
+  | { ok: false; kind: 'gone' }
+  | { ok: false; kind: 'error'; message: string }
+
+/** The reason a 422 carries — file, line and message, as the gateway's transform
+ *  reported them. */
+async function refusalReason(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: unknown }
+    if (typeof body.error === 'string' && body.error) return body.error
+  } catch {
+    // A refusal whose body will not parse is still a refusal. The status is the
+    // fact the row needs; falling back keeps it from reading as a success.
+  }
+  return 'the gateway could not compile this plugin’s client half'
+}
+
+/** The client source, or why there is none. Only a 422 says the plugin is
+ *  installed and broken; every other refusal — unknown, disabled, or missing its
+ *  client half — means "not installed now". */
+async function fetchClient(id: string): Promise<ClientFetch> {
   const response = await authFetch(`/api/plugins/${encodeURIComponent(id)}/client`)
-  return response.ok ? await response.text() : null
+  if (response.ok) return { ok: true, source: await response.text() }
+  if (response.status !== 422) return { ok: false, kind: 'gone' }
+  return { ok: false, kind: 'error', message: await refusalReason(response) }
+}
+
+/** What a refusal leaves behind in the dashboard. The two are not the same
+ *  absence: one plugin stopped being installed, the other is installed and will
+ *  not compile, and a plugin that vanished when it broke is one nobody can fix. */
+function recordRefusal(row: PluginRecord, refusal: Extract<ClientFetch, { ok: false }>): void {
+  if (refusal.kind === 'gone') {
+    // Gone between the listing and the fetch. That is an unload, not a load
+    // error: a plugin that is no longer there did not fail at anything.
+    unload(row.id)
+    return
+  }
+  // Broken, and still installed. It keeps its row — carrying the file and line
+  // its author has to fix — and whatever version is already running keeps
+  // running, because unloading it would take the working page down too.
+  plugins.publishPlugin({ ...row, status: 'error', error: refusal.message })
 }
 
 async function loadFromGateway(row: PluginRecord): Promise<void> {
-  let source: string | null
+  let client: ClientFetch
   try {
-    source = await fetchClient(row.id)
+    client = await fetchClient(row.id)
   } catch (error) {
     // The gateway became unreachable mid-pass. Leaving the plugin exactly as it
     // is beats both unloading a live one and blaming it for the network.
@@ -85,13 +124,12 @@ async function loadFromGateway(row: PluginRecord): Promise<void> {
     return
   }
 
-  if (source === null) {
-    // Gone between the listing and the fetch. That is an unload, not a load
-    // error: a plugin that is no longer there did not fail at anything.
-    unload(row.id)
+  if (!client.ok) {
+    recordRefusal(row, client)
     return
   }
 
+  const source = client.source
   const previous = door.get(row.id) ?? null
   const id = await loadRuntimePlugin(source, row.id, row.kind)
 

@@ -75,6 +75,9 @@ importers:
       discord.js:
         specifier: ^14.27.0
         version: 14.27.0
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
       form-data:
         specifier: ^4.0.6
         version: 4.0.6

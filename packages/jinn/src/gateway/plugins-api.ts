@@ -2,6 +2,7 @@ import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dispatchPluginRequest, disposePluginBackend, pluginSettings } from "../plugins/backend.js";
+import { pluginClientModule } from "../plugins/client-transform.js";
 import { inventoryRow, loadPlugin, scanPlugins, type DiscoveredPlugin } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
 import { readPluginEvents } from "../plugins/event-log.js";
@@ -129,10 +130,24 @@ async function servePluginEvents(res: ServerResponse, id: string, raw: string | 
   json(res, readPluginEvents(id, since));
 }
 
-/** Exactly one file, named by the manifest rather than by the caller. */
+/**
+ * Exactly one file, named by the manifest rather than by the caller, compiled
+ * only if it turns out to be JSX. A plain-ESM client half is still streamed from
+ * disk, so what it is served as is what its author wrote, byte for byte.
+ */
 async function serveClient(res: ServerResponse, id: string, context: ApiContext): Promise<void> {
   const plugin = await servablePlugin(id, context);
   if (!plugin?.client) return notFound(res);
+
+  const client = await pluginClientModule(id, plugin.client);
+  // 422, because the file is installed and served and did not compile: 404
+  // already means "not installed" and the dashboard unloads on it, and a 500
+  // would blame the gateway for a plugin the operator can fix.
+  if (client.kind === "error") return json(res, { error: client.message }, 422);
+  if (client.kind === "transformed") {
+    res.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-store" });
+    return void res.end(client.code);
+  }
   // The client half is ESM by contract, whatever its file is called.
   await serveFile(res, plugin.client, "application/javascript");
 }

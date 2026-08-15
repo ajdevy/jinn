@@ -204,6 +204,43 @@ describe('folders that go away', () => {
   })
 })
 
+describe('a client half the gateway could not compile', () => {
+  const REASON = 'client.js:4:22: Unexpected end of file'
+
+  /** The 422 the client route answers for a plugin whose JSX will not parse:
+   *  installed, served, and broken — which is not the same as absent. */
+  function gatewayRefusesToCompile(folder: string): void {
+    authFetch.mockImplementation((path: string) => {
+      if (path === '/api/plugins') {
+        return Promise.resolve(Response.json({ plugins: [row(folder)], inventory: [row(folder)] }))
+      }
+      return Promise.resolve(Response.json({ error: REASON }, { status: 422 }))
+    })
+  }
+
+  it('shows the file and line on the plugin’s own row', async () => {
+    const { folder } = fresh()
+    gatewayRefusesToCompile(folder)
+
+    await scanDiskPlugins()
+
+    expect(recordFor(folder)).toEqual(row(folder, { status: 'error', error: REASON }))
+  })
+
+  it('leaves the running plugin registered rather than unloading it as missing', async () => {
+    const { folder, area } = fresh()
+    gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
+    await scanDiskPlugins()
+    expect(contributions.getArea(area)).toHaveLength(1)
+
+    gatewayRefusesToCompile(folder)
+    await scanDiskPlugins()
+
+    expect(recordFor(folder)?.error).toBe(REASON)
+    expect(contributions.getArea(area)).toHaveLength(1)
+  })
+})
+
 describe('the scanning guard', () => {
   it('makes a rescan during a pass a no-op rather than an overlap', async () => {
     const { folder, area } = fresh()
