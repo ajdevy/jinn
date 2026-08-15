@@ -170,15 +170,24 @@ Failures are rejections, never a value a caller has to narrow. In the browser a 
 
 The `AREAS` values are the contract, and the property names are only an ergonomic alias:
 
-| Constant | Value | What it adds |
-|----------|-------|--------------|
+| Constant | Value | Insertion point |
+|----------|-------|-----------------|
 | `AREAS.routes` | `routes` | A full page at `data.path`, rendered by `render` |
 | `AREAS.sidebarNav` | `sidebar.nav` | A nav row (`data: { href, label, icon? }`), visible on desktop, mobile, and overflow |
-| `AREAS.statusBarRight` | `statusbar.right` | A chip in the status bar |
-| `AREAS.todoDetailActions` | `todo.detail.actions` | An action in the Todo detail header |
-| `AREAS.todoDetailSections` | `todo.detail.sections` | A section in the Todo detail body |
+| `AREAS.statusBarRight` | `statusbar.right` | A chip in the status bar, at its right edge |
+| `AREAS.todoDetailActions` | `todo.detail.actions` | A chip in the Todo detail crumb bar's right-hand action group, ahead of copy-link and ⋯ |
+| `AREAS.todoDetailSections` | `todo.detail.sections` | A section in the Todo detail body, after the app's own sections and before the properties rail and Activity |
+| `AREAS.chatComposer` | `chat.composer` | A chip in the chat view, in a row directly above the composer |
+| `AREAS.homeWidgets` | `home.widgets` | A pane on the home surface — the chat sidebar, below its control band and above the chats — on both the desktop rail and the phone's home screen |
 
-The first three have a host today. The two Todo detail ids are declared so both sides spell them the same way, but nothing renders them yet: a contribution targeting one registers without error and appears nowhere.
+Every one of them is hosted, and every one behaves the same way in the two respects that matter when more than one plugin is installed:
+
+- **Order is `order` ascending, and a tie keeps registration order.** A contribution without an `order` sorts as `0`. Two plugins that both omit it therefore land in load order, which is the order the directory was scanned in — pick an explicit `order` if the relative position matters to you.
+- **Each contribution renders inside its own error boundary.** One that throws degrades to a Retry in its own slot, naming itself; its siblings, the surface hosting them, and the app keep working. Retry re-mounts it, so a failure that has since gone away recovers without a page reload.
+
+`chat.composer` is composer-adjacent rather than in the message list because the composer is mounted for every chat view, the CLI one included, while the message list's footer is already occupied and mounts conditionally. A contribution's visibility should not depend on host state a plugin cannot see.
+
+There is no dashboard route to host a widget on: `/` is the chat page, so `home.widgets` is hosted on the chat sidebar, which is the app's home surface on both form factors.
 
 `icon` on a `sidebar.nav` row is optional because the loader's import allowlist does not reach an icon library; a row without one gets the app's fallback glyph.
 

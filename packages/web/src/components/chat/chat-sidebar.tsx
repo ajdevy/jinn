@@ -36,6 +36,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import {
+  getReadSessions,
+  loadCollapsedState,
+  loadExpandedState,
+  markAllReadForEmployee,
+  markSessionRead,
+  saveCollapsedState,
+  saveExpandedState,
+} from "@/components/chat/chat-sidebar-prefs"
+import { Slot } from "@/contrib/slot"
+import { AREAS } from "@/contrib/types"
 import { mergeSidebarEmployees, bucketByDay, summarizeOlder, isFocusedSession } from "@/components/chat/chat-route-helpers"
 import { MobileSessionRow } from "@/components/chat/mobile-session-row"
 import {
@@ -111,68 +122,11 @@ interface FlatRow {
 const DIRECT_GROUP = "__direct__"
 const CRON_GROUP = "__cron__"
 
-const COLLAPSE_STORAGE_KEY = "jinn-sidebar-collapsed"
-const EXPANDED_STORAGE_KEY = "jinn-sidebar-expanded"
 const OLDER_EXPANDED_STORAGE_KEY = "jinn-sidebar-older-expanded"
 const FOCUS_MODE_STORAGE_KEY = "jinn-sidebar-focus-mode"
 const EMPTY_PINNED_SESSIONS = new Set<string>()
 
 type FocusMode = "focused" | "all"
-
-function getReadSessions(): Set<string> {
-  try {
-    const raw = localStorage.getItem("jinn-read-sessions")
-    return raw ? new Set(JSON.parse(raw)) : new Set()
-  } catch {
-    return new Set()
-  }
-}
-
-function markSessionRead(id: string) {
-  const read = getReadSessions()
-  read.add(id)
-  const arr = Array.from(read)
-  if (arr.length > 500) arr.splice(0, arr.length - 500)
-  localStorage.setItem("jinn-read-sessions", JSON.stringify(arr))
-}
-
-function markAllReadForEmployee(sessions: Session[]) {
-  const read = getReadSessions()
-  for (const s of sessions) read.add(s.id)
-  const arr = Array.from(read)
-  if (arr.length > 500) arr.splice(0, arr.length - 500)
-  localStorage.setItem("jinn-read-sessions", JSON.stringify(arr))
-}
-
-function loadCollapsedState(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY)
-    return raw ? new Set(JSON.parse(raw)) : new Set()
-  } catch {
-    return new Set()
-  }
-}
-
-function saveCollapsedState(collapsed: Set<string>) {
-  try {
-    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsed)))
-  } catch {}
-}
-
-function loadExpandedState(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(EXPANDED_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveExpandedState(expanded: Record<string, boolean>) {
-  try {
-    localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(expanded))
-  } catch {}
-}
 
 function titleCase(slug: string | null | undefined): string {
   if (!slug) return ""
@@ -1782,6 +1736,15 @@ export function ChatSidebar({
           </div>
         </div>
       </div>
+
+      {/* Home widgets — the app's home surface is this rail, on both the desktop
+          list and the phone's home screen. Below the control band and above the
+          chats, so a widget never pushes the search affordance off the top. */}
+      <Slot
+        area={AREAS.homeWidgets}
+        variant="pane"
+        className="shrink-0 flex flex-col gap-2 px-3 pb-2"
+      />
 
       <div className="relative min-h-0 flex-1">
         {/* C10: short top scrim so rows dissolve under the header instead of

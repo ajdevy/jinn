@@ -7,6 +7,12 @@ interface SlotProps {
   area: string
   /** Fallback shape for a contribution that throws. */
   variant?: ContribBoundaryVariant
+  /**
+   * Layout for a wrapper around the contributions — the host's spacing, since a
+   * contribution cannot know what it is sitting between. Applied only when the
+   * area has something in it, so an empty area still adds no node at all.
+   */
+  className?: string
 }
 
 /**
@@ -21,21 +27,20 @@ export function ContributionOutlet({ contribution }: { contribution: ResolvedCon
 }
 
 /** Renders one area's contributions, each inside its own error boundary. */
-export function Slot({ area, variant = "pane" }: SlotProps) {
+export function Slot({ area, variant = "pane", className }: SlotProps) {
   const items = useContributions(area)
   if (items.length === 0) return null
 
-  return (
-    <>
-      {items.map((contribution) => (
-        <ContribBoundary
-          key={`${contribution.source}:${contribution.id}`}
-          id={contribution.id}
-          variant={variant}
-        >
-          <ContributionOutlet contribution={contribution} />
-        </ContribBoundary>
-      ))}
-    </>
-  )
+  const rendered = items.map((contribution) => (
+    <ContribBoundary
+      key={`${contribution.source}:${contribution.id}`}
+      id={contribution.id}
+      variant={variant}
+    >
+      <ContributionOutlet contribution={contribution} />
+    </ContribBoundary>
+  ))
+
+  if (className) return <div className={className}>{rendered}</div>
+  return <>{rendered}</>
 }

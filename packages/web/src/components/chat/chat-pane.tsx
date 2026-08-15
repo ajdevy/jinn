@@ -19,6 +19,9 @@ import { dismissStaleChat, isStaleChatDismissed, shouldSuggestFreshChat } from '
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
 import type { CliTerminalHandle } from '@/components/cli-terminal'
 import { buildNewSessionParams, resolveNewSessionSelector, shouldPersistNewSessionSelector } from '@/components/chat/new-chat-helpers'
+import { readNewSessionSelector, writeNewSessionSelector } from '@/components/chat/new-session-selector'
+import { Slot } from '@/contrib/slot'
+import { AREAS } from '@/contrib/types'
 import type { EnginesResponse } from '@/lib/api'
 import type { Message, MediaAttachment } from '@/lib/conversations'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
@@ -27,33 +30,6 @@ import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
 // useLiveSession; shouldRecoverStuckTurn moved there too. Re-export it so the
 // existing completion-watchdog test (imports from this module) keeps working.
 export { shouldRecoverStuckTurn } from '@/hooks/use-live-session'
-
-const NEW_SESSION_SELECTOR_KEY = 'jinn-chat-new-session-selector'
-
-function readNewSessionSelector(): SelectorValue {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(NEW_SESSION_SELECTOR_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as SelectorValue
-    return {
-      engine: typeof parsed.engine === 'string' ? parsed.engine : undefined,
-      model: typeof parsed.model === 'string' ? parsed.model : undefined,
-      effortLevel: typeof parsed.effortLevel === 'string' ? parsed.effortLevel : undefined,
-    }
-  } catch {
-    return {}
-  }
-}
-
-function writeNewSessionSelector(value: SelectorValue): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(NEW_SESSION_SELECTOR_KEY, JSON.stringify({
-    engine: value.engine,
-    model: value.model,
-    effortLevel: value.effortLevel,
-  }))
-}
 
 interface ChatPaneProps {
   sessionId: string | null
@@ -662,6 +638,15 @@ export function ChatPane({
           paused={currentSession?.paused as boolean ?? false}
         />
       )}
+
+      {/* Contributed chat surface. Composer-adjacent rather than in the message
+          list, because this is mounted for every view including CLI — a
+          contribution's visibility does not depend on host state it cannot see. */}
+      <Slot
+        area={AREAS.chatComposer}
+        variant="chip"
+        className="flex shrink-0 flex-wrap items-center gap-1 px-[var(--space-4)] py-[var(--space-1)]"
+      />
 
       {/* Input — chat-style composer for every view, including CLI (the PTY engine
           accepts attachments + the prompt is injected into xterm via bracketed-paste). */}
