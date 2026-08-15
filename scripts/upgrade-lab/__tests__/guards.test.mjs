@@ -34,7 +34,8 @@ import {
   runWithLabCleanup,
   quiesceAndRemoveLabRoot,
 } from "../run.mjs"
-import { EXTERNAL_WAIT_CEILING_MS, external } from "./external-ceilings.mjs"
+import { EXTERNAL_WAIT_CEILING_MS, external, hostProcessTable } from "./external-ceilings.mjs"
+import { withLabHomeFixture } from "./lab-fixture-process.mjs"
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex")
 
@@ -710,7 +711,7 @@ test("representative state comparison requires real semantic identities and cont
   assert.throws(() => assertRepresentativeStateSurvived(before, unsafeWorkflow), /workflow.*changed/i)
 })
 
-test("cleanup waits for a lab-home descendant that recreates .hermes before removing the nonce root", external, async () => {
+test("cleanup waits for a lab-home descendant that recreates .hermes before removing the nonce root", hostProcessTable, async () => {
   const root = createLabRoot()
   const layout = assertIsolatedLayout(root)
   const source = `
@@ -723,20 +724,11 @@ process.on("SIGTERM", () => setTimeout(() => {
 }, 40))
 setInterval(() => {}, 1000)
 `
-  const child = spawn(process.execPath, ["-e", source], {
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: layout.osHome, JINN_HOME: layout.home },
-    stdio: ["ignore", "ignore", "inherit", "ipc"],
+  await withLabHomeFixture({ layout, source }, async (child) => {
+    await quiesceAndRemoveLabRoot(root)
+    assert.equal(child.exitCode, 0)
+    assert.equal(fs.existsSync(root), false)
   })
-  await new Promise((resolve, reject) => {
-    child.once("message", resolve)
-    child.once("error", reject)
-    child.once("exit", (code, signal) => reject(new Error(`fixture exited early: ${code ?? signal}`)))
-  })
-
-  await quiesceAndRemoveLabRoot(root)
-
-  assert.equal(child.exitCode, 0)
-  assert.equal(fs.existsSync(root), false)
 })
 
 test("process cleanup filters to lab-owned PIDs before Node receives the process table", () => {
@@ -757,7 +749,7 @@ test("process cleanup filters to lab-owned PIDs before Node receives the process
   }
 })
 
-test("process cleanup does not classify its short-lived scanner helpers as lab processes", external, async () => {
+test("process cleanup does not classify its short-lived scanner helpers as lab processes", hostProcessTable, async () => {
   const root = createLabRoot()
   try {
     const layout = assertIsolatedLayout(root)
