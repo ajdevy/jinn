@@ -164,7 +164,8 @@ describe('useStickToBottom — behaviour', () => {
     // follow by distance alone kept it engaged here, and every re-pin below undid it.
     act(() => { el.scrollTop = 1000 - 200 - 10; fireEvent.scroll(el) })
     expect(dist(el)).toBe(10)
-    expect(getByTestId('jump').textContent).toBe('show')
+    // Detached, but not far enough for the arrow to be worth offering.
+    expect(getByTestId('jump').textContent).toBe('hide')
     const readingPos = el.scrollTop
 
     // A freshly opened transcript keeps resizing for a second or two (arrival and

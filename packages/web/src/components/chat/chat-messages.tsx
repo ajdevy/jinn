@@ -14,6 +14,7 @@ import { FoldRegion, type FoldSummaryData } from './fold-region'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
+import { useStreamingFormat } from './streaming-format'
 import { CollapsibleUserText } from './collapsible-user-text'
 import { useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
@@ -699,40 +700,6 @@ function ToolGroup({
   )
 }
 
-/* ── Partial markdown fixer for streaming ───────────────── */
-
-/**
- * Close unclosed markdown tokens so partial content renders cleanly.
- * Handles: code blocks (```), inline code (`), bold (**), italic (*).
- */
-function closePartialMarkdown(text: string): string {
-  let result = text
-
-  // Count triple backticks — if odd, close the code block
-  const tripleBackticks = (result.match(/```/g) || []).length
-  if (tripleBackticks % 2 !== 0) {
-    result += '\n```'
-  }
-
-  // Only fix inline markers outside of code blocks
-  if (tripleBackticks % 2 === 0) {
-    // Count inline backticks outside code blocks (simplified: count ` not part of ```)
-    const withoutCodeBlocks = result.replace(/```[\s\S]*?```/g, '')
-    const inlineBackticks = (withoutCodeBlocks.match(/`/g) || []).length
-    if (inlineBackticks % 2 !== 0) {
-      result += '`'
-    }
-
-    // Count ** pairs
-    const boldMarkers = (withoutCodeBlocks.match(/\*\*/g) || []).length
-    if (boldMarkers % 2 !== 0) {
-      result += '**'
-    }
-  }
-
-  return result
-}
-
 /* ── Timestamp formatting ──────────────────────────────── */
 
 function formatTimestamp(ts: number): string {
@@ -1094,10 +1061,7 @@ function StreamingBubble({ streamingText, prevMessage, startedAt }: {
   prevMessage?: Message
   startedAt: number
 }) {
-  const formattedContent = useMemo(
-    () => formatMessage(closePartialMarkdown(streamingText)),
-    [streamingText]
-  )
+  const formattedContent = useStreamingFormat(streamingText)
   const showTimestamp = !prevMessage || startedAt - prevMessage.timestamp > 5 * 60 * 1000
   return (
     <div data-streaming>
@@ -1146,6 +1110,8 @@ interface ChatMessagesProps {
   footer?: React.ReactNode
   /** Shown in place of the message list while there is nothing to show yet. */
   emptyState?: React.ReactNode
+  /** Where the reader left this transcript. Opens there rather than at the bottom. */
+  initialScrollTop?: number
 }
 
 function latestTurnId(messages: Message[]): string | null {
@@ -1173,6 +1139,7 @@ export function ChatMessages({
   blockAnnouncement = '',
   footer,
   emptyState,
+  initialScrollTop,
 }: ChatMessagesProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
@@ -1234,16 +1201,26 @@ export function ChatMessages({
   // `scrollTo(scrollHeight)` animates toward the stale estimate and stops short.
   const scrollToEnd = useCallback((behavior: ScrollBehavior) => {
     const count = groupKeysRef.current.length
-    if (count > 0) virtualizer.scrollToIndex(count - 1, { align: 'end', behavior })
+    if (count === 0) return
+    virtualizer.scrollToIndex(count - 1, { align: 'end', behavior })
+    // That leaves the virtualizer re-issuing the scroll from its own rAF until the
+    // target holds still — for up to five seconds, and without asking whether the
+    // reader has taken the scroller over since. Retire it on the instant path and
+    // let the settle window re-target instead, which is bounded and does ask.
+    // A smooth jump still needs it: that is what lands it on the true bottom.
+    const node = scrollContainerRef.current
+    if (node && behavior !== 'smooth') virtualizer.scrollToOffset(node.scrollTop)
   }, [virtualizer])
 
   // Stick-to-bottom: one hook owns follow-intent, growth-follow, resize/keyboard,
-  // tab-return, mount-snap, and the jump affordance. See use-stick-to-bottom.ts.
+  // tab-return, the open, and the jump affordance. See use-stick-to-bottom.ts.
   const { containerRef, showJump, unreadCount, scrollToBottom } = useStickToBottom({
     streamingText,
     messageCount: messages.length,
     latestMessageKey: messages.at(-1)?.id ?? null,
     scrollToEnd: virtualized ? scrollToEnd : undefined,
+    initialScrollTop,
+    contentSize: virtualized ? () => virtualizer.getTotalSize() : undefined,
   })
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     scrollContainerRef.current = node

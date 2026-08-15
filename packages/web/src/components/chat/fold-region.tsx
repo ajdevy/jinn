@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Settings } from 'lucide-react'
+import { ANCHOR_WINDOW_MS, anchorScrollDuring, canAnchorFold } from './fold-anchor'
 
 /**
  * The post-turn fold: once the user moves on from an answered turn, EVERYTHING
@@ -45,53 +46,9 @@ export function foldSummaryWords(summary: FoldSummaryData): string[] {
 }
 
 const FOLD_MS = 420
-const ANCHOR_WINDOW_MS = 480
-/** Resting height of the summary ledger line (min-h-8). */
-export const FOLD_SUMMARY_PX = 32
-
-/**
- * The anchored live fold only plays when the scroller can absorb the shrink:
- * compensation scrolls UP by (region height - summary height), and scrollTop
- * cannot go below 0. Without that slack the animated path would yank content
- * up by the remainder, so callers use an instant fold instead. Pure; exported
- * for tests.
- */
-export function canAnchorFold(scrollSlack: number, regionHeight: number, summaryHeight = FOLD_SUMMARY_PX): boolean {
-  return scrollSlack + 2 >= regionHeight - summaryHeight
-}
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-}
-
-/** Per-frame scroll compensation: keeps everything below `anchorEl` pixel-fixed
- *  while its height changes. `referenceBottom` lets the caller anchor to a
- *  position captured BEFORE a same-frame insertion (the summary row), so the
- *  insertion itself gets compensated too. Returns a cancel function so an
- *  interrupted toggle can re-anchor from the current position instead of
- *  fighting the stale loop. Exported for tests. */
-export function anchorScrollDuring(
-  scroller: Element | null,
-  anchorEl: Element,
-  durationMs: number,
-  raf: (cb: FrameRequestCallback) => number = (cb) => requestAnimationFrame(cb),
-  now: () => number = () => performance.now(),
-  referenceBottom?: number,
-): () => void {
-  if (!scroller) return () => {}
-  let cancelled = false
-  const bottom0 = referenceBottom ?? anchorEl.getBoundingClientRect().bottom
-  const t0 = now()
-  const step = () => {
-    if (cancelled) return
-    const delta = anchorEl.getBoundingClientRect().bottom - bottom0
-    if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
-    if (now() - t0 < durationMs) raf(step)
-  }
-  raf(step)
-  return () => {
-    cancelled = true
-  }
 }
 
 interface FoldRegionProps {
@@ -179,7 +136,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
         region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
         region.style.height = '0px'
         region.style.opacity = '0'
-        anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS, undefined, undefined, bottom0)
+        anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS, { referenceBottom: bottom0 })
         window.setTimeout(() => {
           setFolded(true)
           setLanded(true)

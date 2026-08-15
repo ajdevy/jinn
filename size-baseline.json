@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5791,
+      "lines": 5784,
       "exempt": [
         "complexity",
         "max-depth",
@@ -383,7 +383,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1589,
+      "lines": 1574,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1103,7 +1103,7 @@
       "lines": 527
     },
     "packages/web/src/components/chat/__tests__/comms-v2.test.tsx": {
-      "lines": 862,
+      "lines": 827,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "max-depth"
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1555,
+      "lines": 1531,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1226,7 +1226,6 @@
       ]
     },
     "packages/web/src/components/chat/fold-region.tsx": {
-      "lines": 339,
       "exempt": [
         "complexity",
         "max-lines-per-function",
@@ -1457,7 +1456,7 @@
       ]
     },
     "packages/web/src/hooks/__tests__/use-live-session.test.ts": {
-      "lines": 2117
+      "lines": 2103
     },
     "packages/web/src/hooks/use-chat-tabs.ts": {
       "lines": 337,
@@ -1477,7 +1476,7 @@
       ]
     },
     "packages/web/src/hooks/use-live-session.ts": {
-      "lines": 1430,
+      "lines": 1428,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1565,7 +1564,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1201,
+      "lines": 1196,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

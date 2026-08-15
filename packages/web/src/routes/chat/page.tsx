@@ -692,12 +692,6 @@ function ChatPage() {
   }, [location.state, selectedId])
 
   const handlePaneContentReady = useCallback((readyId: string) => {
-    const scrollTop = sessionScrollRef.current.get(readyId)
-    if (scrollTop !== undefined) requestAnimationFrame(() => {
-      const scroller = document.querySelector<HTMLElement>('.chat-messages-scroll')
-      if (selectedIdRef.current === readyId && scroller) scroller.scrollTop = scrollTop
-    })
-
     if (previewHandoffTargetRef.current === readyId) {
       previewAbortRef.current = null
       previewHandoffTargetRef.current = null
@@ -1129,6 +1123,7 @@ function ChatPage() {
               <ChatPane
                 key={paneKey}
                 sessionId={selectedId}
+                initialScrollTop={selectedId ? sessionScrollRef.current.get(selectedId) : undefined}
                 initialEmployee={selectedId ? undefined : pendingEmployee}
                 isActive={true}
                 onFocus={() => {}}

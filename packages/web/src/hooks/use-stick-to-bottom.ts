@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useTranscriptOpen } from '@/components/chat/transcript-open'
 
 /**
  * Stick-to-bottom for the chat thread.
  *
  * One source of truth — `followRef` — decides whether the view auto-follows new
- * content. It is flipped ONLY by the user's own scroll: any `scroll` event that
- * moves further from the bottom means "I scrolled up to read", however slightly,
- * and coming back within the threshold means "I caught up". Detaching on movement
+ * content, and only the user's own scroll flips it: any `scroll` event that moves
+ * further from the bottom means "I scrolled up to read", however slightly, and
+ * coming back within the threshold means "I caught up". Detaching on movement
  * rather than on the threshold matters because a freshly opened transcript resizes
  * for a second or two, and each re-pin below would otherwise undo a small scroll-up
- * before the user ever cleared the band. Programmatic scrolls never flip it.
+ * before the user ever cleared the band. Programmatic scrolls never flip it. The
+ * jump arrow is a SECOND decision over the same event: it is gated on the gap
+ * alone, since an arrow offering to scroll the reader four pixels is noise.
  *
  * Following is performed synchronously in a layout effect (before paint) keyed on
  * the growing content, so streaming can never visually detach. Resize / mobile
- * keyboard (ResizeObserver on the *viewport*), tab return (visibilitychange /
- * pageshow) and initial mount each re-pin when — and only when — we're following.
- * When NOT following we never touch scrollTop, so the browser's native
- * `overflow-anchor` holds the read position through image/content reflow above.
+ * keyboard (ResizeObserver on the *viewport*) and tab return (visibilitychange /
+ * pageshow) each re-pin when — and only when — we're following. When NOT following
+ * we never touch scrollTop, so the browser's native `overflow-anchor` holds the
+ * read position through image/content reflow above. Opening a transcript — one
+ * target chosen before paint, then a bounded settle window — is transcript-open.ts.
  *
  * Replaces the old IntersectionObserver(position) + ResizeObserver(content)→rAF
  * design, whose two async mechanisms raced and lost the stream (the sentinel left
@@ -46,22 +50,22 @@ export function unreadDelta(currentCount: number, seenCount: number): number {
 export interface UseStickToBottomOptions {
   /** Changes whenever the in-flight assistant message streams more text. */
   streamingText?: string
-  /** Total committed message count — drives mount-snap, growth-follow, and the unread count. */
+  /** Total committed message count — drives the open, growth-follow and unread count. */
   messageCount: number
-  /**
-   * Identity of the newest committed message. When the count grows but this key
-   * does not change, history was prepended above the viewport, not appended as
-   * unread content below it.
-   */
+  /** Identity of the newest committed message. When the count grows but this key
+   *  does not change, history was prepended above the viewport, not appended as
+   *  unread content below it. */
   latestMessageKey?: string | null
   /** Override the at-bottom threshold (px). */
   threshold?: number
-  /**
-   * Replaces the jump control's scroll-to-bottom. A virtualised transcript's
-   * true bottom is only known once the last row has measured, so it scrolls
-   * through the virtualizer, which re-targets as that measurement lands.
-   */
+  /** Replaces the jump control's scroll-to-bottom. A virtualised transcript's true
+   *  bottom is only known once the last row has measured, so it scrolls through the
+   *  virtualizer, which re-targets as that measurement lands. */
   scrollToEnd?: (behavior: ScrollBehavior) => void
+  /** Where the reader left this transcript. Opens there instead of at the bottom. */
+  initialScrollTop?: number
+  /** Total content height, when the transcript knows it better than `scrollHeight`. */
+  contentSize?: () => number
 }
 
 export interface StickToBottom {
@@ -83,6 +87,8 @@ export function useStickToBottom({
   latestMessageKey,
   threshold = STICK_THRESHOLD_PX,
   scrollToEnd,
+  initialScrollTop,
+  contentSize,
 }: UseStickToBottomOptions): StickToBottom {
   // The scroll container, tracked as state (via a callback ref) so the listener
   // effects re-run when it mounts, plus a ref mirror for imperative reads.
@@ -114,7 +120,6 @@ export function useStickToBottom({
   const latestKey = latestMessageKey ?? `count:${messageCount}`
   const prevCountRef = useRef(messageCount)
   const prevLatestKeyRef = useRef(latestKey)
-  const mountedRef = useRef(false)
   const uiRaf = useRef<number | null>(null)
 
   const [showJump, setShowJump] = useState(false)
@@ -181,18 +186,15 @@ export function useStickToBottom({
         animatingRef.current = false
       }
       const follow = movedAway ? false : shouldFollow(dist, threshold)
+      // The arrow is gated on the gap alone — see the note at the top of the file.
+      const showArrow = !shouldFollow(dist, threshold)
       followRef.current = follow
       if (follow) seenCountRef.current = messageCountRef.current
       if (uiRaf.current != null) cancelAnimationFrame(uiRaf.current)
       uiRaf.current = requestAnimationFrame(() => {
         uiRaf.current = null
-        if (follow) {
-          setShowJump(false)
-          setUnreadCount(0)
-        } else {
-          setShowJump(true)
-          setUnreadCount(unreadDelta(messageCountRef.current, seenCountRef.current))
-        }
+        setShowJump(showArrow)
+        setUnreadCount(follow ? 0 : unreadDelta(messageCountRef.current, seenCountRef.current))
       })
     }
 
@@ -210,17 +212,27 @@ export function useStickToBottom({
     }
   }, [el, threshold])
 
-  // ── Initial load / session switch (ChatPane is keyed → this hook remounts): ──
-  // snap to bottom once, synchronously, the first time messages are present.
-  useLayoutEffect(() => {
-    if (mountedRef.current || messageCount === 0) return
-    const node = elRef.current
-    if (!node) return // scroller not attached yet; re-runs when `el` is set
-    mountedRef.current = true
-    pinNow(node)
-    followRef.current = true
-    seenCountRef.current = messageCount
-  }, [el, messageCount, pinNow])
+  // ── Initial load / session switch (ChatPane is keyed → this hook remounts). ──
+  useTranscriptOpen({
+    node: el,
+    ready: messageCount > 0,
+    initialScrollTop,
+    // The bottom, reached the way this transcript can reach it: through the
+    // virtualizer when it has one, since `scrollHeight` is only an estimate.
+    scrollToBottom: (node) => {
+      if (scrollToEndRef.current) scrollToEndRef.current('auto')
+      else pinNow(node)
+    },
+    contentSize: (node) => contentSize?.() ?? node.scrollHeight,
+    isPinned: () => followRef.current,
+    onOpened: (node) => {
+      const dist = distanceFromBottom(node)
+      followRef.current = shouldFollow(dist, threshold)
+      seenCountRef.current = messageCountRef.current
+      prevTopRef.current = node.scrollTop
+      prevDistRef.current = dist
+    },
+  })
 
   // ── Follow on growth — synchronous, before paint, so streaming never detaches. ──
   useLayoutEffect(() => {

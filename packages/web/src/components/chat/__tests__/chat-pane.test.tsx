@@ -167,17 +167,7 @@ describe('ChatPane', () => {
     expect(screen.getByTestId('background-status').textContent).toBe('1:Platform Lead')
   })
 
-  it('does not lose destination readiness when a prefetched pane rerenders before paint', () => {
-    const frames = new Map<number, FrameRequestCallback>()
-    let nextFrame = 0
-    const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-      const id = ++nextFrame
-      frames.set(id, callback)
-      return id
-    })
-    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-      frames.delete(id)
-    })
+  it('releases destination readiness once per session, before paint', () => {
     const onContentReady = vi.fn()
     const props = {
       sessionId: 's1',
@@ -189,20 +179,17 @@ describe('ChatPane', () => {
     }
     const { rerender } = render(<ChatPane {...props} />)
 
+    // In the commit that paints the transcript, not a frame after it: what this
+    // releases positions the scroller, and a frame later is a visible jump.
+    expect(onContentReady).toHaveBeenCalledOnce()
+    expect(onContentReady).toHaveBeenCalledWith('s1')
+
     liveSessionState = {
       ...liveSessionState,
       session: { ...liveSessionState.session, title: 'Metadata landed before paint' },
     }
     rerender(<ChatPane {...props} />)
-    expect(onContentReady).not.toHaveBeenCalled()
-
-    act(() => {
-      for (const callback of [...frames.values()]) callback(performance.now())
-    })
     expect(onContentReady).toHaveBeenCalledOnce()
-    expect(onContentReady).toHaveBeenCalledWith('s1')
-    request.mockRestore()
-    cancel.mockRestore()
   })
 
   it('never shows the notice when the policy is disabled', () => {
