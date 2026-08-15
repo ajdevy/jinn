@@ -15,6 +15,16 @@ import type * as ReactModule from 'react'
 import type { ElementType, ReactElement } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ClassValue } from 'clsx'
+import type {
+  PluginHostConnectors,
+  PluginHostCron,
+  PluginHostEmployees,
+  PluginHostKnowledge,
+  PluginHostNotes,
+  PluginHostSessions,
+  PluginHostTodos,
+  PluginHostWorkflows,
+} from './sdk-host'
 
 /** The app's components, which are their own half of the contract. */
 export * from './sdk-ui'
@@ -79,111 +89,36 @@ export type HostEventHandler = (frame: HostEvent) => void
 
 export type HostNotifyLevel = 'info' | 'warning' | 'error'
 
-/* The typed verb tier. Every payload below is spelled out rather than imported:
- * the gateway's own Todo and session types live in a package a plugin cannot
- * install, and naming them would put the app's internals into this contract.
- *
- * v1 grants every verb; the union below is the vocabulary a grant is written in. */
-export type PluginHostVerb =
-  | 'todos.list'
-  | 'todos.create'
-  | 'todos.comment'
-  | 'sessions.spawn'
-  | 'employees.list'
-  | 'notify'
-
-/** The eight states a Todo can be in, as the gateway spells them. */
-export type HostTodoStatus =
-  | 'backlog'
-  | 'assigned'
-  | 'executing'
-  | 'in_review'
-  | 'done'
-  | 'blocked'
-  | 'escalated'
-  | 'cancelled'
-
-/** A Todo as the list verb returns it: the columns a board renders. */
-export interface HostTodo {
-  id: string
-  title: string
-  status: HostTodoStatus
-  assignee: string | null
-  department: string | null
-  parentId: string | null
-  updatedAt: string
-}
-
-export interface HostTodoFilter {
-  status?: HostTodoStatus
-  assignee?: string
-  /** Only parentless Todos — the objective view, without their sub-tasks. */
-  rootsOnly?: boolean
-  /** Defaults to 20; the gateway caps the page at 100. */
-  limit?: number
-}
-
-/** What a plugin may set when it mints a Todo. Provenance is absent by design:
- *  the gateway stamps it, so a plugin cannot claim another author. */
-export interface HostTodoDraft {
-  title: string
-  body?: string
-  assignee?: string
-  department?: string
-  parentId?: string
-  /** 0 (highest) to 3 (lowest); the gateway defaults to 2. */
-  priority?: number
-}
-
-export interface HostTodoComment {
-  id: string
-  workItemId: string
-  author: string
-  body: string
-  createdAt: string
-}
-
-export interface HostSessionSpawn {
-  prompt: string
-  /** An employee from the org. Omitted, the session runs on gateway defaults. */
-  employee?: string
-  engine?: string
-  model?: string
-}
-
-export interface HostSession {
-  id: string
-  engine: string
-  employee: string | null
-  status: string
-  title: string | null
-}
-
-export interface HostEmployee {
-  name: string
-  displayName: string
-  department: string
-  rank: string
-  engine: string
-  model: string
-  /** The persona's first line, when short enough to be a label. */
-  role?: string
-}
-
-export interface PluginHostTodos {
-  list(filter?: HostTodoFilter): Promise<HostTodo[]>
-  create(draft: HostTodoDraft): Promise<HostTodo>
-  comment(todoId: string, body: string): Promise<HostTodoComment>
-}
-
-export interface PluginHostSessions {
-  /** Start a session and its first turn. Resolves once the row exists. */
-  spawn(request: HostSessionSpawn): Promise<HostSession>
-}
-
-export interface PluginHostEmployees {
-  list(): Promise<HostEmployee[]>
-}
+/* The typed verb tier is split out so this entry point stays below the size
+ * ratchet while plugin authors still read one public module. */
+export type {
+  HostConnectorMessage,
+  HostCronJob,
+  HostCronRun,
+  HostEmployee,
+  HostKnowledgeResult,
+  HostNote,
+  HostNoteContent,
+  HostNoteDraft,
+  HostSession,
+  HostSessionSpawn,
+  HostTodo,
+  HostTodoComment,
+  HostTodoDraft,
+  HostTodoFilter,
+  HostTodoStatus,
+  HostWorkflow,
+  HostWorkflowRun,
+  PluginHostConnectors,
+  PluginHostCron,
+  PluginHostEmployees,
+  PluginHostKnowledge,
+  PluginHostNotes,
+  PluginHostSessions,
+  PluginHostTodos,
+  PluginHostVerb,
+  PluginHostWorkflows,
+} from './sdk-host'
 
 export interface PluginHost {
   readonly state: {
@@ -203,6 +138,11 @@ export interface PluginHost {
   todos: PluginHostTodos
   sessions: PluginHostSessions
   employees: PluginHostEmployees
+  workflows: PluginHostWorkflows
+  notes: PluginHostNotes
+  connectors: PluginHostConnectors
+  cron: PluginHostCron
+  knowledge: PluginHostKnowledge
 }
 
 export declare const host: PluginHost

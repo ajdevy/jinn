@@ -3,34 +3,27 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { PluginServerContext } from "../backend.js";
+import {
+  PROBE_WORKFLOW_RUN,
+  seedProbeHome,
+  workflowServiceStub,
+  writeProbePlugin,
+} from "./probe-plugin.js";
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-ctx-"));
 process.env.JINN_HOME = tmpHome;
-const pluginsDir = path.join(tmpHome, "plugins");
 
 /**
  * A real plugin on disk, imported by the real loader and started by the real
  * supervisor.
  *
- * The claim is not that a context object exists — it is that a plugin's two
- * entry points are handed the *same* one. A watcher and a route holding
- * different contexts would be two plugins wearing one id: separate storage,
- * separate settings, and a `host` whose provenance no longer names one thing.
+ * Two claims are under test. First, that a plugin's two entry points are handed
+ * the *same* context — a watcher and a route holding different ones would be two
+ * plugins wearing one id: separate storage, separate settings, and a `host`
+ * whose provenance no longer names one thing. Second, that every verb on that
+ * host answers, from inside a plugin, with the shape the contract promises
+ * rather than with `undefined`.
  */
-const PROBE_SERVER = `
-globalThis.__pluginContextProbe = { registrar: null, watcher: null, started: 0 };
-export default function register(ctx) {
-  globalThis.__pluginContextProbe.registrar = ctx;
-  return { "GET /ping": (_req, res) => res.end("ok") };
-}
-export const watcher = {
-  start(ctx) {
-    globalThis.__pluginContextProbe.watcher = ctx;
-    globalThis.__pluginContextProbe.started += 1;
-  },
-  stop() {},
-};
-`;
 
 interface Probe {
   registrar: PluginServerContext | null;
@@ -38,33 +31,57 @@ interface Probe {
   started: number;
 }
 
+type Recorded = Record<string, { ok: true; value: unknown } | { ok: false; error: string }>;
+
 function probe(): Probe {
   return (globalThis as unknown as { __pluginContextProbe: Probe }).__pluginContextProbe;
+}
+
+/** What the plugin got back, per verb. A verb that rejected fails here, naming
+ *  itself and its reason, rather than surfacing later as `undefined`. */
+async function verbResults(): Promise<Record<string, unknown>> {
+  const recorded = await (globalThis as unknown as { __pluginHostProbe: Promise<Recorded> })
+    .__pluginHostProbe;
+  const failed = Object.entries(recorded)
+    .filter(([, outcome]) => !outcome.ok)
+    .map(([verb, outcome]) => `${verb}: ${(outcome as { error: string }).error}`);
+  expect(failed).toEqual([]);
+  return Object.fromEntries(
+    Object.entries(recorded).map(([verb, outcome]) => [verb, (outcome as { value: unknown }).value]),
+  );
 }
 
 const config = { plugins: { enabled: ["probe"] } };
 
 let reconcilePluginWatchers: typeof import("../watcher-supervisor.js").reconcilePluginWatchers;
 let stopAllPluginWatchers: typeof import("../watcher-supervisor.js").stopAllPluginWatchers;
+let setPluginHostGateway: typeof import("../host/gateway-link.js").setPluginHostGateway;
+let sent: { connector: string; channel: string; text: string }[];
 
 beforeAll(async () => {
   ({ reconcilePluginWatchers, stopAllPluginWatchers } = await import("../watcher-supervisor.js"));
+  ({ setPluginHostGateway } = await import("../host/gateway-link.js"));
 });
 
 beforeEach(() => {
-  fs.rmSync(pluginsDir, { recursive: true, force: true });
-  const dir = path.join(pluginsDir, "probe");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, "plugin.json"),
-    JSON.stringify({ id: "probe", name: "Probe", version: "1.0.0", client: "client.mjs", server: "server.mjs" }),
-  );
-  fs.writeFileSync(path.join(dir, "client.mjs"), "export default { id: 'probe', register() {} }");
-  fs.writeFileSync(path.join(dir, "server.mjs"), PROBE_SERVER);
+  writeProbePlugin(tmpHome);
+  seedProbeHome(tmpHome);
+
+  sent = [];
+  setPluginHostGateway({
+    spawnSession: async () => ({ ok: false, error: "unused" }),
+    emitNotice: () => {},
+    workflowService: workflowServiceStub(),
+    sendConnectorMessage: async (connector, message) => {
+      sent.push({ connector, channel: message.channel, text: message.text });
+      return { ok: true };
+    },
+  });
 });
 
 afterEach(async () => {
   await stopAllPluginWatchers();
+  setPluginHostGateway(null);
 });
 
 describe("the context a plugin's server module receives", () => {
@@ -79,14 +96,18 @@ describe("the context a plugin's server module receives", () => {
 
   it("carries the typed host door, with every verb on it", async () => {
     await reconcilePluginWatchers(() => config);
-
     const host = probe().registrar?.host;
-    expect(typeof host?.todos.list).toBe("function");
-    expect(typeof host?.todos.create).toBe("function");
-    expect(typeof host?.todos.comment).toBe("function");
-    expect(typeof host?.sessions.spawn).toBe("function");
-    expect(typeof host?.employees.list).toBe("function");
-    expect(typeof host?.notify).toBe("function");
+
+    const { PLUGIN_HOST_VERBS } = await import("../host/permissions.js");
+    const reachable = PLUGIN_HOST_VERBS.map((verb) => {
+      const [domain, name] = verb.split(".");
+      const target = name
+        ? (host as unknown as Record<string, Record<string, unknown>>)[domain!]?.[name]
+        : (host as unknown as Record<string, unknown>)[domain!];
+      return `${verb}: ${typeof target}`;
+    });
+
+    expect(reachable).toEqual(PLUGIN_HOST_VERBS.map((verb) => `${verb}: function`));
   });
 
   it("gives the watcher a host scoped to its own plugin", async () => {
@@ -96,5 +117,106 @@ describe("the context a plugin's server module receives", () => {
 
     const store = await import("../../work-items/store.js");
     expect(store.getWorkItem(created!.id)?.createdBy).toBe("plugin:probe");
+  });
+});
+
+/**
+ * The verbs answering *from inside a plugin*, which is the only place that
+ * proves the door is reachable rather than merely exported. The check above says
+ * a property is a function; these say what came back when it was called.
+ */
+describe("what a plugin gets back from each new verb", () => {
+  it("writes a note and reads that same note's body back", async () => {
+    await reconcilePluginWatchers(() => config);
+    const results = await verbResults();
+
+    expect(results["notes.create"]).toMatchObject({
+      title: "Minted by a plugin",
+      body: "the body",
+      folder: "",
+    });
+    const created = results["notes.create"] as { path: string; revision: string };
+    expect(created.path).toMatch(/^knowledge\/.+\.md$/);
+    expect(created.revision).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(results["notes.read"]).toMatchObject({ path: created.path, body: "the body" });
+  });
+
+  it("lists the note it minted", async () => {
+    await reconcilePluginWatchers(() => config);
+    const listed = (await verbResults())["notes.list"] as { title: string }[];
+
+    expect(listed.map((note) => note.title)).toContain("Minted by a plugin");
+  });
+
+  it("searches knowledge and gets the hit with its snippet", async () => {
+    await reconcilePluginWatchers(() => config);
+    const hits = (await verbResults())["knowledge.search"] as {
+      path: string;
+      title: string;
+      snippet: string;
+      matchCount: number;
+    }[];
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ path: "knowledge/birds.md", title: "Birds" });
+    expect(hits[0]!.snippet).toContain("«kestrel»");
+    expect(hits[0]!.matchCount).toBeGreaterThan(0);
+  });
+
+  it("lists and gets Workflows as the contract spells them", async () => {
+    await reconcilePluginWatchers(() => config);
+    const results = await verbResults();
+
+    const expected = {
+      id: "nightly",
+      title: "Nightly digest",
+      description: null,
+      revision: 3,
+      enabled: true,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    };
+    expect(results["workflows.list"]).toEqual([expected]);
+    // The service answers `get` with the whole node graph; the verb narrows it.
+    expect(results["workflows.get"]).toEqual(expected);
+  });
+
+  it("starts a run and gets the run row, not the definition behind it", async () => {
+    await reconcilePluginWatchers(() => config);
+
+    expect((await verbResults())["workflows.start"]).toEqual(PROBE_WORKFLOW_RUN);
+  });
+
+  it("sends through the named connector and resolves with nothing to read", async () => {
+    await reconcilePluginWatchers(() => config);
+
+    expect((await verbResults())["connectors.send"]).toBeUndefined();
+    expect(sent).toEqual([{ connector: "slack", channel: "C1", text: "hello" }]);
+  });
+
+  /* The read tier is the point: a plugin that can list jobs still cannot read
+   * what they say, exactly as `GET /api/cron` withholds it. */
+  it("lists cron jobs without their prompts", async () => {
+    await reconcilePluginWatchers(() => config);
+
+    expect((await verbResults())["cron.jobs"]).toEqual([
+      {
+        id: "digest",
+        name: "Daily digest",
+        schedule: "0 9 * * *",
+        enabled: true,
+        employee: "a-lead",
+        engine: null,
+        timezone: "UTC",
+      },
+    ]);
+  });
+
+  it("reads run history through the same summariser the route uses", async () => {
+    await reconcilePluginWatchers(() => config);
+
+    expect((await verbResults())["cron.runs"]).toEqual([
+      { id: "run-9", jobId: "digest", status: "success", durationMs: 1200 },
+    ]);
   });
 });

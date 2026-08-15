@@ -2,14 +2,19 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { WorkflowRepositoryError } from "../../workflows/repository.js";
+import type { WorkflowService } from "../../workflows/service.js";
+import { seedProbeHome } from "./probe-plugin.js";
 
 // JINN_HOME before anything reaches paths.js, which reads it once. Both the
 // session registry and the Todo store resolve their databases from it.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-plugin-host-"));
 process.env.JINN_HOME = tmpHome;
+seedProbeHome(tmpHome);
 
 type Host = typeof import("../host/index.js");
 type Link = typeof import("../host/gateway-link.js");
+type Errors = typeof import("../host/errors.js");
 type Store = typeof import("../../work-items/store.js");
 type Registry = typeof import("../../sessions/registry.js");
 
@@ -17,8 +22,10 @@ let host: Host;
 let link: Link;
 let store: Store;
 let registry: Registry;
+let errors: Errors;
 
 beforeAll(async () => {
+  errors = await import("../host/errors.js");
   host = await import("../host/index.js");
   link = await import("../host/gateway-link.js");
   store = await import("../../work-items/store.js");
@@ -28,6 +35,17 @@ beforeAll(async () => {
 afterEach(() => {
   link.setPluginHostGateway(null);
 });
+
+/** The registration seam with only the members a test cares about spelled out.
+ *  The rest are the inert answers, so a stub says what it is exercising. */
+function linkGateway(overrides: Partial<import("../host/gateway-link.js").PluginHostGateway>): void {
+  link.setPluginHostGateway({
+    spawnSession: async () => ({ ok: false, error: "unused" }),
+    emitNotice: () => {},
+    sendConnectorMessage: async () => ({ ok: false, error: "unused" }),
+    ...overrides,
+  });
+}
 
 /** The narrowest gateway `spawnSession` reads: config, an emitter, and a
  *  session manager whose engine lookup comes up empty. */
@@ -88,10 +106,7 @@ describe("host.sessions.spawn", () => {
     // Its engine lookup finds nothing, so the turn never dispatches — and the
     // row is still written, which is the half under test.
     const { spawnSession } = await import("../../gateway/spawn-session.js");
-    link.setPluginHostGateway({
-      spawnSession: (input) => spawnSession(gatewayApiContext(), input),
-      emitNotice: () => {},
-    });
+    linkGateway({ spawnSession: (input) => spawnSession(gatewayApiContext(), input) });
 
     const session = await host.createPluginHost("mailbox").sessions.spawn({ prompt: "draft a reply" });
 
@@ -107,10 +122,7 @@ describe("host.sessions.spawn", () => {
   });
 
   it("surfaces a refusal as a failure, not as an absent session", async () => {
-    link.setPluginHostGateway({
-      spawnSession: async () => ({ ok: false as const, error: 'unknown employee "nobody"' }),
-      emitNotice: () => {},
-    });
+    linkGateway({ spawnSession: async () => ({ ok: false as const, error: 'unknown employee "nobody"' }) });
 
     await expect(
       host.createPluginHost("mailbox").sessions.spawn({ prompt: "hi", employee: "nobody" }),
@@ -121,7 +133,7 @@ describe("host.sessions.spawn", () => {
 describe("host.notify", () => {
   it("hands the dashboard the plugin, the message and the level", () => {
     const emitNotice = vi.fn();
-    link.setPluginHostGateway({ spawnSession: async () => ({ ok: false, error: "unused" }), emitNotice });
+    linkGateway({ emitNotice });
 
     host.createPluginHost("mailbox").notify("3 new messages", "warning");
 
@@ -130,7 +142,7 @@ describe("host.notify", () => {
 
   it("defaults to info", () => {
     const emitNotice = vi.fn();
-    link.setPluginHostGateway({ spawnSession: async () => ({ ok: false, error: "unused" }), emitNotice });
+    linkGateway({ emitNotice });
 
     host.createPluginHost("mailbox").notify("all quiet");
 
@@ -144,8 +156,7 @@ describe("host.notify", () => {
   });
 
   it("absorbs a notification surface that throws", () => {
-    link.setPluginHostGateway({
-      spawnSession: async () => ({ ok: false, error: "unused" }),
+    linkGateway({
       emitNotice: () => {
         throw new Error("the socket is gone");
       },
@@ -158,5 +169,126 @@ describe("host.notify", () => {
 describe("host.employees.list", () => {
   it("reads the org registry", () => {
     expect(Array.isArray(host.createPluginHost("mailbox").employees.list())).toBe(true);
+  });
+});
+
+/**
+ * Every way a backend verb can fail arrives as a rejection carrying the verb.
+ *
+ * The two below are the ones with somewhere else to go. `notes.read` could have
+ * handed back the store's `{ ok: false, reason }` as a *successful* return, and
+ * a plugin that forgot to narrow it would have carried on with a non-note.
+ * `workflows.start` could have thrown whatever the missing gateway threw, which
+ * names no verb at all.
+ */
+describe("a backend verb that cannot do the thing", () => {
+  it("rejects a missing note rather than resolving with a NoteStoreResult", async () => {
+    const attempt = () => host.createPluginHost("mailbox").notes.read("knowledge/nothing-here.md");
+
+    expect(attempt).toThrow(errors.PluginHostError);
+    expect(attempt).toThrow(/host\.notes\.read refused:/);
+    try {
+      attempt();
+    } catch (error) {
+      expect(error).toMatchObject({ verb: "notes.read", reason: "not-found" });
+      // The union never reaches the caller: no `ok`, no `detail` to narrow.
+      expect(error).not.toHaveProperty("ok");
+    }
+  });
+
+  it("names the verb when no gateway is registered to start a run on", async () => {
+    await expect(host.createPluginHost("mailbox").workflows.start("nightly")).rejects.toMatchObject({
+      name: "PluginHostError",
+      verb: "workflows.start",
+      reason: "no-gateway",
+    });
+  });
+
+  /* `list` reads in-process and returns its rows, so it throws where `start`
+   *  rejects. Both carry the same verb, which is the part a caller reads. */
+  it("names the verb when the gateway runs without the Workflow engine", () => {
+    linkGateway({});
+
+    try {
+      host.createPluginHost("mailbox").workflows.list();
+      expect.unreachable("workflows.list resolved without a Workflow engine");
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "PluginHostError",
+        verb: "workflows.list",
+        reason: "no-workflow-service",
+      });
+    }
+  });
+
+  /* With a Workflow engine registered, the commonest way `start` fails is the
+   * engine refusing the id — missing, retired, or with no manual trigger — in
+   * the engine's own `WorkflowRepositoryError`. A plugin catching this door's
+   * error would miss every one of those unless they arrive as this door's. */
+  it("names the verb when the Workflow engine refuses the id", async () => {
+    linkGateway({
+      workflowService: {
+        startManual: async () => {
+          throw new WorkflowRepositoryError("bad-input", "Workflow does not have an enabled manual trigger.");
+        },
+      } as unknown as WorkflowService,
+    });
+
+    await expect(host.createPluginHost("mailbox").workflows.start("missing-flow")).rejects.toMatchObject({
+      name: "PluginHostError",
+      verb: "workflows.start",
+      reason: "bad-input",
+    });
+  });
+
+  it("surfaces an unknown connector as a refusal, not as a send that went nowhere", async () => {
+    linkGateway({ sendConnectorMessage: async () => ({ ok: false, error: 'no connector "slack"' }) });
+
+    await expect(
+      host.createPluginHost("mailbox").connectors.send("slack", { channel: "C1", text: "hi" }),
+    ).rejects.toMatchObject({ name: "PluginHostError", verb: "connectors.send" });
+  });
+});
+
+describe("the instance read verbs", () => {
+  it("lists cron jobs without the prompt the job carries", () => {
+    expect(host.createPluginHost("mailbox").cron.jobs()).toEqual([
+      {
+        id: "digest",
+        name: "Daily digest",
+        schedule: "0 9 * * *",
+        enabled: true,
+        employee: "a-lead",
+        engine: null,
+        timezone: "UTC",
+      },
+    ]);
+  });
+
+  it("summarises run history the way the route does, dropping what it does not allow", async () => {
+    expect(await host.createPluginHost("mailbox").cron.runs("digest")).toEqual([
+      { id: "run-9", jobId: "digest", status: "success", durationMs: 1200 },
+    ]);
+  });
+
+  it("answers an empty history for a job that never ran", async () => {
+    expect(await host.createPluginHost("mailbox").cron.runs("never-fired")).toEqual([]);
+  });
+
+  it("finds a knowledge file by a word inside it", () => {
+    const hits = host.createPluginHost("mailbox").knowledge.search("kestrel");
+
+    expect(hits.map((hit) => hit.path)).toEqual(["knowledge/birds.md"]);
+    expect(hits[0]!.snippet).toContain("«kestrel»");
+  });
+
+  it("writes a note and reads the same body back", () => {
+    const plugin = host.createPluginHost("mailbox");
+
+    const created = plugin.notes.create({ title: "Kept", body: "the body" });
+    expect(created.revision).toMatch(/^[a-f0-9]{64}$/);
+
+    expect(plugin.notes.read(created.path).body).toBe("the body");
+    expect(plugin.notes.list("Kept").map((note) => note.path)).toContain(created.path);
   });
 });

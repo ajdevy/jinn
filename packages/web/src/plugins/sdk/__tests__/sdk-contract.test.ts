@@ -5,11 +5,11 @@ import * as sdk from '@jinn/plugin-sdk'
 import { SDK_CONTRACT_VERSION } from '../version'
 
 const SDK_DIR = path.resolve(__dirname, '..')
-/* The contract is more than one file — `sdk.d.ts` re-exports the UI half — and
+/* The contract is three files — `sdk.d.ts` re-exports the UI and host halves — and
  * the checks below are about the contract, not about a file. Reading only the
  * entry point would let a name move into `sdk-ui.d.ts` and out of the sync
  * check on the same edit. */
-const CONTRACT = ['sdk.d.ts', 'sdk-ui.d.ts']
+const CONTRACT = ['sdk.d.ts', 'sdk-ui.d.ts', 'sdk-host.d.ts']
   .map((file) => readFileSync(path.join(SDK_DIR, file), 'utf8'))
   .join('\n')
 const BARREL = readFileSync(path.join(SDK_DIR, 'index.ts'), 'utf8')

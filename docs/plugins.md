@@ -139,7 +139,34 @@ What the module exports:
 - **The host.** `host`, plus the `PluginSdkError` and `PluginHostDeniedError` classes so a plugin can tell an SDK failure from one of its own.
 - **The contract version.** `SDK_CONTRACT_VERSION`, so a plugin can refuse to load against a contract it predates.
 
-The `host` object is three tiers of increasing authority: `host.state` (readonly snapshot of the active session and gateway status, with a `subscribe` shaped for `useSyncExternalStore`), curated actions (`host.navigate`, `host.notify`, `host.onEvent`), and the typed verb door (`host.todos.list/create/comment`, `host.sessions.spawn`, `host.employees.list`). Every verb is named and individually deniable later; v1 grants all of them. The verbs are typed rather than a generic `request(method, params)` for one reason: an untyped door cannot be narrowed afterwards without breaking every plugin at once.
+The `host` object is three tiers of increasing authority: `host.state` (readonly snapshot of the active session and gateway status, with a `subscribe` shaped for `useSyncExternalStore`), curated actions (`host.navigate`, `host.notify`, `host.onEvent`), and the typed verb door below. Every verb is named and individually deniable later; v1 grants all of them. The verbs are typed rather than a generic `request(method, params)` for one reason: an untyped door cannot be narrowed afterwards without breaking every plugin at once. Nothing on `host` takes a method name or a path as an argument, which is what keeps that true.
+
+#### The host verbs
+
+Sixteen verbs, spelled identically on both halves — `PLUGIN_HOST_VERBS` in `packages/web/src/plugins/sdk/host-permissions.ts` and in `packages/jinn/src/plugins/host/permissions.ts`, and a test fails if the two drift. The client half is one `authFetch` per verb against a route the dashboard already calls; the server half is the same verb over the gateway's own in-process functions.
+
+| Verb | R/W | Shape |
+|---|---|---|
+| `todos.list` | R | `(filter?: HostTodoFilter) → HostTodo[]` |
+| `todos.create` | W | `(draft: HostTodoDraft) → HostTodo` |
+| `todos.comment` | W | `(todoId, body) → HostTodoComment` |
+| `sessions.spawn` | W | `(request: HostSessionSpawn) → HostSession` |
+| `employees.list` | R | `() → HostEmployee[]` |
+| `notify` | W | `(message, level?) → void` |
+| `workflows.list` | R | `() → HostWorkflow[]` (one page, at the gateway's default size) |
+| `workflows.get` | R | `(workflowId) → HostWorkflow` |
+| `workflows.start` | W | `(workflowId, input?) → HostWorkflowRun` |
+| `notes.list` | R | `(query?) → HostNote[]` |
+| `notes.read` | R | `(notePath) → HostNoteContent` |
+| `notes.create` | W | `(draft: HostNoteDraft) → HostNoteContent` |
+| `connectors.send` | W | `(connector, message: HostConnectorMessage) → void` |
+| `cron.jobs` | R | `() → HostCronJob[]` |
+| `cron.runs` | R | `(jobId, limit?) → HostCronRun[]` |
+| `knowledge.search` | R | `(query) → HostKnowledgeResult[]` |
+
+Cron is read-only by design: there is no verb that creates, edits, deletes, or fires a job. `HostCronJob` also withholds the job's prompt, model, and delivery target, exactly as `GET /api/cron` does — a plugin that can list jobs is not thereby able to read what they say. `HostCronRun` goes through the gateway's own run summariser, so a run log's prompt, output, and error text stay out of a plugin's hands too.
+
+Failures are rejections, never a value a caller has to narrow. In the browser a refused request raises `PluginSdkError` carrying the gateway's own message; in the gateway a verb that could not act raises `PluginHostError` carrying the `verb` and the underlying reason code. A verb refused by the permission gate raises `PluginHostDeniedError` on both halves, which carries `verb` as well, so one catch reads both.
 
 The `AREAS` values are the contract, and the property names are only an ergonomic alias:
 
@@ -274,7 +301,7 @@ export const watcher = {
 }
 ```
 
-The context carries `id`, `log`, `storage` (SQLite-backed and namespaced to the plugin, no id argument anywhere in the interface), `host` (the same typed verbs the client half gets), `emit`, and `settings`. `emit` refuses a value that is not JSON-serializable at the call site, so the failure lands on the plugin's own line rather than later inside a send it cannot see. A malformed `watcher` export is a load failure rather than a background task nobody supervises.
+The context carries `id`, `log`, `storage` (SQLite-backed and namespaced to the plugin, no id argument anywhere in the interface), `host` (the same sixteen typed verbs the client half gets, over in-process calls rather than HTTP), `emit`, and `settings`. `emit` refuses a value that is not JSON-serializable at the call site, so the failure lands on the plugin's own line rather than later inside a send it cannot see. A malformed `watcher` export is a load failure rather than a background task nobody supervises.
 
 Everything under `/api/plugins/<id>/` reaches your routes except `client`, `assets/*`, and `events`, which belong to the gateway and are matched first so a plugin cannot register over them. Every call into plugin code, the registrar and the handlers both, is wrapped: a throw becomes a 500 with the gateway's own wording, and the plugin's error text and stack stay in the log rather than going out on the wire. A registrar that throws is cached as a failure, so a broken plugin is not re-imported on every request until its author fixes it.
 

@@ -18,6 +18,16 @@ export const PLUGIN_HOST_VERBS = [
   "sessions.spawn",
   "employees.list",
   "notify",
+  "workflows.list",
+  "workflows.get",
+  "workflows.start",
+  "notes.list",
+  "notes.read",
+  "notes.create",
+  "connectors.send",
+  "cron.jobs",
+  "cron.runs",
+  "knowledge.search",
 ] as const;
 
 export type PluginHostVerb = (typeof PLUGIN_HOST_VERBS)[number];

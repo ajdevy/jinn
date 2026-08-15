@@ -46,7 +46,14 @@ export type { PluginHost } from './host'
 export { PluginHostDeniedError } from './host-permissions'
 export type { PluginHostVerb } from './host-permissions'
 export type {
+  HostConnectorMessage,
+  HostCronJob,
+  HostCronRun,
   HostEmployee,
+  HostKnowledgeResult,
+  HostNote,
+  HostNoteContent,
+  HostNoteDraft,
   HostSession,
   HostSessionSpawn,
   HostTodo,
@@ -54,9 +61,16 @@ export type {
   HostTodoDraft,
   HostTodoFilter,
   HostTodoStatus,
+  HostWorkflow,
+  HostWorkflowRun,
+  PluginHostConnectors,
+  PluginHostCron,
   PluginHostEmployees,
+  PluginHostKnowledge,
+  PluginHostNotes,
   PluginHostSessions,
   PluginHostTodos,
+  PluginHostWorkflows,
 } from './host-verbs'
 export type { HostEvent, HostEventHandler } from './host-events'
 export type { GatewayStatus, HostState } from './host-state'
