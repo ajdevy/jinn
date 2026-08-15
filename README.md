@@ -140,7 +140,15 @@ Jinn exposes a small set of building blocks and handles the machinery underneath
 </div>
 <div align="center"><sub>An Engineering employee triages a flaky test, ships the fix, and opens a PR, with each delegation and callback rendered as an activity receipt.</sub></div>
 
-**Notes, Skills, and Cron** provide searchable Markdown knowledge, reusable playbooks, and scheduled work. A built-in **Jinn MCP** gives engines typed tools for company operations; shell access remains available for local implementation.
+**Notes** are durable Markdown knowledge. Plain `.md` files under `<JINN_HOME>/knowledge/`, addressed as `knowledge/<folder>/<slug>.md`, read and written through typed tools whose writes carry the revision they expect, so two sessions cannot silently overwrite each other.
+
+**Experiments** are bets written down before the answer is known: a hypothesis, a baseline, the metrics that would settle it, and a horizon. Readings accumulate while one runs and a verdict closes it; see [`docs/experiments.md`](docs/experiments.md) for the data model, the lifecycle, and what validation enforces.
+
+**Heartbeats** are recurring self-wakes a session schedules for itself. A message is redelivered into the owning session on a fixed interval until the session stops it, or a fire limit or expiry disarms it.
+
+**Plugins** extend the app itself. A directory under `~/.jinn/plugins/` adds dashboard pages, sidebar rows, and status chips, and may also mount gateway HTTP routes and a supervised background task. No build step; see [`docs/plugins.md`](docs/plugins.md) for the manifest, the SDK surface, and the security posture.
+
+**Skills and Cron** provide reusable playbooks and scheduled work. A built-in **Jinn MCP** gives engines typed tools for company operations; shell access remains available for local implementation.
 
 ---
 
