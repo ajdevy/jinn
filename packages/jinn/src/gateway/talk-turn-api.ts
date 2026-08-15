@@ -17,13 +17,13 @@ import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { TALK_TOOL_INTENTS, estimateToolTokens, isKnownIntent, toolsByName } from "../talk/session/tools.js";
 import type { TalkActionRecord, TalkSession } from "../talk/session/types.js";
 import { readJsonBody } from "./http-helpers.js";
+import { json } from "./route-helpers.js";
 
 type JsonRequest = Parameters<typeof readJsonBody>[0];
 
-function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
+// Only the argument order is local: these failures carry their own messages, so
+// none of the fixed-body helpers next to `json` fits.
+const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 /** Accept a usage payload only when every token count is a non-negative finite
  *  number, so a malformed client cannot quietly bill a session zero. */

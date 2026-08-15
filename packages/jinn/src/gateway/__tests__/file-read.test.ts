@@ -151,7 +151,7 @@ describe("/api/files/read containment — real route", () => {
       headers: { host: "gateway.test", ...headers },
     });
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, "/api/files/read", "GET", ctx);
+    await files.handleFilesRequest(req as any, cap.res, { method: "GET", pathname: "/api/files/read", url: new URL(req.url, "http://localhost") }, ctx);
     return cap;
   }
 
@@ -162,7 +162,7 @@ describe("/api/files/read containment — real route", () => {
       headers: { host: "gateway.test", ...headers },
     });
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, "/api/files", "GET", ctx);
+    await files.handleFilesRequest(req as any, cap.res, { method: "GET", pathname: "/api/files", url: new URL(req.url, "http://localhost") }, ctx);
     return cap;
   }
 
@@ -179,7 +179,7 @@ describe("/api/files/read containment — real route", () => {
       },
     });
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, pathname, "POST", context);
+    await files.handleFilesRequest(req as any, cap.res, { method: "POST", pathname, url: new URL(pathname, "http://localhost") }, context);
     return cap;
   }
 
@@ -208,7 +208,7 @@ describe("/api/files/read containment — real route", () => {
   async function postMultipartFile(filename: string, bytes: Buffer) {
     const req = multipartRequest("/api/files", filename, bytes);
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, "/api/files", "POST", ctx);
+    await files.handleFilesRequest(req as any, cap.res, { method: "POST", pathname: "/api/files", url: new URL("/api/files", "http://localhost") }, ctx);
     return cap;
   }
 
@@ -220,7 +220,7 @@ describe("/api/files/read containment — real route", () => {
       headers: { host: "gateway.test", ...headers },
     });
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, pathname, "DELETE", ctx);
+    await files.handleFilesRequest(req as any, cap.res, { method: "DELETE", pathname, url: new URL(pathname, "http://localhost") }, ctx);
     return cap;
   }
 

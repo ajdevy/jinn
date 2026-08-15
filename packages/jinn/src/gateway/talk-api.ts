@@ -23,6 +23,7 @@ import { UNPINNED_MODEL, isPricingKnown } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
 import { alwaysOnTools, estimateToolTokens, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
+import { json, type ParsedRoute } from "./route-helpers.js";
 import { handleTalkConfigApi } from "./talk-config-api.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
@@ -46,10 +47,9 @@ setInterval(() => {
   }
 }, REAP_INTERVAL_MS).unref();
 
-function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
+// Only the argument order is local: talk's failures carry their own messages, so
+// none of the fixed-body helpers next to `json` fits.
+const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof TalkSessionError) {
@@ -274,15 +274,15 @@ async function nonSessionRoutes(
 export async function handleTalkApi(
   req: IncomingMessage,
   res: ServerResponse,
+  route: ParsedRoute,
   options: TalkApiOptions,
 ): Promise<boolean> {
-  const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+  const { pathname, method } = route;
   const config = options.getConfig();
   if (await nonSessionRoutes(req, res, pathname, config)) return true;
 
   const parts = talkSessionsPath(pathname);
   if (!parts) return false;
-  const method = req.method ?? "GET";
   if (unauthorizedWrite(res, method, options)) return true;
 
   try {

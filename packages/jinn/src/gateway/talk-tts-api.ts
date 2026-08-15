@@ -1,20 +1,16 @@
 /**
- * Per-message read-aloud TTS. Moved verbatim out of api.ts when the talk router
- * was added: these are talk-domain routes, and they are unrelated to the
- * realtime session runtime next door.
+ * Per-message read-aloud TTS. Lifted out of api.ts when the talk router was
+ * added: these are talk-domain routes, and they are unrelated to the realtime
+ * session runtime next door.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { JinnConfig } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { streamTtsSentences, ttsStatus, validateTtsText } from "../talk/tts-stream.js";
 import { readJsonBody } from "./http-helpers.js";
+import { json } from "./route-helpers.js";
 
 type TtsRequest = Parameters<typeof readJsonBody>[0];
-
-function json(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
 
 type KokoroOptions = NonNullable<JinnConfig["talk"]>["kokoro"];
 

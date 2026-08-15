@@ -15,6 +15,7 @@ import type { ApiContext } from "./api.js";
 import { CALLER_SESSION_HEADER, TOOL_CALL_HEADER, UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
 import { resolveCallerIdentity } from "./session-comm-guards.js";
 import { verifyGatewayAuth } from "./auth.js";
+import { badRequest, json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import { streamFile } from "./byte-range.js";
 import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 
@@ -616,23 +617,6 @@ function readBody(req: HttpRequest): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
-}
-
-function json(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
-
-function badRequest(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 400);
-}
-
-function notFound(res: ServerResponse): void {
-  json(res, { error: "Not found" }, 404);
-}
-
-function serverError(res: ServerResponse, message: string): void {
-  json(res, { error: message }, 500);
 }
 
 interface UploadResult {
@@ -1412,21 +1396,22 @@ export function isFileNotModified(
 export async function handleFilesRequest(
   req: HttpRequest,
   res: ServerResponse,
-  pathname: string,
-  method: string,
+  route: ParsedRoute,
   context: ApiContext,
 ): Promise<boolean> {
+  const { method, pathname } = route;
   // GET /api/files/read?path=<path> — read one managed file under files/ or
   // uploads/. GRS-020e containment guard: raw path shape gate + control-byte
   // rejection + realpath containment. No arbitrary filesystem reads.
   if (method === "GET" && pathname === "/api/files/read") {
     if (rejectUnidentifiedToolCaller(req, res)) return true;
-    const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    const requested = reqUrl.searchParams.get("path");
+    const requested = route.url.searchParams.get("path");
     if (!requested) {
       badRequest(res, "path query parameter is required");
       return true;
     }
+    // A substring read of the raw target, deliberately not the parsed value: the
+    // guard below is about what was sent, which decoding has already destroyed.
     if (hasEncodedPathSeparator(rawQueryParamValue(req.url, "path"))) {
       badRequest(res, "path contains encoded separators — pass a literal managed files/ or uploads/ relative path");
       return true;
@@ -1506,23 +1491,23 @@ export async function handleFilesRequest(
       return true;
     }
     const originalStat = fs.statSync(filePath);
-    const reqUrl = new URL(req.url || pathname, `http://${req.headers.host || "localhost"}`);
+    const query = route.url.searchParams;
     const originalMime = meta.mimetype || "application/octet-stream";
-    const download = reqUrl.searchParams.get("download") === "1";
+    const download = query.get("download") === "1";
     let selectedPath = filePath;
     let selectedMime = originalMime;
     let selectedFilename = meta.filename;
     let variant = "original";
     if (!download && originalMime.startsWith("video/")) {
       const key = `file:${meta.id}:${originalStat.size}`;
-      if (reqUrl.searchParams.get("poster") === "1") {
+      if (query.get("poster") === "1") {
         const poster = await ensurePoster(filePath, key);
         if (!poster) { notFound(res); return true; }
         selectedPath = poster;
         selectedMime = "image/jpeg";
         selectedFilename = `${path.parse(meta.filename).name}-poster.jpg`;
         variant = "poster";
-      } else if (reqUrl.searchParams.get("quality") === "low") {
+      } else if (query.get("quality") === "low") {
         const low = ensureLowVariant(filePath, key);
         if (low) {
           selectedPath = low;
@@ -1534,7 +1519,7 @@ export async function handleFilesRequest(
     const stat = fs.statSync(selectedPath);
     const lowFallback = !download
       && originalMime.startsWith("video/")
-      && reqUrl.searchParams.get("quality") === "low"
+      && query.get("quality") === "low"
       && variant === "original";
     // Content-immutable variants cache forever. A low-quality miss must retry so
     // the browser can adopt the background transcode once it lands.
