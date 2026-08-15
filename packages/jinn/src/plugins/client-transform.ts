@@ -2,8 +2,8 @@
  * What `GET /api/plugins/<id>/client` serves, for a client half that may be JSX.
  *
  * The no-build door stays open by not becoming a build: a plain-ESM `client.js`
- * is still served as its own bytes, and only a file the JS parser rejects is
- * compiled. `jsx: "automatic"` emits `react/jsx-runtime`, which is already one
+ * is still served as its own bytes, and only a file that turns out to hold JSX
+ * is compiled. `jsx: "automatic"` emits `react/jsx-runtime`, which is already one
  * of the three specifiers the web loader resolves to the app's live namespaces
  * (web/src/plugins/sdk/runtime.ts), so a compiled plugin lands on the running
  * React rather than on a second dispatcher.
@@ -39,6 +39,12 @@ function failureMessage(error: unknown, sourcefile: string): string {
   return `${sourcefile}${at}: ${first.text}`;
 }
 
+/** The import esbuild's automatic runtime adds, and only when it found JSX to
+ *  compile. It is the one thing in the output that says the source needed
+ *  compiling at all — a file that hand-writes this same import is compiled too,
+ *  which costs it its own formatting and nothing else. */
+const AUTOMATIC_RUNTIME = 'from "react/jsx-runtime"';
+
 async function compile(file: string): Promise<ClientModule> {
   const sourcefile = path.basename(file);
   let source: string;
@@ -50,19 +56,9 @@ async function compile(file: string): Promise<ClientModule> {
     return { kind: "raw" };
   }
 
+  let code: string;
   try {
-    // Output discarded: the JS loader rejects JSX, so parsing under it is the
-    // question "is this already plain ESM?" and the answer is all we want. It
-    // runs on a cache miss only.
-    await transform(source, { loader: "js", format: "esm", sourcefile });
-    return { kind: "raw" };
-  } catch {
-    // Not plain ESM. Either it is JSX or it is broken, and the JSX parse below
-    // is the superset — its verdict is the accurate one either way.
-  }
-
-  try {
-    const { code } = await transform(source, {
+    ({ code } = await transform(source, {
       loader: "jsx",
       jsx: "automatic",
       // The dev runtime imports `react/jsx-dev-runtime`, which the loader's
@@ -71,11 +67,16 @@ async function compile(file: string): Promise<ClientModule> {
       format: "esm",
       target: "es2022",
       sourcefile,
-    });
-    return { kind: "transformed", code };
+    }));
   } catch (error) {
     return { kind: "error", message: failureMessage(error, sourcefile) };
   }
+
+  // JSX is a superset of ESM, so this one parse also answers "was any of it
+  // JSX?", and a file where none of it was keeps its own bytes rather than
+  // esbuild's. Asking under the JS loader first would answer the same question
+  // by compiling every JSX plugin twice.
+  return code.includes(AUTOMATIC_RUNTIME) ? { kind: "transformed", code } : { kind: "raw" };
 }
 
 /** What to serve for one plugin's client half, compiling it only when the file

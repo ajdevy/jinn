@@ -112,17 +112,18 @@ describe("GET /api/plugins/:id/client with JSX", () => {
 
   it("compiles once for an unmodified file, and again after an edit", async () => {
     await call("GET", "/api/plugins/jsx/client");
-    const afterFirst = transforms.count;
-    expect(afterFirst).toBeGreaterThan(0);
+    // Exactly one: the compile is also the parse that decides whether the file
+    // needed compiling, so a first request never reaches esbuild twice.
+    expect(transforms.count).toBe(1);
 
     const cached = await call("GET", "/api/plugins/jsx/client");
-    expect(transforms.count).toBe(afterFirst);
+    expect(transforms.count).toBe(1);
     expect(cached.status).toBe(200);
 
     fs.writeFileSync(clientPath("jsx"), "export const Edited = () => <p>edited, and a different length</p>\n");
     const reread = await call("GET", "/api/plugins/jsx/client");
 
-    expect(transforms.count).toBeGreaterThan(afterFirst);
+    expect(transforms.count).toBe(2);
     expect(reread.bodyText).toContain("edited, and a different length");
   });
 
@@ -134,5 +135,18 @@ describe("GET /api/plugins/:id/client with JSX", () => {
     expect(served.status).toBe(422);
     expect(served.body.error).toContain("client.js");
     expect(served.body.error).toMatch(/:\d+:\d+:/);
+  });
+
+  it("carries that reason onto the inventory row the settings list renders", async () => {
+    install("broken", { id: "broken", name: "Broken" }, { "client.js": "export const Panel = () => <p>unclosed\n" });
+
+    const listed = await call("GET", "/api/plugins");
+    const row = listed.body.inventory.find((entry: { id: string }) => entry.id === "broken");
+
+    expect(row.status).toBe("error");
+    expect(row.error).toMatch(/client\.js:\d+:\d+:/);
+    // Still served, so the dashboard asks and gets the 422 that leaves whatever
+    // is already running in place rather than unloading it as missing.
+    expect(listed.body.plugins.map((entry: { id: string }) => entry.id)).toContain("broken");
   });
 });
