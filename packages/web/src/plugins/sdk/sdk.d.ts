@@ -131,14 +131,13 @@ export declare const AREAS: {
   readonly statusBarRight: 'statusbar.right'
   readonly todoDetailActions: 'todo.detail.actions'
   readonly todoDetailSections: 'todo.detail.sections'
+  readonly chatComposer: 'chat.composer'
+  readonly homeWidgets: 'home.widgets'
 }
 
-export type AreaId =
-  | 'routes'
-  | 'sidebar.nav'
-  | 'statusbar.right'
-  | 'todo.detail.actions'
-  | 'todo.detail.sections'
+/** Derived from the const above rather than spelled a second time: a union
+ *  restated by hand is one an added area can silently fall out of. */
+export type AreaId = (typeof AREAS)[keyof typeof AREAS]
 
 export type GatewayStatus = 'connected' | 'disconnected'
 

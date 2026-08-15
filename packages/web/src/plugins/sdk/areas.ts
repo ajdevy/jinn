@@ -13,6 +13,8 @@ export const AREAS = Object.freeze({
   statusBarRight: 'statusbar.right',
   todoDetailActions: 'todo.detail.actions',
   todoDetailSections: 'todo.detail.sections',
+  chatComposer: 'chat.composer',
+  homeWidgets: 'home.widgets',
 } as const)
 
 /** Every area id a contribution may target. */

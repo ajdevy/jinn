@@ -43,8 +43,9 @@ export interface ResolvedContribution extends Contribution {
  * The v1 area ids. `todoDetailActions` and `todoDetailSections` are the two ends
  * of one page-scoped surface, a header and a body.
  *
- * Only `statusbarRight` has a host today; the rest are hosted by their own
- * slices, and the ids live here so the two sides cannot spell them differently.
+ * The ids live here so the two sides cannot spell them differently; the SDK
+ * declares the same values for plugins, and `sdk-contract.test.ts` holds the
+ * two declarations to the same set.
  */
 export const AREAS = {
   routes: "routes",
@@ -52,4 +53,6 @@ export const AREAS = {
   statusbarRight: "statusbar.right",
   todoDetailActions: "todo.detail.actions",
   todoDetailSections: "todo.detail.sections",
+  chatComposer: "chat.composer",
+  homeWidgets: "home.widgets",
 } as const

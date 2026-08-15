@@ -72,7 +72,7 @@ describe('the contribution areas', () => {
   /* The ids are the wire format: a plugin on disk names them in its manifest,
    * and nothing derives them, so renaming one has to fail here rather than at
    * a stranger's install. */
-  it('exports the five v1 area ids', () => {
+  it('exports the seven v1 area ids', () => {
     expect(new Set(Object.values(sdk.AREAS))).toEqual(
       new Set([
         'routes',
@@ -80,6 +80,8 @@ describe('the contribution areas', () => {
         'statusbar.right',
         'todo.detail.actions',
         'todo.detail.sections',
+        'chat.composer',
+        'home.widgets',
       ]),
     )
   })

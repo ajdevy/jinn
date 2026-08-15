@@ -5,6 +5,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Slot } from "@/contrib/slot"
+import { AREAS } from "@/contrib/types"
 import { todoPath } from "@/lib/todo-id"
 
 /* Todos v2 slice 6 — the task page's breadcrumb bar (design-doc §7.1, mock
@@ -110,6 +112,9 @@ export function CrumbBar({
       )}
 
       <div className="ml-auto flex flex-none gap-0.5">
+        {/* Contributed actions lead the group so the app's own copy-link and ⋯
+            stay where the muscle memory expects them, at the bar's edge. */}
+        <Slot area={AREAS.todoDetailActions} variant="chip" />
         <button
           type="button"
           aria-label={`Copy link to ${id}`}
