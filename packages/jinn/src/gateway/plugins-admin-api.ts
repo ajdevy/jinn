@@ -86,7 +86,9 @@ export async function reconcilePluginRuntime(context: ApiContext): Promise<void>
 
 /** `config.yaml` as an object, or null when it is not one. A toggle is not worth
  *  rewriting a config we could not read: recreating it from scratch would take
- *  the operator's engines, connectors and tokens with it. */
+ *  the operator's engines, connectors and tokens with it. Stricter than PUT
+ *  /api/config on one point: a missing file is refused here too, because a plugin
+ *  decision about a gateway with no config yet decides nothing. */
 function readConfigFile(): Record<string, unknown> | null {
   let loaded: unknown;
   try {

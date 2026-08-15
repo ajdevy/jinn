@@ -100,7 +100,7 @@ import {
   TEMPLATE_MIGRATIONS_DIR,
   resolveHomeIdentity,
 } from "../shared/paths.js";
-import { CONFIG_TOP_LEVEL_KEYS, saveConfigAtomic, gatewayEnvOverrides } from "../shared/config.js";
+import { CONFIG_TOP_LEVEL_KEYS, saveConfigAtomic, gatewayEnvOverrides, validateConfigShape } from "../shared/config.js";
 import { messageBodyError } from "../shared/message-body.js";
 import { logger } from "../shared/logger.js";
 import { redactText } from "../shared/redact.js";
@@ -5111,30 +5111,14 @@ export async function handleApiRequest(
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
       const body = _parsed.body as any;
-      // Basic validation: must be a plain object
+      // Object.keys(null) throws, and an array would report index-named "unknown keys"
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return badRequest(res, "Config must be a JSON object");
       }
-      // Validate known top-level keys
+      // On the body, before the merge: a key we would not save back is the caller's mistake to hear about.
       const unknownKeys = Object.keys(body).filter((k) => !CONFIG_TOP_LEVEL_KEYS.includes(k));
       if (unknownKeys.length > 0) {
         return badRequest(res, `Unknown config keys: ${unknownKeys.join(", ")}`);
-      }
-      // Validate critical field types. A value the shape validator would reject must
-      // not reach the file: loadConfig() then throws and the gateway cannot restart.
-      if (body.gateway !== undefined) {
-        if (typeof body.gateway !== "object" || body.gateway === null || Array.isArray(body.gateway)) {
-          return badRequest(res, "gateway must be an object");
-        }
-        if (body.gateway.port !== undefined && typeof body.gateway.port !== "number") {
-          return badRequest(res, "gateway.port must be a number");
-        }
-        if (body.gateway.host !== undefined && typeof body.gateway.host !== "string") {
-          return badRequest(res, "gateway.host must be a string");
-        }
-      }
-      if (body.engines !== undefined && (typeof body.engines !== "object" || Array.isArray(body.engines))) {
-        return badRequest(res, "engines must be an object");
       }
       // GET /api/config serves the EFFECTIVE binding, so the Settings page echoes
       // JINN_HOST/JINN_PORT back with every unrelated edit; saveConfigAtomic drops those.
@@ -5152,13 +5136,22 @@ export async function handleApiRequest(
           );
         }
       }
-      // Deep-merge incoming config with existing config to preserve
-      // fields not included in the update (e.g. connector tokens).
+      // Deep-merge with the file to preserve fields the update omits (e.g. connector
+      // tokens); the merge output is what gets validated, since a PUT body is partial.
+      const unreadable = `${CONFIG_PATH} could not be read as a config object; refusing to rewrite it`;
       let existing: Record<string, unknown> = {};
       try {
-        existing = yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {};
-      } catch { /* start fresh if unreadable */ }
+        const loaded = yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) ?? {};
+        if (typeof loaded !== "object" || Array.isArray(loaded)) return serverError(res, unreadable);
+        existing = loaded as Record<string, unknown>;
+      } catch (err) {
+        // ENOENT is the one honest "start fresh": any other failure means rewriting a file we could not read.
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") return serverError(res, unreadable);
+      }
       const merged = deepMerge(existing, body);
+      // A value the shape validator would reject must not reach the file: loadConfig() then throws and the gateway cannot restart.
+      const problems = validateConfigShape(merged);
+      if (problems.length > 0) return badRequest(res, `Invalid config: ${problems.join("; ")}`);
       saveConfigAtomic(merged);
       context.reloadConfig?.(); // refresh in-memory config now (don't wait on the watcher)
       invalidateModelRegistry(); // models/engines may have changed — rebuild on next read

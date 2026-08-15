@@ -161,10 +161,58 @@ describe("PUT /api/config top-level key allowlist", () => {
     expect(savedConfig().realtime).toEqual({ apiKey: "sk-account-key" });
   });
 
+  it("accepts and persists the plugins block the toggle writes", async () => {
+    const response = await call("PUT", "/api/config", { plugins: { enabled: ["inbox"], disabled: [] } });
+
+    expect(response.status).toBe(200);
+    expect(savedConfig().plugins).toEqual({ enabled: ["inbox"], disabled: [] });
+  });
+
+  it("accepts and persists the budgets block", async () => {
+    const response = await call("PUT", "/api/config", { budgets: { employees: { "a-lead": 25 } } });
+
+    expect(response.status).toBe(200);
+    expect(savedConfig().budgets).toEqual({ employees: { "a-lead": 25 } });
+  });
+
+  // The Settings page saves back the whole document it was served, so a plugin the operator toggled must survive it.
+  it("round-trips a gateway that already has plugins decided", async () => {
+    currentConfig = { ...baseConfig(), plugins: { enabled: ["inbox"], disabled: [] } } as JinnConfig;
+    fs.writeFileSync(path.join(jinnHome, "config.yaml"), yaml.dump(currentConfig));
+
+    const fetched = await call("GET", "/api/config");
+    expect(fetched.status).toBe(200);
+
+    const saved = await call("PUT", "/api/config", fetched.body);
+    expect(saved.status).toBe(200);
+    expect(savedConfig().plugins).toEqual({ enabled: ["inbox"], disabled: [] });
+  });
+
   it("still refuses a key JinnConfig does not declare", async () => {
     const response = await call("PUT", "/api/config", { nonsense: true });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe("Unknown config keys: nonsense");
+  });
+
+  // A boolean field given a string parses fine but makes loadConfig() throw, costing the operator the next restart.
+  it("refuses a value that would brick the next boot, and leaves the file alone", async () => {
+    const before = fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8");
+
+    const response = await call("PUT", "/api/config", { gateway: { authDisabled: "yes" } });
+
+    expect(response.status).toBe(400);
+    expect(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")).toBe(before);
+  });
+
+  // Rewriting a config we could not parse recreates it from the body alone, taking engines, connectors and tokens.
+  it("refuses to rewrite a config.yaml it could not read as an object", async () => {
+    const malformed = "gateway: {\nengines: [oops\n";
+    fs.writeFileSync(path.join(jinnHome, "config.yaml"), malformed);
+
+    const response = await call("PUT", "/api/config", { logging: { level: "debug" } });
+
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")).toBe(malformed);
   });
 });

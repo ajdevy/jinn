@@ -125,6 +125,18 @@ describe("the operator's two lists", () => {
     expect(saved.engines?.default).toBe("codex");
   });
 
+  // The toggle and the Settings page write the same file; a later save must not be what rejects the toggle's key.
+  it("survives the Settings page saving back the config it was served", async () => {
+    await call("POST", "/api/plugins/inbox/enabled", { authorization: "Bearer test-token" }, { enabled: true });
+
+    const fetched = await call("GET", "/api/config", { authorization: "Bearer test-token" });
+    expect(fetched.status).toBe(200);
+
+    const saved = await call("PUT", "/api/config", { authorization: "Bearer test-token" }, fetched.body);
+    expect(saved.status).toBe(200);
+    expect(savedConfig().plugins?.enabled).toContain("inbox");
+  });
+
   it("refuses a body that does not decide anything", async () => {
     const answer = await call("POST", "/api/plugins/inbox/enabled", { authorization: "Bearer test-token" }, { enabled: "yes" });
 

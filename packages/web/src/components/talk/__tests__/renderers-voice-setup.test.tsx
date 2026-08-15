@@ -66,14 +66,14 @@ describe("the voice setup card", () => {
   })
 
   it("keeps the operator on the card when the save is refused, and says why", async () => {
-    updateConfig.mockRejectedValue(new Error("Unknown config keys: realtime"))
+    updateConfig.mockRejectedValue(new Error("Invalid config: engines must be a mapping"))
     const { key, save, onAnswer } = setup()
 
     fireEvent.change(key, { target: { value: "sk-account-key" } })
     fireEvent.click(save)
 
     const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("Unknown config keys: realtime")
+    expect(alert.textContent).toContain("Invalid config: engines must be a mapping")
     expect(onAnswer).not.toHaveBeenCalled()
   })
 

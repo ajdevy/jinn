@@ -13,10 +13,13 @@ export function normalizeClaudeEngineConfig(raw: ClaudeEngineConfig): Required<P
 }
 
 /**
- * Lightweight shape validation for a parsed config.yaml. Returns a list of
- * problems (empty = valid). Deliberately minimal: only the fields whose
- * absence/wrong type would crash the gateway at startup are checked, so
- * configs that rely on downstream defaults keep working.
+ * Shape validation for a config.yaml document, on the way in at startup and on
+ * the way out of PUT /api/config. Returns a list of problems (empty = valid).
+ * Deliberately minimal: only the fields whose absence/wrong type would crash the
+ * gateway at startup are checked, so configs that rely on downstream defaults
+ * keep working. On the write path that minimum is exactly the right line — it
+ * accepts everything the loader accepts, and nothing that would leave the
+ * operator with a config.yaml the gateway can no longer boot from.
  */
 export function validateConfigShape(config: unknown): string[] {
   if (config === null || config === undefined) {
@@ -187,30 +190,17 @@ export function withoutGatewayEnvValues<T>(
 }
 
 /**
- * The top-level keys a config write may carry. Keep aligned with `JinnConfig`
- * in ./config-types.ts: a key the interface declares but this omits cannot be
- * saved back, so a gateway already using it fails to round-trip its own config.
+ * The top-level keys a config write may carry. A key `JinnConfig` declares but this
+ * omits cannot be saved back, so alignment is the compiler's job: `Record<keyof
+ * JinnConfig, true>` fails the build both ways, on a missing key and an excess one.
  */
-export const CONFIG_TOP_LEVEL_KEYS = [
-  "jinn",
-  "gateway",
-  "engines",
-  "models",
-  "connectors",
-  "logging",
-  "mcp",
-  "sessions",
-  "cron",
-  "notifications",
-  "workflows",
-  "portal",
-  "context",
-  "stt",
-  "talk",
-  "realtime",
-  "skills",
-  "remotes",
-];
+const CONFIG_TOP_LEVEL_KEY_SET: Record<keyof JinnConfig, true> = {
+  jinn: true, gateway: true, engines: true, models: true, connectors: true,
+  logging: true, mcp: true, plugins: true, budgets: true, sessions: true,
+  cron: true, notifications: true, workflows: true, portal: true, context: true,
+  stt: true, talk: true, realtime: true, remotes: true,
+};
+export const CONFIG_TOP_LEVEL_KEYS = Object.keys(CONFIG_TOP_LEVEL_KEY_SET);
 
 /**
  * Atomically persist a config object to config.yaml. The live gateway
