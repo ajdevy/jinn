@@ -5,7 +5,7 @@ description: Create, assign, update, review, and archive Jinn Todos through the 
 
 # Todo Handling Skill
 
-Use this skill for deliberately authored, durable work ownership and status tracking. Todos are the live company ledger; Workflows are the reusable HOW. Search before creating a duplicate. A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.
+Use this skill for deliberately authored, durable work ownership and status tracking. Todos are the live company ledger; Workflows are the reusable HOW. Search before creating a duplicate. An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.
 
 ## Find the right Todo
 
@@ -93,7 +93,7 @@ Approvals are routed records on a Todo, separate from its lifecycle status. Gene
 
 4. If the routed manager/COO deliberately needs operator/aCEO authority, call `escalate_work_item_approval` with the pending Todo id and an optional reason. Escalation exposes the pending approval to that path; it does not approve or reject it.
 
-Todo approvals affect only the Todo. Workflow operations never mutate Todos. A Todo-status trigger is a one-way input; the resulting Workflow run is independent.
+A gate parked on a Todo by its bound Workflow run is decided here with `decide_work_item_approval`, and that decision resumes the run. A Todo-status trigger binds its run to the Todo that fired it; an unbound Workflow run never mutates a Todo.
 
 ## Keep status honest
 

@@ -5,7 +5,7 @@ description: Create, invoke, and track reusable Jinn Workflows with typed MCP to
 
 # Workflow Skill
 
-Use this skill for repeatable, scheduled, event-driven, or multi-step automation. A Workflow is the reusable HOW. Workflow runs are durable records, not Sessions. A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.
+Use this skill for repeatable, scheduled, event-driven, or multi-step automation. A Workflow is the reusable HOW. Workflow runs are durable records, not Sessions. An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.
 
 ## Discover and author
 
@@ -54,7 +54,7 @@ The `assigned` status does NOT imply an assignee: assigning a Todo is its own ac
 
 Its payload carries `todoId`, `fromStatus`, `toStatus`, `source`, `department`, `assignee`, `labels` (the label names, for Condition predicates such as `contains`), and `labelList` (the same names joined for `{{ trigger.labelList }}` prompt placeholders, which only render primitives).
 
-An Approval node creates a native pending approval on the run. The resolved routed owner cannot decide their own approval, while a hierarchy root/COO is exempt. Reviewers should avoid approving work they personally executed. Use `decide_workflow_approval`. Route unclear authority to the manager/COO.
+An Approval node creates a native pending approval on the run. The resolved routed owner cannot decide their own approval, while a hierarchy root/COO is exempt. Reviewers should avoid approving work they personally executed. On an unbound run use `decide_workflow_approval`; on a Todo-bound run the gate mirrors onto the bound Todo and is decided there with `decide_work_item_approval`, and the Workflow-side decide is refused and names that Todo. Route unclear authority to the manager/COO.
 
 Give an Approval node `options` (2 to 8 unique labels) to ask for a CHOICE rather than a yes/no — "which of these three variants ships". On a Todo-bound run the options mirror onto that Todo's approval, so the pick happens on the Todos surface; approving without picking one of them is refused rather than defaulted. Read the pick downstream as `{{ node.<approvalNodeId>.choice }}`, typically from a Condition.
 
