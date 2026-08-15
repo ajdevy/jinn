@@ -241,6 +241,11 @@ test("route fails loudly on a malformed stream rather than reporting an empty di
   const malformed = {
     "an unrecognised status": diff("nonsense", "packages/gateway/src/server.ts"),
     "a status with no path behind it": diff("M", "docs/architecture.md", "M"),
+    // Git scores a rename or copy always and a rewrite at its option, and nothing
+    // else. A score taken on any letter read `A100` as an added file and honoured
+    // the declaration over a diff nobody had judged.
+    "a score on a status git never scores": diff("A100", "docs/architecture.md"),
+    "a rename missing the score git always writes": diff("R", "packages/demo/ship.ts", "docs/ship.ts"),
   }
   for (const [name, stream] of Object.entries(malformed)) {
     const routed = route(stream, "--declared", "workspace")
