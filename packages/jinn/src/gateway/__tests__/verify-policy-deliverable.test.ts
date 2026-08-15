@@ -9,6 +9,8 @@ import type { JinnMcpContext, JinnMcpTool } from "../../mcp/toolkit.js";
  * They share one validator, and this suite is what holds them to it: the same
  * bad route has to be refused by the same named error on both sides, or the
  * declaration means one thing to an agent and another to the web UI.
+ *
+ * Who may set which key is a separate question, held by verify-policy-authority.
  */
 
 function mcpTool(name: string): JinnMcpTool {
@@ -111,8 +113,8 @@ describe("a Todo declaring that its deliverable lands in the workspace", () => {
       { id: "AAA-1", status: "executing", verifyPolicy: { mode: "verify", deliverable: "workspace" } },
       moved.ctx,
     );
-    // The declaration goes through the operator-only PATCH pen, and it goes
-    // first: a route the gateway refuses must not leave the status already moved.
+    // The declaration goes through the metadata pen, and it goes first: a route
+    // the gateway refuses must not leave the status already moved.
     expect(moved.sent).toEqual([
       { verifyPolicy: { mode: "verify", deliverable: "workspace" }, expectedVersion: 4 },
       { status: "executing" },

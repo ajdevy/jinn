@@ -42,6 +42,39 @@ an error.
 
 The field records a route. It grants no access to anything.
 
+### Who may declare it
+
+The Todo's own **assignee or creator**, and only this one key. `mode`, `verifier`
+and `maxRounds` decide who reviews the work and stay the operator's, so a
+declaration can never carry a review mode in with it: the submitted policy has to
+match the stored one in every other key, and on a Todo with no stored policy the
+submitted `mode` has to be the one provenance already gave it.
+
+It has to be the lane's to set. Every bound MCP call arrives as a session, so an
+operator-only field would mean no lane could ever declare its own route, and the
+false blocks would continue.
+
+### The declaration is a hint, not an instruction
+
+Left there, a self-declared route would be a way around review: declare
+`workspace`, skip the code check. So the pipeline validates the declaration
+against the real diff before honouring it:
+
+```
+node scripts/deliverable-evidence.mjs route --declared workspace $(git diff --name-only <base>..HEAD)
+```
+
+`workspace` is honoured only when the diff is empty or confined to non-shipping
+paths — `docs/` and `.jinn-build/`. Non-shipping is an allowlist, not a denylist,
+so a top-level directory added later ships by default rather than silently
+escaping review. A diff touching anything else exits `2` — distinct from the
+usage failure `1` — and names every offending file. A Todo carrying real source
+changes is verified on the normal route; a false declaration buys nothing, and
+the mismatch is loud rather than a silent downgrade.
+
+This command is pure path arithmetic. It opens no file, stats nothing, and runs
+no git.
+
 ## 2. Leave evidence in the repository
 
 The implementer already has workspace access, so it is the side that can hash

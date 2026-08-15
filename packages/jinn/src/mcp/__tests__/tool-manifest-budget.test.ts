@@ -101,20 +101,21 @@ const ATTESTED = {
   // page the rest with offset" to "N chars per call; offset pages the rest"),
   // and nothing dead is left in this group to buy the remaining 14 from, so the
   // ceiling moves by exactly that. Pi stays five under it.
-  // Reattested for `verifyPolicy` on update_work_item (PLA-102): a Todo
-  // declaring that its product lands in the operator's workspace rather than in
-  // the diff has to be able to say so on the tool that moves it, or the route is
-  // one the web surface can declare and an agent cannot. It is a bare
-  // `{"type":"object"}` and not one word of prose, so its whole cost is 7 tokens
-  // on each of the three wrappers. It buys them back rather than moving the
-  // ceiling: `update_work_item`'s own description said "Also updates blocked
-  // reason, spend, budget, and dispatch fields", a list its schema properties
-  // already enumerate one line below, and dropping it pays exactly 7. The
-  // ceiling, all three totals, and the tool count are what `main` pinned; only
-  // the payload changed, so only the SHAs move.
-  rpc: { tokens: 5421, sha256: "aeee2728e07eaa19d912150a50bcea08e993abef2e74864f4b694dafb627be1f" },
-  pi: { tokens: 5927, sha256: "f002a3ac92d9c0d7403b6a22cc3a1079ad80ba58a4f84ccfd8f906a3c587e59f" },
-  openai: { tokens: 5626, sha256: "a3959eb65526136f080efcfdb7a68dcbf2a0c69f5c8acfbf1544a48eb7d73c43" },
+  // Reattested for `verifyPolicy` on update_work_item (PLA-102): a Todo whose
+  // product lands in the operator's workspace rather than in the diff has to be
+  // able to say so on the tool that moves it, or the route is one the web
+  // surface can declare and an agent cannot. It is a bare `{"type":"object"}`
+  // and not one word of prose — the shared validator names every legal shape in
+  // its refusal — so its whole cost is 7 tokens on each of the three wrappers.
+  // It buys them back rather than moving the ceiling: `cost_report.groupBy`
+  // carried the description "employee or day.", which is its own enum
+  // `["employee","day"]` written out a second time in English, and dropping it
+  // pays exactly 7 on each wrapper. So the ceiling, all three totals, and the
+  // tool count are what `main` pinned; only the payload moved, so only the SHAs
+  // do.
+  rpc: { tokens: 5421, sha256: "13328a2fdefd8bdcc3a33e9c673d7373159a3ae8f2b86d480b9de5d79c1f568c" },
+  pi: { tokens: 5927, sha256: "fd1ff9483bc9db32c780f90b9b6f24bf9fdf1265b17b1b50bf8d0ec658de7157" },
+  openai: { tokens: 5626, sha256: "55779bdfedd3d7d9779c27c6217b405154c581bf56a2938ec0a3f306585720fc" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

@@ -143,3 +143,56 @@ test("a workspace-only deliverable with an empty product diff reaches a verdict"
   assert.equal(verdict.status, 0, verdict.out)
   assert.match(verdict.out, /note\.md/)
 })
+
+const DOCS_ONLY = ["docs/architecture.md", ".jinn-build/notes.json"]
+const TOUCHES_SOURCE = ["docs/architecture.md", "packages/gateway/src/server.ts"]
+
+test("route honours a workspace declaration when the diff is empty or non-shipping", () => {
+  for (const changed of [[], DOCS_ONLY]) {
+    const routed = run("route", "--declared", "workspace", ...changed)
+    assert.equal(routed.status, 0, `a diff of ${JSON.stringify(changed)} is not shipping: ${routed.out}`)
+  }
+})
+
+test("route refuses a workspace declaration whose diff touches a shipping path", () => {
+  const routed = run("route", "--declared", "workspace", ...TOUCHES_SOURCE)
+  // Distinct from `fail`, so the pipeline can tell a false declaration apart
+  // from a mistyped call.
+  assert.equal(routed.status, 2, `expected the route-mismatch exit, got ${routed.status}: ${routed.out}`)
+  assert.ok(routed.out.includes("packages/gateway/src/server.ts"), `the refusal does not name the offending file: ${routed.out}`)
+})
+
+test("route names every offending file, not just the first", () => {
+  const offenders = ["packages/gateway/src/server.ts", "scripts/ratchet.mjs", "package.json"]
+  const routed = run("route", "--declared", "workspace", "docs/architecture.md", ...offenders)
+  assert.equal(routed.status, 2, routed.out)
+  for (const offender of offenders) {
+    assert.ok(routed.out.includes(offender), `${offender} is not named: ${routed.out}`)
+  }
+})
+
+test("route treats a top-level directory it has never heard of as shipping", () => {
+  const routed = run("route", "--declared", "workspace", "brand-new-top-level/thing.ts")
+  assert.equal(routed.status, 2, `an unknown top-level directory was let through as non-shipping: ${routed.out}`)
+})
+
+test("route judges a path by the file it names, not by how it is spelled", () => {
+  const routed = run("route", "--declared", "workspace", "./packages/gateway/src/server.ts")
+  assert.equal(routed.status, 2, `a leading dot segment slipped past the shipping check: ${routed.out}`)
+})
+
+test("route lets the repo declaration through whatever the diff holds", () => {
+  for (const changed of [DOCS_ONLY, TOUCHES_SOURCE]) {
+    const routed = run("route", "--declared", "repo", ...changed)
+    assert.equal(routed.status, 0, `the ordinary route must not be blocked: ${routed.out}`)
+  }
+})
+
+test("route refuses a --declared value that is neither repo nor workspace", () => {
+  const missing = run("route", "packages/gateway/src/server.ts")
+  assert.equal(missing.status, 1, `expected a usage failure, got ${missing.status}: ${missing.out}`)
+
+  const nonsense = run("route", "--declared", "workspaces", "docs/architecture.md")
+  assert.equal(nonsense.status, 1, `expected a usage failure, got ${nonsense.status}: ${nonsense.out}`)
+  assert.match(nonsense.out, /usage:/)
+})

@@ -13,6 +13,15 @@
 // `write` is the implementer's half and the only half that touches the
 // workspace. `check` is the verifier's half and opens nothing but the manifest
 // it is handed, so ruling on a workspace deliverable costs no new read reach.
+//
+// `route` is the pipeline's half, and it rules on one thing: whether the
+// workspace route was declared honestly. A Todo declaring
+// `deliverable: "workspace"` is a hint this pipeline validates, never an
+// instruction it obeys — taken on trust, a self-declared workspace route is a
+// way to route around code review: declare `workspace`, skip the code check. So
+// the route is honoured only when the product diff is empty or confined to
+// non-shipping paths, and a mismatch fails loudly rather than silently
+// downgrading to ordinary verification.
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -20,11 +29,24 @@ import path from "node:path"
 const MANIFEST_DEFAULT = ".jinn-build/deliverable-evidence.json"
 const SHA256 = /^[0-9a-f]{64}$/
 
+/** A false workspace declaration exits distinctly from `fail`, because the
+ *  pipeline has to tell "this declaration is not true" apart from "the tool was
+ *  called wrong". */
+const ROUTE_MISMATCH_EXIT = 2
+
+/** Non-shipping paths, as an allowlist and deliberately not a denylist of the
+ *  shipping ones: a denylist would make every top-level directory added later
+ *  silently non-shipping, which is the exact failure this check exists to
+ *  prevent. Everything outside these prefixes ships. */
+const NON_SHIPPING_PREFIXES = ["docs/", ".jinn-build/"]
+
 const USAGE = `usage:
   deliverable-evidence.mjs write --todo <ID> --home <dir> --summary <text> [--manifest <path>] <path>...
   deliverable-evidence.mjs check --todo <ID> [--manifest <path>]
+  deliverable-evidence.mjs route --declared <repo|workspace> <changed path>...
 
-manifest defaults to ${MANIFEST_DEFAULT}. Delivered paths are relative to --home.`
+manifest defaults to ${MANIFEST_DEFAULT}. Delivered paths are relative to --home.
+Changed paths are repo-relative, as \`git diff --name-only\` prints them.`
 
 function fail(reason) {
   console.error(`deliverable evidence FAILED — ${reason}`)
@@ -38,6 +60,13 @@ function toPosix(value) {
 
 function isSecret(posixPath) {
   return posixPath === "secrets" || posixPath.startsWith("secrets/")
+}
+
+/** Collapsed before it is judged, so `./packages/x` and `packages/x` are one
+ *  path and only one of the two spellings has to match a prefix. */
+function isShipping(changedPath) {
+  const normalized = path.posix.normalize(toPosix(changedPath))
+  return !NON_SHIPPING_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
 
 function parseArgs(argv) {
@@ -203,8 +232,33 @@ function check({ options }) {
   report(record.entries)
 }
 
+/** Path arithmetic and nothing else: no read, no stat, no git. That is what
+ *  keeps the ruling unit-testable and what keeps this command from opening a
+ *  single file of the diff it is judging. */
+function route({ options, positional }) {
+  const declared = required(options, "declared")
+  if (declared !== "repo" && declared !== "workspace") {
+    fail(`--declared ${JSON.stringify(declared)} is neither repo nor workspace\n\n${USAGE}`)
+  }
+  if (declared === "repo") {
+    console.log("deliverable route OK — repo, the diff is verified as usual")
+    return
+  }
+
+  const shipping = positional.filter(isShipping)
+  if (shipping.length > 0) {
+    console.error(`deliverable route FAILED — the Todo declares deliverable "workspace", but the diff changes ${shipping.length === 1 ? "a shipping file" : "shipping files"}:`)
+    for (const changed of shipping) console.error(`  ${changed}`)
+    console.error("a workspace declaration is a hint, never an instruction: a Todo carrying real source changes is verified on the normal route. Drop the declaration, or drop the source changes.")
+    process.exit(ROUTE_MISMATCH_EXIT)
+  }
+
+  console.log(`deliverable route OK — workspace, ${positional.length} changed ${positional.length === 1 ? "path" : "paths"}, none of them shipping`)
+}
+
 const [command, ...rest] = process.argv.slice(2)
 const parsed = parseArgs(rest)
 if (command === "write") write(parsed)
 else if (command === "check") check(parsed)
+else if (command === "route") route(parsed)
 else fail(`unknown command ${JSON.stringify(command)}\n\n${USAGE}`)

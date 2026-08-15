@@ -201,7 +201,9 @@ describe("PATCH /api/work-items/:id — content is open, ownership is the operat
       const cap = await call("PATCH", `/api/work-items/${item.id}`, patchBody(item.version, patch), toolHeaders(manager.id));
       expect(cap.status).toBe(403);
       expect(cap.body.error).toContain(`"${Object.keys(patch)[0]}"`);
-      expect(cap.body.error).toContain("operator-only");
+      // verifyPolicy is refused for a reason of its own: one key inside it is
+      // the Todo's assignee's or creator's to set, and this caller is neither.
+      expect(cap.body.error).toContain("verifyPolicy" in patch ? "assignee or creator" : "operator-only");
     }
     expect(store.getWorkItem(item.id)).toMatchObject({ assignee: "platform-worker", rank: null });
   });

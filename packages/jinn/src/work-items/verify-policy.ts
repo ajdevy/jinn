@@ -46,6 +46,26 @@ export function deliverableRoute(policy: VerifyPolicy | null | undefined): Deliv
   return policy?.deliverable ?? DEFAULT_DELIVERABLE_ROUTE;
 }
 
+/**
+ * Whether `submitted` changes nothing about `stored` except where the product
+ * lands. This is what lets a Todo's own assignee or creator declare a route
+ * while `mode`, `verifier` and `maxRounds` stay the operator's: the caller sends
+ * a whole policy, so without this the same request could move a review mode.
+ *
+ * `fallbackMode` is the mode the Todo already has by provenance, so a first
+ * declaration on a Todo with no stored policy cannot quietly choose its own.
+ */
+export function declaresOnlyDeliverable(
+  stored: VerifyPolicy | null | undefined,
+  submitted: VerifyPolicy | null,
+  fallbackMode: VerifyMode,
+): boolean {
+  if (!submitted) return false;
+  if (submitted.mode !== (stored?.mode ?? fallbackMode)) return false;
+  if (submitted.maxRounds !== stored?.maxRounds) return false;
+  return VERIFIER_KEYS.every((key) => submitted.verifier?.[key] === stored?.verifier?.[key]);
+}
+
 function asObject(value: unknown, name: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   if (value === undefined || value === null) return { ok: true, value: {} };
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: `${name} must be a JSON object` };

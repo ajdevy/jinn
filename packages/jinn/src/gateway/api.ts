@@ -180,6 +180,7 @@ import {
   type WorkItemStatus,
 } from "../work-items/store.js";
 import { validateVerifyPolicy } from "../work-items/verify-policy.js";
+import { resolveTodoEditAuthority, todoEditRefusal } from "./todo-edit-authority.js";
 import { isTodoId, resolveTodoIdPrefix } from "../work-items/id.js";
 import {
   addComment,
@@ -1373,48 +1374,6 @@ function authorizeWorkItemOwnerManagerOrRoot(
     ok: false,
     status: 403,
     error: `employee "${employeeName}" does not own Todo ${item.id} and is not its authorized manager/root; cannot ${action}`,
-  };
-}
-
-/** What a Todo SAYS: open to every authenticated session, like its status. */
-const TODO_CONTENT_FIELDS: ReadonlyArray<keyof UpdateWorkItemInput> = ['title', 'body', 'acceptance', 'priority', 'dueAt'];
-
-/** Who a Todo BELONGS to and how it is reviewed: the operator's alone. */
-const TODO_OWNERSHIP_FIELDS: ReadonlyArray<keyof UpdateWorkItemInput> = ['assignee', 'department', 'rank', 'verifyPolicy'];
-
-interface TodoEditAuthority {
-  fields: ReadonlySet<keyof UpdateWorkItemInput>;
-  actor: string;
-  who: string;
-}
-
-/**
- * Resolve the per-field edit authority, split on content versus ownership.
- *
- * Content is open for the same reason status is: gating it on a relation to the
- * Todo (creator / assignee / assignee's manager / bound workflow run) bought
- * nothing and cost honesty. A participant that could do the work could not
- * record what the work now says, and had to ask someone with standing to
- * perform the write for it. Every new kind of participant needed its own
- * relation and its own 403 before it could describe its own Todo.
- *
- * Ownership stays operator-only, and deliberately: assignee, department, and
- * rank decide who is accountable, and verifyPolicy decides who reviews them.
- * Those are governance, not description, and an agent reassigning its own work
- * is exactly what the review model exists to prevent.
- */
-function resolveTodoEditAuthority(caller: WorkItemCaller): TodoEditAuthority {
-  if (caller.kind === 'operator') {
-    return {
-      fields: new Set<keyof UpdateWorkItemInput>([...TODO_CONTENT_FIELDS, ...TODO_OWNERSHIP_FIELDS]),
-      actor: 'operator',
-      who: 'the operator',
-    };
-  }
-  return {
-    fields: new Set<keyof UpdateWorkItemInput>(TODO_CONTENT_FIELDS),
-    actor: caller.session.employee ?? workItemActor(caller),
-    who: caller.session.employee ? `employee "${caller.session.employee}"` : `session ${caller.callerId}`,
   };
 }
 
@@ -3068,11 +3027,12 @@ export async function handleApiRequest(
       return json(res, fullWorkItemPayload(item));
     }
 
-    // PATCH /api/work-items/:id — the metadata pen. Authority is per-field:
-    // content (title/body/acceptance/priority/dueAt) is open to every
-    // authenticated session; ownership (assignee/department/rank/verifyPolicy)
-    // is the operator's. Status is intentionally excluded: lifecycle changes
-    // remain behind the guarded transition/archive/approval surfaces below.
+    // PATCH /api/work-items/:id — the metadata pen. Authority is per-field and
+    // resolved in todo-edit-authority.ts: content is open to every authenticated
+    // session, ownership and review are the operator's, and the Todo's own
+    // assignee or creator may declare where its product lands. Status is
+    // intentionally excluded: lifecycle changes remain behind the guarded
+    // transition/archive/approval surfaces below.
     params = matchRoute("/api/work-items/:id", pathname);
     if (method === "PATCH" && params) {
       const caller = resolveWorkItemCaller(req, res, context);
@@ -3202,13 +3162,11 @@ export async function handleApiRequest(
 
       const item = getWorkItem(params.id);
       if (!item) return notFound(res);
-      const authority = resolveTodoEditAuthority(caller);
+      const authority = resolveTodoEditAuthority(caller, item, patch);
       const patchedFields = (Object.keys(patch) as Array<keyof UpdateWorkItemInput>);
       for (const field of patchedFields) {
         if (!authority.fields.has(field)) {
-          return json(res, {
-            error: `field "${field}" is not editable by ${authority.who}: ${TODO_OWNERSHIP_FIELDS.join(", ")} are operator-only`,
-          }, 403);
+          return json(res, { error: todoEditRefusal(field, item, authority.who) }, 403);
         }
       }
 

@@ -345,8 +345,8 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
       // Where a Todo's product lands is metadata, not a lifecycle edge: it rides
-      // the same operator-only pen the web surface writes it through, and rides
-      // it first, so a refused declaration cannot leave the status already moved.
+      // the same pen the web surface writes it through, and rides it first, so a
+      // refused declaration cannot leave the status already moved.
       const verifyPolicy = validatedVerifyPolicy(args);
       if (verifyPolicy !== undefined) await patchWorkItem(ctx, id, { verifyPolicy }, `updating work item "${id}"`);
       const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };

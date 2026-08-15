@@ -1,0 +1,186 @@
+import { describe, expect, it } from "vitest";
+import { api, ctx, makeReq, makeRes, operatorHeaders, reg, store, toolHeaders } from "./helpers/work-items-route-harness.js";
+import { buildWorkItemTools } from "../../mcp/work-item-tools.js";
+import { CALLER_SESSION_CAPABILITY_HEADER } from "../../mcp/identity.js";
+import type { JinnMcpContext, JinnMcpTool } from "../../mcp/toolkit.js";
+
+/**
+ * Who may set which key of `verifyPolicy`, which is a different question from
+ * whether a given policy is well formed — that one belongs to its sibling suite.
+ *
+ * `deliverable` says where the product lands and the Todo's own assignee or
+ * creator may set it; `mode`, `verifier` and `maxRounds` say who reviews the
+ * work and stay the operator's. Without the split the field was operator-only in
+ * full, and since every bound MCP call arrives as a session, no lane could ever
+ * declare its own route.
+ */
+
+function mcpTool(name: string): JinnMcpTool {
+  const found = buildWorkItemTools().find((tool) => tool.name === name);
+  if (!found) throw new Error(`no tool ${name}`);
+  return found;
+}
+
+/**
+ * The bound path an agent actually takes: MCP tool → gateway route, carrying the
+ * tool's own identity headers. Only the socket is replaced, because the thing
+ * under test is precisely what the route makes of that identity — a context that
+ * answered for the route would prove nothing about who may declare a route.
+ */
+function boundMcpContext(sessionId: string): JinnMcpContext {
+  const capability = toolHeaders(sessionId)[CALLER_SESSION_CAPABILITY_HEADER];
+  const fetchFn = (async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const res = makeRes();
+    await api.handleApiRequest(
+      makeReq(
+        init?.method ?? "GET",
+        `${url.pathname}${url.search}`,
+        typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        init?.headers as Record<string, string>,
+      ),
+      res.res,
+      ctx,
+    );
+    return { status: res.status, text: async () => JSON.stringify(res.body) } as unknown as Response;
+  }) as unknown as typeof fetch;
+  return {
+    // Never dialed — fetchFn answers every request — and deliberately not a real
+    // port, so nothing here can reach a live gateway.
+    gatewayUrl: "http://gateway.invalid",
+    fetchFn,
+    callerSessionId: sessionId,
+    sessionCapability: capability,
+  } satisfies JinnMcpContext;
+}
+
+/** A Todo assigned to and created by `platform-worker`, so one session is both. */
+async function workerTodo(sessionId: string, verifyPolicy?: Record<string, unknown>) {
+  const created = makeRes();
+  await api.handleApiRequest(
+    makeReq("POST", "/api/work-items", {
+      title: "Deliver a Note",
+      assignee: "platform-worker",
+      ...(verifyPolicy ? { verifyPolicy } : {}),
+    }, toolHeaders(sessionId)),
+    created.res,
+    ctx,
+  );
+  expect(created.status).toBe(201);
+  return created.body.workItem as { id: string; version: number };
+}
+
+async function patchPolicy(sessionId: string, item: { id: string; version: number }, verifyPolicy: unknown, headers = toolHeaders(sessionId)) {
+  const res = makeRes();
+  await api.handleApiRequest(
+    makeReq("PATCH", `/api/work-items/${item.id}`, { expectedVersion: item.version, verifyPolicy }, headers),
+    res.res,
+    ctx,
+  );
+  return res;
+}
+
+describe("who may declare where a Todo's product lands", () => {
+  it("lets the Todo's own assignee declare the workspace route, and reads it back", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "declaring-assignee", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+
+    const declared = await patchPolicy(caller.id, item, { mode: "verify", deliverable: "workspace" });
+    expect(declared.status).toBe(200);
+
+    const read = makeRes();
+    await api.handleApiRequest(makeReq("GET", `/api/work-items/${item.id}`, undefined, toolHeaders(caller.id)), read.res, ctx);
+    expect(read.status).toBe(200);
+    expect(read.body.workItem.verifyPolicy).toEqual({ mode: "verify", deliverable: "workspace" });
+  });
+
+  it("holds a first declaration to the review mode the Todo already had", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "first-declaration", employee: "platform-worker" });
+    const item = await workerTodo(caller.id);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toBeNull();
+
+    // `session` provenance already means `verify`; declaring it changes nothing.
+    const declared = await patchPolicy(caller.id, item, { mode: "verify", deliverable: "workspace" });
+    expect(declared.status).toBe(200);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toEqual({ mode: "verify", deliverable: "workspace" });
+  });
+
+  it("refuses a first declaration that would also choose the review mode", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "smuggled-mode", employee: "platform-worker" });
+    const item = await workerTodo(caller.id);
+
+    const refused = await patchPolicy(caller.id, item, { mode: "trust", deliverable: "workspace" });
+    expect(refused.status).toBe(403);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toBeNull();
+  });
+
+  it("refuses that caller every key that decides who reviews the work", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "review-keys", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+
+    for (const verifyPolicy of [
+      { mode: "thorough", deliverable: "workspace" },
+      { mode: "verify", maxRounds: 9, deliverable: "workspace" },
+      { mode: "verify", verifier: { employee: "solo-worker" }, deliverable: "workspace" },
+    ]) {
+      const refused = await patchPolicy(caller.id, item, verifyPolicy);
+      expect(refused.status).toBe(403);
+      expect(refused.body.error).toBe(
+        `field "verifyPolicy" is not editable by employee "platform-worker": only Todo ${item.id}'s assignee or creator may set verifyPolicy, and only its deliverable key — mode, verifier, and maxRounds are the operator's`,
+      );
+    }
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toEqual({ mode: "verify" });
+  });
+
+  it("refuses that caller a null policy, which would drop the review mode entirely", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "cleared-policy", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "thorough" });
+
+    const refused = await patchPolicy(caller.id, item, null);
+    expect(refused.status).toBe(403);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toEqual({ mode: "thorough" });
+  });
+
+  it("refuses a session that is neither the Todo's assignee nor its creator", async () => {
+    const owner = reg.createSession({ engine: "codex", source: "web", sourceRef: "route-owner", employee: "platform-worker" });
+    const item = await workerTodo(owner.id, { mode: "verify" });
+    const stranger = reg.createSession({ engine: "codex", source: "web", sourceRef: "route-stranger", employee: "solo-worker" });
+
+    const refused = await patchPolicy(stranger.id, item, { mode: "verify", deliverable: "workspace" });
+    expect(refused.status).toBe(403);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toEqual({ mode: "verify" });
+  });
+
+  it("round-trips the declaration and the move through the bound MCP tool", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "bound-mcp-caller", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+
+    await mcpTool("update_work_item").handler(
+      { id: item.id, status: "executing", verifyPolicy: { mode: "verify", deliverable: "workspace" } },
+      boundMcpContext(caller.id),
+    );
+
+    const moved = store.getWorkItem(item.id);
+    expect(moved?.verifyPolicy).toEqual({ mode: "verify", deliverable: "workspace" });
+    expect(moved?.status).toBe("executing");
+  });
+
+  it("still lets the operator set every key", async () => {
+    const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "operator-sets-all", employee: "platform-worker" });
+    const item = await workerTodo(caller.id, { mode: "verify" });
+
+    const updated = await patchPolicy(caller.id, item, {
+      mode: "thorough",
+      maxRounds: 4,
+      verifier: { employee: "solo-worker" },
+      deliverable: "workspace",
+    }, operatorHeaders);
+    expect(updated.status).toBe(200);
+    expect(store.getWorkItem(item.id)?.verifyPolicy).toEqual({
+      mode: "thorough",
+      maxRounds: 4,
+      verifier: { employee: "solo-worker" },
+      deliverable: "workspace",
+    });
+  });
+});
