@@ -92,6 +92,12 @@ describe('denying one verb', () => {
       const attempt = () => CALL[verb]()
       if (verb === target) {
         await expect(Promise.resolve().then(attempt)).rejects.toBeInstanceOf(PluginHostDeniedError)
+        // Naming the verb is the assertion: a refusal that carried someone
+        // else's verb would still be the right class.
+        await expect(Promise.resolve().then(attempt)).rejects.toMatchObject({
+          name: 'PluginHostDeniedError',
+          verb: target,
+        })
       } else {
         // Settling at all is the assertion: a refusal would reject, and
         // `notify` legitimately resolves to nothing.

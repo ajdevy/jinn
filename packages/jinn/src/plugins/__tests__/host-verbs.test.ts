@@ -2,6 +2,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { WorkflowRepositoryError } from "../../workflows/repository.js";
+import type { WorkflowService } from "../../workflows/service.js";
 import { seedProbeHome } from "./probe-plugin.js";
 
 // JINN_HOME before anything reaches paths.js, which reads it once. Both the
@@ -217,6 +219,26 @@ describe("a backend verb that cannot do the thing", () => {
         reason: "no-workflow-service",
       });
     }
+  });
+
+  /* With a Workflow engine registered, the commonest way `start` fails is the
+   * engine refusing the id — missing, retired, or with no manual trigger — in
+   * the engine's own `WorkflowRepositoryError`. A plugin catching this door's
+   * error would miss every one of those unless they arrive as this door's. */
+  it("names the verb when the Workflow engine refuses the id", async () => {
+    linkGateway({
+      workflowService: {
+        startManual: async () => {
+          throw new WorkflowRepositoryError("bad-input", "Workflow does not have an enabled manual trigger.");
+        },
+      } as unknown as WorkflowService,
+    });
+
+    await expect(host.createPluginHost("mailbox").workflows.start("missing-flow")).rejects.toMatchObject({
+      name: "PluginHostError",
+      verb: "workflows.start",
+      reason: "bad-input",
+    });
   });
 
   it("surfaces an unknown connector as a refusal, not as a send that went nowhere", async () => {
