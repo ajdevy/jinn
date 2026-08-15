@@ -1101,6 +1101,8 @@ function StreamingBubble({ streamingText, prevMessage, startedAt }: {
 interface ChatMessagesProps {
   messages: Message[]
   loading: boolean
+  /** The session's history is still arriving — it is not an empty conversation. */
+  hydrating?: boolean
   /** The latest turn has started but has not produced a terminal assistant response. */
   turnPending?: boolean
   /** The assistant row appended by the live terminal response event. */
@@ -1131,6 +1133,7 @@ function latestTurnId(messages: Message[]): string | null {
 export function ChatMessages({
   messages,
   loading,
+  hydrating = false,
   turnPending = loading,
   liveFinalResponseId = null,
   streamingText,
@@ -1414,16 +1417,13 @@ export function ChatMessages({
     )
   }
 
-  if (messages.length === 0 && !loading) {
+  // Not while hydrating: a transcript still on its way is not an empty one.
+  if (messages.length === 0 && !loading && !hydrating) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-tertiary)]">
-            Start a conversation
-          </div>
-          <div className="text-[length:var(--text-footnote)] text-[var(--text-quaternary)] mt-[var(--space-2)]">
-            Send a message or use /new to begin
-          </div>
+          <div className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-tertiary)]">Start a conversation</div>
+          <div className="text-[length:var(--text-footnote)] text-[var(--text-quaternary)] mt-[var(--space-2)]">Send a message or use /new to begin</div>
         </div>
       </div>
     )

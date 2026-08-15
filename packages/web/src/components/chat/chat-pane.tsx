@@ -7,6 +7,7 @@ import type { CommsPeekData } from '@/components/chat/thread-peek'
 import { ChatInput } from '@/components/chat/chat-input'
 import { CliKeybar } from '@/components/chat/cli-keybar'
 import { ChatEmployeePicker } from '@/components/chat/chat-employee-picker'
+import { ChatHydrationOverlay, useHydrationSpinner } from '@/components/chat/chat-hydration'
 import { QueuePanel } from '@/components/chat/queue-panel'
 import { BackgroundActivityStatus } from '@/components/chat/background-activity-status'
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
@@ -512,7 +513,9 @@ export function ChatPane({
   const [dragOver, setDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<File[]>()
   const dragCounter = useRef(0)
-  const showSessionHydration = Boolean(sessionId && hydrating && messages.length === 0 && !streamingText)
+  // A threshold, not a default: a load that resolves inside the delay never
+  // announces itself, and the transcript stays mounted underneath either way.
+  const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -602,11 +605,7 @@ export function ChatPane({
           </div>
         </div>
       )}
-      {showSessionHydration && (
-        <div className="flex flex-1 items-center justify-center" role="status" aria-label="Loading chat">
-          <div className="size-5 animate-spin rounded-full border-2 border-[var(--fill-tertiary)] border-t-[var(--accent)]" />
-        </div>
-      )}
+      {showSessionHydration && <ChatHydrationOverlay />}
 
       {/* Employee picker for new chat (any view mode — the CLI terminal mounts after first message creates the session) */}
       {!sessionId && messages.length === 0 && (
@@ -627,10 +626,11 @@ export function ChatPane({
         <Suspense fallback={<div style={{ flex: 1, minHeight: 0, background: 'var(--bg)' }} />}>
           <CliTerminal ref={cliTerminalRef} sessionId={sessionId} />
         </Suspense>
-      ) : !showSessionHydration && (sessionId || messages.length > 0) ? (
+      ) : sessionId || messages.length > 0 ? (
         <ChatMessages
           messages={messages}
           loading={loading}
+          hydrating={hydrating}
           turnPending={turnPending}
           liveFinalResponseId={liveFinalResponseId}
           streamingText={streamingText}
