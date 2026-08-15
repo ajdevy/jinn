@@ -71,7 +71,7 @@ export function CrumbBar({
           <ChevronLeft size={17} strokeWidth={2.2} aria-hidden />
         </button>
       ) : (
-        <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden whitespace-nowrap">
           {/* Text sits on the 96px spine; the wash bleeds -8px (polish law 5). */}
           <button
             type="button"
@@ -111,16 +111,22 @@ export function CrumbBar({
         </div>
       )}
 
-      <div className="ml-auto flex flex-none gap-0.5">
+      <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {/* Contributed actions lead the group so the app's own copy-link and ⋯
-            stay where the muscle memory expects them, at the bar's edge. */}
-        <Slot area={AREAS.todoDetailActions} variant="chip" />
+            stay where the muscle memory expects them, at the bar's edge. However
+            many a plugin adds, they scroll within their own strip rather than
+            pushing the app's two buttons off a 390px bar. */}
+        <Slot
+          area={AREAS.todoDetailActions}
+          variant="chip"
+          className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
+        />
         <button
           type="button"
           aria-label={`Copy link to ${id}`}
           data-testid="task-copy-link"
           onClick={() => copyText(`${window.location.origin}${todoPath(id)}`)}
-          className="focus-ring grid size-[34px] place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
+          className="focus-ring grid size-[34px] flex-none place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
         >
           <LinkIcon size={14} strokeWidth={2} aria-hidden />
         </button>
@@ -130,7 +136,7 @@ export function CrumbBar({
               type="button"
               aria-label="More"
               data-testid="task-crumb-more"
-              className="focus-ring grid size-[34px] place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
+              className="focus-ring grid size-[34px] flex-none place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
             >
               <MoreHorizontal size={16} aria-hidden />
             </button>

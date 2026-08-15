@@ -44,7 +44,21 @@ it("puts a contributed action inside the action group, ahead of copy-link", () =
 
   const contributed = screen.getByTestId("probe-widget")
   const copyLink = screen.getByTestId("task-copy-link")
+  const actionGroup = copyLink.parentElement
 
-  expect(contributed.parentElement).toBe(copyLink.parentElement)
+  expect(actionGroup?.contains(contributed)).toBe(true)
   expect(contributed.compareDocumentPosition(copyLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+it("scrolls contributed actions instead of pushing copy-link and ⋯ off a narrow bar", () => {
+  dispose = contributeProbes(AREAS.todoDetailActions, [{ id: "widget" }])
+
+  renderCrumbBar()
+
+  const copyLink = screen.getByTestId("task-copy-link")
+  const strip = screen.getByTestId("probe-widget").closest("div[class*='overflow-x-auto']")
+
+  expect(strip).not.toBeNull()
+  expect(copyLink.className).toContain("flex-none")
+  expect(screen.getByTestId("task-crumb-more").className).toContain("flex-none")
 })
