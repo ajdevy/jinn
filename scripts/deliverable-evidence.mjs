@@ -40,18 +40,16 @@ const ROUTE_MISMATCH_EXIT = 2
  *  prevent. Everything outside these prefixes ships. */
 const NON_SHIPPING_PREFIXES = ["docs/", ".jinn-build/"]
 
-/** A git diff status letter with the similarity score a rename or copy carries.
- *  Dropped rather than judged, so `--name-status` output can be handed to
- *  `route` whole — see changedPaths. */
+/** A git status letter with the score a rename or copy carries, and the two of them that name a second path. */
 const DIFF_STATUS = /^[ABCDMRTUX][0-9]{0,3}$/
+const RENAME_OR_COPY = /^[RC]/
 
 const USAGE = `usage:
   deliverable-evidence.mjs write --todo <ID> --home <dir> --summary <text> [--manifest <path>] <path>...
   deliverable-evidence.mjs check --todo <ID> [--manifest <path>]
-  deliverable-evidence.mjs route --declared <repo|workspace> <changed path>...
+  git diff --name-status -z <base>..HEAD | deliverable-evidence.mjs route --declared <repo|workspace>
 
-manifest defaults to ${MANIFEST_DEFAULT}. Delivered paths are relative to --home.
-Changed paths are repo-relative, as \`git diff --name-status\` prints them.`
+manifest defaults to ${MANIFEST_DEFAULT}. Delivered paths are relative to --home.`
 
 function fail(reason) {
   console.error(`deliverable evidence FAILED — ${reason}`)
@@ -74,17 +72,28 @@ function isShipping(changedPath) {
   return !NON_SHIPPING_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
 
-/** Every path the diff touches, on both sides of a rename.
- *
- *  `--name-only` names only where a rename landed, so moving a shipping file
- *  under `docs/` read as a diff of nothing but docs while it was still removing
- *  source. `--name-status` names both sides; the fields split on the tab git
- *  writes between them and on the spaces an unquoted `$(...)` leaves behind, and
- *  the status letters are dropped so what is judged is paths only. */
-function changedPaths(positional) {
-  return positional
-    .flatMap((argument) => argument.split(/\s+/))
-    .filter((field) => field !== "" && !DIFF_STATUS.test(field))
+/** Every path the diff touches, on both sides of a rename, from the stream
+ *  `git diff --name-status -z` writes: NUL-terminated fields, a status then its
+ *  path, or the two a rename moves between. NUL is the one byte a filename
+ *  cannot hold, so a status is known by where it sits, never by looking like a
+ *  letter — guessing dropped a file named `M` and split a path holding a space,
+ *  waving both shipping diffs through as `workspace`. `-z` also writes paths
+ *  raw, so git's `"caf\303\251"` quoting never arrives to be undone. */
+function changedPaths(stream) {
+  const fields = stream.split("\0")
+  if (fields[fields.length - 1] === "") fields.pop()
+  const paths = []
+  for (let i = 0; i < fields.length; ) {
+    const status = fields[i]
+    if (!DIFF_STATUS.test(status)) fail(`${JSON.stringify(status)} is not a git status: pipe \`git diff --name-status -z\` in unaltered\n\n${USAGE}`)
+    const expected = RENAME_OR_COPY.test(status) ? 2 : 1
+    const named = fields.slice(i + 1, i + 1 + expected)
+    // Refused, not counted short: a truncated diff read as an empty one is how a shipping change passes as workspace.
+    if (named.length < expected || named.includes("")) fail(`the stream ends after the status ${status} with no path behind it: the diff is truncated, not empty\n\n${USAGE}`)
+    paths.push(...named)
+    i += 1 + expected
+  }
+  return paths
 }
 
 function parseArgs(argv) {
@@ -250,10 +259,13 @@ function check({ options }) {
   report(record.entries)
 }
 
-/** Path arithmetic and nothing else: no read, no stat, no git. That is what
- *  keeps the ruling unit-testable and what keeps this command from opening a
- *  single file of the diff it is judging. */
+/** Path arithmetic over the stream it is handed, and nothing else: no file of
+ *  the diff is opened, nothing is stat'd, no git is run. That is what keeps the
+ *  ruling unit-testable and this command out of the tree it is judging. */
 function route({ options, positional }) {
+  // Only on stdin: paths as arguments would have to be split on whitespace,
+  // and splitting is the hole.
+  if (positional.length > 0) fail(`route reads the diff on stdin, not as arguments: pipe \`git diff --name-status -z <base>..HEAD\` into it\n\n${USAGE}`)
   const declared = required(options, "declared")
   if (declared !== "repo" && declared !== "workspace") {
     fail(`--declared ${JSON.stringify(declared)} is neither repo nor workspace\n\n${USAGE}`)
@@ -263,7 +275,9 @@ function route({ options, positional }) {
     return
   }
 
-  const changed = changedPaths(positional)
+  // Rather than block on a terminal waiting for a diff nobody is going to type.
+  if (process.stdin.isTTY) fail(`route reads the diff on stdin: pipe \`git diff --name-status -z <base>..HEAD\` into it\n\n${USAGE}`)
+  const changed = changedPaths(fs.readFileSync(0, "utf8"))
   const shipping = changed.filter(isShipping)
   if (shipping.length > 0) {
     console.error(`deliverable route FAILED — the Todo declares deliverable "workspace", but the diff changes ${shipping.length === 1 ? "a shipping file" : "shipping files"}:`)

@@ -144,18 +144,39 @@ test("a workspace-only deliverable with an empty product diff reaches a verdict"
   assert.match(verdict.out, /note\.md/)
 })
 
-const DOCS_ONLY = ["docs/architecture.md", ".jinn-build/notes.json"]
-const TOUCHES_SOURCE = ["docs/architecture.md", "packages/gateway/src/server.ts"]
+/** One NUL-terminated field per record, exactly as `git diff --name-status -z`
+ *  writes it: a status, then its path, or its two paths for a rename. */
+function diff(...fields) {
+  return fields.map((field) => `${field}\0`).join("")
+}
+
+function route(stream, ...args) {
+  const result = spawnSync(process.execPath, [EVIDENCE, "route", ...args], {
+    input: Buffer.from(stream, "utf8"),
+    encoding: "utf8",
+  })
+  assert.notEqual(result.status, null, `the script was killed by ${result.signal}`)
+  return { status: result.status, out: `${result.stdout}${result.stderr}` }
+}
+
+const DOCS_ONLY = diff("M", "docs/architecture.md", "A", ".jinn-build/notes.json")
+const TOUCHES_SOURCE = diff("M", "docs/architecture.md", "M", "packages/gateway/src/server.ts")
 
 test("route honours a workspace declaration when the diff is empty or non-shipping", () => {
-  for (const changed of [[], DOCS_ONLY]) {
-    const routed = run("route", "--declared", "workspace", ...changed)
-    assert.equal(routed.status, 0, `a diff of ${JSON.stringify(changed)} is not shipping: ${routed.out}`)
+  for (const stream of ["", DOCS_ONLY]) {
+    const routed = route(stream, "--declared", "workspace")
+    assert.equal(routed.status, 0, `a diff of ${JSON.stringify(stream)} is not shipping: ${routed.out}`)
   }
 })
 
+test("route counts the paths in the stream and not the statuses beside them", () => {
+  const routed = route(diff("M", "docs/architecture.md", "A", "docs/new.md"), "--declared", "workspace")
+  assert.equal(routed.status, 0, `a status was judged as a shipping path: ${routed.out}`)
+  assert.ok(routed.out.includes("2 changed paths"), `the statuses were counted as paths: ${routed.out}`)
+})
+
 test("route refuses a workspace declaration whose diff touches a shipping path", () => {
-  const routed = run("route", "--declared", "workspace", ...TOUCHES_SOURCE)
+  const routed = route(TOUCHES_SOURCE, "--declared", "workspace")
   // Distinct from `fail`, so the pipeline can tell a false declaration apart
   // from a mistyped call.
   assert.equal(routed.status, 2, `expected the route-mismatch exit, got ${routed.status}: ${routed.out}`)
@@ -164,7 +185,8 @@ test("route refuses a workspace declaration whose diff touches a shipping path",
 
 test("route names every offending file, not just the first", () => {
   const offenders = ["packages/gateway/src/server.ts", "scripts/ratchet.mjs", "package.json"]
-  const routed = run("route", "--declared", "workspace", "docs/architecture.md", ...offenders)
+  const stream = diff("M", "docs/architecture.md", ...offenders.flatMap((offender) => ["M", offender]))
+  const routed = route(stream, "--declared", "workspace")
   assert.equal(routed.status, 2, routed.out)
   for (const offender of offenders) {
     assert.ok(routed.out.includes(offender), `${offender} is not named: ${routed.out}`)
@@ -172,47 +194,83 @@ test("route names every offending file, not just the first", () => {
 })
 
 test("route treats a top-level directory it has never heard of as shipping", () => {
-  const routed = run("route", "--declared", "workspace", "brand-new-top-level/thing.ts")
+  const routed = route(diff("A", "brand-new-top-level/thing.ts"), "--declared", "workspace")
   assert.equal(routed.status, 2, `an unknown top-level directory was let through as non-shipping: ${routed.out}`)
 })
 
 test("route judges a path by the file it names, not by how it is spelled", () => {
-  const routed = run("route", "--declared", "workspace", "./packages/gateway/src/server.ts")
+  const routed = route(diff("M", "./packages/gateway/src/server.ts"), "--declared", "workspace")
   assert.equal(routed.status, 2, `a leading dot segment slipped past the shipping check: ${routed.out}`)
 })
 
 test("route judges both sides of a rename, so moving source under docs/ does not hide it", () => {
-  // What `git diff --name-status` prints for a shipping file moved into docs/.
   // Under `--name-only` this diff read as `docs/ship.ts` alone and the false
   // declaration was honoured, while the diff was still removing source.
-  const routed = run("route", "--declared", "workspace", "R100\tpackages/demo/ship.ts\tdocs/ship.ts")
+  const routed = route(diff("R100", "packages/demo/ship.ts", "docs/ship.ts"), "--declared", "workspace")
   assert.equal(routed.status, 2, `a rename out of packages/ slipped past the shipping check: ${routed.out}`)
   // Named as the path it is, not as the raw record it arrived in: the pipeline
   // reads these lines back to the operator.
   assert.match(routed.out, /^ {2}packages\/demo\/ship\.ts$/m, `the refusal does not name the file the rename removed: ${routed.out}`)
 })
 
-test("route reads a status-and-path stream, whether or not the shell split it", () => {
-  // An unquoted `$(git diff --name-status ...)` arrives split on whitespace, so
-  // the status letters land as arguments of their own and must not be judged as
-  // paths — a dropped `M` is not a top-level file called M.
-  const routed = run("route", "--declared", "workspace", "M", "docs/architecture.md", "A", "docs/new.md")
-  assert.equal(routed.status, 0, `a status letter was judged as a shipping path: ${routed.out}`)
-  assert.ok(routed.out.includes("2 changed paths"), `the status letters were counted as paths: ${routed.out}`)
+// The class that a whitespace-splitting parse let through. Each of these is a
+// shipping diff that a false `workspace` declaration must not carry past code
+// review, and each was read as something else when the fields were guessed
+// apart instead of separated by the one byte a filename cannot hold.
+for (const [name, changed] of [
+  ["is spelled like a status letter", "M"],
+  ["is top-level and contains a space", "M docs/notes.md"],
+  ["contains a space", "packages/demo/a b.ts"],
+  ["is not ASCII", "packages/demo/café.ts"],
+]) {
+  test(`route refuses a shipping path that ${name}`, () => {
+    const routed = route(diff("M", changed), "--declared", "workspace")
+    assert.equal(routed.status, 2, `a shipping path was let through as workspace: ${routed.out}`)
+    assert.match(
+      routed.out,
+      new RegExp(`^ {2}${changed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"),
+      `the refusal does not name the path whole: ${routed.out}`,
+    )
+    // `-z` writes paths raw, so nothing arrives in git's `"caf\303\251"` form
+    // and nothing has to be unescaped before the operator reads it.
+    assert.doesNotMatch(routed.out, /\\3[0-7]{2}/, `the path was reported in git's escaped form: ${routed.out}`)
+  })
+}
+
+test("route fails loudly on a malformed stream rather than reporting an empty diff", () => {
+  const malformed = {
+    "an unrecognised status": diff("nonsense", "packages/gateway/src/server.ts"),
+    "a status with no path behind it": diff("M", "docs/architecture.md", "M"),
+  }
+  for (const [name, stream] of Object.entries(malformed)) {
+    const routed = route(stream, "--declared", "workspace")
+    // Exit 1, not the mismatch 2: the stream is unreadable, so there is no
+    // declaration to rule on. Silence here is the bypass.
+    assert.equal(routed.status, 1, `${name}: expected a usage failure, got ${routed.status}: ${routed.out}`)
+    assert.doesNotMatch(routed.out, /changed path/, `${name}: an unreadable stream was reported as a diff: ${routed.out}`)
+  }
 })
 
-test("route lets the repo declaration through whatever the diff holds", () => {
-  for (const changed of [DOCS_ONLY, TOUCHES_SOURCE]) {
-    const routed = run("route", "--declared", "repo", ...changed)
+test("route reads the diff on stdin and refuses it as arguments", () => {
+  // The argv form split on whitespace, which is what let a path named `M` or a
+  // path with a space through. Leaving that door open would leave the class open.
+  const routed = route("", "--declared", "workspace", "packages/gateway/src/server.ts")
+  assert.notEqual(routed.status, 0, `positional paths were still parsed: ${routed.out}`)
+  assert.match(routed.out, /--name-status -z/, `the refusal does not name the piped form: ${routed.out}`)
+})
+
+test("route lets the repo declaration through whatever the stream holds", () => {
+  for (const stream of [DOCS_ONLY, TOUCHES_SOURCE]) {
+    const routed = route(stream, "--declared", "repo")
     assert.equal(routed.status, 0, `the ordinary route must not be blocked: ${routed.out}`)
   }
 })
 
 test("route refuses a --declared value that is neither repo nor workspace", () => {
-  const missing = run("route", "packages/gateway/src/server.ts")
+  const missing = route(DOCS_ONLY)
   assert.equal(missing.status, 1, `expected a usage failure, got ${missing.status}: ${missing.out}`)
 
-  const nonsense = run("route", "--declared", "workspaces", "docs/architecture.md")
+  const nonsense = route(DOCS_ONLY, "--declared", "workspaces")
   assert.equal(nonsense.status, 1, `expected a usage failure, got ${nonsense.status}: ${nonsense.out}`)
   assert.match(nonsense.out, /usage:/)
 })

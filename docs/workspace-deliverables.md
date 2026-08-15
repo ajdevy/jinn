@@ -61,7 +61,8 @@ Left there, a self-declared route would be a way around review: declare
 against the real diff before honouring it:
 
 ```
-node scripts/deliverable-evidence.mjs route --declared workspace $(git diff --name-status <base>..HEAD)
+git diff --name-status -z <base>..HEAD |
+  node scripts/deliverable-evidence.mjs route --declared workspace
 ```
 
 `workspace` is honoured only when the diff is empty or confined to non-shipping
@@ -75,11 +76,23 @@ the mismatch is loud rather than a silent downgrade.
 The status form is what is fed in, not `--name-only`, because `--name-only`
 names only where a rename landed: moving a shipping file under `docs/` read as
 a diff of nothing but docs while it was still removing source. `--name-status`
-names both sides of the rename, the command judges both, and the status letters
-themselves are dropped.
+names both sides of the rename, and the command judges both.
 
-This command is pure path arithmetic. It opens no file, stats nothing, and runs
-no git.
+It arrives on stdin, NUL-delimited by `-z`, and not as arguments. A status is
+separated from its path by the one byte a filename cannot contain, so it is
+known by its position in the stream rather than guessed at by shape. Splitting
+the fields apart on whitespace instead — which is what passing them as
+arguments forces — could not tell a status from a top-level file *named* `M`,
+dropped it, and reported a diff of nothing; a path containing a space broke into
+two paths that were each judged separately; and git's default `"caf\303\251"`
+quoting of a non-ASCII path was read back to the operator still escaped. The
+first two were bypasses: a shipping diff, honoured as `workspace`. Under `-z`
+none of the three is expressible. A stream that cannot be read that way — an
+unknown status, or a status with no path behind it — exits `1` rather than
+reporting an empty diff, because silence there would be the same bypass again.
+
+Apart from reading that stream, the command is pure path arithmetic. It opens no
+file, stats nothing, and runs no git.
 
 ## 2. Leave evidence in the repository
 
