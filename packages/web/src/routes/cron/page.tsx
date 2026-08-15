@@ -55,7 +55,7 @@ function CronRow({
   const lastTs = runTimestamp(job.lastRun)
   const ago = agoLabel(lastTs ?? undefined, now)
   const lastLabel =
-    outcome === "running" ? "running now" : outcome === "error" ? `failed ${ago}` : ago ? `ran ${ago}` : "never ran"
+    outcome === "error" ? `failed ${ago}` : ago ? `ran ${ago}` : "never ran"
   const next = useMemo(
     () => (job.enabled ? formatNextRun(nextCronDate(job.schedule, job.timezone ?? undefined, now), now) : ""),
     [job.enabled, job.schedule, job.timezone, now],
