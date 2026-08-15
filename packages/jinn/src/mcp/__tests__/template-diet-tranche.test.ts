@@ -75,9 +75,9 @@ describe("the GRS-017e template diet tranche (MCP-first realized)", () => {
     expect(workflowSkill).toContain("native pending approval");
     expect(workflowSkill).toContain("decide_workflow_approval");
     expect(workflowSkill).toContain("manual`, `schedule`, `event`, `todo-status`, and `workflow-call");
-    expect(todoSkill).toContain("A Workflow invocation never creates, links, transitions, approves, or mutates a Todo.");
-    expect(todoSkill).toContain("Todo approvals affect only the Todo.");
-    expect(todoSkill).toContain("Workflow operations never mutate Todos.");
+    expect(todoSkill).toContain("An unbound Workflow run never creates, links, transitions, approves, or mutates a Todo.");
+    expect(todoSkill).toContain("A gate parked on a Todo by its bound Workflow run is decided here with `decide_work_item_approval`");
+    expect(todoSkill).toContain("an unbound Workflow run never mutates a Todo.");
     for (const workflowControl of [
       "Workflow gate",
       "cancel_workflow_run",
