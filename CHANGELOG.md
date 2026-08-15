@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.30.0] - 2026-08-15
+
+### ✨ Features
+- **Talk is back, as an orb you can drag anywhere and speak to.** A global overlay rides every page, opens a shoulder sheet for whatever it is doing, and drives the app by voice: it reads and navigates, and for write actions it asks for consent and offers undo rather than acting silently. It resolves what you meant loosely, so a bare id and a description of a ticket both open the same thing, and it carries ambient page context so it already knows what you are looking at. Every session now opens knowing the product, the company blocks and this instance's own org, so you no longer explain Jinn before asking for anything. First-run voice setup lives in the web UI instead of a config file.
+- **Plugins: drop a folder in `plugins/`, enable it in Settings, get a page.** A plugin declares itself, is discovered and loaded at runtime, mounts its own backend routes, and appears as its own nav item and page. No build step and no fork.
+- **The dashboard installs as an app.** A web app manifest and service worker make Jinn installable on a phone or desktop, with an edge-swipe back gesture that reveals the destination as you drag, native scroll left alone rather than replaced, and touch-native chat and Todo rows.
+- **A desktop shell.** The dashboard can run in a Tauri 2 window with a real app icon, menu bar, restored window geometry and `jinn://` deep links into routes, instead of browser chrome.
+- **Closing a Todo can close its sub-tasks with it.** A parent with open children used to refuse the close and offer no way forward. One action now closes the whole subtree, deepest first, in a single transaction, and it still refuses to bury a sub-task that is waiting on an unanswered escalation unless you say so explicitly.
+
+### ⚡ Performance
+- **Long chats and Todo lists stay smooth.** The chat transcript is windowed, so a 500-message thread mounts a handful of rows instead of all of them, and appending a message no longer re-renders the history. Todo lists window against an anchored scrollport, so the list keeps your place while it scrolls and while items move. Backdrop blur and global smooth-scroll came off the surfaces that scroll, where they were costing frames on every gesture.
+
+### 🐛 Fixes
+- **The ledger stops arguing with you.** A status you set by hand could be reverted seconds later by a background reconcile reading stale sessions, and a review you had opened yourself could be auto-closed as done on the strength of an attempt that had actually failed. Derivation now yields to a human decision, and only a settled successful attempt can close a review that a person opened.
+- **Reading a knowledge file tells the truth about how much it returned.** A file past the read limit came back truncated while reporting that it was not, so anything reasoning over it was working from a partial file with no signal that the rest existed.
+- **Work does not silently sit unclaimed.** Per-attempt run records, claim leases, typed block kinds with a loop breaker, and respawn guards mean a failed or rate-limited attempt is retried when a retry can help and parked with a reason when it cannot.
+
+### 🔒 Security
+- **Build verification cannot reach outside the repository.** Todos whose deliverable is an instance file are verified through a declared route and a repo-side evidence artifact, rather than by widening what the verifier can read. The declaration is validated against the actual diff, so claiming the route while carrying shipping code is refused instead of skipping the code review.
+
+### 🪄 Docs
+- Shipped doctrine now describes Todos as the work ledger, Workflows as the reusable procedure, and Experiments as tracked bets, and the workflow skill documents arming triggers by label and assignment.
+
 ## [0.29.1] - 2026-08-03
 
 ### 💥 Removed / Not supported
