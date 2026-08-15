@@ -266,8 +266,14 @@ Let `d = scrollHeight − scrollTop − clientHeight`, computed by `distanceFrom
 > **Invariant S.** For any commit that grows the transcript — a streaming token, an appended
 > message, a media decode:
 >
-> **S1 (pinned).** If the reader is following, the commit ends with
-> `scrollTop === scrollHeight`, written synchronously in a layout effect before paint.
+> **S1 (pinned).** If the reader is following, the commit ends pinned —
+> `distanceFromBottom(el) === 0`, which reads back as `scrollTop === scrollHeight − clientHeight` —
+> written synchronously in a layout effect before paint. Assert the readback, never the assigned
+> value: `pinNow` writes `scrollTop = scrollHeight` (`web/hooks/use-stick-to-bottom.ts:123-126`)
+> and the browser clamps that to the maximum scroll offset, so with `scrollHeight = 1000px` and
+> `clientHeight = 200px` the pinned readback is `800px`, not `1000px`. A test scroller has to clamp
+> the same way (`web/hooks/__tests__/use-scroll-anchor.test.tsx:33` already does) or the assertion
+> passes on an unclamped stub while the real scroller is short.
 >
 > **S2 (detached).** If the reader is not following, `scrollTop` after the commit is bit-identical
 > to `scrollTop` before it. No code path in the growth commit may write it.
@@ -340,8 +346,8 @@ target, not its fix.
 | `t = 0`, layout effect, before paint | The mount snap runs: `scrollTop = scrollHeight`. The bottom anchor becomes authoritative **here** — `followRef` is `true` from this instant, so every later growth commit pins. | `web/hooks/use-stick-to-bottom.ts:213-223` (`useLayoutEffect`) |
 | `t = 0`, first paint | The transcript paints **already at the bottom**. Not scrolled there — painted there. | as above |
 | `t = 0 → 180ms` | The pane fades and rises in: `jinn-chat-open`, `opacity 0 → 1` with `translateY(4px) → 0`, `var(--duration-base)` = `180ms`, `var(--ease-smooth)`. Opacity and transform only, so nothing reflows and the paint above is not delayed by it. | new rule, `web/routes/globals.css` |
-| `t = 0` → measurement settles | Late row measurements re-pin **from a layout effect**, before the paint that would show the wrong position. Bounded: the re-pin stops at the first commit where `virtualizer.getTotalSize()` is unchanged from the previous commit, or at `400ms` from `t = 0`, whichever comes first. | `web/components/chat/transcript-virtualizer.ts` + the existing content `ResizeObserver` at `web/hooks/use-stick-to-bottom.ts:256-266` |
-| after first paint | **Nothing writes `scrollTop`.** | §3.2 |
+| `t = 0` → settle | Late row measurements re-pin to the bottom. Some of these land after the opening paint: the content `ResizeObserver` is a `useEffect` (`web/hooks/use-stick-to-bottom.ts:256-267`), so it fires after a paint, not before one. They are allowed only as §3.2's settle exception — pinned-only, bottom-only, bounded. The window closes at the first commit where `virtualizer.getTotalSize()` is unchanged from the previous commit, or at `400ms` from `t = 0`, whichever comes first. | §3.2, over `web/components/chat/transcript-virtualizer.ts` + `web/hooks/use-stick-to-bottom.ts:256-267` |
+| after settle | **Nothing writes `scrollTop`.** | §3.2 |
 
 On mobile (`<1024px`) the list→pane switch is a `hidden` / `flex` class toggle today with no
 transition at all (`web/routes/chat/page.tsx:1101,1122`). `jinn-chat-open` applies there too, on
@@ -350,21 +356,45 @@ full-height panes on a phone costs a compositor layer for a transition nobody as
 
 ### 3.2 Forbidden: a visible post-paint jump-scroll
 
-**No code path may write `scrollTop`, or call `scrollTo` / `scrollToIndex` / `scrollIntoView`, on
-the transcript scroller after the browser has painted the opening frame.** If the correct
-position is not known before paint, the transcript is not painted until it is.
+A **visible post-paint jump-scroll** is a scroll write made after the browser has painted a frame
+that changes which content sits under the reader's eye in the next one. That is the thing this
+section forbids, and the word doing the work is *visible*.
 
-The correction described in the table above is not an exception to this: `measureElement`
-(`web/components/chat/chat-messages.tsx:1457`) writes its measurements in a layout effect, so a
-re-pin keyed on the resulting size lands in the same commit, before the paint that would have
-shown the short position. The distinction the rule draws is between *correcting before a paint*
-(allowed, and necessary) and *correcting after one* (forbidden, and visible).
+**No code path may write `scrollTop`, or call `scrollTo` / `scrollToIndex` / `scrollIntoView`, on
+the transcript scroller after the browser has painted the opening frame, except under the settle
+exception below.** If the correct position is not known before paint, the transcript is not
+painted until it is.
+
+**The settle exception.** A re-pin during the settle window is the one post-paint write that is
+not a visible jump-scroll, because it does not move the reader's frame of reference — it holds it.
+A pinned reader is looking at the bottom edge of the newest row; the re-pin keeps that edge flush
+with the viewport bottom while estimates below and above resolve. Remove it and the reader drifts
+*upward* as the true total height grows past the estimate, which is the "sometimes it doesn't
+reach the bottom" defect in §3.3 — the drift is what is visible, not the correction. The exception
+holds only while all three conditions do:
+
+1. **Pinned only.** `followRef.current` is `true`. A reader who has scrolled away owns the
+   position; Invariant S2 (§2.2) forbids writing it and the settle window does not weaken that by
+   one frame.
+2. **Bottom only.** The write may only reduce `d` to `0`. No remembered offset, no row-relative
+   target, no partial scroll — a write that lands anywhere other than the bottom has moved the
+   reader, and that is a jump-scroll whatever triggered it.
+3. **Bounded.** It stops at the settle condition in §3.1 — unchanged `virtualizer.getTotalSize()`,
+   or `400ms` from `t = 0`, whichever comes first. Once the window closes the rule above is
+   absolute.
+
+Before first paint, `measureElement` (`web/components/chat/chat-messages.tsx:1457`) writes its
+measurements in a layout effect and a re-pin keyed on the resulting size lands in the same commit,
+so nothing short is ever painted. After first paint the settle exception is the only route, and
+it is the three conditions or nothing.
 
 One shipped path violates it today. `onContentReady` fires inside a `requestAnimationFrame`
 (`web/components/chat/chat-pane.tsx:503-506`), and `handlePaneContentReady` then schedules
 *another* `requestAnimationFrame` that writes a remembered `scrollTop`
 (`web/routes/chat/page.tsx:698-703`). That is two frames after the ready commit — a post-paint
-scroll by construction, and the visible jump. The remembered position must move into the same
+scroll by construction, and the visible jump. The settle exception does not cover it: it writes a
+*remembered* offset rather than the bottom, failing condition 2, and it is keyed on a frame count
+rather than on measured size, failing condition 3. The remembered position must move into the same
 layout effect as the mount snap, or be dropped.
 
 ### 3.3 The "sometimes it doesn't" case has a named cause
@@ -388,7 +418,7 @@ far the estimates were wrong for the particular tail of that particular transcri
 (`web/components/chat/chat-messages.tsx:1206-1209`) — `scrollToIndex(count - 1, { align: 'end' })`
 re-targets as measurements land, which is exactly the property the comment at `:1203-1205`
 records — rather than through `pinNow`'s single `scrollHeight` write. The `400ms` bound in §3.1 is
-a stop condition on a layout-effect loop keyed on measured size, not a timer that retries a scroll:
+a stop condition on §3.2's settle window, keyed on measured size, not a timer that retries a scroll:
 it exists so a long tail of image decodes cannot hold the view pinned against a reader who has
 already started scrolling.
 
