@@ -1621,7 +1621,7 @@ export async function handleApiRequest(
   }
   const pathname = url.pathname;
   const method = req.method || "GET";
-  // Stash so json() can compress large responses without threading req everywhere.
+  // Stashed on `res` because that is what json() holds: ParsedRoute carries the target, not the headers.
   (res as ResWithEncoding).__acceptEncoding = req.headers["accept-encoding"];
 
   try {
@@ -1631,9 +1631,9 @@ export async function handleApiRequest(
     if (identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) {
       return;
     }
-    if (context.workflowService && await handleWorkflowApi(req, res, { service: context.workflowService,
+    if (context.workflowService && await handleWorkflowApi(req, res, { method, pathname, url }, { service: context.workflowService,
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok })) return;
-    if (await handleTalkApi(req, res, {
+    if (await handleTalkApi(req, res, { method, pathname, url }, {
       getConfig: context.getConfig,
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok,
       runHandoff: (session, prompt) => {
@@ -1642,7 +1642,7 @@ export async function handleApiRequest(
       },
     })) return;
     if (!identifiedCaller && rejectUnverifiedIdentifiedApiCaller(req, res, method, pathname, context)) return;
-    if (await handleHeartbeatApi(req, res, { resolveCaller: () => resolveScopedWriteCallerIdentity(req, context) })) return;
+    if (await handleHeartbeatApi(req, res, { method, pathname, url }, { resolveCaller: () => resolveScopedWriteCallerIdentity(req, context) })) return;
 
     if (method === "GET" && pathname === "/api/features") {
       const config = context.getConfig();
@@ -5546,7 +5546,7 @@ export async function handleApiRequest(
 
     // /api/files — file upload/download/management
     if (pathname.startsWith("/api/files")) {
-      const handled = await handleFilesRequest(req, res, pathname, method, context);
+      const handled = await handleFilesRequest(req, res, { method, pathname, url }, context);
       if (handled) return;
     }
 

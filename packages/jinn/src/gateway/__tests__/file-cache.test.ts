@@ -94,8 +94,7 @@ async function streamRequest(id: string, range: string): Promise<StreamResponse>
   await files.handleFilesRequest(
     { method: "GET", url: `/api/files/${id}`, headers: { range } } as unknown as import("node:http").IncomingMessage,
     res as unknown as import("node:http").ServerResponse,
-    `/api/files/${id}`,
-    "GET",
+    { method: "GET", pathname: `/api/files/${id}`, url: new URL(`/api/files/${id}`, "http://localhost") },
     ctx,
   );
   return res;
@@ -106,8 +105,7 @@ async function videoRequest(id: string, query = ""): Promise<StreamResponse> {
   await files.handleFilesRequest(
     { method: "GET", url: `/api/files/${id}${query}`, headers: {} } as unknown as import("node:http").IncomingMessage,
     res as unknown as import("node:http").ServerResponse,
-    `/api/files/${id}`,
-    "GET",
+    { method: "GET", pathname: `/api/files/${id}`, url: new URL(`/api/files/${id}${query}`, "http://localhost") },
     ctx,
   );
   return res;
@@ -129,7 +127,7 @@ describe("GET /api/files/:id caching", () => {
 
   it("first GET returns 200 with immutable Cache-Control, ETag, Last-Modified + download header", async () => {
     const { res, out } = fakeRes();
-    await files.handleFilesRequest(fakeReq({}), res, `/api/files/${id}`, "GET", ctx);
+    await files.handleFilesRequest(fakeReq({}), res, { method: "GET", pathname: `/api/files/${id}`, url: new URL(`/api/files/${id}`, "http://localhost") }, ctx);
     expect(out.status).toBe(200);
     expect(out.headers!["Cache-Control"]).toBe("public, max-age=31536000, immutable");
     expect(out.headers!["ETag"]).toBe(etag);
@@ -140,7 +138,7 @@ describe("GET /api/files/:id caching", () => {
 
   it("conditional GET with matching If-None-Match returns 304 and no body", async () => {
     const { res, out } = fakeRes();
-    await files.handleFilesRequest(fakeReq({ "if-none-match": etag }), res, `/api/files/${id}`, "GET", ctx);
+    await files.handleFilesRequest(fakeReq({ "if-none-match": etag }), res, { method: "GET", pathname: `/api/files/${id}`, url: new URL(`/api/files/${id}`, "http://localhost") }, ctx);
     expect(out.status).toBe(304);
     expect(out.headers!["ETag"]).toBe(etag);
     expect(out.headers!["Cache-Control"]).toBe("public, max-age=31536000, immutable");

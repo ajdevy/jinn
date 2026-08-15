@@ -3,7 +3,7 @@ import { pickEncoding, compressBuffer, MIN_COMPRESS_BYTES } from "./compress.js"
 
 /**
  * Response and route-matching helpers shared by api.ts and the per-domain
- * router modules (`<domain>-api.ts`).
+ * router modules (`<domain>-api.ts`, plus `files.ts`, which predates the naming).
  *
  * They live below api.ts rather than in it because a domain module importing
  * `json` from api.ts would be a real runtime import cycle — api.ts imports the
@@ -16,14 +16,16 @@ import { pickEncoding, compressBuffer, MIN_COMPRESS_BYTES } from "./compress.js"
  *  2. It receives the already-parsed `ParsedRoute` and never re-parses `req.url`
  *     — one parse means one set of rejection rules for hostile targets.
  *  3. Sends go through `json`/`notFound`/`badRequest`/`serverError` from here. A
- *     module that rolls its own `send` silently drops the gzip/br negotiation.
- *  4. Unexpected errors throw. api.ts's outer try/catch is the only error
- *     boundary; a module that catches to its own shape changes the response for
- *     failures nobody anticipated. Catches that already exist for an *expected*
- *     failure (a corrupt file on disk, say) stay where they are.
- *  5. Operator-only authority stays in api.ts's `operatorOnlyControlPlaneRoute`
- *     table, which runs before dispatch. Auth scattered across domain modules is
- *     how a guard goes missing.
+ *     module that rolls its own `send` drops the gzip/br negotiation; one whose
+ *     envelope is its own may adapt `json`, never write past it.
+ *  4. Unexpected errors throw to api.ts's outer try/catch. A module keeps a
+ *     boundary of its own only if it logs the cause and answers in a shape its
+ *     clients already depend on — workflow-api's `{ code, message }` is the one.
+ *     Catches for an *expected* failure (a corrupt file on disk) stay put.
+ *  5. Operator-only authority stays in `operatorOnlyControlPlaneRoute` wherever a
+ *     route reaches it. Workflow, talk and heartbeat dispatch ahead of that table;
+ *     files dispatches after it but the table lists no `/api/files` route. So all
+ *     four gate themselves, and each one is a place a guard can go missing.
  *  6. The delegation call sits exactly where the route block used to sit in the
  *     dispatch chain, in the same order.
  */

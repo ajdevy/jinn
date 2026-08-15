@@ -65,7 +65,7 @@ function routeFetch(calls: string[] = []): typeof fetch {
       headers: { host: url.host, ...Object.fromEntries(new Headers(init?.headers).entries()) },
     });
     const cap = makeRes();
-    await files.handleFilesRequest(req as any, cap.res, url.pathname, init?.method ?? "GET", {
+    await files.handleFilesRequest(req as any, cap.res, { method: init?.method ?? "GET", pathname: url.pathname, url }, {
       getConfig: () => ({ gateway: {}, engines: {} }),
       emit: () => {},
     } as any);

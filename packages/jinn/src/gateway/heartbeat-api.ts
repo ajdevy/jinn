@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { UNIDENTIFIED_TOOL_CALL_ERROR } from "../mcp/identity.js";
 import { readJsonBody } from "./http-helpers.js";
+import { json, type ParsedRoute } from "./route-helpers.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
 import { armHeartbeat, HeartbeatLimitError, listHeartbeatsForSession, stopHeartbeat } from "../heartbeats/store.js";
 
@@ -9,10 +10,8 @@ export interface HeartbeatApiOptions {
   resolveCaller: () => CallerIdentity;
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
+// Only the argument order is local: the status varies per call site.
+const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 /**
  * A heartbeat is always owned by the session that armed it, so an owner has to
@@ -61,10 +60,10 @@ type HeartbeatRoute = { action: "list" } | { action: "arm" } | { action: "stop";
 
 /** Null for anything that is not one of this domain's three routes, so the
  *  request falls through to the rest of the API untouched. */
-function routeFor(req: IncomingMessage): HeartbeatRoute | null {
-  const parts = new URL(req.url ?? "/", "http://localhost").pathname.split("/").filter(Boolean);
+function routeFor(route: ParsedRoute): HeartbeatRoute | null {
+  const parts = route.pathname.split("/").filter(Boolean);
   if (parts[0] !== "api" || parts[1] !== "heartbeats") return null;
-  switch (`${req.method ?? "GET"} /${parts.length}`) {
+  switch (`${route.method} /${parts.length}`) {
     case "GET /2": return { action: "list" };
     case "POST /2": return { action: "arm" };
     case "DELETE /3": return { action: "stop", id: parts[2]! };
@@ -75,14 +74,15 @@ function routeFor(req: IncomingMessage): HeartbeatRoute | null {
 export async function handleHeartbeatApi(
   req: IncomingMessage,
   res: ServerResponse,
+  route: ParsedRoute,
   options: HeartbeatApiOptions,
 ): Promise<boolean> {
-  const route = routeFor(req);
-  if (!route) return false;
+  const matched = routeFor(route);
+  if (!matched) return false;
   const owner = ownerSessionId(res, options);
   if (!owner) return true;
-  if (route.action === "list") send(res, 200, { heartbeats: listHeartbeatsForSession(owner) });
-  else if (route.action === "arm") await arm(req, res, owner);
-  else stop(res, owner, route.id);
+  if (matched.action === "list") send(res, 200, { heartbeats: listHeartbeatsForSession(owner) });
+  else if (matched.action === "arm") await arm(req, res, owner);
+  else stop(res, owner, matched.id);
   return true;
 }

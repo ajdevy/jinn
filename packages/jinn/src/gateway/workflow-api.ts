@@ -1,26 +1,22 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  WorkflowRepositoryError,
-  WorkflowServiceError,
-  type WorkflowService,
-} from "../workflows/service.js";
+import { WorkflowRepositoryError, WorkflowServiceError, type WorkflowService } from "../workflows/service.js";
 import { CALLER_SESSION_HEADER } from "../mcp/identity.js";
+import { logger } from "../shared/logger.js";
 import { getSession } from "../sessions/registry.js";
 import type { DefinitionListQuery, RunListQuery } from "../workflows/repository.js";
 import type { WorkflowRunDetail } from "../workflows/runtime.js";
 import { WorkflowOutputError } from "../workflows/output.js";
 import { readJsonBody } from "./http-helpers.js";
 import { isJsonMediaType } from "./media-type.js";
+import { json, type ParsedRoute } from "./route-helpers.js";
 
 export interface WorkflowApiOptions {
   service: WorkflowService;
   authenticated: boolean;
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
+// Only the argument order is local: `{ code, message }` envelopes rule out badRequest/serverError.
+const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 function errorStatus(error: WorkflowRepositoryError): number {
   if (error.code === "not-found") return 404;
@@ -41,6 +37,8 @@ function failure(res: ServerResponse, error: unknown): void {
       ...(error.issues ? { issues: error.issues } : {}) });
     return;
   }
+  // The 500 says nothing, so this is the only record the cause ever gets.
+  logger.error(`Workflow API unexpected error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
   send(res, 500, { code: "internal-error", message: "Workflow operation failed." });
 }
 
@@ -285,10 +283,10 @@ async function attempts(req: IncomingMessage, res: ServerResponse, parts: string
   return true;
 }
 
-export async function handleWorkflowApi(req: IncomingMessage, res: ServerResponse, options: WorkflowApiOptions): Promise<boolean> {
-  const url = new URL(req.url ?? "/", "http://localhost"); const parts = segments(url.pathname);
+export async function handleWorkflowApi(req: IncomingMessage, res: ServerResponse, route: ParsedRoute, options: WorkflowApiOptions): Promise<boolean> {
+  const { url } = route; const parts = segments(route.pathname);
   if (!parts || parts[0] !== "api" || parts[1] !== "workflows") return false;
-  const writing = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method ?? "GET");
+  const writing = ["POST", "PUT", "PATCH", "DELETE"].includes(route.method);
   if (writing && !options.authenticated) { send(res, 401, { code: "unauthorized", message: "Workflow authentication required." }); return true; }
   try {
     if (await attempts(req, res, parts, options.service)) return true;
