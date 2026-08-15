@@ -28,6 +28,7 @@ import {
   applyTranscriptAnchor,
   captureVirtualAnchor,
   groupKey,
+  scrollTranscriptTo,
   useTranscriptVirtualizer,
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
@@ -1201,15 +1202,7 @@ export function ChatMessages({
   // `scrollTo(scrollHeight)` animates toward the stale estimate and stops short.
   const scrollToEnd = useCallback((behavior: ScrollBehavior) => {
     const count = groupKeysRef.current.length
-    if (count === 0) return
-    virtualizer.scrollToIndex(count - 1, { align: 'end', behavior })
-    // That leaves the virtualizer re-issuing the scroll from its own rAF until the
-    // target holds still — for up to five seconds, and without asking whether the
-    // reader has taken the scroller over since. Retire it on the instant path and
-    // let the settle window re-target instead, which is bounded and does ask.
-    // A smooth jump still needs it: that is what lands it on the true bottom.
-    const node = scrollContainerRef.current
-    if (node && behavior !== 'smooth') virtualizer.scrollToOffset(node.scrollTop)
+    if (count > 0) scrollTranscriptTo(virtualizer, (v) => v.scrollToIndex(count - 1, { align: 'end', behavior }))
   }, [virtualizer])
 
   // Stick-to-bottom: one hook owns follow-intent, growth-follow, resize/keyboard,

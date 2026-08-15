@@ -325,8 +325,8 @@ function ChatPage() {
   const handleSelect = useCallback(
     (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin }) => {
       const currentId = selectedIdRef.current
-      const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll')
-      if (currentId && currentScroller) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
+      const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
+      if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
       newChatIntentRef.current = false
       // On mobile, opening a session pushes from the list into the thread. The
       // one exception is the background auto-select of the most-recent session
@@ -628,7 +628,7 @@ function ChatPage() {
   const requestThreadPreview = useCallback((peek: CommsPeekData) => {
     const currentId = selectedIdRef.current
     const scroller = document.querySelector<HTMLElement>('.chat-messages-scroll')
-    if (currentId && scroller) sessionScrollRef.current.set(currentId, scroller.scrollTop)
+    if (currentId && scroller?.clientHeight) sessionScrollRef.current.set(currentId, scroller.scrollTop)
     previewSourceRef.current = {
       sessionId: currentId,
       messageId: peek.messageId,

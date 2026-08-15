@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranscriptOpen } from '@/components/chat/transcript-open'
+import { distanceFromBottom, shouldFollow, STICK_THRESHOLD_PX, unreadDelta } from './stick-geometry'
 
 /**
  * Stick-to-bottom for the chat thread.
@@ -26,26 +27,6 @@ import { useTranscriptOpen } from '@/components/chat/transcript-open'
  * design, whose two async mechanisms raced and lost the stream (the sentinel left
  * the 80px band before the queued rAF read the now-stale "at bottom" flag).
  */
-
-/** Within this many px of the bottom counts as "at bottom" (engage follow). */
-export const STICK_THRESHOLD_PX = 56
-
-type Metrics = { scrollHeight: number; scrollTop: number; clientHeight: number }
-
-/** Distance in px from the current scroll position to the very bottom (0 = pinned). */
-export function distanceFromBottom(el: Metrics): number {
-  return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
-}
-
-/** Whether auto-follow should be engaged for a given distance from the bottom. */
-export function shouldFollow(distance: number, threshold: number = STICK_THRESHOLD_PX): boolean {
-  return distance <= threshold
-}
-
-/** New messages accumulated while detached (current count − count when last caught up), ≥ 0. */
-export function unreadDelta(currentCount: number, seenCount: number): number {
-  return Math.max(0, currentCount - seenCount)
-}
 
 export interface UseStickToBottomOptions {
   /** Changes whenever the in-flight assistant message streams more text. */
@@ -149,6 +130,28 @@ export function useStickToBottom({
     }
   }, [pinNow])
 
+  // ── Initial load / session switch (ChatPane is keyed → this hook remounts). ──
+  useTranscriptOpen({
+    node: el,
+    ready: messageCount > 0,
+    initialScrollTop,
+    // The bottom, reached the way this transcript can reach it: through the
+    // virtualizer when it has one, since `scrollHeight` is only an estimate.
+    scrollToBottom: (node) => {
+      if (scrollToEndRef.current) scrollToEndRef.current('auto')
+      else pinNow(node)
+    },
+    contentSize: (node) => contentSize?.() ?? node.scrollHeight,
+    isPinned: () => followRef.current,
+    onOpened: (node) => {
+      const dist = distanceFromBottom(node)
+      followRef.current = shouldFollow(dist, threshold)
+      seenCountRef.current = messageCountRef.current
+      prevTopRef.current = node.scrollTop
+      prevDistRef.current = dist
+    },
+  })
+
   // ── User-intent tracking: the scroll event is the ONLY place follow flips. ──
   // Keyed on `el` so it (re)attaches when the scroller mounts in a later render.
   useEffect(() => {
@@ -167,10 +170,9 @@ export function useStickToBottom({
         return
       }
       prevTopRef.current = top
-      // Recorded before the early return below so our own scrolls keep the baseline
-      // fresh. Distance, not scrollTop direction: when content above shrinks the
-      // browser clamps scrollTop down while we are still at the bottom, and a
-      // direction check would detach a live stream there.
+      // Distance, not scrollTop direction: when content above shrinks the browser
+      // clamps scrollTop down while we are still at the bottom, and a direction
+      // check would detach a live stream there.
       const movedAway = dist > prevDistRef.current
       prevDistRef.current = dist
       if (animatingRef.current) {
@@ -199,40 +201,18 @@ export function useStickToBottom({
     }
 
     // A manual wheel/touch interrupts an in-flight smooth scroll → respect the user.
-    const cancelAnimating = () => { animatingRef.current = false }
+    const onUserInput = () => { animatingRef.current = false }
 
     el.addEventListener('scroll', onScroll, { passive: true })
-    el.addEventListener('wheel', cancelAnimating, { passive: true })
-    el.addEventListener('touchstart', cancelAnimating, { passive: true })
+    el.addEventListener('wheel', onUserInput, { passive: true })
+    el.addEventListener('touchstart', onUserInput, { passive: true })
     return () => {
       el.removeEventListener('scroll', onScroll)
-      el.removeEventListener('wheel', cancelAnimating)
-      el.removeEventListener('touchstart', cancelAnimating)
+      el.removeEventListener('wheel', onUserInput)
+      el.removeEventListener('touchstart', onUserInput)
       if (uiRaf.current != null) cancelAnimationFrame(uiRaf.current)
     }
   }, [el, threshold])
-
-  // ── Initial load / session switch (ChatPane is keyed → this hook remounts). ──
-  useTranscriptOpen({
-    node: el,
-    ready: messageCount > 0,
-    initialScrollTop,
-    // The bottom, reached the way this transcript can reach it: through the
-    // virtualizer when it has one, since `scrollHeight` is only an estimate.
-    scrollToBottom: (node) => {
-      if (scrollToEndRef.current) scrollToEndRef.current('auto')
-      else pinNow(node)
-    },
-    contentSize: (node) => contentSize?.() ?? node.scrollHeight,
-    isPinned: () => followRef.current,
-    onOpened: (node) => {
-      const dist = distanceFromBottom(node)
-      followRef.current = shouldFollow(dist, threshold)
-      seenCountRef.current = messageCountRef.current
-      prevTopRef.current = node.scrollTop
-      prevDistRef.current = dist
-    },
-  })
 
   // ── Follow on growth — synchronous, before paint, so streaming never detaches. ──
   useLayoutEffect(() => {

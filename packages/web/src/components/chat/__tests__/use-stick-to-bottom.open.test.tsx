@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, act, fireEvent } from '@testing-library/react'
-import { STICK_THRESHOLD_PX } from '@/hooks/use-stick-to-bottom'
+import { STICK_THRESHOLD_PX } from '@/hooks/stick-geometry'
 import { Harness, setClampedMetrics, setMetrics, stubScrollEnvironment } from './stick-harness'
 
 // The two rules ICI-821 changed: where a transcript opens, and when the arrow

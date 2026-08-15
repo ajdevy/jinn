@@ -72,6 +72,45 @@ export function groupKey(group: RenderGroup): string {
 
 export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
 
+/**
+ * Where our last scroll left the scroller, per virtualizer.
+ *
+ * After a `scrollToIndex` the virtualizer keeps re-issuing that scroll from its
+ * own rAF until the target holds still — for up to five seconds. Those retries
+ * are how a windowed open reaches a bottom that keeps moving as rows measure,
+ * and they are also, unguarded, how it drags a reader who has scrolled away in
+ * the meantime back down: it never asks who owns the position. Finding the
+ * scroller somewhere other than where the last write left it answers that.
+ * `null` means "the next write is ours to make" — see `scrollTranscriptTo`.
+ */
+const lastWrite = new WeakMap<object, number | null>()
+
+function transcriptScrollTo(
+  offset: number,
+  { adjustments = 0, behavior }: { adjustments?: number; behavior?: ScrollBehavior },
+  instance: TranscriptVirtualizer,
+): void {
+  const el = instance.scrollElement
+  if (!el) return
+  const written = lastWrite.get(instance)
+  if (written != null && Math.abs(el.scrollTop - written) > 1) return
+  el.scrollTo?.({ top: offset + adjustments, behavior })
+  // A smooth scroll lands over many frames, so there is no position to read back
+  // yet; it is user-commanded anyway, and its retries are what carry it to a
+  // bottom that is still moving.
+  lastWrite.set(instance, behavior === 'smooth' ? null : el.scrollTop)
+}
+
+/** Scroll the transcript deliberately, re-arming the guard above. Every scroll we
+ *  ask for goes through here; everything else reaching the scroller is a retry. */
+export function scrollTranscriptTo(
+  virtualizer: TranscriptVirtualizer,
+  scroll: (virtualizer: TranscriptVirtualizer) => void,
+): void {
+  lastWrite.set(virtualizer, null)
+  scroll(virtualizer)
+}
+
 export function useTranscriptVirtualizer(
   groups: RenderGroup[],
   keys: string[],
@@ -90,6 +129,7 @@ export function useTranscriptVirtualizer(
     estimateSize: (index) => estimateGroupSize(groups[index]),
     getItemKey: useCallback((index: number) => keysRef.current[index], []),
     overscan: OVERSCAN,
+    scrollToFn: transcriptScrollTo,
   })
 }
 
@@ -145,7 +185,7 @@ export function restoreVirtualAnchor(
   // Through the virtualizer rather than straight onto `scrollTop`: it has to
   // know the position moved, or the window it renders stays the one it worked
   // out for the old offset and the reader lands among the rows just inserted.
-  virtualizer.scrollToOffset(node.scrollTop + (start - anchor.start))
+  scrollTranscriptTo(virtualizer, (v) => v.scrollToOffset(node.scrollTop + (start - anchor.start)))
   return true
 }
 
@@ -163,7 +203,7 @@ function alignAnchoredRow(
   const target = node.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
   if (!target) return false
   const drift = target.getBoundingClientRect().top - node.getBoundingClientRect().top - offset
-  if (Math.abs(drift) > 0.5) virtualizer.scrollToOffset(node.scrollTop + drift)
+  if (Math.abs(drift) > 0.5) scrollTranscriptTo(virtualizer, (v) => v.scrollToOffset(node.scrollTop + drift))
   return true
 }
 

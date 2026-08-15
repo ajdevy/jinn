@@ -122,23 +122,6 @@ describe('useTranscriptOpen — the settle window', () => {
     expect(state.writes).toBe(4)
   })
 
-  it('stops the moment the scroller is somewhere this hook did not put it', () => {
-    const state = rig()
-    const { getByTestId, rerender } = render(<Harness {...state.options} />)
-    state.size = 1400
-    state.clock = 16
-    act(() => { rerender(<Harness {...state.options} />) })
-    expect(state.writes).toBe(2)
-
-    // The reader scrolls. A commit can reach this effect before follow-intent has
-    // read that event, so `isPinned` is still true here — the position is not.
-    getByTestId('scroller').scrollTop = 300
-    state.size = 1800
-    state.clock = 32
-    act(() => { rerender(<Harness {...state.options} />) })
-    expect(state.writes).toBe(2)
-  })
-
   it('writes nothing while the reader is detached', () => {
     const state = rig()
     const { rerender } = render(<Harness {...state.options} />)

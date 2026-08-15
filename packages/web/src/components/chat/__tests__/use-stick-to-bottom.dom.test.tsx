@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, act, fireEvent } from '@testing-library/react'
-import { STICK_THRESHOLD_PX } from '@/hooks/use-stick-to-bottom'
+import { STICK_THRESHOLD_PX } from '@/hooks/stick-geometry'
 import { type CapturedObserver, dist, Harness, setMetrics, stubScrollEnvironment } from './stick-harness'
 
 // Drives the REAL hook through every scroll failure mode the rebuild targets.

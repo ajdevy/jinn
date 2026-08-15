@@ -26,8 +26,6 @@ interface OpenState {
   phase: 'waiting' | 'opening' | 'settling' | 'closed'
   openedAt: number
   size: number
-  /** Where this hook's last write left the scroller. */
-  top: number
 }
 
 export interface TranscriptOpenOptions {
@@ -52,7 +50,7 @@ export interface TranscriptOpenOptions {
 }
 
 export function useTranscriptOpen(options: TranscriptOpenOptions): void {
-  const state = useRef<OpenState>({ phase: 'waiting', openedAt: 0, size: 0, top: 0 })
+  const state = useRef<OpenState>({ phase: 'waiting', openedAt: 0, size: 0 })
   useOpeningWrite(state, options)
   useSettleWindow(state, options)
 }
@@ -70,7 +68,6 @@ function useOpeningWrite(state: MutableRefObject<OpenState>, options: Transcript
     open.phase = 'opening'
     open.openedAt = now()
     open.size = contentSize(node)
-    open.top = node.scrollTop
     onOpened(node)
   })
 }
@@ -87,21 +84,14 @@ function useSettleWindow(state: MutableRefObject<OpenState>, options: Transcript
       return
     }
     if (open.phase !== 'settling') return
-    // Finding the scroller somewhere other than where this hook left it means the
-    // reader has taken it over. `isPinned` alone is not enough: a scroll event can
-    // commit through another subscriber before follow-intent has read it, and this
-    // effect would then hold the bottom against a reader already on their way up.
     const size = contentSize(node)
-    const moved = Math.abs(node.scrollTop - open.top) > 1
-    if (moved || size === open.size || now() - open.openedAt >= SETTLE_WINDOW_MS) {
+    if (size === open.size || now() - open.openedAt >= SETTLE_WINDOW_MS) {
       open.phase = 'closed'
       return
     }
     open.size = size
     // Invariant S2: a reader who has taken the position owns it, and the settle
     // window does not weaken that by one frame.
-    if (!isPinned()) return
-    scrollToBottom(node)
-    open.top = node.scrollTop
+    if (isPinned()) scrollToBottom(node)
   })
 }
