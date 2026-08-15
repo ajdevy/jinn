@@ -3,15 +3,20 @@ import type { Employee } from "@/lib/api"
 
 /* design-cron §2 — shared grammar for the Cron list + detail: the wire types
  * the gateway's read tier actually returns (compact by design — prompt/env are
- * deliberately scrubbed server-side, and a run carries only the four keys the
- * runner writes), the last-run outcome glyph, and the settings-idiom
- * ToggleSwitch. */
+ * deliberately scrubbed server-side), the last-run outcome glyph, and the
+ * settings-idiom ToggleSwitch. */
 
 export interface CronRunWire {
+  id?: string
+  jobId?: string
   timestamp?: string | number
+  startedAt?: string | number
+  finishedAt?: string | number
   sessionKey?: string
   status?: string
+  exitCode?: number
   durationMs?: number
+  duration?: number
 }
 
 export interface CronJobWire {
@@ -28,15 +33,15 @@ export interface CronJobWire {
 
 export function runTimestamp(run: CronRunWire | null | undefined): string | number | null {
   if (!run) return null
-  return run.timestamp ?? null
+  return run.timestamp ?? run.startedAt ?? null
 }
 
 export function runDurationMs(run: CronRunWire | null | undefined): number | null {
   if (!run) return null
-  return run.durationMs ?? null
+  return run.durationMs ?? run.duration ?? null
 }
 
-export type RunOutcome = "ok" | "error" | "none"
+export type RunOutcome = "ok" | "error" | "running" | "none"
 
 export function runOutcome(run: CronRunWire | null | undefined): RunOutcome {
   switch (run?.status) {
@@ -44,17 +49,20 @@ export function runOutcome(run: CronRunWire | null | undefined): RunOutcome {
       return "ok"
     case "error":
       return "error"
+    case "started":
+      return "running"
     default:
-      return "none" // never ran
+      return "none" // never ran / skipped / duplicate / expired
   }
 }
 
 /** The 24px last-run outcome circle (Todos StatusCircle grammar): ✓ success,
- *  ✕ error, quiet dash otherwise. */
+ *  ✕ error, pulsing dot while a run is live, quiet dash otherwise. */
 export function RunGlyph({ outcome, size = 24 }: { outcome: RunOutcome; size?: number }) {
   const palette: Record<RunOutcome, { bg: string; fg: string }> = {
     ok: { bg: "color-mix(in srgb, var(--system-green) 13%, transparent)", fg: "var(--system-green)" },
     error: { bg: "color-mix(in srgb, var(--system-red) 13%, transparent)", fg: "var(--system-red)" },
+    running: { bg: "color-mix(in srgb, var(--system-blue) 13%, transparent)", fg: "var(--system-blue)" },
     none: { bg: "var(--fill-tertiary)", fg: "var(--text-quaternary)" },
   }
   const { bg, fg } = palette[outcome]
@@ -66,6 +74,12 @@ export function RunGlyph({ outcome, size = 24 }: { outcome: RunOutcome; size?: n
     >
       {outcome === "ok" && <Check size={size * 0.5} strokeWidth={3} />}
       {outcome === "error" && <X size={size * 0.46} strokeWidth={3} />}
+      {outcome === "running" && (
+        <span
+          className="rounded-full motion-safe:animate-[jinn-pulse_1.4s_var(--ease-smooth)_infinite]"
+          style={{ width: size / 3, height: size / 3, background: "currentColor" }}
+        />
+      )}
       {outcome === "none" && <Minus size={size * 0.42} strokeWidth={3} />}
     </span>
   )

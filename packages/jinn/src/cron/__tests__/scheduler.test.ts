@@ -55,8 +55,8 @@ beforeEach(() => {
   scheduledTasks.length = 0;
 });
 
-describe("scheduler — manual vs scheduled fire identity (GRS-003b-1)", () => {
-  it("triggerCronJob (manual /cron run) passes NO fireIso — every manual run is its own fire", async () => {
+describe("scheduler — manual vs scheduled fire identity (GRS-003b-2a / GRS-003b-1)", () => {
+  it("triggerCronJob (manual /cron run) passes NO fireIso — never opted into the single-shot guard", async () => {
     startScheduler([], sessionManager, config, connectors); // set module vars, schedule nothing
 
     const result = await triggerCronJob("test-job");
@@ -64,8 +64,8 @@ describe("scheduler — manual vs scheduled fire identity (GRS-003b-1)", () => {
     expect(result).toEqual(job);
     expect(runCronJob).toHaveBeenCalledTimes(1);
     const call = (runCronJob as any).mock.calls[0];
-    // The opts carry the workflow fire handler slot (GRS-014d) but NO fireIso — a manual
-    // trigger is a fresh fire by definition, so it never reuses a scheduled tick's identity.
+    // The opts carry the workflow fire handler slot (GRS-014d) but NO fireIso — a
+    // manual trigger is a fresh fire by definition, never opted into the single-shot guard.
     expect(call[4]?.fireIso).toBeUndefined();
   });
 

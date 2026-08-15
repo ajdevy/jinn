@@ -60,7 +60,13 @@ function OverviewRow({ label, children }: { label: string; children: React.React
   )
 }
 
-const RUN_STATUS_WORD: Record<string, string> = { error: "error" }
+const RUN_STATUS_WORD: Record<string, string> = {
+  error: "error",
+  started: "running",
+  skipped: "skipped",
+  duplicate: "duplicate",
+  expired: "expired",
+}
 
 function RunRow({ run, now }: { run: CronRunWire; now: Date }) {
   const outcome = runOutcome(run)
@@ -334,7 +340,7 @@ export default function CronDetailPage() {
                 ) : (
                   <div className="rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] p-[5px] shadow-[var(--shadow-card)]" data-testid="cron-runs">
                     {runs.map((run, i) => (
-                      <RunRow key={`${runTimestamp(run) ?? "run"}-${i}`} run={run} now={now} />
+                      <RunRow key={run.id ?? `${runTimestamp(run) ?? "run"}-${i}`} run={run} now={now} />
                     ))}
                   </div>
                 )}

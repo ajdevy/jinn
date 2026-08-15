@@ -3,9 +3,13 @@ import { runCronJob } from "../runner.js";
 import type { CronJob, Connector, JinnConfig } from "../../shared/types.js";
 import { findEmployee } from "../../gateway/org.js";
 
-// Stub the run-log append so these tests never touch the filesystem. Real
-// file-writing coverage lives in cron/__tests__/jobs.test.ts against a temp JINN_HOME.
-vi.mock("../jobs.js", () => ({ appendRunLog: vi.fn() }));
+// Stub the run-log helpers so we don't touch the filesystem. `hasRunLogEntry`
+// defaults to false (fire not yet run) so existing tests exercise the normal path;
+// idempotency tests override it per-case.
+vi.mock("../jobs.js", () => ({
+  appendRunLog: vi.fn(),
+  hasRunLogEntry: vi.fn(() => false),
+}));
 
 // Stub org scanning
 vi.mock("../../gateway/org.js", () => ({
@@ -25,6 +29,13 @@ vi.mock("../../work-items/store.js", () => ({
 // derivation coverage lives in work-items/__tests__/reconcile.test.ts.
 vi.mock("../../work-items/reconcile.js", () => ({
   reconcileWorkItem: vi.fn(),
+}));
+
+// Stub the session lookup used by the guard-time bridge repair (GRS-003b-2b). This
+// file sets no JINN_HOME, so a real registry read would hit the live DB. Default:
+// no session found → repair is a no-op; the self-heal test overrides per-case.
+vi.mock("../../sessions/registry.js", () => ({
+  getSessionBySessionKey: vi.fn(() => undefined),
 }));
 
 // Stub logger
@@ -192,8 +203,8 @@ describe("runCronJob — work-item dogfood (GRS-002)", () => {
     const fireIso = "2026-07-01T06:00:00.000Z";
     const job = makeJob({ id: "wi-job", name: "WI Job", prompt: "do work" });
 
-    // Re-invoke the SAME logical fire twice. The caller-owned fireIso must yield the
-    // exact same source_ref both times so the store dedupes it onto one work item.
+    // Re-invoke the SAME logical fire twice (e.g. a retry). The caller-owned fireIso
+    // must yield the exact same source_ref both times so the store dedupes it.
     await runCronJob(job, sessionManager, makeConfig(), connectors, { fireIso });
     await runCronJob(job, sessionManager, makeConfig(), connectors, { fireIso });
 
@@ -223,7 +234,7 @@ describe("runCronJob — work-item dogfood (GRS-002)", () => {
     expect(refs[0]).not.toBe(refs[1]);
   });
 
-  it("honors an explicit fireIso verbatim in BOTH the source_ref and the route sessionKey", async () => {
+  it("honors an explicit fireIso verbatim in the source_ref", async () => {
     const { createWorkItem } = await import("../../work-items/store.js");
     const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
     const sessionManager = makeMockSessionManager(0);
@@ -237,27 +248,6 @@ describe("runCronJob — work-item dogfood (GRS-002)", () => {
     );
 
     expect((createWorkItem as any).mock.calls[0][0].sourceRef).toBe("cron:abc:2026-12-31T23:59:59.999Z");
-    // The session the job spawns is keyed by the SAME per-fire identity, so the session
-    // row and the work item's source_ref always name one fire.
-    expect(sessionManager.route.mock.calls[0][0].sessionKey).toBe("cron:abc:2026-12-31T23:59:59.999Z");
-  });
-
-  it("appends EXACTLY ONE run-log row for a successful fire", async () => {
-    const { appendRunLog } = await import("../jobs.js");
-    const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
-    const sessionManager = makeMockSessionManager(0);
-
-    await runCronJob(
-      makeJob({ id: "wi-job", name: "WI Job", prompt: "do work" }),
-      sessionManager,
-      makeConfig(),
-      connectors,
-      { fireIso: "2026-07-01T06:00:00.000Z" },
-    );
-
-    expect(sessionManager.route).toHaveBeenCalledTimes(1);
-    expect(appendRunLog).toHaveBeenCalledTimes(1);
-    expect(appendRunLog).toHaveBeenCalledWith("wi-job", expect.objectContaining({ status: "success" }));
   });
 
   it("does not break the cron job when work-item minting throws", async () => {
@@ -353,6 +343,108 @@ describe("runCronJob — atomic cron-bridge ordering (GRS-003b-2b)", () => {
     // Link threw → reconcile is skipped (same guarded block), but the job still records success.
     expect(reconcileWorkItem).not.toHaveBeenCalled();
     expect(appendRunLog).toHaveBeenCalledWith("wi-job", expect.objectContaining({ status: "success" }));
+  });
+});
+
+
+describe("runCronJob — execution idempotency (GRS-003b-2a)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("skips the run when this fireIso already recorded an outcome (no re-run, no duplicate log)", async () => {
+    const { hasRunLogEntry, appendRunLog } = await import("../jobs.js");
+    const { createWorkItem } = await import("../../work-items/store.js");
+    (hasRunLogEntry as any).mockReturnValue(true); // this exact fire already ran
+
+    const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
+    const sessionManager = makeMockSessionManager(0);
+    const fireIso = "2026-07-01T06:00:00.000Z";
+
+    await runCronJob(
+      makeJob({ id: "wi-job", name: "WI Job", prompt: "do work" }),
+      sessionManager,
+      makeConfig(),
+      connectors,
+      { fireIso },
+    );
+
+    // Guard checked the durable ledger with this fire's deterministic sessionKey.
+    expect(hasRunLogEntry).toHaveBeenCalledWith("wi-job", "cron:wi-job:2026-07-01T06:00:00.000Z");
+    // Short-circuited BEFORE route/append: prompt not re-run, no second run-log row.
+    expect(sessionManager.route).not.toHaveBeenCalled();
+    expect(appendRunLog).not.toHaveBeenCalled();
+    // Bridge repair was ATTEMPTED (guard self-heal), but with no prior session found
+    // (default mock) there is nothing to repair, so no work item is minted.
+    expect(createWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("self-heals a half-linked bridge on re-fire: links the existing session WITHOUT re-running the prompt (GRS-003b-2b, Codex Major #1)", async () => {
+    const { hasRunLogEntry, appendRunLog } = await import("../jobs.js");
+    const { createWorkItem, linkSession } = await import("../../work-items/store.js");
+    const { reconcileWorkItem } = await import("../../work-items/reconcile.js");
+    const { getSessionBySessionKey } = await import("../../sessions/registry.js");
+    (hasRunLogEntry as any).mockReturnValue(true); // prior fire recorded a terminal outcome
+    // The prior fire DID spawn a session, but its best-effort link/reconcile failed →
+    // item stuck `open`, zero linked sessions, guard would otherwise block repair forever.
+    (getSessionBySessionKey as any).mockReturnValue({ id: "sess-orphan", status: "idle" });
+
+    const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
+    const sessionManager = makeMockSessionManager(0);
+    const fireIso = "2026-07-01T06:00:00.000Z";
+
+    await runCronJob(
+      makeJob({ id: "wi-job", name: "WI Job", prompt: "do work" }),
+      sessionManager,
+      makeConfig(),
+      connectors,
+      { fireIso },
+    );
+
+    // Prompt is NOT re-run and NO duplicate run-log is appended...
+    expect(sessionManager.route).not.toHaveBeenCalled();
+    expect(appendRunLog).not.toHaveBeenCalled();
+    // ...but the durable bridge is repaired idempotently: get-or-create the item for this
+    // fire, link the found session, reconcile the live status.
+    expect(getSessionBySessionKey).toHaveBeenCalledWith("cron:wi-job:2026-07-01T06:00:00.000Z");
+    expect(createWorkItem).toHaveBeenCalledWith(expect.objectContaining({ source: "cron", status: "backlog", sourceRef: "cron:wi-job:2026-07-01T06:00:00.000Z" }));
+    expect(linkSession).toHaveBeenCalledWith("wi_test", "sess-orphan");
+    expect(reconcileWorkItem).toHaveBeenCalledWith("wi_test");
+  });
+
+  it("runs normally on the first fire (ledger has no matching entry yet)", async () => {
+    const { hasRunLogEntry, appendRunLog } = await import("../jobs.js");
+    (hasRunLogEntry as any).mockReturnValue(false); // first time this fire runs
+
+    const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
+    const sessionManager = makeMockSessionManager(0);
+    const fireIso = "2026-07-01T06:00:00.000Z";
+
+    await runCronJob(
+      makeJob({ id: "wi-job", name: "WI Job", prompt: "do work" }),
+      sessionManager,
+      makeConfig(),
+      connectors,
+      { fireIso },
+    );
+
+    expect(sessionManager.route).toHaveBeenCalledTimes(1);
+    expect(appendRunLog).toHaveBeenCalledWith("wi-job", expect.objectContaining({ status: "success" }));
+  });
+
+  it("never dedupes an ad-hoc call with no fireIso (each is a new fire)", async () => {
+    const { hasRunLogEntry } = await import("../jobs.js");
+    // Even if the ledger somehow reports a match, the guard is gated on opts.fireIso,
+    // so an ad-hoc call (fresh per-call ISO) must still run.
+    (hasRunLogEntry as any).mockReturnValue(true);
+
+    const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
+    const sessionManager = makeMockSessionManager(0);
+
+    await runCronJob(makeJob(), sessionManager, makeConfig(), connectors); // no opts.fireIso
+
+    expect(hasRunLogEntry).not.toHaveBeenCalled();
+    expect(sessionManager.route).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -143,9 +143,12 @@ describe("GET /api/cron — read-tier summary scrubs prompt/env", () => {
     const promptSecret = "CANARY-REQA-CRON-RUN-PROMPT";
     const envSecret = "CANARY-REQA-CRON-RUN-ENV";
     const run = {
+      id: "run-secret",
+      jobId: "secret-job",
       timestamp: "2026-07-06T08:00:00.000Z",
       sessionKey: "cron:secret-job:2026-07-06T08:00:00.000Z",
       status: "error",
+      exitCode: 1,
       durationMs: 321,
       prompt: `private prompt ${promptSecret}`,
       env: { API_KEY: envSecret },
@@ -181,9 +184,12 @@ describe("GET /api/cron — read-tier summary scrubs prompt/env", () => {
       expect(serialized).not.toContain("message echoed");
     }
     const safeRun = {
+      id: "run-secret",
+      jobId: "secret-job",
       timestamp: "2026-07-06T08:00:00.000Z",
       sessionKey: "cron:secret-job:2026-07-06T08:00:00.000Z",
       status: "error",
+      exitCode: 1,
       durationMs: 321,
     };
     expect((listCap.body as Array<{ lastRun: unknown }>)[0].lastRun).toEqual(safeRun);
@@ -196,11 +202,16 @@ describe("GET /api/cron — read-tier summary scrubs prompt/env", () => {
     const nestedSecret = "CANARY-REQA-ALLOWED-DURATION";
     const timestampSecret = "CANARY-REQA-ALLOWED-TIMESTAMP";
     const run = {
+      id: "run-secret",
+      jobId: "secret-job",
       timestamp: `not-a-timestamp ${timestampSecret}`,
+      startedAt: { secret: timestampSecret },
+      finishedAt: ["2026-07-06T08:00:00.000Z", timestampSecret],
       sessionKey: `cron:secret-job:${"x".repeat(260)}${sessionSecret}:2026-07-06T08:00:00.000Z`,
       status: `success ${statusSecret}`,
-      // Array-wrapped object: both non-number shapes on the surviving numeric key.
-      durationMs: [{ value: 321, secret: nestedSecret }],
+      exitCode: { secret: nestedSecret },
+      durationMs: { value: 321, secret: nestedSecret },
+      duration: [nestedSecret],
     };
     fs.writeFileSync(path.join(cronRunsDir, "secret-job.jsonl"), JSON.stringify(run) + "\n");
     fs.writeFileSync(
@@ -225,7 +236,7 @@ describe("GET /api/cron — read-tier summary scrubs prompt/env", () => {
       expect(serialized).not.toContain("not-a-timestamp");
       expect(serialized).not.toContain("duration");
     }
-    const safeRun = {};
+    const safeRun = { id: "run-secret", jobId: "secret-job" };
     expect((listCap.body as Array<{ lastRun: unknown }>)[0].lastRun).toEqual(safeRun);
     expect(historyCap.body).toEqual([safeRun]);
   });
@@ -260,14 +271,14 @@ describe("GET /api/cron/:id/runs — corrupt-line tolerance", () => {
   });
 
   it("honors ?limit=N, returning only the newest N runs", async () => {
-    const lines = [1, 2, 3, 4].map((n) => JSON.stringify({ status: n === 4 ? "error" : "success" }));
+    const lines = [1, 2, 3, 4].map((n) => JSON.stringify({ id: `run-${n}`, status: "success" }));
     fs.writeFileSync(path.join(cronRunsDir, "my-job.jsonl"), lines.join("\n") + "\n");
 
     const cap = makeRes();
     await handleApiRequest(makeReq("GET", "/api/cron/my-job/runs?limit=2"), cap.res, ctx);
 
     expect(cap.status).toBe(200);
-    expect(cap.body).toEqual([{ status: "error" }, { status: "success" }]);
+    expect(cap.body).toEqual([{ id: "run-4", status: "success" }, { id: "run-3", status: "success" }]);
   });
 
   it("returns [] when the run file does not exist", async () => {
