@@ -10,7 +10,7 @@ export interface HeartbeatApiOptions {
   resolveCaller: () => CallerIdentity;
 }
 
-// Only the argument order is local: every status here carries its own message.
+// Only the argument order is local: the status varies per call site.
 const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 /**

@@ -21,8 +21,8 @@ import { json } from "./route-helpers.js";
 
 type JsonRequest = Parameters<typeof readJsonBody>[0];
 
-// Only the argument order is local: these failures carry their own messages, so
-// none of the fixed-body helpers next to `json` fits.
+// Only the argument order is local: the status varies per call site, so one shim
+// covers all ten — six of which land on badRequest's shape.
 const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 /** Accept a usage payload only when every token count is a non-negative finite

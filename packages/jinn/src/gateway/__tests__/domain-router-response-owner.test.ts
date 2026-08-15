@@ -9,7 +9,7 @@ import type { ServerResponse } from "node:http";
  * Who owns the response bytes for the domain routers.
  *
  * route-helpers.ts states the rule in prose — "a module that rolls its own
- * `send` silently drops the gzip/br negotiation" — but nothing enforced it, and
+ * `send` drops the gzip/br negotiation" — but nothing enforced it, and
  * six modules (workflow-api, heartbeat-api, talk-api, talk-turn-api,
  * talk-tts-api, files) each grew a private `send`/`json` writing `Content-Type`
  * and nothing else. That is invisible from every existing test: the JSON is

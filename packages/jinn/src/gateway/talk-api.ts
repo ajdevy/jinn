@@ -47,8 +47,8 @@ setInterval(() => {
   }
 }, REAP_INTERVAL_MS).unref();
 
-// Only the argument order is local: talk's failures carry their own messages, so
-// none of the fixed-body helpers next to `json` fits.
+// Only the argument order is local: talk chooses the status per failure, so one
+// shim covers every send — including the 500 that lands on serverError's shape.
 const send = (res: ServerResponse, status: number, body: unknown): void => json(res, body, status);
 
 function fail(res: ServerResponse, error: unknown): void {
