@@ -7,6 +7,7 @@ import type { CommsPeekData } from '@/components/chat/thread-peek'
 import { ChatInput } from '@/components/chat/chat-input'
 import { CliKeybar } from '@/components/chat/cli-keybar'
 import { ChatEmployeePicker } from '@/components/chat/chat-employee-picker'
+import { ChatHydrationOverlay, useHydrationSpinner } from '@/components/chat/chat-hydration'
 import { QueuePanel } from '@/components/chat/queue-panel'
 import { BackgroundActivityStatus } from '@/components/chat/background-activity-status'
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
@@ -512,7 +513,9 @@ export function ChatPane({
   const [dragOver, setDragOver] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<File[]>()
   const dragCounter = useRef(0)
-  const showSessionHydration = Boolean(sessionId && hydrating && messages.length === 0 && !streamingText)
+  // A threshold, not a default: a load that resolves inside the delay never
+  // announces itself, and the transcript stays mounted underneath either way.
+  const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -602,35 +605,24 @@ export function ChatPane({
           </div>
         </div>
       )}
-      {showSessionHydration && (
-        <div className="flex flex-1 items-center justify-center" role="status" aria-label="Loading chat">
-          <div className="size-5 animate-spin rounded-full border-2 border-[var(--fill-tertiary)] border-t-[var(--accent)]" />
-        </div>
-      )}
+      {showSessionHydration && <ChatHydrationOverlay />}
 
-      {/* Employee picker for new chat (any view mode — the CLI terminal mounts after first message creates the session) */}
-      {!sessionId && messages.length === 0 && (
-        <div className="flex flex-1 items-center justify-center">
-          <ChatEmployeePicker
-            employees={pickerEmployees}
-            selectedEmployee={selectedEmployee}
-            onSelect={setSelectedEmployee}
-            portalName={portalName}
-          />
-        </div>
-      )}
-
-      {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below sends. */}
+      {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below
+          sends. The transcript mounts on a blank composer too, with the employee
+          picker as its empty state (any view mode — the CLI terminal mounts once
+          the first message has created the session). Mounting it up front is what
+          lets the first message land in a node that was already on screen. */}
       {viewMode === 'cli' && sessionId ? (
         // Reserve flex space during lazy-chunk load so the ChatInput below stays
         // pinned to the bottom instead of flashing to the top for a frame.
         <Suspense fallback={<div style={{ flex: 1, minHeight: 0, background: 'var(--bg)' }} />}>
           <CliTerminal ref={cliTerminalRef} sessionId={sessionId} />
         </Suspense>
-      ) : !showSessionHydration && (sessionId || messages.length > 0) ? (
+      ) : (
         <ChatMessages
           messages={messages}
           loading={loading}
+          hydrating={hydrating}
           turnPending={turnPending}
           liveFinalResponseId={liveFinalResponseId}
           streamingText={streamingText}
@@ -651,8 +643,16 @@ export function ChatPane({
               onStartFresh={handleStartFreshChat}
             />
           ) : undefined}
+          emptyState={sessionId ? undefined : (
+            <ChatEmployeePicker
+              employees={pickerEmployees}
+              selectedEmployee={selectedEmployee}
+              onSelect={setSelectedEmployee}
+              portalName={portalName}
+            />
+          )}
         />
-      ) : null}
+      )}
 
       {/* Queue panel — hidden in the live xterm view (noise on top of the PTY). */}
       {!(viewMode === 'cli' && sessionId) && (

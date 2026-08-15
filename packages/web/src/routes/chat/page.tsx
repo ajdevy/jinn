@@ -23,6 +23,7 @@ import { ThreadPeek, type CommsPeekData } from '@/components/chat/thread-peek'
 import { PeekPanel } from '@/components/peek/peek-panel'
 import { PeekProvider } from '@/components/peek/peek-stack'
 import { ChatErrorBoundary } from './chat-error-boundary'
+import { usePaneIdentity } from './pane-identity'
 import { formatMessage } from '@/components/chat/chat-messages'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
@@ -124,6 +125,8 @@ function ChatPage() {
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
+  // Pane identity + the optimistic bubble handed to the session the pane creates.
+  const { paneKey, pendingMessage, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee)
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
   // chat list folds. The ribbon's top toggle drives listOpen (persisted), so nav
   // never leaves the rail. There is no list⇄nav swap any more.
@@ -140,8 +143,6 @@ function ChatPage() {
   // Mobile: pop from the thread back to the chat list (the tab bar's Chat screen).
   const backToList = useCallback(() => setMobileView('sidebar'), [])
   const [viewMode, setViewMode] = useState<ViewMode>('chat')
-  // Pending user message from new-chat send — passed to the new ChatPane so the user bubble appears before loadSession resolves
-  const [pendingUserMessage, setPendingUserMessage] = useState<{ sessionId: string; message: Message } | null>(null)
   const [threadPreview, setThreadPreview] = useState<CommsPeekData | null>(() => parseHistoryPreview(location.state))
   const previewHandoffTargetRef = useRef<string | null>(null)
   const previewAbortRef = useRef<AbortController | null>(null)
@@ -236,7 +237,7 @@ function ChatPage() {
   // Update tab label/status when session meta changes.
   // Guarded by `sessionMeta.sessionId === selectedId` so we never cross-write
   // the previous session's meta onto the newly active tab during a switch
-  // (ChatPane is `key={selectedId}` — it remounts and re-emits meta).
+  // (a switch remounts ChatPane, which re-emits meta).
   const { updateTabStatus, closeTabBySessionId, reconcileTabs } = chatTabs
   useEffect(() => {
     if (!selectedId || !sessionMeta) return
@@ -378,8 +379,8 @@ function ChatPage() {
   }, [selectedId, navigationType, chatTabs.openTab, chatTabs.clearActiveTab])
 
   // Auto-focus the input on any session change (sidebar click, tab switch,
-  // keyboard nav, "+ New"). Effect runs after ChatPane (key=selectedId)
-  // remounts, so the bumped focusTrigger reaches the fresh ChatInput.
+  // keyboard nav, "+ New"). The bump lands after ChatPane has settled, so it
+  // reaches the ChatInput whether the pane remounted or adopted the session.
   useEffect(() => {
     if (previewHandoffTargetRef.current === selectedId) return
     if (typeof window !== 'undefined' && window.innerWidth < 1024) return
@@ -388,6 +389,7 @@ function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     newChatIntentRef.current = true
+    startComposer()
     setPendingEmployee(null)
     setMobileView('chat')
     setEmployeeSessions([])
@@ -398,13 +400,14 @@ function ChatPage() {
       pendingNavRef.current = null
       navigate('/')
     }
-  }, [chatTabs, navigate])
+  }, [chatTabs, navigate, startComposer])
 
   // Start a new chat with a specific employee preselected — used when contacting
   // a session-less employee from the sidebar roster or via an ?employee= deep-link.
   // The actual session is created on first send (ChatPane → buildNewSessionParams).
   const contactEmployee = useCallback((name: string) => {
     newChatIntentRef.current = true
+    startComposer()
     setPendingEmployee(name)
     setMobileView('chat')
     setEmployeeSessions([])
@@ -414,7 +417,7 @@ function ChatPage() {
       pendingNavRef.current = null
       navigate('/')
     }
-  }, [chatTabs, navigate])
+  }, [chatTabs, navigate, startComposer])
 
   // ?employee=<name> deep-link: an INTENT (compose to that employee), not a
   // location — consumed once so it doesn't re-fire or stick. ?session= is NOT
@@ -594,21 +597,14 @@ function ChatPage() {
 
   // ChatPane callbacks
   const handleSessionCreated = useCallback((newId: string, pending?: Message) => {
-    if (pending) setPendingUserMessage({ sessionId: newId, message: pending })
+    adoptSession(newId, pending)
     chatTabs.openTab({ sessionId: newId, label: 'New Chat', status: 'running', unread: false, pinned: true })
     // REPLACE — the composer entry BECOMES the created session (same
     // conversation); back should skip the empty composer, not revisit it.
     pendingNavRef.current = newId
     navigate(sessionPath(newId), { replace: true })
     qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
-  }, [chatTabs, qc, navigate])
-
-  // Clear pendingUserMessage when selectedId moves away from the session it was created for
-  useEffect(() => {
-    if (pendingUserMessage && pendingUserMessage.sessionId !== selectedId) {
-      setPendingUserMessage(null)
-    }
-  }, [selectedId, pendingUserMessage])
+  }, [adoptSession, chatTabs, qc, navigate])
 
   // Tag incoming meta with the sessionId it belongs to so consumers (e.g.
   // the tab-label effect) can ignore stale meta from a previous session.
@@ -1122,17 +1118,16 @@ function ChatPage() {
             mobileView === 'sidebar' ? 'hidden lg:flex' : 'flex'
           )}>
             {/* File tab → render the in-app file viewer inside the same bounded
-                wrapper (so scrolling is contained). Otherwise the single ChatPane:
-                handles new-chat (sessionId=null) and the selected session. Keyed by
-                selectedId so switching sessions remounts cleanly — no hidden
-                keep-alive panes (they caused stacked WS subscriptions + races). */}
+                wrapper (so scrolling is contained). Otherwise the single ChatPane,
+                handling new-chat (sessionId=null) and the selected session. See
+                usePaneIdentity for what the key does and does not remount. */}
             {chatTabs.activeTab?.kind === 'file' ? (
               <Suspense fallback={<div className="flex-1" />}>
                 <FileView path={chatTabs.activeTab.path} embedded onBack={handleFileBack} />
               </Suspense>
             ) : (
               <ChatPane
-                key={selectedId ?? `__new__:${pendingEmployee ?? ''}`}
+                key={paneKey}
                 sessionId={selectedId}
                 initialEmployee={selectedId ? undefined : pendingEmployee}
                 isActive={true}
@@ -1150,11 +1145,7 @@ function ChatPage() {
                 viewMode={effectiveViewMode}
                 focusTrigger={focusTrigger}
                 onShortcutsClick={() => setShowShortcutOverlay(true)}
-                pendingUserMessage={
-                  pendingUserMessage && pendingUserMessage.sessionId === selectedId
-                    ? pendingUserMessage.message
-                    : undefined
-                }
+                pendingUserMessage={pendingMessage}
                 onPeek={requestThreadPreview}
                 onContentReady={handlePaneContentReady}
                 delegatedActivity={selectedDelegatedActivity}

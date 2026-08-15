@@ -144,12 +144,19 @@ describe('ChatPane', () => {
   })
 
   it('shows a lightweight loading status instead of an empty new-chat picker while a session hydrates', () => {
-    liveSessionState = { ...liveSessionDefaults, hydrating: true, session: null }
+    vi.useFakeTimers()
+    try {
+      liveSessionState = { ...liveSessionDefaults, hydrating: true, session: null }
 
-    renderPane()
+      renderPane()
 
-    expect(screen.getByRole('status', { name: /loading chat/i })).toBeTruthy()
-    expect(screen.queryByTestId('employee-picker')).toBeNull()
+      // The spinner is a threshold, not a default — see chat-hydration.
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(screen.getByRole('status', { name: /loading chat/i })).toBeTruthy()
+      expect(screen.queryByTestId('employee-picker')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('passes parent delegated activity and employee display names to the composer status', () => {
