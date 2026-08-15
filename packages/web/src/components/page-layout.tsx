@@ -1,7 +1,9 @@
-import { lazy, Suspense, useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { NavRibbon } from "./pill-nav"
 import { MobileTabBar } from "./chat/mobile-tab-bar"
 import { StatusBar } from "./status-bar"
+import { EdgeBackLayer } from "./edge-back/edge-back-layer"
+import { useCoarsePointer } from "./edge-back/use-edge-back-gesture"
 import { cn } from "@/lib/utils"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { runAfterLoad, useLoadDeferredMount } from "@/hooks/use-idle-mount"
@@ -126,8 +128,14 @@ export function ToolbarActions({ children }: { children?: React.ReactNode }) {
  * replaces the tab bar, and back is the page's own affordance. The status bar
  * stands down with it for the same reason: two surfaces cannot own one edge.
  * Only mobile pushes, so desktop chrome is untouched.
+ *
+ * The left-edge back drag (ICI-801) is mounted here rather than per route, so
+ * `chromeless` chat gets it too. It arms on a coarse pointer only: a mouse keeps
+ * the browser's own back, and the existing chevrons are untouched either way.
  */
 export function PageLayout({ children, headerActions: _headerActions, chromeless, hideMobileTabBar }: { children: React.ReactNode; headerActions?: React.ReactNode; chromeless?: boolean; hideMobileTabBar?: boolean }) {
+  const content = useRef<HTMLDivElement>(null)
+  const coarsePointer = useCoarsePointer()
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <DeferredGlobalSearch />
@@ -135,7 +143,11 @@ export function PageLayout({ children, headerActions: _headerActions, chromeless
           <main> so its per-icon label pills can escape rightward over content. */}
       {!chromeless && <NavRibbon />}
       <main className="relative flex flex-1 flex-col overflow-hidden">
+        {/* Before the live view in DOM order, which is what puts the previous
+            view underneath it while the drag is running. */}
+        {coarsePointer && <EdgeBackLayer contentRef={content} />}
         <div
+          ref={content}
           className={cn(
             "flex-1 overflow-hidden",
             // Notch clearance only (mobile) — no global top chrome to clear now
