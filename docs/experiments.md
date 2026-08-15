@@ -16,7 +16,7 @@ An experiment id is `exp_` followed by twelve hex characters. A reading id is `r
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id` | string | `exp_` + 12 hex characters, assigned by the store |
+| `id` | string | `exp_` + 12 hex characters, assigned at creation |
 | `name` | string | required, trimmed |
 | `hypothesis` | string | required, trimmed: what you expect, and why |
 | `status` | `"running" \| "concluded"` | `running` at insert; `concluded` is terminal |
@@ -86,10 +86,10 @@ They are derived because a stored `overdue` would be a fact that goes stale betw
 
 | From | Operation | To | Rejected when |
 |------|-----------|----|---------------|
-| | create | `running` | validation fails, or `todoId` names no Todo |
-| `running` | record a reading | `running` | the metric is not declared, or the value is not finite |
+| | create | `running` | validation fails, `todoId` names no Todo, or a requested check-in schedule is invalid |
+| `running` | record a reading | `running` | the metric is not declared, the value is not finite, or `at` does not parse |
 | `running` | update | `running` | no editable field is supplied, or a metric with readings is removed |
-| `running` | conclude | `concluded` | the outcome is not one of the three |
+| `running` | conclude | `concluded` | the outcome is not one of the three, or the note is missing or too long |
 | `concluded` | anything | | always: `conflict` |
 
 A concluded experiment is closed to all three write paths, each with its own refusal: readings are refused with *readings cannot be added after an experiment is concluded*, edits with *concluded experiments cannot be edited*, and a second conclusion with *experiment is already concluded*. Concluding also disables the experiment's check-in cron job, so a closed bet stops asking to be measured.
@@ -133,7 +133,7 @@ The baseline follows the metric set automatically: on update, entries for remove
 
 `owner` is deliberately free-form rather than a foreign key onto the employee roster. Employees are files that can be renamed or removed, and a stored experiment must not become unwritable when one is.
 
-`todoId` and `owner` are clearable with `null`, on update only. There is nothing to unlink at creation.
+`todoId` and `owner` are clearable with `null`. Only `update_experiment` offers the null form, because there is nothing to unlink at creation.
 
 `list_experiments` is the one place a bad number is not an error: `limit` is clamped rather than rejected, defaulting to 100 and capping at 500. A list is a view, and a nonsense limit should still return a page.
 
@@ -159,7 +159,7 @@ Three tables, in the same SQLite database as the Todo ledger:
 |-------|-----|-------|
 | `experiments` | `id` | the row itself, with `baseline_json`, `verdict_outcome`, `verdict_note`, `concluded_at`, `check_in_cron_job_id`, `todo_id`, and `owner` |
 | `experiment_metrics` | `(experiment_id, name)` | one row per declared metric, ordered by `ordinal` |
-| `experiment_readings` | `id` | one row per reading, keyed onto `(experiment_id, metric)` |
+| `experiment_readings` | `id` | one row per reading, with a composite foreign key onto `(experiment_id, metric)` |
 
 `experiment_metrics` is keyed by name rather than by a surrogate id, with `ordinal` carrying the declared order separately. That is what lets an update upsert a metric in place. A renamed metric is a new row and a removed one, which is why a metric with readings cannot be renamed away without hitting the same refusal that blocks removing it.
 
@@ -169,7 +169,7 @@ Three tables, in the same SQLite database as the Todo ledger:
 
 ## Tools
 
-Six MCP tools, each proxying `/api/experiments`:
+Six MCP tools, each proxying the `/api/experiments` routes:
 
 | Tool | Required | Optional |
 |------|----------|----------|
@@ -217,7 +217,7 @@ A team suspects their weekly digest email is being ignored, and that a shorter o
 { "id": "exp_4c1f9a02b7de", "at": "2026-03-09T09:00:00Z", "metric": "unsubscribes", "value": 14 }
 ```
 
-A third call naming `clicks` would be refused with `invalid`: the metric is not declared, and declaring metrics mid-flight is how a bet quietly becomes unfalsifiable. If `clicks` genuinely belongs in this experiment, `update_experiment` adds it along with its baseline value, and says so in the history.
+A third call naming `clicks` would be refused with `invalid`: the metric is not declared, and declaring metrics mid-flight is how a bet quietly becomes unfalsifiable. If `clicks` genuinely belongs in this experiment, `update_experiment` adds it along with its baseline value.
 
 **Conclude it** once the horizon has passed. By then `get_experiment` is returning `overdue: true`, and the check-in prompt has been telling its reader to conclude rather than record yet another reading:
 
