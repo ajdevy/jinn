@@ -2,11 +2,13 @@ import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dispatchPluginRequest, disposePluginBackend, pluginSettings } from "../plugins/backend.js";
+import { pluginClientModule } from "../plugins/client-transform.js";
 import { inventoryRow, loadPlugin, scanPlugins, type DiscoveredPlugin } from "../plugins/discovery.js";
 import { isPluginEnabled } from "../plugins/enablement.js";
 import { readPluginEvents } from "../plugins/event-log.js";
 import { isContainedIn, PLUGIN_ID_PATTERN, resolveContainedPath } from "../plugins/manifest.js";
 import { pluginWatcherHealth } from "../plugins/watcher-supervisor.js";
+import type { JinnConfig } from "../shared/types.js";
 import { handlePluginAdminApi, reconcilePluginRuntime } from "./plugins-admin-api.js";
 import { badRequest, json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import type { ApiContext } from "./api.js";
@@ -93,22 +95,46 @@ async function servablePlugin(id: string, context: ApiContext): Promise<Discover
   return plugin?.status === "loaded" ? plugin : null;
 }
 
-/** The inventory, plus the enabled subset the dashboard loads. A disabled plugin
- *  stays in the inventory: disabled is a state, not an absence.
+/**
+ * One row for the settings list, and whether the dashboard should load it.
  *
- *  Watcher health is merged in here rather than in `inventoryRow`, which is built
- *  from what is on disk. Whether a background task is running is runtime state,
- *  and discovery has no business knowing it. */
+ * Watcher health is merged in here rather than in `inventoryRow`, which is built
+ * from what is on disk: whether a background task is running is runtime state,
+ * and discovery has no business knowing it. A client half that will not compile
+ * is asked about for the same reason — settings renders this inventory and
+ * nothing else, so a refusal only the browser ever saw would never reach the
+ * row. Such a plugin stays servable all the same: the 422 the dashboard gets
+ * back is what leaves whatever is already running in place, rather than
+ * unloading it as a plugin that is gone.
+ */
+async function inventoryEntry(plugin: DiscoveredPlugin, config: JinnConfig) {
+  const row = inventoryRow(plugin);
+  const servable = row.status === "loaded" && isPluginEnabled(row.id, config);
+  // Absent, not a fabricated "stopped": most plugins have no watcher at all.
+  const watcher = pluginWatcherHealth(row.id);
+  const client = servable && plugin.client ? await pluginClientModule(row.id, plugin.client) : null;
+  const refusal = client?.kind === "error" ? client.message : null;
+
+  return {
+    servable,
+    row: {
+      ...row,
+      ...(row.status === "loaded" && !servable ? { status: "disabled" as const } : {}),
+      ...(refusal ? { status: "error" as const, error: refusal } : {}),
+      ...(watcher ? { watcher } : {}),
+    },
+  };
+}
+
+/** The inventory, plus the enabled subset the dashboard loads. A disabled plugin
+ *  stays in the inventory: disabled is a state, not an absence. */
 async function listPlugins(res: ServerResponse, context: ApiContext): Promise<void> {
   const config = context.getConfig();
-  const inventory = (await scanPlugins()).map((plugin) => {
-    const row = inventoryRow(plugin);
-    const disabled = row.status === "loaded" && !isPluginEnabled(row.id, config);
-    // Absent, not a fabricated "stopped": most plugins have no watcher at all.
-    const watcher = pluginWatcherHealth(row.id);
-    return { ...row, ...(disabled ? { status: "disabled" as const } : {}), ...(watcher ? { watcher } : {}) };
+  const entries = await Promise.all((await scanPlugins()).map((plugin) => inventoryEntry(plugin, config)));
+  json(res, {
+    plugins: entries.filter((entry) => entry.servable).map((entry) => entry.row),
+    inventory: entries.map((entry) => entry.row),
   });
-  json(res, { plugins: inventory.filter((row) => row.status === "loaded"), inventory });
 }
 
 /**
@@ -129,10 +155,24 @@ async function servePluginEvents(res: ServerResponse, id: string, raw: string | 
   json(res, readPluginEvents(id, since));
 }
 
-/** Exactly one file, named by the manifest rather than by the caller. */
+/**
+ * Exactly one file, named by the manifest rather than by the caller, compiled
+ * only if it turns out to be JSX. A plain-ESM client half is still streamed from
+ * disk, so what it is served as is what its author wrote, byte for byte.
+ */
 async function serveClient(res: ServerResponse, id: string, context: ApiContext): Promise<void> {
   const plugin = await servablePlugin(id, context);
   if (!plugin?.client) return notFound(res);
+
+  const client = await pluginClientModule(id, plugin.client);
+  // 422, because the file is installed and served and did not compile: 404
+  // already means "not installed" and the dashboard unloads on it, and a 500
+  // would blame the gateway for a plugin the operator can fix.
+  if (client.kind === "error") return json(res, { error: client.message }, 422);
+  if (client.kind === "transformed") {
+    res.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-store" });
+    return void res.end(client.code);
+  }
   // The client half is ESM by contract, whatever its file is called.
   await serveFile(res, plugin.client, "application/javascript");
 }

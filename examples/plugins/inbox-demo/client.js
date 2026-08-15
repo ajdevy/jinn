@@ -1,10 +1,12 @@
 /**
  * The dashboard half of the reference plugin.
  *
- * Plain ESM, loaded straight off disk with no build step, which is the one
- * constraint that shapes every line here: JSX SYNTAX IS NOT AVAILABLE. Nothing
- * transpiles this file, so elements are built by calling `jsx()` and `jsxs()`
- * from the SDK. `jsx` takes one child, `jsxs` takes an array of them.
+ * Plain ESM, loaded straight off disk with no build step. JSX is available in a
+ * disk plugin — the gateway compiles a client half that turns out to hold any —
+ * and this one is written without it on purpose: a file that is already ESM is
+ * served byte for byte, so what runs here is exactly what is on disk. Elements
+ * are built by calling `jsx()` and `jsxs()` from the SDK. `jsx` takes one child,
+ * `jsxs` takes an array of them.
  *
  * The three imports below are the complete list a disk plugin may write:
  * `@jinn/plugin-sdk`, `react`, and `react/jsx-runtime`. Anything else is

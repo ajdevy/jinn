@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig } from "../shared/types.js";
 import { appendPluginEvent } from "./event-log.js";
+import { fileStamp } from "./file-stamp.js";
 import { createPluginHost, type PluginHost } from "./host/index.js";
 import { pluginStorage, type PluginStorage } from "./storage.js";
 
@@ -112,18 +112,6 @@ export function pluginSettings(id: string, config: Pick<JinnConfig, "plugins">):
   const settings = config.plugins?.settings?.[id];
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
   return settings;
-}
-
-/** The file's half of what the module cache is keyed on. Null when the file is
- *  gone, which drops the entry rather than serving the last version that happened
- *  to import. */
-async function fileStamp(file: string): Promise<string | null> {
-  try {
-    const stat = await fs.stat(file);
-    return `${stat.mtimeMs}:${stat.size}`;
-  } catch {
-    return null;
-  }
 }
 
 function makeContext(id: string, readSettings: () => Record<string, unknown>): PluginServerContext {

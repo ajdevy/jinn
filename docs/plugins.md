@@ -48,11 +48,50 @@ The worked reference plugin lives at [`examples/plugins/inbox-demo/`](../example
 
 ---
 
-## The no-build constraint
+## Writing JSX, without a build step
 
-`client.js` is plain ESM, fetched from the gateway and evaluated as-is. There is no transpile step anywhere in that path, which means **JSX syntax will not parse in a disk plugin**. Writing `<Card>` gets you a syntax error, not a component.
+**You can write JSX in a disk plugin.** `<Card>` is a component, not a syntax error.
 
-Elements are built by calling the jsx runtime directly. `jsx`, `jsxs`, and `Fragment` are re-exported from `@jinn/plugin-sdk` for exactly this: `jsx(type, props)` for an element with zero or one child, `jsxs(type, props)` when `props.children` is an array, and `Fragment` when you need to return siblings without a wrapper element.
+The plugin directory still has no build step of its own: nothing to install, nothing to watch, nothing to run before a save takes effect. The compile happens on the gateway, when `GET /api/plugins/<id>/client` serves the file. A `client.js` that is already plain ESM is not compiled at all — it is streamed from disk byte for byte, so what the browser evaluates is what you wrote. Output is cached against the file's size and modification time, so an unchanged file is compiled once and an edit is picked up on the next request.
+
+Two constraints come with it:
+
+- **`react/jsx-dev-runtime` is not importable.** The compile uses the automatic runtime's production form, which emits `react/jsx-runtime` — one of the three specifiers the loader resolves to the app's own live namespaces. The dev form is not on that list, and a plugin that imported it by hand would fail to load.
+- **JSX only, not TypeScript.** Types in `client.js` are a syntax error, the same as before.
+
+A file that will not parse is not served as a blank module. The route answers `422` with the file, the line and the reason, and the plugin keeps its place in Settings › Plugins carrying that message on its row — so a typo shows up as something to fix rather than as a plugin that vanished.
+
+```jsx
+import { AREAS, Card, CardContent, CardHeader, CardTitle, React } from '@jinn/plugin-sdk'
+
+function InboxPage() {
+  const [count] = React.useState(0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Inbox</CardTitle>
+      </CardHeader>
+      <CardContent>{count} messages waiting</CardContent>
+    </Card>
+  )
+}
+
+export default {
+  id: 'inbox-demo',
+  name: 'Inbox',
+  register(ctx) {
+    ctx.contributeMany([
+      { id: 'page', area: AREAS.routes, data: { path: '/inbox' }, render: () => <InboxPage /> },
+      { id: 'nav', area: AREAS.sidebarNav, data: { href: '/inbox', label: 'Inbox' } },
+    ])
+  },
+}
+```
+
+### Calling the runtime by hand
+
+The form JSX compiles to is still first-class, and a file written this way takes the byte-for-byte path — no compile, and nothing between your file and the browser. `jsx`, `jsxs`, and `Fragment` are re-exported from `@jinn/plugin-sdk` for it: `jsx(type, props)` for an element with zero or one child, `jsxs(type, props)` when `props.children` is an array, and `Fragment` when you need to return siblings without a wrapper element.
 
 ```js
 import { AREAS, Card, CardContent, CardHeader, CardTitle, React, jsx, jsxs } from '@jinn/plugin-sdk'
@@ -80,7 +119,7 @@ export default {
 }
 ```
 
-`React.createElement` works too and is equivalent. The tax is real and we took it on purpose: adding a compiler to the load path would buy nicer syntax at the cost of the property that makes this system worth having, which is that a single file dropped in a directory runs.
+`React.createElement` works too and is equivalent. The compiler sits on the serving path rather than in the plugin directory precisely so this stays true: a single file dropped in a directory still runs, and a file that needed no compiling is still handed over exactly as it was written.
 
 The default export is checked field by field before anything is registered. `id` must be a non-empty string, `register` must be a function, `name` must be a string when present, and `defaultEnabled` must be a boolean when present (see [Enable and disable](#enable-and-disable) for why it is then ignored). Anything else is rejected with a `PluginLoadError` naming the directory, and the failure shows up as an error row instead of a silent no-op.
 
