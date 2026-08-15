@@ -40,6 +40,10 @@ const STATE_VARIANT = {
   rejected: 'destructive',
 }
 
+/** A menu row is a tap target, and the default row height sits just under the
+ *  34px one needs on a phone. */
+const MENU_ITEM_STYLE = { minHeight: 34 }
+
 export default {
   id: 'inbox-demo',
   name: 'Inbox Demo',
@@ -158,9 +162,9 @@ export default {
       })
     }
 
-    /** The header's overflow menu, and the one place the page talks back: every
-     *  item raises a notice rather than changing anything. */
-    function ActionsMenu({ onFilterPending }) {
+    /** The header's overflow menu: one row narrows the list, the other explains
+     *  where messages come from with a notice. */
+    function ActionsMenu({ pendingOnly, onTogglePending }) {
       return jsxs(DropdownMenu, {
         children: [
           jsx(DropdownMenuTrigger, {
@@ -184,10 +188,12 @@ export default {
             align: 'end',
             children: [
               jsx(DropdownMenuItem, {
-                onSelect: onFilterPending,
-                children: 'Show only pending',
+                style: MENU_ITEM_STYLE,
+                onSelect: onTogglePending,
+                children: pendingOnly ? 'Show every message' : 'Show only pending',
               }),
               jsx(DropdownMenuItem, {
+                style: MENU_ITEM_STYLE,
                 onSelect: () =>
                   host.notify({
                     title: 'Inbox is watched',
@@ -204,9 +210,12 @@ export default {
     function InboxPage() {
       const { messages } = useMessages()
       const [query, setQuery] = React.useState('')
+      const [pendingOnly, setPendingOnly] = React.useState(false)
 
-      const visible = messages.filter((message) =>
-        message.subject.toLowerCase().includes(query.trim().toLowerCase()),
+      const visible = messages.filter(
+        (message) =>
+          (!pendingOnly || message.state === 'pending') &&
+          message.subject.toLowerCase().includes(query.trim().toLowerCase()),
       )
 
       return jsxs('div', {
@@ -228,15 +237,19 @@ export default {
                 },
                 children: 'Inbox Demo',
               }),
-              jsx(ActionsMenu, { onFilterPending: () => setQuery('') }),
+              jsx(ActionsMenu, {
+                pendingOnly,
+                onTogglePending: () => setPendingOnly((only) => !only),
+              }),
             ],
           }),
           jsxs(Tooltip, {
             children: [
               jsx(TooltipTrigger, {
                 style: {
-                  display: 'block',
-                  marginTop: 'var(--space-1)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  minHeight: 34,
                   padding: 0,
                   border: 'none',
                   background: 'none',
@@ -244,7 +257,6 @@ export default {
                   font: 'inherit',
                   fontSize: 'var(--text-footnote)',
                   cursor: 'default',
-                  textAlign: 'left',
                 },
                 children: `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`,
               }),
