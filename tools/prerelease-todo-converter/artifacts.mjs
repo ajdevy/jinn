@@ -22,17 +22,36 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
+/** Compilers to try, in order, when `CC` is not set. `/usr/bin/cc` was hardcoded, which is fine on
+ *  a Mac with the command line tools and wrong everywhere else — a runner that ships gcc but no
+ *  `cc` symlink failed with a message that named neither the compiler nor its output, so the only
+ *  thing anyone could tell was that "compile" had failed. */
+const HELPER_COMPILERS = ["cc", "gcc", "clang"];
+
 function helperSession() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-openat-helper-"));
   const binary = path.join(root, "openat-helper");
-  const compile = spawnSync("/usr/bin/cc", ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", HELPER_SOURCE, "-o", binary], {
-    encoding: "utf8",
-  });
-  if (compile.status !== 0) {
-    fs.rmSync(root, { recursive: true, force: true });
-    throw new Error("failed to compile the descriptor-relative artifact reader");
+  const candidates = process.env.CC ? [process.env.CC] : HELPER_COMPILERS;
+  const attempts = [];
+  for (const compiler of candidates) {
+    // Resolved through PATH rather than by absolute path, so the toolchain a machine actually has
+    // is the one that gets used.
+    // `-Werror` stays: this is our own C source, and a warning in a helper that walks descriptors
+    // is worth failing on. It is safe to keep strict now only because the error below reports the
+    // compiler's own stderr, so a new warning from an unfamiliar toolchain is a fixable diagnostic
+    // rather than an anonymous "compile failed".
+    const compile = spawnSync(compiler, ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", HELPER_SOURCE, "-o", binary], {
+      encoding: "utf8",
+    });
+    if (compile.status === 0) return { binary, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+    // ENOENT means "not installed", which is not a failure worth reporting while another candidate
+    // remains; anything else is the compiler rejecting the source and IS worth surfacing verbatim.
+    const failure = /** @type {NodeJS.ErrnoException | undefined} */ (compile.error);
+    const detail = failure?.code ?? (compile.stderr || "").trim();
+    attempts.push(`${compiler}: ${detail || "exit " + compile.status}`);
   }
-  return { binary, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  fs.rmSync(root, { recursive: true, force: true });
+  throw new Error(`failed to compile the descriptor-relative artifact reader — ${attempts.join("; ")}`);
 }
 
 function decodeHexPath(value) {

@@ -2001,7 +2001,7 @@
       "lines": 812
     },
     "scripts/upgrade-lab/run.mjs": {
-      "lines": 1198,
+      "lines": 1140,
       "exempt": [
         "complexity",
         "max-depth",
