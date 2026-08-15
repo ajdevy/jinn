@@ -5,17 +5,23 @@ import * as sdk from '@jinn/plugin-sdk'
 import { SDK_CONTRACT_VERSION } from '../version'
 
 const SDK_DIR = path.resolve(__dirname, '..')
-const CONTRACT = readFileSync(path.join(SDK_DIR, 'sdk.d.ts'), 'utf8')
+/* The contract is more than one file — `sdk.d.ts` re-exports the UI half — and
+ * the checks below are about the contract, not about a file. Reading only the
+ * entry point would let a name move into `sdk-ui.d.ts` and out of the sync
+ * check on the same edit. */
+const CONTRACT = ['sdk.d.ts', 'sdk-ui.d.ts']
+  .map((file) => readFileSync(path.join(SDK_DIR, file), 'utf8'))
+  .join('\n')
 const BARREL = readFileSync(path.join(SDK_DIR, 'index.ts'), 'utf8')
 
-/** The names `sdk.d.ts` declares as values, which is what a runtime export is. */
+/** The names the contract declares as values, which is what a runtime export is. */
 function declaredValues(contract: string): string[] {
   return [...contract.matchAll(/^export declare (?:const|function|class) (\w+)/gm)].map(
     (match) => match[1]!,
   )
 }
 
-/** The names `sdk.d.ts` declares as types, which nothing exports at runtime. */
+/** The names the contract declares as types, which nothing exports at runtime. */
 function declaredTypes(contract: string): string[] {
   return [...contract.matchAll(/^export (?:type|interface) (\w+)/gm)].map((match) => match[1]!)
 }
@@ -85,7 +91,7 @@ describe('the contribution areas', () => {
   })
 })
 
-describe('sdk.d.ts is the public contract and cannot drift from it', () => {
+describe('the hand-authored contract cannot drift from the barrel', () => {
   it('declares exactly the runtime exports of index.ts, and no others', () => {
     expect(declaredValues(CONTRACT).sort()).toEqual(Object.keys(sdk).sort())
   })

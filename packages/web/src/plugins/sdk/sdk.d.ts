@@ -6,22 +6,18 @@
  * an internal module becomes a silent breaking change for every plugin built
  * against it. The only modules named here are ones a plugin author can install.
  *
- * A test holds this file in exact two-way sync with the runtime barrel: every
- * name declared below is exported by `index.ts`, and every name `index.ts`
- * exports is declared below.
+ * A test holds the contract in exact two-way sync with the runtime barrel:
+ * every name it declares is exported by `index.ts`, and every name `index.ts`
+ * exports is declared by it. The contract is this file plus the `sdk-ui.d.ts`
+ * it re-exports, and the test reads both.
  */
 import type * as ReactModule from 'react'
-import type {
-  ButtonHTMLAttributes,
-  ComponentType,
-  ElementType,
-  HTMLAttributes,
-  ReactElement,
-  ReactNode,
-  TextareaHTMLAttributes,
-} from 'react'
+import type { ElementType, ReactElement } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ClassValue } from 'clsx'
+
+/** The app's components, which are their own half of the contract. */
+export * from './sdk-ui'
 
 /** The contract this file describes. A plugin can refuse to load against a
  *  version it predates. */
@@ -40,88 +36,6 @@ export declare const queryClient: QueryClient
 
 /** Merge Tailwind class names; the last conflicting utility wins. */
 export declare function cn(...inputs: ClassValue[]): string
-
-/* The UI primitives are declared over the props a contribution actually sets.
- * The wrappers forward the rest to their Radix roots, but spelling Radix's
- * generics out here would put a Radix version into the public contract, and a
- * plugin that never installs Radix could not typecheck against it. */
-interface Styled {
-  className?: string
-  children?: ReactNode
-}
-
-type DivProps = HTMLAttributes<HTMLDivElement>
-
-export declare const Button: ComponentType<
-  ButtonHTMLAttributes<HTMLButtonElement> & {
-    variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link'
-    size?: 'default' | 'xs' | 'sm' | 'lg' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg'
-    asChild?: boolean
-  }
->
-
-export declare const Card: ComponentType<DivProps>
-export declare const CardHeader: ComponentType<DivProps>
-export declare const CardTitle: ComponentType<DivProps>
-export declare const CardDescription: ComponentType<DivProps>
-export declare const CardContent: ComponentType<DivProps>
-export declare const CardFooter: ComponentType<DivProps>
-
-export declare const Dialog: ComponentType<{
-  open?: boolean
-  defaultOpen?: boolean
-  onOpenChange?: (open: boolean) => void
-  modal?: boolean
-  children?: ReactNode
-}>
-export declare const DialogTrigger: ComponentType<Styled & { asChild?: boolean }>
-export declare const DialogContent: ComponentType<
-  Styled & { showCloseButton?: boolean; overlayClassName?: string }
->
-export declare const DialogHeader: ComponentType<DivProps>
-export declare const DialogTitle: ComponentType<Styled>
-export declare const DialogDescription: ComponentType<Styled>
-export declare const DialogFooter: ComponentType<DivProps & { showCloseButton?: boolean }>
-export declare const DialogClose: ComponentType<Styled & { asChild?: boolean }>
-
-export declare const Select: ComponentType<{
-  value?: string
-  defaultValue?: string
-  onValueChange?: (value: string) => void
-  disabled?: boolean
-  children?: ReactNode
-}>
-export declare const SelectTrigger: ComponentType<Styled & { disabled?: boolean }>
-export declare const SelectValue: ComponentType<{ placeholder?: ReactNode; className?: string }>
-export declare const SelectContent: ComponentType<Styled>
-export declare const SelectItem: ComponentType<Styled & { value: string; disabled?: boolean }>
-
-export declare const Skeleton: ComponentType<
-  DivProps & { width?: number | string; height?: number | string }
->
-
-export declare const Switch: ComponentType<{
-  checked?: boolean
-  defaultChecked?: boolean
-  onCheckedChange?: (checked: boolean) => void
-  disabled?: boolean
-  id?: string
-  className?: string
-}>
-
-export declare const Tabs: ComponentType<
-  Styled & {
-    value?: string
-    defaultValue?: string
-    onValueChange?: (value: string) => void
-    orientation?: 'horizontal' | 'vertical'
-  }
->
-export declare const TabsList: ComponentType<Styled & { variant?: 'default' | 'line' }>
-export declare const TabsTrigger: ComponentType<Styled & { value: string; disabled?: boolean }>
-export declare const TabsContent: ComponentType<Styled & { value: string }>
-
-export declare const Textarea: ComponentType<TextareaHTMLAttributes<HTMLTextAreaElement>>
 
 /** The v1 areas. The values are the contract — they appear in manifests and in
  *  the registry's keys — and the property names are only an alias. */
