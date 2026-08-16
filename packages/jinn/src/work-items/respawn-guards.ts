@@ -145,7 +145,7 @@ function recentSuccess(workItemId: string, run: SettledRun | undefined, now: Dat
 }
 
 /** A previous attempt already shipped something a reviewer can see; a second
- *  attempt would ship it twice. */
+ *  attempt would ship it twice — unless a human has since read it and asked. */
 function activePullRequest(workItemId: string, now: Date): RespawnGuardHold | undefined {
   const since = new Date(now.getTime() - RESPAWN_RECENT_WINDOW_MS).toISOString();
   const branch = `build/${workItemId}`;
@@ -155,27 +155,31 @@ function activePullRequest(workItemId: string, now: Date): RespawnGuardHold | un
   // branch appends (`build/AAA-1-the-slice`) still counts.
   const branchRef = new RegExp(`${branch}(?!\\d)`);
   for (const comment of liveCommentsSince(workItemId, since)) {
-    if (PR_URL_RE.test(comment.body)) {
-      return held('active_pr', `a comment at ${comment.createdAt} already carries a pull request for this Todo`);
-    }
-    if (branchRef.test(comment.body)) {
-      return held('active_pr', `a comment at ${comment.createdAt} already carries branch ${branch}`);
-    }
+    const carries = PR_URL_RE.test(comment.body) ? 'a pull request for this Todo'
+      : branchRef.test(comment.body) ? `branch ${branch}`
+      : null;
+    if (carries === null) continue;
+    // A human who looked AFTER this comment has already weighed the work it
+    // announces and asked for another attempt anyway — the same override
+    // `recent_success` gives, for the same reason. Anchoring on the comment
+    // rather than on "any human ever" keeps work announced after the look held.
+    if (humanLookedAfter(workItemId, comment.createdAt)) continue;
+    return held('active_pr', `a comment at ${comment.createdAt} already carries ${carries}`);
   }
   return undefined;
 }
 
-/** A human comment or a human status move after the run ended — the look the
- *  `recent_success` hold is waiting for. */
-function humanLookedAfter(workItemId: string, endedAt: string): boolean {
-  const commented = liveCommentsSince(workItemId, endedAt).some((comment) => comment.authorKind === 'operator');
+/** A human comment or a human status move after `anchor` — the look a hold on
+ *  unread work is waiting for. */
+function humanLookedAfter(workItemId: string, anchor: string): boolean {
+  const commented = liveCommentsSince(workItemId, anchor).some((comment) => comment.authorKind === 'operator');
   if (commented) return true;
   // Any event that MOVED the status counts, not only the `status_change` kind:
   // the operator's own max-rounds decision is recorded as `escalated`, and that
   // is the most deliberate look there is. Reading `toStatus` rather than listing
   // kinds keeps the next status-bearing kind from silently dropping out again.
   return listWorkItemEvents(workItemId).some(
-    (event) => event.toStatus !== null && event.actor === HUMAN_ACTOR && event.createdAt > endedAt,
+    (event) => event.toStatus !== null && event.actor === HUMAN_ACTOR && event.createdAt > anchor,
   );
 }
 

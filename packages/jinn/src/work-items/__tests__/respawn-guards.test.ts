@@ -189,6 +189,33 @@ describe("active_pr", () => {
     expect(guards.checkRespawnGuard(item.id, NOW)).toMatchObject({ state: "held", guard: "active_pr" });
   });
 
+  it("allows once the operator has moved the status after the branch comment", () => {
+    // The sequence that parked a real Todo through four re-arms: a handback
+    // comment that merely names the branch, then the operator saying "go".
+    const item = store.createWorkItem({ title: "re-armed after a handback" });
+    comment(item.id, `branch build/${item.id}-a-slice is intact`, minutesBefore(20));
+    const moved = transitions.transition(item.id, "assigned", "operator");
+    db.prepare("UPDATE work_item_events SET created_at = ? WHERE id = ?").run(minutesBefore(10), moved.event!.id);
+
+    expect(guards.checkRespawnGuard(item.id, NOW)).toEqual({ state: "allowed" });
+  });
+
+  it("allows once the operator has commented after the pull request comment", () => {
+    const item = store.createWorkItem({ title: "re-armed after a pull request" });
+    comment(item.id, "opened https://github.com/acme/widget/pull/11 for review", minutesBefore(20));
+    comment(item.id, "seen it, run it again", minutesBefore(10), "operator");
+    expect(guards.checkRespawnGuard(item.id, NOW)).toEqual({ state: "allowed" });
+  });
+
+  it("still holds when the human's look came before the comment that triggered it", () => {
+    // The override is anchored to the triggering comment, not to "any human
+    // ever": work announced AFTER the operator looked is work they have not seen.
+    const item = store.createWorkItem({ title: "looked, then built" });
+    comment(item.id, "go ahead", minutesBefore(40), "operator");
+    comment(item.id, `pushed to build/${item.id}-a-slice`, minutesBefore(10));
+    expect(guards.checkRespawnGuard(item.id, NOW)).toMatchObject({ state: "held", guard: "active_pr" });
+  });
+
   it("does not read a longer-numbered Todo's branch as this Todo's own", () => {
     const item = store.createWorkItem({ title: "prefix neighbour" });
     // `build/AAA-10` shares every character of `build/AAA-1` — the neighbour's

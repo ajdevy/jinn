@@ -1,19 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowUp,
-  Bell,
-  ChevronRight,
-  CornerDownRight,
-  FileText,
-  Image as ImageIcon,
-  Link2,
-  Paperclip,
-  Pencil,
-  Plus,
-  Tags,
-  X,
-} from "lucide-react"
+import { ArrowUp, ChevronRight, FileText, Image as ImageIcon, Paperclip, X } from "lucide-react"
 import {
   api,
   type Employee,
@@ -22,7 +9,7 @@ import {
   type WorkItemDetailWire,
   type WorkItemEventWire,
 } from "@/lib/api"
-import { STATUS_LABEL, commentAuthorLabel, operatorSafeTodoError } from "@/lib/todos"
+import { commentAuthorLabel, operatorSafeTodoError } from "@/lib/todos"
 import { stripMarkdown } from "@/lib/strip-markdown"
 import { MarkdownView } from "@/components/markdown-view"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
@@ -31,6 +18,7 @@ import { commentHeadRequest, mergeCommentPages } from "./comment-window"
 import { displayNameOf, formatRelativeTime } from "../util"
 import { AttachmentTile, useAttachmentPreview } from "./attachment-preview"
 import { formatBytes } from "./attachments"
+import { WhisperLine } from "./whisper"
 
 /* The merged activity feed keeps audit events quiet and comment voices
  * prominent. Long comments collapse independently to syntax-free previews;
@@ -95,84 +83,6 @@ export function stripCommentMarkers(body: string): string {
     }
     return inCodeBlock || !HTML_COMMENT_LINE.test(line)
   }).join("\n")
-}
-
-function actorLabel(actor: string | null, byName: Map<string, Employee>): string {
-  if (!actor || actor === "system") return "The gateway"
-  if (actor === "operator") return "You"
-  if (actor.startsWith("session:")) return "A session"
-  return displayNameOf(actor, byName)
-}
-
-interface Whisper {
-  Icon: typeof Pencil
-  text: string
-  tinted?: boolean
-}
-
-export function whisperOf(event: WorkItemEventWire): Whisper {
-  const detail = event.detail ?? {}
-  switch (event.kind) {
-    case "created":
-      return { Icon: Plus, text: "created this todo" }
-    case "child_created":
-      return { Icon: Plus, text: `added a sub-task${typeof detail.childId === "string" ? ` ${detail.childId}` : ""}` }
-    case "status_change": {
-      if (detail.bounce === true) {
-        return { Icon: CornerDownRight, text: `sent it back · round ${typeof detail.rounds === "number" ? detail.rounds : "?"}` }
-      }
-      const to = event.toStatus ? STATUS_LABEL[event.toStatus] : "?"
-      return { Icon: ChevronRight, text: `moved it to ${to}` }
-    }
-    case "escalated":
-      return {
-        Icon: CornerDownRight,
-        text: detail.reason === "max-rounds-exhausted" ? "escalated it — review rounds exhausted" : "escalated it",
-        tinted: true,
-      }
-    case "note":
-      if (typeof detail.assignee === "string") return { Icon: Pencil, text: `assigned ${detail.assignee}` }
-      if (detail.approvalEscalated === true) return { Icon: Bell, text: "escalated the approval" }
-      return { Icon: Pencil, text: "added a note" }
-    case "metadata_edited":
-      return { Icon: Pencil, text: "edited the details" }
-    case "approval_requested":
-      return { Icon: Bell, text: "asked for approval" }
-    case "approval_decided":
-      return { Icon: Bell, text: detail.decision === "approve" ? "approved it" : "sent the approval back" }
-    case "attachment_added":
-      return { Icon: Paperclip, text: `attached ${typeof detail.filename === "string" ? detail.filename : "a file"}` }
-    case "attachment_removed":
-      return { Icon: Paperclip, text: "removed an attachment" }
-    case "label_changed":
-      return { Icon: Tags, text: "changed the labels" }
-    case "relation_added":
-      return { Icon: Link2, text: "linked a related todo" }
-    case "relation_removed":
-      return { Icon: Link2, text: "removed a relation" }
-    case "session_linked":
-      return { Icon: Link2, text: "linked a session" }
-    default:
-      return { Icon: Pencil, text: event.kind.replace(/_/g, " ") }
-  }
-}
-
-function WhisperLine({ event, byName }: { event: WorkItemEventWire; byName: Map<string, Employee> }) {
-  const whisper = whisperOf(event)
-  return (
-    <div className="flex items-center gap-2 py-[7px] text-[12.5px] text-[var(--text-tertiary)]" data-testid={`whisper-${event.id}`}>
-      <span className="mr-1.5 grid w-4 flex-none place-items-center text-[var(--text-quaternary)]">
-        <whisper.Icon size={12} strokeWidth={2} aria-hidden />
-      </span>
-      <span className="min-w-0 truncate">
-        <span className={`font-semibold ${whisper.tinted ? "text-[var(--system-red)]" : "text-[var(--text-secondary)]"}`}>
-          {actorLabel(event.actor, byName)}
-        </span>{" "}
-        {whisper.text}
-      </span>
-      <span className="flex-none text-[var(--text-quaternary)]">· {formatRelativeTime(event.createdAt)}</span>
-    </div>
-  )
 }
 
 function avatarFor(comment: WorkItemCommentWire): string {

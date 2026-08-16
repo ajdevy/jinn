@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { buildFeed, stripCommentMarkers, whisperOf } from "../task-page/activity"
+import { buildFeed, stripCommentMarkers } from "../task-page/activity"
+import { whisperOf } from "../task-page/whisper"
 import { comment, event } from "./fixtures/task-wire"
 
 /* Todos v2 slice 6 — the activity feed's pure model (design-doc §7.2.11): which
@@ -43,6 +44,8 @@ describe("the merged feed model", () => {
     ).toBe("sent it back · round 2")
     expect(whisperOf(event("e", "approval_decided", "t", { detail: { decision: "approve" } })).text).toBe("approved it")
     expect(whisperOf(event("e", "escalated", "t", { detail: { reason: "max-rounds-exhausted" } })).text).toContain("rounds exhausted")
+    // A suppressed dispatch has to name the guard, or the operator re-arms blind.
+    expect(whisperOf(event("e", "respawn_guard_held", "t", { detail: { guard: "active_pr" } })).text).toContain("active_pr")
   })
 
   it("leaves inline HTML comments and fenced examples intact", () => {
