@@ -760,7 +760,7 @@ export function AssistantRowShell({ transcript, entering, children }: { transcri
     <div className="assistant-msg-row flex min-w-0 justify-start mb-[var(--space-1)]">
       <div className="assistant-msg-bubble flex min-w-0 flex-col">
         {transcript != null && (
-          <div data-msg-enter={entering || undefined} className="assistant-transcript py-[var(--space-1)] text-[var(--text-primary)] text-[length:var(--text-body)] leading-[var(--leading-relaxed)]">
+          <div data-msg-enter={entering || undefined} className="assistant-transcript py-[var(--space-1)] text-[var(--text-primary)] text-[length:var(--text-body)]">
             {transcript}
           </div>
         )}
@@ -1002,7 +1002,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
       {isUser && (
         <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
           {textContent && (
-            <div data-send-state={msg.sendState} data-msg-enter={entering || undefined} className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
+            <div data-send-state={msg.sendState} data-msg-enter={entering || undefined} className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-body)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
               <CollapsibleUserText messageId={msg.id || `idx-${i}`}>{formattedContent}</CollapsibleUserText>
             </div>
           )}
