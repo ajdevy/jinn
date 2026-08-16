@@ -12,6 +12,7 @@ import type { WorkItemSchemaPreflight } from '../work-items/migrate.js';
 import { migrateExperimentsSchema } from '../experiments/migrate.js';
 import { migrateHeartbeatsSchema } from '../heartbeats/migrate.js';
 import { migratePluginsSchema } from '../plugins/migrate.js';
+import { migrateFilesSchema } from '../sessions/migrate-files.js';
 import { CREATE_TABLE, CREATE_MESSAGES_TABLE, CREATE_MESSAGES_INDEX, CREATE_META_TABLE, CREATE_MESSAGES_ORDER_INDEX, CREATE_MESSAGES_PARTIAL_INDEX, CREATE_SESSION_KEY_INDEX, CREATE_DELEGATION_IDEMPOTENCY_INDEX, CREATE_LAST_ACTIVITY_INDEX, CREATE_PARENT_INDEX, CREATE_WORKFLOW_RUN_INDEX, CREATE_STATUS_INDEX, CREATE_WORK_ITEM_SESSION_INDEX, CREATE_QUEUE_ITEMS_TABLE, CREATE_FILES_TABLE, CREATE_CHAT_PINS_TABLE, migrateMessagesSchema, migrateFtsSchema, migrateSessionsSchema, migrateQueueItemsSchema, migrateCallbackDeliveriesSchema, runImmediateMigrationWithRetry, runSqliteBusyRetry } from '../sessions/migrate.js';
 
 let db: Database.Database | undefined;
@@ -240,6 +241,7 @@ export function initDb(): Database.Database {
     migrateQueueItemsSchema(database);
     migrateCallbackDeliveriesSchema(database);
     database.exec(CREATE_FILES_TABLE);
+    migrateFilesSchema(database);
     database.exec(CREATE_CHAT_PINS_TABLE);
   });
   try {

@@ -1754,6 +1754,10 @@ export interface MessageMedia {
   name?: string;
   mimeType?: string;
   size?: number;
+  /** Displayed pixel size of an image, so the client can reserve its box before
+   * the bytes arrive. Absent when nothing measured it. */
+  width?: number;
+  height?: number;
 }
 
 export interface SessionMessage {
@@ -2751,56 +2755,6 @@ export function listPendingWorkflowAttemptDispatches(): QueueItem[] {
     ORDER BY created_at, position`).all() as QueueItemRow[]).map(rowToQueueItem);
 }
 // ── File management ──────────────────────────────────────────────────
-
-export interface FileMeta {
-  id: string;
-  filename: string;
-  size: number;
-  mimetype: string | null;
-  path: string | null;
-  createdAt: string;
-}
-
-function rowToFileMeta(row: Record<string, unknown>): FileMeta {
-  return {
-    id: row.id as string,
-    filename: row.filename as string,
-    size: row.size as number,
-    mimetype: (row.mimetype as string) ?? null,
-    path: (row.path as string) ?? null,
-    createdAt: row.created_at as string,
-  };
-}
-
-export function insertFile(meta: { id: string; filename: string; size: number; mimetype: string | null; path: string | null }): FileMeta {
-  const db = initDb();
-  const now = new Date().toISOString();
-  db.prepare('INSERT INTO files (id, filename, size, mimetype, path, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
-    meta.id, meta.filename, meta.size, meta.mimetype, meta.path, now,
-  );
-  return { ...meta, createdAt: now };
-}
-
-export function getFile(id: string): FileMeta | undefined {
-  const db = initDb();
-  const row = db.prepare('SELECT * FROM files WHERE id = ?').get(id) as Record<string, unknown> | undefined;
-  return row ? rowToFileMeta(row) : undefined;
-}
-
-export function listFiles(): FileMeta[] {
-  const db = initDb();
-  const rows = db.prepare('SELECT * FROM files ORDER BY created_at DESC').all() as Record<string, unknown>[];
-  return rows.map(rowToFileMeta);
-}
-
-export function deleteFile(id: string): boolean {
-  const db = initDb();
-  const result = db.prepare('DELETE FROM files WHERE id = ?').run(id);
-  return result.changes > 0;
-}
-
-/** Update the recorded on-disk path for a file (used when re-homing into the uploads dir). */
-export function setFilePath(id: string, filePath: string): void {
-  const db = initDb();
-  db.prepare('UPDATE files SET path = ? WHERE id = ?').run(filePath, id);
-}
+// Kept re-exported here so the many callers that reach for a file through the
+// registry keep working; the rows themselves live in file-registry.ts.
+export { insertFile, getFile, listFiles, deleteFile, setFilePath, type FileMeta } from './file-registry.js';

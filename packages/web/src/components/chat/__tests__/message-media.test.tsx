@@ -145,6 +145,55 @@ describe('MessageMedia single-image reservation', () => {
     fireEvent.load(img)
   }
 
+  it('declares the payload ratio for a never-seen portrait, before anything loads', () => {
+    const portrait: MediaAttachment[] = [
+      { type: 'image', url: '/api/files/cold-portrait', name: 'portrait.png', width: 600, height: 1200 },
+    ]
+    render(<MessageMedia media={portrait} isUser={false} />)
+
+    // No load event has fired and this url has never been measured, so the only
+    // place 0.5 can come from is the payload — which is the whole point: a tall
+    // picture must not reserve a 4:3 box and then grow into its real one.
+    const box = reservedBox()
+    expect(declaredRatio(box)).toBe('0.5')
+    expect(box.className).toContain('aspect-[var(--media-ratio)]')
+    expect(screen.getByLabelText('Open portrait.png').className).toContain('w-full')
+  })
+
+  it('gives the single-image column a width that does not wait on the picture', () => {
+    render(<MessageMedia media={single('/api/files/definite', 'definite.png')} isUser={false} />)
+
+    // The column sits in a bubble that shrinks to its contents, so a percentage
+    // width resolves against the text beside it and the reserved box comes out
+    // narrow — correct ratio, wrong size — until the decode supplies an intrinsic
+    // width and the whole row widens. A declared width is the same before and after.
+    const column = (screen.getByLabelText('Open definite.png').parentElement as HTMLElement).classList
+    expect(column.contains('w-[var(--chat-media-single,440px)]')).toBe(true)
+    expect(column.contains('w-full')).toBe(false)
+  })
+
+  it('prefers the payload dimensions over a ratio the cache has already measured', () => {
+    const url = '/api/files/payload-wins'
+    const first = render(<MessageMedia media={single(url, 'wins.png')} isUser={false} />)
+    loadWith(screen.getByAltText('wins.png') as HTMLImageElement, 1000, 400)
+    first.unmount()
+
+    render(
+      <MessageMedia media={[{ type: 'image', url, name: 'wins.png', width: 600, height: 1200 }]} isUser={false} />,
+    )
+    expect(declaredRatio(reservedBox())).toBe('0.5')
+  })
+
+  it('falls back when a payload carries a dimension nothing can be divided by', () => {
+    render(
+      <MessageMedia
+        media={[{ type: 'image', url: '/api/files/zero-height', name: 'zero-height.png', width: 600, height: 0 }]}
+        isUser={false}
+      />,
+    )
+    expect(declaredRatio(reservedBox())).toBe(String(FALLBACK_RATIO))
+  })
+
   it('declares a fallback-ratio box for an unseen url instead of a flat minHeight', () => {
     render(<MessageMedia media={single('/api/files/unseen', 'unseen.png')} isUser={false} />)
 

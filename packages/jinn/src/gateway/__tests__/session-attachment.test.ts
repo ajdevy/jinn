@@ -88,6 +88,40 @@ describe("handleSessionAttachment (JSON path mode)", () => {
     const attach = events.find((e) => e.event === "session:attachment");
     expect(attach).toBeTruthy();
     expect((attach!.payload as { sessionId: string }).sessionId).toBe("sess-att");
+
+    // "PNGDATA" is not a PNG, so nothing measured it and the descriptor says so
+    // by omission rather than by a pair of empty numbers.
+    expect("width" in payload.media).toBe(false);
+  });
+
+  it("carries the image's displayed size onto the message and the emitted event", async () => {
+    const sharp = (await import("sharp")).default;
+    const src = path.join(tmp, "portrait.png");
+    fs.writeFileSync(
+      src,
+      await sharp(Buffer.alloc(600 * 1200 * 3), { raw: { width: 600, height: 1200, channels: 3 } }).png().toBuffer(),
+    );
+
+    const events: Array<{ event: string; payload: unknown }> = [];
+    const { res, out } = fakeRes();
+    await files.handleSessionAttachment(
+      fakeReq(JSON.stringify({ path: src, text: "the portrait" }), "application/json"),
+      res,
+      "sess-att",
+      fakeContext(events),
+    );
+
+    expect(out.status).toBe(201);
+    expect(JSON.parse(out.body!).media).toMatchObject({ width: 600, height: 1200 });
+
+    const msgs = reg.getMessages("sess-att");
+    expect(msgs[msgs.length - 1].media?.[0]).toMatchObject({ width: 600, height: 1200 });
+
+    const attach = events.find((e) => e.event === "session:attachment")!;
+    expect((attach.payload as { media: Array<Record<string, unknown>> }).media[0]).toMatchObject({
+      width: 600,
+      height: 1200,
+    });
   });
 
   it("rejects a JSON body with no source", async () => {

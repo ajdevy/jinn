@@ -15,6 +15,11 @@ export interface MediaAttachment {
   duration?: number
   waveform?: number[]
   size?: number
+  /** Displayed pixel size of an image, measured server-side at upload. Absent on
+   * rows persisted before dimensions were recorded, and on urls scraped out of
+   * message text, which have no stored file behind them. */
+  width?: number
+  height?: number
   /** Server-side file ID after upload (set by chat-pane before sending) */
   fileId?: string
   /** Original File object for upload (not serialized) */

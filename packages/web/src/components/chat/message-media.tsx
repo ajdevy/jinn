@@ -1,6 +1,6 @@
 import { useState, useCallback, type CSSProperties } from 'react'
 import { isVideoMedia, type MediaAttachment } from '@/lib/conversations'
-import { FALLBACK_RATIO, knownRatio, rememberRatio } from './media-dimensions'
+import { FALLBACK_RATIO, declaredRatio, knownRatio, rememberRatio } from './media-dimensions'
 import { FileAttachment } from './file-attachment'
 import { VoiceMessage } from './voice-message'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,21 +15,25 @@ import { VideoPlayer } from '@/components/ui/video-player'
  * whichever way the load ends the row keeps the height it started with.
  *
  * A grid tile is a fixed-height crop and needs no reservation. A single image is
- * shown whole, so its slot is reserved at the ratio of the picture itself — the
- * one it was measured at last time, otherwise the fallback until this load
- * measures it.
+ * shown whole, so its slot is reserved at the ratio of the picture itself: the
+ * one the server measured off the bytes, else the one this tab measured on an
+ * earlier view, else the fallback until this load measures it.
  */
 function LoadingImage({
   src,
   alt,
   variant,
+  width,
+  height,
 }: {
   src: string
   alt: string
   variant: 'single' | 'grid'
+  width?: number
+  height?: number
 }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
-  const [ratio, setRatio] = useState(() => knownRatio(src) ?? FALLBACK_RATIO)
+  const [ratio, setRatio] = useState(() => declaredRatio(width, height) ?? knownRatio(src) ?? FALLBACK_RATIO)
   const isGrid = variant === 'grid'
   const reserved = isGrid ? undefined : ({ '--media-ratio': String(ratio) } as CSSProperties)
 
@@ -115,7 +119,12 @@ export function MessageMedia({ media, isUser }: { media: MediaAttachment[]; isUs
           className={
             images.length > 1
               ? 'mt-[var(--space-2)] grid grid-cols-2 gap-[var(--space-2)] w-full max-w-[var(--chat-media-multi,520px)]'
-              : 'mt-[var(--space-2)] w-full max-w-[var(--chat-media-single,440px)]'
+              : // Declared, not a percentage: the bubble around this column shrinks to
+                // its contents, so `w-full` resolves against the text beside the picture
+                // and the reserved box comes out narrow — right ratio, wrong size — until
+                // the decode supplies an intrinsic width and the row widens under the
+                // reader. A declared width is the same before and after.
+                'mt-[var(--space-2)] w-[var(--chat-media-single,440px)] max-w-full'
           }
         >
           {images.map((m, mi) => (
@@ -138,6 +147,8 @@ export function MessageMedia({ media, isUser }: { media: MediaAttachment[]; isUs
                 src={m.url}
                 alt={m.name || 'Image'}
                 variant={images.length > 1 ? 'grid' : 'single'}
+                width={m.width}
+                height={m.height}
               />
             </button>
           ))}

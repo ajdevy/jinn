@@ -383,7 +383,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1574,
+      "lines": 1554,
       "exempt": [
         "complexity",
         "max-depth",
@@ -749,7 +749,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2806,
+      "lines": 2760,
       "exempt": [
         "complexity",
         "max-depth",

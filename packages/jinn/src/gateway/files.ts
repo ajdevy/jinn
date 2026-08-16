@@ -9,7 +9,7 @@ import { FILES_DIR, UPLOADS_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { logger } from "../shared/logger.js";
 import { redactText } from "../shared/redact.js";
-import { insertFile, getFile, getSession, listFiles, deleteFile, setFilePath, insertMessage, type FileMeta, type MessageMedia } from "../sessions/registry.js";
+import { insertFile, getFile, getSession, listFiles, deleteFile, setFilePath, insertMessage, type FileMeta } from "../sessions/registry.js";
 import { hasControlBytes } from "../shared/sanitize.js";
 import type { ApiContext } from "./api.js";
 import { CALLER_SESSION_HEADER, TOOL_CALL_HEADER, UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
@@ -18,6 +18,8 @@ import { verifyGatewayAuth } from "./auth.js";
 import { badRequest, json, notFound, serverError, type ParsedRoute } from "./route-helpers.js";
 import { streamFile } from "./byte-range.js";
 import { ensureLowVariant, ensurePoster } from "./video-variants.js";
+import { readImageDimensions } from "./image-dimensions.js";
+import { buildMessageMedia } from "./message-media.js";
 
 // Ensure managed files directory exists
 export function ensureFilesDir(): void {
@@ -648,6 +650,9 @@ async function saveFile(result: UploadResult, context: ApiContext): Promise<File
   await fs.promises.writeFile(storagePath, result.buffer);
 
   const mimetype = mimeFromFilename(safeName);
+  // The extension only decides whether a probe is worth attempting — what makes
+  // the pair real is sharp reading it, so a .png full of zip bytes records none.
+  const dimensions = mimetype.startsWith("image/") ? await readImageDimensions(result.buffer) : null;
   const meta = insertFile({
     id: result.id,
     filename: safeName,
@@ -655,6 +660,8 @@ async function saveFile(result: UploadResult, context: ApiContext): Promise<File
     mimetype,
     // For session uploads, record the absolute on-disk path so download + path-injection can find it.
     path: sessionScoped ? storagePath : customPath,
+    width: dimensions?.width ?? null,
+    height: dimensions?.height ?? null,
   });
 
   // Write to custom path if provided
@@ -1148,34 +1155,7 @@ async function handleTransfer(req: HttpRequest, res: ServerResponse, context: Ap
 
 // ── Session attachments (outbound: session → web UI) ─────────────
 
-function mediaTypeFromMime(mime: string | null): MessageMedia["type"] {
-  if (mime?.startsWith("image/")) return "image";
-  if (mime?.startsWith("audio/")) return "audio";
-  if (mime?.startsWith("video/")) return "video";
-  return "file";
-}
-
-function buildMessageMedia(meta: FileMeta): MessageMedia {
-  return {
-    type: mediaTypeFromMime(meta.mimetype),
-    url: `/api/files/${meta.id}`,
-    name: meta.filename,
-    mimeType: meta.mimetype ?? undefined,
-    size: meta.size,
-  };
-}
-
-/** Resolve uploaded file IDs to media descriptors for persisting on a (user) message. */
-export function fileIdsToMedia(fileIds: unknown): MessageMedia[] {
-  if (!Array.isArray(fileIds)) return [];
-  const media: MessageMedia[] = [];
-  for (const id of fileIds) {
-    if (typeof id !== "string" || !id.trim()) continue;
-    const meta = getFile(id);
-    if (meta) media.push(buildMessageMedia(meta));
-  }
-  return media;
-}
+export { fileIdsToMedia } from "./message-media.js";
 
 /**
  * Re-home first-message attachments: files uploaded before a session existed land
