@@ -2,7 +2,10 @@
 
 Verification report for the five operator defects behind ICI-817, measured against the numbers
 in `docs/design/ICI-818-chat-motion-and-typography.md`. No product code was changed by this
-pass; a failing defect is handed back to the child that owns it.
+pass; a failing defect is handed back to the child that owns it. The one other thing this pass
+adds is `scripts/device-scroll-fixture.mjs`, which exists so defect 3's blocked checklist can
+hand the operator a URL that actually reaches a phone — see that section for why it has to be
+printed rather than written down.
 
 | # | Defect | Owner | Verdict |
 | --- | --- | --- | --- |
@@ -186,28 +189,53 @@ thing, so this is recorded as BLOCKED per the Todo's own instruction.
 
 ### Operator checklist — about 60 seconds
 
-The sandbox this pass used was destroyed, per the run's own cleanup rule. Bring an identical one
-back with two commands:
+The sandbox this pass used was destroyed, per the run's own cleanup rule, and a URL that reaches
+a phone names this machine — which is the one thing a public repository must not carry. So the
+URL is not written here; it is *printed*, by the second command below, from the addresses the
+machine actually holds when you run it. Nothing here is a blank to fill in.
+
+Run all three from a checkout of this branch:
 
 ```bash
-# 1. sandbox on a free port ≥7778 (never 7777, never 7788)
-JINN_REPO=<this worktree> \
-  skills/jinn-sandbox/scripts/jinn-sandbox.sh up qa-ici823 --port 7781 --seed
+# 1. create a throwaway sandbox on a free port ≥7778 (never 7777, never 7788), do not start it.
+#    --seed is what materialises the registry tables step 2 writes into.
+JINN_REPO="$(git rev-parse --show-toplevel)" \
+  ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh create qa-flick --port 7782 --build --seed
 
-# 2. seed the long / image / typography fixtures described above into that home only
-#    (schema: sessions + messages in <sandbox home>/sessions/registry.db)
+# 2. seed a transcript long enough to flick, open the bind so the phone can route to it,
+#    and print the URL to open there
+node scripts/device-scroll-fixture.mjs --home ~/.jinn-qa-flick
+
+# 3. start it
+~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh start qa-flick
 ```
 
-Then set `gateway.host` to the machine's LAN or tailnet address in the sandbox `config.yaml`,
-restart it, and open
+Step 2 prints the URL and the pairing command, e.g.:
 
 ```
-http://<this machine on your tailnet>:7781/?session=<the long-transcript session id>
+Seeded 220 messages into session "device-scroll-check".
+Bind opened to 0.0.0.0 — start the sandbox, then open this on the phone:
+
+  http://198.51.100.24:7782/?session=device-scroll-check
+
+A non-loopback bind always requires auth. Pair the phone with the code from:
+  jinn -i jinn-qa-flick pair
 ```
 
-on the phone (`jinn -i jinn-qa-ici823 pair` prints the one-time code if pairing is on). The exact
-URL and session id are in the ICI-823 Todo comment — they are deliberately not written into this
-repository.
+(That address is RFC 5737 documentation space standing in for whatever the command prints on the
+day; the real one comes from the machine's own interfaces, tailnet first.)
+
+Two things worth knowing before you run it. A non-loopback bind turns authentication on by
+itself — `shouldRequireGatewayAuth` returns true for `0.0.0.0` — so the phone will ask to pair,
+and that is the sandbox refusing to sit unauthenticated on the network rather than something
+going wrong. And run the `pair` command with `JINN_PORT` and `JINN_HOME` unset: both leak from a
+gateway session's environment and beat `-i`, which would point the CLI at the live instance.
+
+The seeding step was exercised end to end against a throwaway home while writing this: 220 rows
+landed in `messages` in `role` order, `gateway.host` was rewritten to `0.0.0.0`, and the command
+printed one tailnet and one LAN URL. `scripts/__tests__/device-scroll-fixture.test.mjs` covers
+the refusals — the script will not rewrite a home named `.jinn` or one configured on 7777 or
+7788, and both tests fail if the guard is removed.
 
 Four steps:
 
@@ -217,6 +245,12 @@ Four steps:
 3. **Overscroll at both ends.** Drag past the top of the thread, then past the bottom.
 4. **Confirm rubber-band.** Each end should stretch and spring back rather than stopping dead,
    and the page behind the transcript must not scroll with it.
+
+Then destroy it, pass or fail:
+
+```bash
+~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh destroy qa-flick --yes
+```
 
 ---
 
@@ -452,7 +486,7 @@ $ pnpm test
 @jinn/gateway-events:test  Test Files  2 passed (2)
 jinn-cli:test              Test Files  451 passed (451)
 @jinn/web:test             Test Files  253 passed (253)
-root (node:test)           tests 175   pass 175   fail 0
+root (node:test)           tests 179   pass 179   fail 0
  Tasks:    6 successful, 6 total
 
 $ pnpm build
@@ -463,8 +497,11 @@ $ pnpm ratchet --check
 size ratchet: 1584 files scanned, 379 baselined files, 119534 budgeted lines (limit 300)
 
 $ pnpm footguns
-footguns: 0 violations in 127 files, 0 suppressions (0 unaudited)
+footguns: 0 violations in 128 files, 0 suppressions (0 unaudited)
 ```
+
+The root `node:test` total moved 175 → 179 and footguns scans one more file: both are
+`scripts/device-scroll-fixture.mjs` and its four guard tests, added for defect 3's checklist.
 
 ---
 
