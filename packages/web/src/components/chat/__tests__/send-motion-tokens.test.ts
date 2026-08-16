@@ -64,10 +64,17 @@ describe('enter motion', () => {
 
   it('animates an arriving tool call with a duration token and no literal', () => {
     const rule = block('.tool-arrive {')
-    expect(rule).toContain('animation: jinn-dispatch-rise var(--duration-base) var(--ease-smooth) backwards')
+    expect(rule).toContain('animation: jinn-tool-rise var(--duration-base) var(--ease-smooth) backwards')
     // The `--arrive-delay` fallback is a stagger, not a duration, and matches
     // what every other arrival rule in this file already writes.
     expect(rule).not.toMatch(/animation:[^;]*\d+m?s/)
+  })
+
+  it('rises the tool call on transform and opacity alone', () => {
+    // `filter` is not a compositor property: blurring a pill that sits in the
+    // transcript repaints it every frame, which is the one thing the motion rule
+    // rules out. The dispatch keyframe blurs; this one is that keyframe without it.
+    expect(block('@keyframes jinn-tool-rise')).not.toContain('filter')
   })
 
   it('switches the tool-call entrance off under reduced motion', () => {

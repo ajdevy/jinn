@@ -176,6 +176,16 @@ describe('MessageMedia single-image reservation', () => {
     expect(declaredRatio(reservedBox())).toBe(String(FALLBACK_RATIO))
   })
 
+  it('stretches the opener to the media column so the ratio has a width to resolve against', () => {
+    render(<MessageMedia media={single('/api/files/stretched', 'stretched.png')} isUser={false} />)
+
+    // The reserved box is `width: 100%` of this button, and a button sizes to its
+    // contents unless told otherwise — so without the stretch the percentage
+    // resolves against nothing and the box reserves zero height, however correct
+    // its declared ratio is.
+    expect(screen.getByLabelText('Open stretched.png').className).toContain('w-full')
+  })
+
   it('fills the reserved box without cropping', () => {
     render(<MessageMedia media={single('/api/files/contained', 'contained.png')} isUser={false} />)
 

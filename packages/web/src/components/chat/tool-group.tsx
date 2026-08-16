@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
 import { ChevronDown, FileText, Globe, Search, Terminal, Wrench, type LucideIcon } from 'lucide-react'
 import type { Message } from '@/lib/conversations'
 import { statusMark } from './chat-blocks'
@@ -155,6 +155,25 @@ function ToolGroupPill({ count, running, expanded, onToggle, entering, arrival }
   )
 }
 
+/**
+ * The call whose rail slot the group's pill enters on, or undefined when the
+ * group was already on screen.
+ *
+ * The pill is the group's own arrival, so the question is only ever asked once,
+ * at mount: a call appended into a group the reader is already looking at must
+ * not re-animate the pill above it. Which call answers it is not necessarily the
+ * first — a group that opens with more calls than the rail's three slots leaves
+ * its opener unmarked, and anchoring on the opener alone would drop the
+ * entrance of the whole group.
+ */
+function useGroupArrival(msgs: Message[], isEntering: (id: string | undefined) => boolean): string | undefined {
+  const latched = useRef<{ id: string | undefined } | null>(null)
+  if (!latched.current) {
+    latched.current = { id: msgs.find((msg) => isEntering(msg.id))?.id }
+  }
+  return latched.current.id
+}
+
 export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
   msgs: Message[]
   isActive: boolean
@@ -167,9 +186,7 @@ export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
 }) {
   const [expanded, setExpanded] = usePersistentExpansion(`tools:${groupId}`, false)
   const [showAllTools, setShowAllTools] = usePersistentExpansion(`tools-all:${groupId}`, false)
-  // The pill is the group's own arrival: it appears with the tool call that
-  // opened the group, and every later call lands inside a row already on screen.
-  const firstId = msgs[0]?.id
+  const arrivingId = useGroupArrival(msgs, isEntering)
 
   return (
     // Share the assistant text gutter (.assistant-msg-row → space-3 / space-8 @lg)
@@ -180,8 +197,8 @@ export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
         running={isActive && !msgs.every(isToolDone)}
         expanded={expanded}
         onToggle={() => setExpanded(!expanded)}
-        entering={isEntering(firstId)}
-        arrival={arrivals.get(firstId ?? '')}
+        entering={arrivingId !== undefined}
+        arrival={arrivals.get(arrivingId ?? '')}
       />
       {expanded && (
         <ToolChipList

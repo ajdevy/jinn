@@ -48,6 +48,21 @@ describe('tool group entrance', () => {
     expect(marks(arriveLive(tools(1, 1)), 'group')).toHaveLength(1)
   })
 
+  it('marks a group that opens with more calls than the rail has slots', () => {
+    // The rail animates the newest three of a commit, so a group opening with
+    // four leaves its FIRST call unmarked — the pill still has to enter, on
+    // whichever of its calls did get a slot.
+    const [pill] = marks(arriveLive(tools(4, 1)), 'group') as HTMLElement[]
+    expect(pill).toBeTruthy()
+    expect(pill.style.getPropertyValue('--arrive-delay')).toBe('0ms')
+  })
+
+  it('leaves the pill unmarked when a call lands in a group already on screen', () => {
+    const container = arriveIntoOpenGroup(tools(2, 2), [...HISTORY, ...tools(1, 1)])
+    expect(marks(container, 'group')).toHaveLength(0)
+    expect(marks(container, 'chip')).toHaveLength(2)
+  })
+
   it('leaves a group already present at mount unmarked, so a session switch replays nothing', () => {
     const { container } = render(
       <ChatMessages messages={[...HISTORY, ...tools(3, 1)]} loading={false} />,

@@ -124,7 +124,15 @@ export function MessageMedia({ media, isUser }: { media: MediaAttachment[]; isUs
               type="button"
               onClick={() => setLightboxIndex(mi)}
               aria-label={`Open ${m.name || 'image'}`}
-              className="block overflow-hidden rounded-[var(--radius-lg)] p-0 border-0 bg-transparent cursor-pointer"
+              className={cn(
+                'block overflow-hidden rounded-[var(--radius-lg)] p-0 border-0 bg-transparent cursor-pointer',
+                // A button sizes to its contents even at `display: block`, and the
+                // reserved box inside is a percentage of the button — so left to
+                // itself the single image reserves a box of zero and jumps to full
+                // height on decode. Stretching to the column resolves the ratio
+                // against a real width. Grid tiles stretch to their track already.
+                images.length === 1 && 'w-full',
+              )}
             >
               <LoadingImage
                 src={m.url}
