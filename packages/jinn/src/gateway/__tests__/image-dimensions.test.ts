@@ -68,6 +68,12 @@ async function readMeta(id: string): Promise<Record<string, unknown>> {
   return JSON.parse(out.body!) as Record<string, unknown>;
 }
 
+/** Neither side is there at all — not null, not zero, not present-and-empty. */
+function expectNoDimensions(subject: object): void {
+  expect("width" in subject).toBe(false);
+  expect("height" in subject).toBe(false);
+}
+
 describe("readImageDimensions", () => {
   it("reads the size of a portrait image", async () => {
     expect(await imageDimensions.readImageDimensions(await pngBuffer(600, 1200))).toEqual({ width: 600, height: 1200 });
@@ -104,19 +110,23 @@ describe("upload dimensions", () => {
     const uploaded = await upload("bundle.zip", Buffer.from("PKzipdata"));
     const id = uploaded.id as string;
 
-    expect(reg.getFile(id)).toMatchObject({ width: null, height: null });
-    // Absent on the wire, not null: the client reserves a box only when it has
-    // both sides, and a null pair would be a second way of saying "unknown".
-    const media = files.fileIdsToMedia([id])[0];
-    expect("width" in media).toBe(false);
-    expect("height" in media).toBe(false);
+    // Absent everywhere, not null: the client reserves a box only when it has both
+    // sides, and a null pair would be a second way of saying "unknown" for every
+    // reader of the row, the upload response, the meta route and the descriptor.
+    expectNoDimensions(uploaded);
+    expectNoDimensions(reg.getFile(id)!);
+    expectNoDimensions(await readMeta(id));
+    expectNoDimensions(files.fileIdsToMedia([id])[0]);
   });
 
   it("stores an image whose bytes are corrupt without dimensions, and still succeeds", async () => {
     const uploaded = await upload("broken.png", Buffer.from("this is not really a PNG"));
     const id = uploaded.id as string;
 
-    expect(reg.getFile(id)).toMatchObject({ mimetype: "image/png", width: null, height: null });
-    expect("width" in files.fileIdsToMedia([id])[0]).toBe(false);
+    expect(reg.getFile(id)).toMatchObject({ mimetype: "image/png" });
+    expectNoDimensions(uploaded);
+    expectNoDimensions(reg.getFile(id)!);
+    expectNoDimensions(await readMeta(id));
+    expectNoDimensions(files.fileIdsToMedia([id])[0]);
   });
 });

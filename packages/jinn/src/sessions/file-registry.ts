@@ -9,11 +9,20 @@ export interface FileMeta {
   size: number;
   mimetype: string | null;
   path: string | null;
-  /** Displayed pixel size for images, null for everything else and for rows
-   * stored before dimensions were recorded. */
-  width: number | null;
-  height: number | null;
+  /** Displayed pixel size, present only for images that could be measured. */
+  width?: number;
+  height?: number;
   createdAt: string;
+}
+
+/**
+ * Absent, not null. The column is nullable because a non-image and an unreadable
+ * image have no size to store, but a descriptor that carries `width: null` makes
+ * every reader — including the JSON one caller after caller parses — check for a
+ * second kind of missing. There is one: the key is not there.
+ */
+function measuredSize(width: unknown, height: unknown): { width?: number; height?: number } {
+  return typeof width === 'number' && typeof height === 'number' ? { width, height } : {};
 }
 
 function rowToFileMeta(row: Record<string, unknown>): FileMeta {
@@ -23,8 +32,7 @@ function rowToFileMeta(row: Record<string, unknown>): FileMeta {
     size: row.size as number,
     mimetype: (row.mimetype as string) ?? null,
     path: (row.path as string) ?? null,
-    width: (row.width as number) ?? null,
-    height: (row.height as number) ?? null,
+    ...measuredSize(row.width, row.height),
     createdAt: row.created_at as string,
   };
 }
@@ -35,17 +43,18 @@ export function insertFile(meta: {
   size: number;
   mimetype: string | null;
   path: string | null;
-  width?: number | null;
-  height?: number | null;
+  width?: number;
+  height?: number;
 }): FileMeta {
   const db = initDb();
   const now = new Date().toISOString();
-  const width = meta.width ?? null;
-  const height = meta.height ?? null;
+  // Destructured so an explicit `width: undefined` cannot survive into the returned
+  // descriptor as a present-but-empty key.
+  const { width, height, ...rest } = meta;
   db.prepare('INSERT INTO files (id, filename, size, mimetype, path, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-    meta.id, meta.filename, meta.size, meta.mimetype, meta.path, width, height, now,
+    rest.id, rest.filename, rest.size, rest.mimetype, rest.path, width ?? null, height ?? null, now,
   );
-  return { ...meta, width, height, createdAt: now };
+  return { ...rest, ...measuredSize(width, height), createdAt: now };
 }
 
 export function getFile(id: string): FileMeta | undefined {

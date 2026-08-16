@@ -184,6 +184,18 @@ describe('MessageMedia single-image reservation', () => {
     expect(declaredRatio(reservedBox())).toBe('0.5')
   })
 
+  it('keeps the payload ratio when the decode reports a different shape', () => {
+    const url = '/api/files/payload-survives'
+    render(<MessageMedia media={[{ type: 'image', url, name: 'survives.png', width: 600, height: 1200 }]} isUser={false} />)
+    const img = screen.getByAltText('survives.png') as HTMLImageElement
+
+    // The load is a reserved box's one chance to be wrong: the server measured this
+    // picture off the bytes, so a decode that disagrees must not move a box the
+    // reader is already looking at.
+    loadWith(img, 1000, 400)
+    expect(declaredRatio(img.parentElement as HTMLElement)).toBe('0.5')
+  })
+
   it('falls back when a payload carries a dimension nothing can be divided by', () => {
     render(
       <MessageMedia

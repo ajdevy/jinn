@@ -32,8 +32,9 @@ function LoadingImage({
   width?: number
   height?: number
 }) {
+  const declared = declaredRatio(width, height)
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
-  const [ratio, setRatio] = useState(() => declaredRatio(width, height) ?? knownRatio(src) ?? FALLBACK_RATIO)
+  const [ratio, setRatio] = useState(() => declared ?? knownRatio(src) ?? FALLBACK_RATIO)
   const isGrid = variant === 'grid'
   const reserved = isGrid ? undefined : ({ '--media-ratio': String(ratio) } as CSSProperties)
 
@@ -71,8 +72,13 @@ function LoadingImage({
         onLoad={(event) => {
           const { naturalWidth, naturalHeight } = event.currentTarget
           rememberRatio(src, naturalWidth, naturalHeight)
-          const measured = knownRatio(src)
-          if (measured !== null) setRatio(measured)
+          // A declared pair already sized this box off the bytes themselves, so the
+          // cache is not consulted for it — reading one back here would let a stale
+          // or differently-oriented measurement move a box that is already right.
+          if (declared === null) {
+            const measured = knownRatio(src)
+            if (measured !== null) setRatio(measured)
+          }
           setStatus('loaded')
         }}
         onError={() => setStatus('error')}

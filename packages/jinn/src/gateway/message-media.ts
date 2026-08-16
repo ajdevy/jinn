@@ -17,10 +17,9 @@ export function buildMessageMedia(meta: FileMeta): MessageMedia {
     name: meta.filename,
     mimeType: meta.mimetype ?? undefined,
     size: meta.size,
-    // Omitted rather than sent as null when unknown: the client reserves a box
-    // from the pair only when it has both, and a null pair would have to be
-    // re-checked everywhere an absent one already is.
-    ...(meta.width !== null && meta.height !== null ? { width: meta.width, height: meta.height } : {}),
+    // Carried only when the row has both: the client reserves a box from the pair
+    // and treats a missing one as "measure it on decode".
+    ...(meta.width !== undefined && meta.height !== undefined ? { width: meta.width, height: meta.height } : {}),
   };
 }
 

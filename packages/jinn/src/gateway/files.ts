@@ -660,8 +660,7 @@ async function saveFile(result: UploadResult, context: ApiContext): Promise<File
     mimetype,
     // For session uploads, record the absolute on-disk path so download + path-injection can find it.
     path: sessionScoped ? storagePath : customPath,
-    width: dimensions?.width ?? null,
-    height: dimensions?.height ?? null,
+    ...(dimensions ?? {}),
   });
 
   // Write to custom path if provided

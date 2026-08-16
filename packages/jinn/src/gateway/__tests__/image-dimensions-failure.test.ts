@@ -62,6 +62,9 @@ describe("a failing dimension probe", () => {
 
     expect(out.status).toBe(201);
     const uploaded = JSON.parse(out.body!) as { id: string };
-    expect(reg.getFile(uploaded.id)).toMatchObject({ filename: "photo.png", width: null, height: null });
+    const stored = reg.getFile(uploaded.id) as unknown as Record<string, unknown>;
+    expect(stored).toMatchObject({ filename: "photo.png" });
+    expect("width" in stored).toBe(false);
+    expect("height" in stored).toBe(false);
   });
 });
