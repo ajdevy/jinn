@@ -13,9 +13,10 @@ const ENTER_MARK_TTL_MS = 1_000
 /** How many unseen rows one commit may animate. Three slots, matching the cap
  *  live block arrivals already hold themselves to (`Math.min(2, batch.count) * 60`
  *  in hooks/use-live-session.ts). A commit carrying more than this is a catch-up,
- *  not an arrival — the reader was away while the chat ran on — so the batch lands
- *  as history, already in place, rather than every row playing at once or the
- *  stagger tailing off for seconds. */
+ *  not an arrival — the reader was away while the chat ran on — so its older rows
+ *  land as history, already in place, and only this many of the newest still play
+ *  an entrance, rather than every row playing at once or the stagger tailing off
+ *  for seconds. */
 const LIVE_ARRIVAL_BATCH_MAX = 3
 
 /** Stagger for a comms row's entrance. Clamped to the batch cap because an
@@ -50,6 +51,17 @@ function takeUnseen(messages: Message[], seen: Set<string>): [string, Message][]
 }
 
 /**
+ * The rows of one commit that still play an entrance: the newest few, and none
+ * at all under reduced motion. A catch-up reconciles on its tail because the
+ * rows above it are already scrolled past by the time the transcript settles,
+ * so animating them would be work the reader never sees.
+ */
+function animatedRows(batch: [string, Message][]): Set<string> {
+  if (prefersReducedMotion()) return new Set()
+  return new Set(batch.slice(-LIVE_ARRIVAL_BATCH_MAX).map(([id]) => id))
+}
+
+/**
  * True for the prose row that ends a stream: its text is already on screen, and
  * re-fading a sentence the reader is in the middle of is the worst outcome
  * available here. Tool rows are excluded — they carry no transcript, so letting
@@ -72,10 +84,11 @@ export interface MessageArrivals {
  * Live-arrival bookkeeping for the transcript.
  *
  * Ids present at mount never animate, which is what stops a session switch from
- * replaying a whole history's worth of enters. Neither does a commit that brings
- * more than LIVE_ARRIVAL_BATCH_MAX of them at once, nor any commit at all under
- * reduced motion. What survives that is a live burst, and comms rows inside one
- * additionally carry a stagger index for `commsArrivalDelayMs`.
+ * replaying a whole history's worth of enters. Nor does any commit at all under
+ * reduced motion, and nor does anything but the newest LIVE_ARRIVAL_BATCH_MAX
+ * rows of a commit, so a catch-up settles on a bounded tail instead of playing
+ * twenty enters at once. What survives that is a live burst, and comms rows
+ * inside one additionally carry a stagger index for `commsArrivalDelayMs`.
  *
  * The refs are mutated inside a memo on purpose — the assignments must be
  * visible to the SAME render that first sees the message, or the row paints once
@@ -95,7 +108,7 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
     const seen = seenIdsRef.current
     if (!seen) return
     const batch = takeUnseen(messages, seen)
-    const plays = batch.length <= LIVE_ARRIVAL_BATCH_MAX && !prefersReducedMotion()
+    const animated = animatedRows(batch)
     let batchIndex = 0
     for (const [id, message] of batch) {
       // The row that ends a stream plays nothing, and consumes the stream that
@@ -103,11 +116,12 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
       // spent even in a batch that plays nothing, or it silences a later arrival.
       if (endsAStream(message, streamedRef.current)) {
         streamedRef.current = false
-      } else if (plays) {
-        enteringRef.current.add(id)
-        setTimeout(() => enteringRef.current.delete(id), ENTER_MARK_TTL_MS)
+        continue
       }
-      if (plays && isCommsRow(message)) commsRef.current.set(id, batchIndex++)
+      if (!animated.has(id)) continue
+      enteringRef.current.add(id)
+      setTimeout(() => enteringRef.current.delete(id), ENTER_MARK_TTL_MS)
+      if (isCommsRow(message)) commsRef.current.set(id, batchIndex++)
     }
   }, [messages])
 

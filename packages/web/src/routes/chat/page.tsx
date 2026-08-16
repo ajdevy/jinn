@@ -152,30 +152,30 @@ function ChatPage() {
   const returnFocusPendingRef = useRef(false)
   const destinationFocusPendingRef = useRef(false)
 
-  // Persist view mode per session
+  // Persist view mode per session — the COMMITTED one, because that is the pane
+  // that is mounted. Keyed off the URL, a switch blanked the held transcript.
   const setAndPersistViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode)
-    if (selectedId) writeViewMode(selectedId, mode)
-  }, [selectedId])
+    if (committedId) writeViewMode(committedId, mode)
+  }, [committedId])
 
-  // When the active session changes, sync viewMode with the per-session persisted value.
-  // - Switching to an EXISTING session → load its stored mode.
-  // - Switching to a FRESHLY CREATED session (nothing stored yet) → inherit the current
-  //   local viewMode, so picking "CLI" on New Chat before sending opens the new session in CLI.
-  // - Going back to New Chat (selectedId = null) → keep viewMode as-is (don't force chat).
+  // When the mounted session changes, sync viewMode with its persisted value. A
+  // FRESHLY CREATED session has nothing stored yet and inherits the current local
+  // viewMode, so picking "CLI" on New Chat before sending opens the new session in
+  // CLI; back on New Chat (committedId = null) the mode stays as-is.
   const viewModeRef = useRef(viewMode)
   useEffect(() => { viewModeRef.current = viewMode }, [viewMode])
   useEffect(() => {
-    if (!selectedId) return
+    if (!committedId) return
     const raw = typeof window !== 'undefined'
-      ? window.localStorage.getItem(`jinn-view-mode-${selectedId}`)
+      ? window.localStorage.getItem(`jinn-view-mode-${committedId}`)
       : null
     if (raw === 'cli' || raw === 'chat') {
       setViewMode(raw)
     } else {
-      writeViewMode(selectedId, viewModeRef.current)
+      writeViewMode(committedId, viewModeRef.current)
     }
-  }, [selectedId])
+  }, [committedId])
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [showSessionPicker, setShowSessionPicker] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)

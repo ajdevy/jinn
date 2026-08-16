@@ -4,121 +4,52 @@
  * Every commit of the pane is recorded as a frame, so "one loading state" and
  * "never a spinner after content" are counted off the sequence instead of being
  * asserted from an impression. A loading state means a visible loading
- * affordance: the hydration spinner. The beat where the opening selection is
- * still resolving paints nothing at all, and is recorded as the absence of a
+ * affordance: the route-level fallback a cold open waits at, and the hydration
+ * spinner the pane shows afterwards — one run across both, because that is one
+ * wait as far as the reader is concerned. The beat where the opening selection
+ * is still resolving paints nothing at all, and is recorded as the absence of a
  * pane rather than as a loading state — which is exactly what it looks like.
  *
- * The surface below is the real wiring — usePaneIdentity, which owns the commit
- * lag, plus useLiveSession and useHydrationSpinner — with only the transport
- * faked. The spinner predicate is copied from chat-pane.tsx (search
- * `showSessionHydration`): the one line this harness restates, and it has to
- * stay in step.
+ * `open-continuity-harness` is the surface under all of it.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { useEffect } from 'react'
-import { act, render } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
 const getSession = vi.fn()
 vi.mock('@/lib/api', () => ({
   api: { getSession: (id: string, options?: unknown) => getSession(id, options) },
 }))
 
-import { isOpenSelectionInbound, SWITCH_HOLD_MS } from '../selection-commit'
-import { usePaneIdentity } from '../pane-identity'
-import { useHydrationSpinner } from '@/components/chat/chat-hydration'
-import { __clearLiveSessionSnapshotCacheForTests, useLiveSession } from '@/hooks/use-live-session'
-import type { GatewayEventListener } from '@jinn/gateway-events'
-
-/** One committed paint of the pane. `pane: 'none'` never appears — a frame only
- *  exists when a pane is mounted, so an absent frame IS the withheld mount. */
-interface Frame {
-  sessionId: string | null
-  content: boolean
-  spinner: boolean
-}
-
-const SPINNER_THRESHOLD_MS = 250
-/** Slower than the spinner threshold: a cold open genuinely shows its spinner. */
-const SLOW_MS = 400
-/** Faster than the switch hold: the destination can be warmed before it mounts. */
-const FAST_MS = 100
+import { isOpenSelectionInbound } from '../selection-commit'
+import { __resetRouteLoadingHandoffForTests } from '@/components/chat/chat-hydration'
+import { __clearLiveSessionSnapshotCacheForTests } from '@/hooks/use-live-session'
+import {
+  advance,
+  ColdDirectOpen,
+  FAST_MS,
+  frames,
+  loadingStates,
+  PAST_ANY_THRESHOLD_MS,
+  resetFrames,
+  SLOW_MS,
+  SPINNER_THRESHOLD_MS,
+  spinnerAfterContent,
+  Surface,
+  transcript,
+} from './open-continuity-harness'
 
 let latencyMs = SLOW_MS
-let frames: Frame[] = []
-
-function subscribe(_listener: GatewayEventListener) {
-  return () => {}
-}
-
-function transcript(id: string, rows: number) {
-  return Array.from({ length: rows }, (_, i) => ({
-    id: `${id}-m${i}`,
-    role: i % 2 === 0 ? 'user' : 'assistant',
-    content: `${id} row ${i}`,
-    timestamp: 1_000 + i,
-  }))
-}
-
-function Pane({ sessionId }: { sessionId: string | null }) {
-  const { messages, hydrating, streamingText } = useLiveSession(sessionId, { subscribe })
-  const spinner = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
-  useEffect(() => {
-    frames.push({ sessionId, content: messages.length > 0, spinner })
-  })
-  return null
-}
-
-interface SurfaceProps {
-  selectedId: string | null
-  sessionsPending?: boolean
-  sessionCount?: number
-  newChatIntent?: boolean
-}
-
-/** The chat route's pane slot, with everything around it stripped away. */
-function Surface({ selectedId, sessionsPending = false, sessionCount = 0, newChatIntent = false }: SurfaceProps) {
-  const { paneKey, committedId, awaitingOpen } = usePaneIdentity(selectedId, null, {
-    newChatIntent,
-    sessionsPending,
-    sessionCount,
-  })
-  if (awaitingOpen) return null
-  return <Pane key={paneKey} sessionId={committedId} />
-}
-
-/** Number of times a spinner appeared — a run of spinner frames counts once. */
-function loadingStates(recorded: Frame[]): number {
-  let count = 0
-  recorded.forEach((frame, i) => {
-    if (frame.spinner && !recorded[i - 1]?.spinner) count += 1
-  })
-  return count
-}
-
-/** The defect this ticket exists for: content on screen, then a spinner over it. */
-function spinnerAfterContent(recorded: Frame[]): boolean {
-  const firstContent = recorded.findIndex((frame) => frame.content)
-  return firstContent >= 0 && recorded.slice(firstContent).some((frame) => frame.spinner)
-}
-
-/** One jump of the fake clock coalesces every state update it triggers into a
- *  single React commit, which would hide the very frames this suite counts.
- *  Stepping in slices lets React commit between timers, the way real frames do. */
-async function advance(ms: number) {
-  for (let remaining = ms; remaining > 0; remaining -= 50) {
-    await act(async () => { await vi.advanceTimersByTimeAsync(Math.min(50, remaining)) })
-  }
-}
 
 beforeEach(() => {
   vi.useFakeTimers()
-  frames = []
+  resetFrames()
   latencyMs = SLOW_MS
   getSession.mockReset()
   getSession.mockImplementation((id: string) => new Promise((resolve) => {
     setTimeout(() => resolve({ id, status: 'idle', messages: transcript(id, 4) }), latencyMs)
   }))
   __clearLiveSessionSnapshotCacheForTests()
+  __resetRouteLoadingHandoffForTests()
 })
 
 afterEach(() => {
@@ -166,6 +97,30 @@ describe('opening a chat', () => {
     expect(frames.at(-1)).toMatchObject({ content: true, spinner: false })
   })
 
+  it('carries the route fallback straight into the pane on a stalled cold `/?session=`', async () => {
+    // The gateway never answers, so the whole open is one uninterrupted wait —
+    // the case where a second announcement is unmistakable. Pre-fix the pane
+    // paid the 250ms threshold again and the run read: spinner, nothing, spinner.
+    getSession.mockImplementation(() => new Promise(() => {}))
+    const { rerender } = render(<ColdDirectOpen selectedId="cold" chunkLoaded={false} />)
+    await advance(SLOW_MS)
+
+    rerender(<ColdDirectOpen selectedId="cold" chunkLoaded />)
+    await advance(PAST_ANY_THRESHOLD_MS)
+
+    expect(frames.every((frame) => frame.spinner)).toBe(true)
+    expect(loadingStates(frames)).toBe(1)
+  })
+
+  it('still withholds the spinner when the chunk was already cached and the transcript is quick', async () => {
+    latencyMs = FAST_MS
+    render(<Surface selectedId="warm" sessionCount={3} />)
+    await advance(FAST_MS + SPINNER_THRESHOLD_MS)
+
+    expect(loadingStates(frames)).toBe(0)
+    expect(frames.at(-1)).toMatchObject({ content: true, spinner: false })
+  })
+
   it('commits one loading state for a 200-row transcript', async () => {
     getSession.mockImplementation((id: string) => new Promise((resolve) => {
       setTimeout(() => resolve({ id, status: 'idle', messages: transcript(id, 220) }), latencyMs)
@@ -198,7 +153,7 @@ describe('moving between chats', () => {
     const openFrames = frames.length
 
     rerender(<Surface selectedId="b" sessionCount={3} />)
-    await advance(SWITCH_HOLD_MS + SPINNER_THRESHOLD_MS)
+    await advance(FAST_MS + SPINNER_THRESHOLD_MS)
 
     const switchFrames = frames.slice(openFrames)
     // This is the regression: pre-fix the destination mounted cold, so the run
@@ -214,7 +169,7 @@ describe('moving between chats', () => {
     const { rerender } = render(<Surface selectedId="a" sessionCount={3} />)
     await advance(FAST_MS)
     rerender(<Surface selectedId="b" sessionCount={3} />)
-    await advance(SWITCH_HOLD_MS)
+    await advance(FAST_MS)
     const beforeBack = frames.length
 
     // Browser back to the chat that is still in the snapshot cache.
@@ -227,18 +182,32 @@ describe('moving between chats', () => {
     expect(frames.at(-1)).toMatchObject({ sessionId: 'a', content: true, spinner: false })
   })
 
-  it('commits the destination anyway once the hold budget runs out', async () => {
+  it('keeps holding a destination that stalls rather than commit it to a spinner', async () => {
     latencyMs = FAST_MS
     const { rerender } = render(<Surface selectedId="a" sessionCount={3} />)
     await advance(FAST_MS)
 
-    // A destination that never arrives must not strand the reader on the chat
-    // they navigated away from.
+    // Pre-fix a 250ms deadline committed the destination mid-fetch, and its own
+    // hydration threshold then put a spinner over the transcript the reader had
+    // been reading for half a second.
     getSession.mockImplementation(() => new Promise(() => {}))
-    rerender(<Surface selectedId="b" sessionCount={3} />)
-    await advance(SWITCH_HOLD_MS)
+    rerender(<Surface selectedId="stalled" sessionCount={3} />)
+    await advance(PAST_ANY_THRESHOLD_MS)
 
-    expect(frames.at(-1)?.sessionId).toBe('b')
+    expect(spinnerAfterContent(frames)).toBe(false)
+    expect(frames.at(-1)).toMatchObject({ sessionId: 'a', content: true, spinner: false })
+  })
+
+  it('commits the destination as soon as its fetch fails, so the reader is never stranded', async () => {
+    latencyMs = FAST_MS
+    const { rerender } = render(<Surface selectedId="a" sessionCount={3} />)
+    await advance(FAST_MS)
+
+    getSession.mockImplementation(() => Promise.reject(new Error('gateway unreachable')))
+    rerender(<Surface selectedId="broken" sessionCount={3} />)
+    await advance(SPINNER_THRESHOLD_MS)
+
+    expect(frames.at(-1)?.sessionId).toBe('broken')
   })
 })
 

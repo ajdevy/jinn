@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react'
 import { prefetchLiveSessionSnapshot, readPrefetchedLiveSessionSnapshot } from '@/hooks/use-live-session'
 
-/**
- * How long a switch may keep the chat you are leaving on screen while the one
- * you asked for is fetched. Past this the pane commits cold and the 250ms
- * hydration threshold owns the rest of the wait: a transcript held against a
- * slow gateway is worse than a spinner, because it is the WRONG transcript.
- */
-export const SWITCH_HOLD_MS = 250
-
 export interface CommittedSelection {
   /** The session the ChatPane is mounted for. */
   committedId: string | null
@@ -48,7 +40,10 @@ export function isOpenSelectionInbound(state: {
  * - Switching to a session with no cached transcript mounts cold, which throws
  *   the reader's transcript away and blanks to a spinner. Warming the same
  *   snapshot cache the destination pane reads at mount lets it paint on its
- *   first commit, so the outgoing transcript is held instead of discarded.
+ *   first commit, so the outgoing transcript is held instead of discarded. The
+ *   hold runs until the destination can paint, with no deadline behind it: a
+ *   timer that gives up mid-fetch commits a pane that has nothing but a spinner
+ *   to show, which is the blank-then-spinner this lag exists to prevent.
  *
  * Nothing lags out of a composer: the pane that just created a session adopts
  * that id in the same commit, and delaying it would strand the send.
@@ -72,22 +67,19 @@ export function useCommittedSelection(
       setCommit({ id: selectedId })
       return
     }
-    let settled = false
+    let cancelled = false
     const commitTarget = () => {
-      if (settled) return
-      settled = true
-      setCommit({ id: selectedId })
+      if (!cancelled) setCommit({ id: selectedId })
     }
     const controller = new AbortController()
-    const timer = window.setTimeout(commitTarget, SWITCH_HOLD_MS)
     // A failed warm still commits: the destination then takes the ordinary cold
     // path and reports the error itself, rather than stranding the reader on a
-    // chat they navigated away from.
+    // chat they navigated away from. Only an abort is silent, and an abort means
+    // the selection moved on and a later effect owns the commit.
     void prefetchLiveSessionSnapshot(selectedId, controller.signal).then(commitTarget, commitTarget)
     return () => {
-      settled = true
+      cancelled = true
       controller.abort()
-      window.clearTimeout(timer)
     }
   }, [selectedId, awaitingSelection, commit])
 

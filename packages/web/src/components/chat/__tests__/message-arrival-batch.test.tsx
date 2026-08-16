@@ -32,17 +32,22 @@ function arriveInOneCommit(newMessages: Message[]) {
   return container
 }
 
+/** Which rows of the transcript carry an enter mark, by their text. */
+function enteringText(container: HTMLElement): string[] {
+  return Array.from(entering(container), (row) => row.textContent?.trim() ?? '')
+}
+
 describe('batched arrivals', () => {
-  it('treats a commit of twenty unseen rows as history and animates none of it', () => {
-    expect(entering(arriveInOneCommit(replies(20, 1)))).toHaveLength(0)
+  it('reconciles a commit of twenty unseen rows on a bounded tail, not all at once', () => {
+    expect(entering(arriveInOneCommit(replies(20, 1)))).toHaveLength(3)
+  })
+
+  it('animates the newest rows of a catch-up, because that is where the reader lands', () => {
+    expect(enteringText(arriveInOneCommit(replies(20, 1)))).toEqual(['reply 18', 'reply 19', 'reply 20'])
   })
 
   it('still animates an ordinary burst that lands exactly at the cap', () => {
     expect(entering(arriveInOneCommit(replies(3, 1)))).toHaveLength(3)
-  })
-
-  it('animates nothing once a commit is one row over the cap', () => {
-    expect(entering(arriveInOneCommit(replies(4, 1)))).toHaveLength(0)
   })
 
   it('animates a single reply arriving on its own', () => {

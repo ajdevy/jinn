@@ -10,6 +10,7 @@ import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { startKeyboardInset } from './lib/native/keyboard-inset'
+import { useRouteLoadingPresence } from './components/chat/chat-hydration'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import './routes/globals.css'
@@ -58,9 +59,10 @@ if (typeof window !== 'undefined') {
   scheduleIdle(() => void TodoBoardPage.prefetch())
 }
 
-function RouteLoading() {
+function RouteLoading({ label = 'Loading page' }: { label?: string }) {
+  useRouteLoadingPresence()
   return (
-    <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label="Loading page">
+    <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={label}>
       <div className="size-5 animate-spin rounded-full border-2 border-[var(--fill-tertiary)] border-t-[var(--accent)]" />
     </div>
   )
@@ -110,7 +112,11 @@ function AppShell() {
 }
 
 const appRoutes: RouteObject[] = [
-  { path: '/', element: <ChatPage /> },
+  // Its own boundary, and the announcement is the chat's rather than the shell's:
+  // the pane that replaces this fallback carries the same wait straight on, so
+  // the reader sees one loading state instead of "loading page" and then, a beat
+  // later, "loading chat".
+  { path: '/', element: <Suspense fallback={<RouteLoading label="Loading chat" />}><ChatPage /></Suspense> },
   { path: '/chat', element: <Navigate to="/" replace /> },
   { path: '/cron', element: <CronPage /> },
   { path: '/cron/:id', element: <CronDetailPage /> },
