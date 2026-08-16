@@ -62,6 +62,20 @@ describe('enter motion', () => {
     )
   })
 
+  it('animates an arriving tool call with a duration token and no literal', () => {
+    const rule = block('.tool-arrive {')
+    expect(rule).toContain('animation: jinn-dispatch-rise var(--duration-base) var(--ease-smooth) backwards')
+    // The `--arrive-delay` fallback is a stagger, not a duration, and matches
+    // what every other arrival rule in this file already writes.
+    expect(rule).not.toMatch(/animation:[^;]*\d+m?s/)
+  })
+
+  it('switches the tool-call entrance off under reduced motion', () => {
+    expect(GLOBALS).toContain(
+      '@media (prefers-reduced-motion: reduce) {\n  .tool-arrive { animation: none; }\n}',
+    )
+  })
+
   it('leaves the state transitions to the existing token block rather than a new rule', () => {
     // globals.css redefines --duration-fast|base|slow to --duration-instant under
     // reduced motion, so a transition authored with them collapses for free.

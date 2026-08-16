@@ -958,6 +958,20 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* A tool call joining a live turn — the group's pill when the group is new, and
+   each chip appended inside an open one. Both rise on the dispatch keyframe and
+   both stagger on the shared `--arrive-delay` rail: a tool landing beside a
+   callback is one burst to the reader, so it moves like one. The chip keyframe
+   is deliberately NOT used here — condensing from scale 0.25 suits a status
+   badge and reads as a pop on a row of text, which is the thing being fixed. */
+.tool-arrive {
+  animation: jinn-dispatch-rise var(--duration-base) var(--ease-smooth) backwards;
+  animation-delay: var(--arrive-delay, 0ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-arrive { animation: none; }
+}
+
 /* The hover glance on a Todo mention. It is portalled over the page, so it can
    animate on transform and opacity alone and nothing around it reflows. */
 .todo-glance[data-state="open"] { animation: jinn-glance-in 120ms var(--ease-snappy) both; }

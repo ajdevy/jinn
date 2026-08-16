@@ -6,13 +6,18 @@ import { vi } from 'vitest'
  *
  * The virtualizer sizes the scrollport and every row from `offsetHeight`, which
  * jsdom reports as 0 — and a zero-height scrollport renders NO rows at all, so
- * without this a windowed list comes out empty rather than windowed. Rows are
- * all ROW_H tall here and the scrollport VIEWPORT_H, and each row's rect is
- * derived from the `translateY` the virtualizer itself wrote, so what a test
- * reads back is the list's own arithmetic and not a second model of it.
+ * without this a windowed list comes out empty rather than windowed. The
+ * scrollport is VIEWPORT_H and a row is as tall as `rowHeight` says — one
+ * number for every row, or a function when a test grows one of them — and each
+ * row's rect is derived from the `translateY` the virtualizer itself wrote, so
+ * what a test reads back is the list's own arithmetic and not a second model of it.
  *
  * Install it BEFORE rendering: the first measurement happens on mount.
  */
+
+/** How tall a row is. A function when a test needs ONE row to change height
+ *  after mount — media decoding into a row is the case that matters. */
+export type RowHeight = number | ((row: HTMLElement) => number)
 
 /** Which DOM the harness should drive — one virtualised surface's selectors. */
 export interface VirtualLayoutTargets {
@@ -54,22 +59,23 @@ function rowStart(host: HTMLElement): number {
 
 /** Teach jsdom the one geometry this harness models. Returns the undo. */
 function installMeasurementSpies(
-  rowHeight: number,
+  rowHeight: RowHeight,
   viewportHeight: number,
   targets: VirtualLayoutTargets,
   state: ScrollState,
 ): () => void {
   const isScroller = (el: HTMLElement) => el.matches(targets.scroller)
+  const heightOf = typeof rowHeight === 'function' ? rowHeight : () => rowHeight
   const heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
     .mockImplementation(function (this: HTMLElement) {
       if (isScroller(this)) return viewportHeight
-      return this.hasAttribute('data-index') ? rowHeight : 0
+      return this.hasAttribute('data-index') ? heightOf(this) : 0
     })
   const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
       if (isScroller(this)) return domRect(0, viewportHeight)
       const host = this.closest<HTMLElement>('[data-index]')
-      return host ? domRect(rowStart(host) - state.top, rowHeight) : domRect(0, 0)
+      return host ? domRect(rowStart(host) - state.top, heightOf(host)) : domRect(0, 0)
     })
   return () => { heightSpy.mockRestore(); rectSpy.mockRestore() }
 }
@@ -123,7 +129,7 @@ function rowQueries(
 }
 
 export function installVirtualLayout(
-  rowHeight: number,
+  rowHeight: RowHeight,
   viewportHeight: number,
   targets: VirtualLayoutTargets,
 ): VirtualLayout {

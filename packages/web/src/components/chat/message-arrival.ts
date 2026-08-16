@@ -32,8 +32,12 @@ function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
-/** Comms rows are the only ones that stagger, and only the parsed kinds. */
-function isCommsRow(message: Message): boolean {
+/** Which rows stagger: the parsed comms kinds, and tool calls. Tool calls share
+ *  the comms rail rather than getting one of their own — a tool landing next to
+ *  a callback is one burst to the reader, and two rails would let the two halves
+ *  of it drift apart. */
+function staggersOnArrival(message: Message): boolean {
+  if (message.toolCall) return true
   return message.role === 'notification' && Boolean(parseTeammateReply(message) || parseAgentRelay(message))
 }
 
@@ -72,7 +76,9 @@ function endsAStream(message: Message, streamed: boolean): boolean {
 }
 
 export interface MessageArrivals {
-  /** Comms stagger index for a row, or null when it plays no entrance. */
+  /** Stagger index for a row on the shared arrival rail, or null when it plays
+   *  no entrance. Named for the comms rows that first used it; tool calls
+   *  stagger on the same rail — see `staggersOnArrival`. */
   commsArrival: (id: string | undefined) => number | null
   /** The same indices as a map, for the burst rail's own per-entry lookup. */
   commsArrivals: Map<string, number>
@@ -87,8 +93,8 @@ export interface MessageArrivals {
  * replaying a whole history's worth of enters. Nor does any commit at all under
  * reduced motion, and nor does anything but the newest LIVE_ARRIVAL_BATCH_MAX
  * rows of a commit, so a catch-up settles on a bounded tail instead of playing
- * twenty enters at once. What survives that is a live burst, and comms rows
- * inside one additionally carry a stagger index for `commsArrivalDelayMs`.
+ * twenty enters at once. What survives that is a live burst, and the staggering
+ * rows inside one additionally carry an index for `commsArrivalDelayMs`.
  *
  * The refs are mutated inside a memo on purpose — the assignments must be
  * visible to the SAME render that first sees the message, or the row paints once
@@ -121,7 +127,7 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
       if (!animated.has(id)) continue
       enteringRef.current.add(id)
       setTimeout(() => enteringRef.current.delete(id), ENTER_MARK_TTL_MS)
-      if (isCommsRow(message)) commsRef.current.set(id, batchIndex++)
+      if (staggersOnArrival(message)) commsRef.current.set(id, batchIndex++)
     }
   }, [messages])
 

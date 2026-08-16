@@ -268,11 +268,11 @@ export function useStickToBottom({
     const content = el.firstElementChild
     if (!(content instanceof Element)) return
     const ro = new ResizeObserver(() => {
-      if (followRef.current && elRef.current) pinNow(elRef.current)
+      if (followRef.current && elRef.current) pinToEnd(elRef.current)
     })
     ro.observe(content)
     return () => ro.disconnect()
-  }, [el, pinNow])
+  }, [el, pinToEnd])
 
   // ── Tab return: re-sync (rAF is throttled in background tabs, so don't rely on it). ──
   useEffect(() => {

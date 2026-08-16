@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MessageMedia } from '../message-media'
+import { FALLBACK_RATIO } from '../media-dimensions'
 import { stripAttachedFilesBlock } from '@/lib/conversations'
 import type { MediaAttachment } from '@/lib/conversations'
 
@@ -127,9 +128,94 @@ describe('MessageMedia image loading states', () => {
   })
 })
 
+/**
+ * jsdom computes no layout and drops `aspect-ratio` from a style declaration, so
+ * these assert the `--media-ratio` variable the reserved box sizes from — the
+ * declared shape, not a measured height. Each test uses its own url because the
+ * ratio cache is module-level and outlives a render.
+ */
+describe('MessageMedia single-image reservation', () => {
+  const single = (url: string, name: string): MediaAttachment[] => [{ type: 'image', url, name }]
+  const reservedBox = () => screen.getByTestId('image-skeleton').parentElement as HTMLElement
+  const declaredRatio = (el: HTMLElement) => el.style.getPropertyValue('--media-ratio')
+
+  function loadWith(img: HTMLImageElement, naturalWidth: number, naturalHeight: number) {
+    Object.defineProperty(img, 'naturalWidth', { value: naturalWidth, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: naturalHeight, configurable: true })
+    fireEvent.load(img)
+  }
+
+  it('declares a fallback-ratio box for an unseen url instead of a flat minHeight', () => {
+    render(<MessageMedia media={single('/api/files/unseen', 'unseen.png')} isUser={false} />)
+
+    const box = reservedBox()
+    expect(declaredRatio(box)).toBe(String(FALLBACK_RATIO))
+    // The variable is only a number until something sizes from it: without the
+    // class the box reserves nothing and the ratio assertion above still passes.
+    expect(box.className).toContain('aspect-[var(--media-ratio)]')
+    expect(box.style.minHeight).toBe('')
+  })
+
+  it('declares the true ratio of a seen url on first paint of the next render, with no load', () => {
+    const media = single('/api/files/remembered', 'remembered.png')
+    const first = render(<MessageMedia media={media} isUser={false} />)
+    loadWith(screen.getByAltText('remembered.png') as HTMLImageElement, 800, 1000)
+    first.unmount()
+
+    render(<MessageMedia media={media} isUser={false} />)
+    expect(declaredRatio(reservedBox())).toBe(String(800 / 1000))
+  })
+
+  it('ignores a zero-sized load so a later render still declares the fallback', () => {
+    const media = single('/api/files/zero-sized', 'zero.png')
+    const first = render(<MessageMedia media={media} isUser={false} />)
+    loadWith(screen.getByAltText('zero.png') as HTMLImageElement, 0, 0)
+    first.unmount()
+
+    render(<MessageMedia media={media} isUser={false} />)
+    expect(declaredRatio(reservedBox())).toBe(String(FALLBACK_RATIO))
+  })
+
+  it('fills the reserved box without cropping', () => {
+    render(<MessageMedia media={single('/api/files/contained', 'contained.png')} isUser={false} />)
+
+    const img = screen.getByAltText('contained.png')
+    expect(img.className).toContain('object-contain')
+    expect(img.className).toContain('h-full')
+    expect(img.className).toContain('w-full')
+  })
+
+  it('leaves grid tiles at their fixed height and crop', () => {
+    const pair: MediaAttachment[] = [
+      { type: 'image', url: '/api/files/grid-1', name: 'grid-one.png' },
+      { type: 'image', url: '/api/files/grid-2', name: 'grid-two.png' },
+    ]
+    render(<MessageMedia media={pair} isUser={false} />)
+
+    const img = screen.getByAltText('grid-one.png')
+    expect(img.className).toContain('object-cover')
+    expect(img.className).toContain('h-[130px]')
+    const tile = screen.getAllByTestId('image-skeleton')[0].parentElement as HTMLElement
+    expect(declaredRatio(tile)).toBe('')
+  })
+
+  it('gives the error tile the same reserved box as the loading state', () => {
+    render(<MessageMedia media={single('/api/files/broken', 'broken.png')} isUser={false} />)
+    const reserved = declaredRatio(reservedBox())
+    expect(reserved).toBe(String(FALLBACK_RATIO))
+
+    fireEvent.error(screen.getByAltText('broken.png'))
+
+    const tile = screen.getByLabelText('broken.png (failed to load)')
+    expect(declaredRatio(tile)).toBe(reserved)
+    expect(tile.className).toContain('aspect-[var(--media-ratio)]')
+    expect(tile.className).not.toContain('h-[140px]')
+  })
+})
+
 describe('stripAttachedFilesBlock', () => {
   it('removes the appended engine-only Attached files block', () => {
-    const text = 'Please analyze this\n\nAttached files:\n- /Users/x/.jinn/uploads/2026-05-30/s/report.pdf'
+    const text = 'Please analyze this\n\nAttached files:\n- /home/a/.jinn/uploads/2026-05-30/s/report.pdf'
     expect(stripAttachedFilesBlock(text)).toBe('Please analyze this')
   })
   it('removes a multi-path block', () => {

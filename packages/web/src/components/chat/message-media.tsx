@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, type CSSProperties } from 'react'
 import { isVideoMedia, type MediaAttachment } from '@/lib/conversations'
+import { FALLBACK_RATIO, knownRatio, rememberRatio } from './media-dimensions'
 import { FileAttachment } from './file-attachment'
 import { VoiceMessage } from './voice-message'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,7 +11,13 @@ import { VideoPlayer } from '@/components/ui/video-player'
 /**
  * Thumbnail image with a shimmer skeleton while it loads/decodes, a cross-fade in
  * on `onLoad`, and a graceful broken-image fallback on error (never an infinite
- * skeleton). The skeleton overlays the reserved slot so there's no layout shift.
+ * skeleton). The skeleton and the broken-image tile both fill the reserved box, so
+ * whichever way the load ends the row keeps the height it started with.
+ *
+ * A grid tile is a fixed-height crop and needs no reservation. A single image is
+ * shown whole, so its slot is reserved at the ratio of the picture itself — the
+ * one it was measured at last time, otherwise the fallback until this load
+ * measures it.
  */
 function LoadingImage({
   src,
@@ -22,16 +29,19 @@ function LoadingImage({
   variant: 'single' | 'grid'
 }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [ratio, setRatio] = useState(() => knownRatio(src) ?? FALLBACK_RATIO)
   const isGrid = variant === 'grid'
+  const reserved = isGrid ? undefined : ({ '--media-ratio': String(ratio) } as CSSProperties)
 
   if (status === 'error') {
     return (
       <div
         role="img"
         aria-label={`${alt} (failed to load)`}
+        style={reserved}
         className={cn(
           'flex items-center justify-center rounded-[var(--radius-lg)] bg-[var(--fill-secondary)] text-[var(--text-tertiary)]',
-          isGrid ? 'h-[130px] w-full' : 'h-[140px] w-full',
+          isGrid ? 'h-[130px] w-full' : 'aspect-[var(--media-ratio)] w-full',
         )}
       >
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -46,20 +56,25 @@ function LoadingImage({
 
   return (
     <div
-      className="relative"
-      // Reserve the slot so the skeleton has size and the image swap causes no jump.
-      style={!isGrid && status === 'loading' ? { minHeight: 140 } : undefined}
+      style={reserved}
+      className={cn('relative', !isGrid && 'aspect-[var(--media-ratio)]')}
     >
       <img
         src={src}
         alt={alt}
         loading="lazy"
         decoding="async"
-        onLoad={() => setStatus('loaded')}
+        onLoad={(event) => {
+          const { naturalWidth, naturalHeight } = event.currentTarget
+          rememberRatio(src, naturalWidth, naturalHeight)
+          const measured = knownRatio(src)
+          if (measured !== null) setRatio(measured)
+          setStatus('loaded')
+        }}
         onError={() => setStatus('error')}
         className={cn(
           'block rounded-[var(--radius-lg)] transition-opacity duration-300',
-          isGrid ? 'h-[130px] w-full object-cover' : 'w-full',
+          isGrid ? 'h-[130px] w-full object-cover' : 'h-full w-full object-contain',
           status === 'loaded' ? 'opacity-100' : 'opacity-0',
         )}
       />

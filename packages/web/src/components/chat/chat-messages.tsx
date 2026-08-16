@@ -3,9 +3,9 @@ import { parseMedia, stripAttachedFilesBlock, type MediaAttachment, type Message
 import { MessageMedia } from './message-media'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useMessageTts, stopMessageTts } from './use-message-tts'
-import { ChatBlockInline, statusMark } from './chat-blocks'
+import { ChatBlockInline } from './chat-blocks'
 import { blockFallbackContent, isActiveDelegationStatus, type LiveBlockArrival } from '@/lib/blocks'
-import { ChevronDown, FileText, Globe, Search, Terminal, Wrench, type LucideIcon } from 'lucide-react'
+import { isToolDone, ToolGroup } from './tool-group'
 import { parseTeammateReply, TeammateReply } from './teammate-reply'
 import { parseAgentRelay, AgentRelay } from './agent-relay'
 import { DispatchRow } from './dispatch-row'
@@ -19,11 +19,7 @@ import { CollapsibleUserText } from './collapsible-user-text'
 import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
-import {
-  TranscriptExpansionProvider,
-  usePersistentExpansion,
-  useTranscriptExpansionStore,
-} from './transcript-expansion'
+import { TranscriptExpansionProvider, useTranscriptExpansionStore } from './transcript-expansion'
 import {
   applyTranscriptAnchor,
   captureVirtualAnchor,
@@ -37,6 +33,7 @@ import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
+export { toolGlyphForName } from './tool-group'
 
 /* ── Tool grouping ──────────────────────────────────────── */
 
@@ -46,35 +43,6 @@ export type MessageItem =
   | { kind: 'dispatch-call'; msg: Message; index: number }
   | { kind: 'callback-burst'; entries: BurstEntry[]; startIndex: number }
   | { kind: 'todo-burst'; msgs: Message[]; startIndex: number; endIndex: number }
-
-// A finished tool call lands in the transcript as "Used <tool>". While it's
-// still running the content carries the live tool name instead.
-function isToolDone(msg: Message): boolean {
-  return msg.content.startsWith('Used ')
-}
-
-function findActiveToolIndex(msgs: Message[]): number {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (!isToolDone(msgs[i])) return i
-  }
-  return -1
-}
-
-const TOOL_GLYPH_RULES: ReadonlyArray<{
-  glyph: LucideIcon
-  matches: readonly string[]
-}> = [
-  { glyph: FileText, matches: ['read', 'write', 'edit', 'file', 'patch', 'notebook'] },
-  { glyph: Terminal, matches: ['bash', 'shell', 'exec', 'run', 'command'] },
-  { glyph: Search, matches: ['grep', 'glob', 'search', 'find'] },
-  { glyph: Globe, matches: ['fetch', 'web', 'browser', 'http'] },
-]
-
-export function toolGlyphForName(toolName: string): LucideIcon {
-  const normalized = toolName.replace(/^mcp__.*?__/i, '').toLowerCase()
-  return TOOL_GLYPH_RULES.find(({ matches }) => matches.some((match) => normalized.includes(match)))?.glyph
-    ?? Wrench
-}
 
 function isDelegationToolCall(msg: Message): boolean {
   const name = msg.toolCall || ''
@@ -615,90 +583,6 @@ export function partitionForFold(
     seenAnswers.add(group.answerIdx)
   }
   return groups
-}
-
-function ToolGroup({
-  msgs,
-  isActive,
-  groupId,
-}: {
-  msgs: Message[]
-  isActive: boolean
-  /** Identity the expansion outlives the row by, once virtualised. */
-  groupId: string
-}) {
-  const [expanded, setExpanded] = usePersistentExpansion(`tools:${groupId}`, false)
-  const [showAllTools, setShowAllTools] = usePersistentExpansion(`tools-all:${groupId}`, false)
-  const allDone = msgs.every(isToolDone)
-  const activeIndex = isActive ? findActiveToolIndex(msgs) : -1
-  const label = isActive && !allDone
-    ? `${msgs.length} tool${msgs.length !== 1 ? 's' : ''} running…`
-    : `${msgs.length} tool${msgs.length !== 1 ? 's' : ''}`
-  const indexedMsgs = msgs.map((msg, index) => ({ msg, index }))
-  const activeEntry = activeIndex >= 10 ? indexedMsgs[activeIndex] : undefined
-  const visibleEntries = showAllTools
-    ? indexedMsgs
-    : activeEntry
-      ? [...indexedMsgs.slice(0, 9), activeEntry]
-      : indexedMsgs.slice(0, 10)
-  const hiddenToolCount = Math.max(0, msgs.length - visibleEntries.length)
-
-  return (
-    // Share the assistant text gutter (.assistant-msg-row → space-3 / space-8 @lg)
-    // so the tool card's left edge lines up with the message text column.
-    <div className="assistant-msg-row mb-[var(--space-1)]">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border-none bg-[var(--fill-quaternary)] py-1 pl-3 pr-2.5 text-[length:var(--text-caption1)] text-[var(--text-secondary)] shadow-none transition-[background-color,scale] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] active:scale-[0.97]"
-      >
-        <Wrench size={13} className="shrink-0 text-[var(--text-tertiary)]" />
-        <span className="min-w-0 truncate font-[var(--weight-medium)]">{label}</span>
-        {isActive && !allDone && (
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--system-blue)] animate-[jinn-pulse_1.4s_infinite]" />
-        )}
-        <ChevronDown size={14} className={`ml-0.5 shrink-0 text-[var(--text-quaternary)] transition-transform duration-150 ease-[var(--ease-smooth)] ${expanded ? 'rotate-180' : 'rotate-0'}`} />
-      </button>
-      {expanded && (
-        <div
-          className="mt-1.5 flex max-w-[min(620px,calc(100vw_-_var(--space-6)))] flex-col items-start gap-1 pl-1"
-          data-testid="tool-group-list"
-        >
-          {visibleEntries.map(({ msg: m, index }) => {
-            const done = isToolDone(m)
-            const key = m.id || `${m.toolCall}-${index}`
-            const status = done ? 'done' : index === activeIndex ? 'running' : 'queued'
-            const ToolGlyph = toolGlyphForName(m.toolCall || '')
-            return (
-              <div
-                key={key}
-                className="inline-flex min-h-9 max-w-full items-center gap-1.5 px-2.5 py-1 text-left"
-              >
-                <span className="grid size-4 shrink-0 place-items-center">
-                  {statusMark(status)}
-                </span>
-                <ToolGlyph size={13} aria-hidden="true" className="shrink-0 text-[var(--text-tertiary)]" />
-                <span className="min-w-0 truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                  {m.toolCall || `Tool ${index + 1}`}
-                </span>
-              </div>
-            )
-          })}
-          {hiddenToolCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAllTools(true)}
-              className="ml-6 inline-flex min-h-8 items-center gap-1 rounded-full border-none bg-transparent px-2.5 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-tertiary)] transition-[background-color,color,scale] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)] active:scale-[0.96]"
-            >
-              Show {hiddenToolCount} more
-              <ChevronDown size={13} className="shrink-0 text-[var(--text-quaternary)]" />
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /* ── Timestamp formatting ──────────────────────────────── */
@@ -1325,7 +1209,13 @@ export function ChatMessages({
             <div className={turnSpacerClass(prevMsg.role, 'assistant')} />
           )}
           {item.kind === 'tool-group' && (
-            <ToolGroup msgs={item.msgs} isActive={item.startIndex === activeToolGroupStart} groupId={rowId} />
+            <ToolGroup
+              msgs={item.msgs}
+              isActive={item.startIndex === activeToolGroupStart}
+              groupId={rowId}
+              arrivals={commsArrivals}
+              isEntering={isEntering}
+            />
           )}
           {item.kind === 'dispatch-call' && (
             <div className="assistant-msg-row mb-[var(--space-1)] min-w-0">
