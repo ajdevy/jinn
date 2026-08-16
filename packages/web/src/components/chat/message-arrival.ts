@@ -10,9 +10,43 @@ import { parseTeammateReply } from './teammate-reply'
  *  the time the row is built again. */
 const ENTER_MARK_TTL_MS = 1_000
 
+/** How many unseen rows one commit may animate. Three slots, matching the cap
+ *  live block arrivals already hold themselves to (`Math.min(2, batch.count) * 60`
+ *  in hooks/use-live-session.ts). A commit carrying more than this is a catch-up,
+ *  not an arrival — the reader was away while the chat ran on — so the batch lands
+ *  as history, already in place, rather than every row playing at once or the
+ *  stagger tailing off for seconds. */
+const LIVE_ARRIVAL_BATCH_MAX = 3
+
+/** Stagger for a comms row's entrance. Clamped to the batch cap because an
+ *  uncapped index turns a large delivery into a multi-second tail. */
+export function commsArrivalDelayMs(arrival: number): number {
+  return Math.min(arrival, LIVE_ARRIVAL_BATCH_MAX - 1) * 90
+}
+
+/** The CSS already flattens the enter animation, but the stagger delay is ours
+ *  and would otherwise still run, holding rows back invisibly. Read live, like
+ *  fold-region does — a batch is judged in the commit it arrives in. */
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+}
+
 /** Comms rows are the only ones that stagger, and only the parsed kinds. */
 function isCommsRow(message: Message): boolean {
   return message.role === 'notification' && Boolean(parseTeammateReply(message) || parseAgentRelay(message))
+}
+
+/** The rows of this commit that have never been seen, marked seen on the way
+ *  out: they are history from here on whether or not the batch plays. */
+function takeUnseen(messages: Message[], seen: Set<string>): [string, Message][] {
+  const batch: [string, Message][] = []
+  for (const message of messages) {
+    const id = message.id
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    batch.push([id, message])
+  }
+  return batch
 }
 
 /**
@@ -26,7 +60,7 @@ function endsAStream(message: Message, streamed: boolean): boolean {
 }
 
 export interface MessageArrivals {
-  /** Comms stagger index for a row, or null when it did not arrive live. */
+  /** Comms stagger index for a row, or null when it plays no entrance. */
   commsArrival: (id: string | undefined) => number | null
   /** The same indices as a map, for the burst rail's own per-entry lookup. */
   commsArrivals: Map<string, number>
@@ -38,8 +72,10 @@ export interface MessageArrivals {
  * Live-arrival bookkeeping for the transcript.
  *
  * Ids present at mount never animate, which is what stops a session switch from
- * replaying a whole history's worth of enters. Comms rows additionally carry a
- * stagger index (+90ms per row within a delivery batch).
+ * replaying a whole history's worth of enters. Neither does a commit that brings
+ * more than LIVE_ARRIVAL_BATCH_MAX of them at once, nor any commit at all under
+ * reduced motion. What survives that is a live burst, and comms rows inside one
+ * additionally carry a stagger index for `commsArrivalDelayMs`.
  *
  * The refs are mutated inside a memo on purpose — the assignments must be
  * visible to the SAME render that first sees the message, or the row paints once
@@ -58,20 +94,20 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
   useMemo(() => {
     const seen = seenIdsRef.current
     if (!seen) return
+    const batch = takeUnseen(messages, seen)
+    const plays = batch.length <= LIVE_ARRIVAL_BATCH_MAX && !prefersReducedMotion()
     let batchIndex = 0
-    for (const message of messages) {
-      const id = message.id
-      if (!id || seen.has(id)) continue
-      seen.add(id)
+    for (const [id, message] of batch) {
       // The row that ends a stream plays nothing, and consumes the stream that
-      // produced it so the next arrival is judged on its own.
+      // produced it so the next arrival is judged on its own. The latch has to be
+      // spent even in a batch that plays nothing, or it silences a later arrival.
       if (endsAStream(message, streamedRef.current)) {
         streamedRef.current = false
-      } else {
+      } else if (plays) {
         enteringRef.current.add(id)
         setTimeout(() => enteringRef.current.delete(id), ENTER_MARK_TTL_MS)
       }
-      if (isCommsRow(message)) commsRef.current.set(id, batchIndex++)
+      if (plays && isCommsRow(message)) commsRef.current.set(id, batchIndex++)
     }
   }, [messages])
 

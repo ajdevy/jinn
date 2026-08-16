@@ -16,7 +16,7 @@ import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { useStreamingFormat } from './streaming-format'
 import { CollapsibleUserText } from './collapsible-user-text'
-import { useMessageArrivals } from './message-arrival'
+import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
 import {
@@ -980,7 +980,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
             messageId={msg.id || `idx-${i}`}
             onPeek={onPeek}
             arriving={arrival != null}
-            arrivalDelayMs={arrival != null ? arrival * 90 : undefined}
+            arrivalDelayMs={arrival != null ? commsArrivalDelayMs(arrival) : undefined}
           />
         </div>
       )}
@@ -993,7 +993,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
             messageId={msg.id || `idx-${i}`}
             onPeek={onPeek}
             arriving={arrival != null}
-            arrivalDelayMs={arrival != null ? arrival * 90 : undefined}
+            arrivalDelayMs={arrival != null ? commsArrivalDelayMs(arrival) : undefined}
           />
         </div>
       )}

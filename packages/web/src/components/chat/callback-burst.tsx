@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { EmployeeAvatar } from '@/components/ui/employee-avatar'
 import { clockTime } from './comms-callout'
+import { commsArrivalDelayMs } from './message-arrival'
 import { TeammateReply, type TeammateReplyData } from './teammate-reply'
 import type { CommsPeekData } from './thread-peek'
 import type { Message } from '@/lib/conversations'
@@ -88,7 +89,7 @@ export function CallbackBurst({ entries, onPeek, arrivals }: CallbackBurstProps)
               onPeek={onPeek}
               dense
               arriving={arrivalIndex !== undefined}
-              arrivalDelayMs={arrivalIndex !== undefined ? arrivalIndex * 90 : undefined}
+              arrivalDelayMs={arrivalIndex !== undefined ? commsArrivalDelayMs(arrivalIndex) : undefined}
             />
           )
         })}

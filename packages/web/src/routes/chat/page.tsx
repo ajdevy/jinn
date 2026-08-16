@@ -125,8 +125,9 @@ function ChatPage() {
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
-  // Pane identity + the optimistic bubble handed to the session the pane creates.
-  const { paneKey, pendingMessage, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee)
+  const sessionsQuery = useSessions()
+  // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
+  const { paneKey, committedId, awaitingOpen, pendingMessage, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
   // chat list folds. The ribbon's top toggle drives listOpen (persisted), so nav
   // never leaves the rail. There is no list⇄nav swap any more.
@@ -187,7 +188,6 @@ function ChatPage() {
   const archiveSessionMutation = useArchiveSession()
   const unarchiveSessionMutation = useUnarchiveSession()
   const duplicateSessionMutation = useDuplicateSession()
-  const sessionsQuery = useSessions()
   const selectedDelegatedActivity = useMemo(
     () => selectedDelegatedActivityFromList(sessionsQuery.data, selectedId),
     [selectedId, sessionsQuery.data],
@@ -1119,12 +1119,12 @@ function ChatPage() {
               <Suspense fallback={<div className="flex-1" />}>
                 <FileView path={chatTabs.activeTab.path} embedded onBack={handleFileBack} />
               </Suspense>
-            ) : (
+            ) : awaitingOpen ? <div className="flex-1" /> : (
               <ChatPane
                 key={paneKey}
-                sessionId={selectedId}
-                initialScrollTop={selectedId ? sessionScrollRef.current.get(selectedId) : undefined}
-                initialEmployee={selectedId ? undefined : pendingEmployee}
+                sessionId={committedId}
+                initialScrollTop={committedId ? sessionScrollRef.current.get(committedId) : undefined}
+                initialEmployee={committedId ? undefined : pendingEmployee}
                 isActive={true}
                 onFocus={() => {}}
                 onSessionCreated={handleSessionCreated}
