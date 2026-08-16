@@ -71,13 +71,17 @@ test("lists routable IPv4 addresses only, tailnet first", () => {
 })
 
 test("only 100.64/10 counts as the tailnet; the rest of 100/8 stays behind the LAN", () => {
-  const addresses = reachableAddresses({
-    en0: [{ address: "192.168.1.20", family: "IPv4", internal: false }],
-    en1: [{ address: "100.20.5.6", family: "IPv4", internal: false }],
-    en2: [{ address: "100.200.5.6", family: "IPv4", internal: false }],
-    utun3: [{ address: "100.101.102.103", family: "IPv4", internal: false }],
-  })
-  assert.deepEqual(addresses, ["100.101.102.103", "192.168.1.20", "100.20.5.6", "100.200.5.6"])
+  const lan = { address: "192.168.1.20", family: "IPv4", internal: false }
+  const publicLow = { address: "100.20.5.6", family: "IPv4", internal: false }
+  const publicHigh = { address: "100.200.5.6", family: "IPv4", internal: false }
+  const tailnet = { address: "100.101.102.103", family: "IPv4", internal: false }
+  const expected = ["100.101.102.103", "192.168.1.20", "100.20.5.6", "100.200.5.6"]
+
+  // Enumerated public-first, which is the order that exposes a rank the LAN shares
+  // with public space: with the two tied, the sort leaves them as the machine
+  // listed them and the phone is handed an address in AWS.
+  assert.deepEqual(reachableAddresses({ en0: [publicLow], en1: [publicHigh], en2: [lan], utun3: [tailnet] }), expected)
+  assert.deepEqual(reachableAddresses({ en0: [lan], en1: [publicLow], en2: [publicHigh], utun3: [tailnet] }), expected)
 })
 
 test("an ABI mismatch says which Node the addon needs and how to get it", (t) => {

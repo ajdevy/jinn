@@ -69,8 +69,18 @@ export function reachableAddresses(interfaces) {
       found.push(entry.address)
     }
   }
-  const tailnetFirst = (address) => (isTailnetAddress(address) ? 0 : 1)
-  return found.sort((a, b) => tailnetFirst(a) - tailnetFirst(b))
+  return found.sort((a, b) => reachRank(a) - reachRank(b))
+}
+
+/**
+ * Tailnet, then LAN, then everything else. The third rank has to be its own: give
+ * a public address the same rank as the LAN and the two tie, which leaves the
+ * order of `os.networkInterfaces()` deciding which URL the operator is handed.
+ * @param {string} address
+ */
+function reachRank(address) {
+  if (isTailnetAddress(address)) return 0
+  return isPrivateAddress(address) ? 1 : 2
 }
 
 /**
@@ -82,6 +92,17 @@ export function reachableAddresses(interfaces) {
 function isTailnetAddress(address) {
   const [first, second] = address.split(".").map(Number)
   return first === 100 && second >= 64 && second <= 127
+}
+
+/**
+ * The RFC 1918 ranges — what a phone on the same Wi-Fi actually reaches.
+ * @param {string} address
+ */
+function isPrivateAddress(address) {
+  const [first, second] = address.split(".").map(Number)
+  if (first === 10) return true
+  if (first === 172) return second >= 16 && second <= 31
+  return first === 192 && second === 168
 }
 
 /** A transcript long enough that a flick has somewhere to coast. */

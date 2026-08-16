@@ -194,20 +194,26 @@ a phone names this machine — which is the one thing a public repository must n
 URL is not written here; it is *printed*, by the second command below, from the addresses the
 machine actually holds when you run it. Nothing here is a blank to fill in.
 
+Every one of the three is prefixed with `pnpm exec`, and that is not decoration. `.npmrc` pins
+`use-node-version=24.13.0`, so `pnpm exec` puts that Node first on `PATH` for whatever it runs —
+including the sandbox helper, which shells out to a bare `node`. Drop the prefix on a machine
+whose `PATH` leads with a different Node and step 1 dies inside `--seed` on better-sqlite3's ABI
+check (`NODE_MODULE_VERSION 137 ... requires NODE_MODULE_VERSION 147`) before the sandbox exists.
+
 Run all three from a checkout of this branch:
 
 ```bash
 # 1. create a throwaway sandbox on a free port ≥7778 (never 7777, never 7788), do not start it.
 #    --seed is what materialises the registry tables step 2 writes into.
 JINN_REPO="$(git rev-parse --show-toplevel)" \
-  ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh create qa-flick --port 7782 --build --seed
+  pnpm exec ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh create qa-flick --port 7782 --build --seed
 
 # 2. seed a transcript long enough to flick, open the bind so the phone can route to it, and
-#    print the URL. `pnpm exec` runs it under the pinned Node the sqlite addon is built for.
+#    print the URL.
 pnpm exec node scripts/device-scroll-fixture.mjs --home ~/.jinn-qa-flick
 
 # 3. start it
-~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh start qa-flick
+pnpm exec ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh start qa-flick
 ```
 
 Step 2 prints the URL and the pairing command, e.g.:
@@ -231,16 +237,19 @@ and that is the sandbox refusing to sit unauthenticated on the network rather th
 going wrong. And run the `pair` command with `JINN_PORT` and `JINN_HOME` unset: both leak from a
 gateway session's environment and beat `-i`, which would point the CLI at the live instance.
 
-All three commands above were run in sequence from this checkout: the sandbox came up on 7782,
-220 rows landed in `messages`, `gateway.host` was rewritten to `0.0.0.0`, the command printed one
-tailnet and one LAN URL, the started gateway answered `200` on the seeded session, and the
-sandbox was destroyed afterwards.
+All three commands above were run in sequence from this checkout, deliberately with a foreign
+Node 26 leading `PATH` so the `pnpm exec` prefix was the only thing standing between the run and
+the ABI check: the sandbox came up on 7782, 220 rows landed in `messages`, `gateway.host` was
+rewritten to `0.0.0.0`, the command printed the tailnet URL ahead of the LAN one, the started
+gateway answered `200` on the seeded session, and the sandbox was destroyed afterwards.
 
 `scripts/__tests__/device-scroll-fixture.test.mjs` covers what the script refuses and what it
 must not do halfway. It will not rewrite a home named `.jinn` or one configured on 7777 or 7788;
-it ranks only Tailscale's 100.64/10 ahead of the LAN, so a public 100/8 address is never offered
-as the phone URL; and when the sqlite addon cannot load — the ABI mismatch a bare `node` walks
-into — it aborts with a message naming the pinned Node and `pnpm exec node`, leaving
+it ranks only Tailscale's 100.64/10 ahead of the LAN and the LAN ahead of everything else, with
+both enumeration orders asserted because a rank the LAN shares with public space is settled by
+`os.networkInterfaces()` rather than by the sort, so a public 100/8 address is never offered as
+the phone URL; and when the sqlite addon cannot load — the ABI mismatch a bare `node` walks into
+— it aborts with a message naming the pinned Node and `pnpm exec node`, leaving
 `config.yaml` byte-identical rather than a sandbox bound to `0.0.0.0` with an empty thread. Each
 of those goes red when its fix is reverted, verified one at a time.
 
