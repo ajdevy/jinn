@@ -202,9 +202,9 @@ Run all three from a checkout of this branch:
 JINN_REPO="$(git rev-parse --show-toplevel)" \
   ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh create qa-flick --port 7782 --build --seed
 
-# 2. seed a transcript long enough to flick, open the bind so the phone can route to it,
-#    and print the URL to open there
-node scripts/device-scroll-fixture.mjs --home ~/.jinn-qa-flick
+# 2. seed a transcript long enough to flick, open the bind so the phone can route to it, and
+#    print the URL. `pnpm exec` runs it under the pinned Node the sqlite addon is built for.
+pnpm exec node scripts/device-scroll-fixture.mjs --home ~/.jinn-qa-flick
 
 # 3. start it
 ~/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh start qa-flick
@@ -223,7 +223,7 @@ A non-loopback bind always requires auth. Pair the phone with the code from:
 ```
 
 (That address is RFC 5737 documentation space standing in for whatever the command prints on the
-day; the real one comes from the machine's own interfaces, tailnet first.)
+day; the real one comes from the machine's own interfaces, tailnet — 100.64/10 — first.)
 
 Two things worth knowing before you run it. A non-loopback bind turns authentication on by
 itself — `shouldRequireGatewayAuth` returns true for `0.0.0.0` — so the phone will ask to pair,
@@ -231,11 +231,18 @@ and that is the sandbox refusing to sit unauthenticated on the network rather th
 going wrong. And run the `pair` command with `JINN_PORT` and `JINN_HOME` unset: both leak from a
 gateway session's environment and beat `-i`, which would point the CLI at the live instance.
 
-The seeding step was exercised end to end against a throwaway home while writing this: 220 rows
-landed in `messages` in `role` order, `gateway.host` was rewritten to `0.0.0.0`, and the command
-printed one tailnet and one LAN URL. `scripts/__tests__/device-scroll-fixture.test.mjs` covers
-the refusals — the script will not rewrite a home named `.jinn` or one configured on 7777 or
-7788, and both tests fail if the guard is removed.
+All three commands above were run in sequence from this checkout: the sandbox came up on 7782,
+220 rows landed in `messages`, `gateway.host` was rewritten to `0.0.0.0`, the command printed one
+tailnet and one LAN URL, the started gateway answered `200` on the seeded session, and the
+sandbox was destroyed afterwards.
+
+`scripts/__tests__/device-scroll-fixture.test.mjs` covers what the script refuses and what it
+must not do halfway. It will not rewrite a home named `.jinn` or one configured on 7777 or 7788;
+it ranks only Tailscale's 100.64/10 ahead of the LAN, so a public 100/8 address is never offered
+as the phone URL; and when the sqlite addon cannot load — the ABI mismatch a bare `node` walks
+into — it aborts with a message naming the pinned Node and `pnpm exec node`, leaving
+`config.yaml` byte-identical rather than a sandbox bound to `0.0.0.0` with an empty thread. Each
+of those goes red when its fix is reverted, verified one at a time.
 
 Four steps:
 
@@ -486,7 +493,7 @@ $ pnpm test
 @jinn/gateway-events:test  Test Files  2 passed (2)
 jinn-cli:test              Test Files  451 passed (451)
 @jinn/web:test             Test Files  253 passed (253)
-root (node:test)           tests 179   pass 179   fail 0
+root (node:test)           tests 183   pass 183   fail 0
  Tasks:    6 successful, 6 total
 
 $ pnpm build
@@ -494,14 +501,15 @@ $ pnpm build
 synced packages/web/out -> packages/jinn/dist/web (pruned 150 stale files)
 
 $ pnpm ratchet --check
-size ratchet: 1584 files scanned, 379 baselined files, 119534 budgeted lines (limit 300)
+size ratchet: 1586 files scanned, 379 baselined files, 119534 budgeted lines (limit 300)
 
 $ pnpm footguns
-footguns: 0 violations in 128 files, 0 suppressions (0 unaudited)
+footguns: 0 violations in 131 files, 0 suppressions (0 unaudited)
 ```
 
-The root `node:test` total moved 175 → 179 and footguns scans one more file: both are
-`scripts/device-scroll-fixture.mjs` and its four guard tests, added for defect 3's checklist.
+The root `node:test` total moved 175 → 183: `scripts/device-scroll-fixture.mjs` and its eight
+guard tests, added for defect 3's checklist. The two scan counts read the same with this branch's
+changes stashed, so neither moved for anything in this report.
 
 ---
 

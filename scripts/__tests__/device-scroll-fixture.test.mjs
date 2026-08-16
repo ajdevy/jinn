@@ -1,11 +1,42 @@
 import assert from "node:assert/strict"
+import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { test } from "node:test"
 
-import { assertDisposableHome, reachableAddresses } from "../device-scroll-fixture.mjs"
+import { assertDisposableHome, prepareSandbox, reachableAddresses } from "../device-scroll-fixture.mjs"
 
 const disposable = path.join(os.tmpdir(), ".jinn-qa-flick")
+
+const CONFIG = "gateway:\n  port: 7782\n"
+
+/** The two shapes a mismatched native addon arrives in. */
+const abiFailures = [
+  () =>
+    new Error(
+      "The module '/repo/better_sqlite3.node' was compiled against a different Node.js version " +
+        "using NODE_MODULE_VERSION 137. This version of Node.js requires NODE_MODULE_VERSION 147.",
+    ),
+  () => Object.assign(new Error("dlopen failed"), { code: "ERR_DLOPEN_FAILED" }),
+]
+
+/** @param {import("node:test").TestContext} t */
+function sandboxHome(t) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-qa-flick-"))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(home, "config.yaml"), CONFIG)
+  return home
+}
+
+/** @param {() => unknown} run */
+function captureThrow(run) {
+  try {
+    run()
+  } catch (error) {
+    return /** @type {Error} */ (error)
+  }
+  return null
+}
 
 test("refuses the production instance home whatever port it carries", () => {
   const home = path.join(os.homedir(), ".jinn")
@@ -37,4 +68,51 @@ test("lists routable IPv4 addresses only, tailnet first", () => {
     utun3: [{ address: "100.101.102.103", family: "IPv4", internal: false }],
   })
   assert.deepEqual(addresses, ["100.101.102.103", "192.168.1.20"])
+})
+
+test("only 100.64/10 counts as the tailnet; the rest of 100/8 stays behind the LAN", () => {
+  const addresses = reachableAddresses({
+    en0: [{ address: "192.168.1.20", family: "IPv4", internal: false }],
+    en1: [{ address: "100.20.5.6", family: "IPv4", internal: false }],
+    en2: [{ address: "100.200.5.6", family: "IPv4", internal: false }],
+    utun3: [{ address: "100.101.102.103", family: "IPv4", internal: false }],
+  })
+  assert.deepEqual(addresses, ["100.101.102.103", "192.168.1.20", "100.20.5.6", "100.200.5.6"])
+})
+
+test("an ABI mismatch says which Node the addon needs and how to get it", (t) => {
+  for (const makeFailure of abiFailures) {
+    const error = captureThrow(() =>
+      prepareSandbox(sandboxHome(t), () => {
+        throw makeFailure()
+      }),
+    )
+    assert.ok(error, "the mismatch should abort the run")
+    // 24.13.0 is `.nvmrc`; the script reads it rather than repeating it.
+    assert.match(error.message, /Node 24\.13\.0/)
+    assert.match(error.message, /pnpm exec node scripts\/device-scroll-fixture\.mjs/)
+  }
+})
+
+test("a store that will not open leaves config.yaml byte-identical", (t) => {
+  for (const makeFailure of abiFailures) {
+    const home = sandboxHome(t)
+    const configPath = path.join(home, "config.yaml")
+    const before = fs.readFileSync(configPath)
+    captureThrow(() =>
+      prepareSandbox(home, () => {
+        throw makeFailure()
+      }),
+    )
+    assert.deepEqual(fs.readFileSync(configPath), before, "no host rewrite, no portal flags")
+  }
+})
+
+test("an open failure that is not an ABI mismatch is reported as itself", (t) => {
+  const error = captureThrow(() =>
+    prepareSandbox(sandboxHome(t), () => {
+      throw new Error("SQLITE_CANTOPEN: unable to open database file")
+    }),
+  )
+  assert.match(/** @type {Error} */ (error).message, /SQLITE_CANTOPEN/)
 })

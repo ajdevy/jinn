@@ -22,6 +22,14 @@ const PRODUCTION_HOME_NAME = ".jinn"
 const SESSION_ID = "device-scroll-check"
 const EXCHANGES = 110
 
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
+const requireFromJinn = createRequire(path.join(repoRoot, "packages/jinn/package.json"))
+const YAML = requireFromJinn("yaml")
+
+// The Node this checkout's native addons are compiled against. Read rather than
+// written down so it cannot drift from the version pnpm actually enforces.
+const PINNED_NODE = fs.readFileSync(path.join(repoRoot, ".nvmrc"), "utf8").trim()
+
 /** @param {string[]} argv */
 function parseArgs(argv) {
   const args = new Map()
@@ -61,8 +69,19 @@ export function reachableAddresses(interfaces) {
       found.push(entry.address)
     }
   }
-  const tailnet = (address) => (address.startsWith("100.") ? 0 : 1)
-  return found.sort((a, b) => tailnet(a) - tailnet(b))
+  const tailnetFirst = (address) => (isTailnetAddress(address) ? 0 : 1)
+  return found.sort((a, b) => tailnetFirst(a) - tailnetFirst(b))
+}
+
+/**
+ * Tailscale allocates out of 100.64/10 — second octet 64 through 127. The rest of
+ * 100/8 is ordinary public space (100.20.5.6 is AWS), and offering one of those as
+ * the address to open on the phone sends the operator somewhere else entirely.
+ * @param {string} address
+ */
+function isTailnetAddress(address) {
+  const [first, second] = address.split(".").map(Number)
+  return first === 100 && second >= 64 && second <= 127
 }
 
 /** A transcript long enough that a flick has somewhere to coast. */
@@ -125,29 +144,67 @@ function report(home, port, seeded) {
   console.log(`  jinn -i ${instance} pair`)
 }
 
-function main() {
-  const { home } = parseArgs(process.argv)
+/**
+ * better-sqlite3 loads its native addon at `new Database(...)` rather than at
+ * require, so running under a Node with a different ABI fails here — with a
+ * message about module versions that says nothing about how to get it right.
+ * @param {any} error
+ */
+function isNativeAbiMismatch(error) {
+  return error?.code === "ERR_DLOPEN_FAILED" || String(error?.message ?? error).includes("NODE_MODULE_VERSION")
+}
+
+/**
+ * @param {(file: string) => import("better-sqlite3").Database} openDatabase
+ * @param {string} file
+ */
+function openTranscriptStore(openDatabase, file) {
+  try {
+    return openDatabase(file)
+  } catch (error) {
+    if (!isNativeAbiMismatch(error)) throw error
+    throw new Error(
+      `better-sqlite3 in this checkout is built for Node ${PINNED_NODE}, and ${process.version} is running it. ` +
+        "Run it under the pinned Node instead: " +
+        "pnpm exec node scripts/device-scroll-fixture.mjs --home <sandbox home>",
+      { cause: error },
+    )
+  }
+}
+
+/**
+ * Reads the sandbox's config, refuses a home this script must not rewrite, and only
+ * then rewrites the config and seeds the transcript. The store opens before the
+ * write so a native-load failure leaves the home exactly as it was found: an
+ * aborted run must not leave a sandbox bound to the network with an empty thread.
+ * @param {string} home
+ * @param {(file: string) => import("better-sqlite3").Database} openDatabase
+ */
+export function prepareSandbox(home, openDatabase) {
   const configPath = path.join(home, "config.yaml")
   if (!fs.existsSync(configPath)) throw new Error(`${configPath} does not exist; create the sandbox first`)
-
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
-  const requireFromJinn = createRequire(path.join(repo, "packages/jinn/package.json"))
-  const YAML = requireFromJinn("yaml")
-  const Database = requireFromJinn("better-sqlite3")
 
   const config = YAML.parse(fs.readFileSync(configPath, "utf8")) ?? {}
   assertDisposableHome(home, config)
 
-  config.gateway = { ...(config.gateway ?? {}), host: "0.0.0.0" }
-  // The first-run wizard is lazily imported, so it lands an extra commit inside
-  // the window this check is looking at. Skip it.
-  config.portal = { ...(config.portal ?? {}), onboarded: true, setupComplete: true }
-  fs.writeFileSync(configPath, YAML.stringify(config))
+  const db = openTranscriptStore(openDatabase, path.join(home, "sessions", "registry.db"))
+  try {
+    config.gateway = { ...(config.gateway ?? {}), host: "0.0.0.0" }
+    // The first-run wizard is lazily imported, so it lands an extra commit inside
+    // the window this check is looking at. Skip it.
+    config.portal = { ...(config.portal ?? {}), onboarded: true, setupComplete: true }
+    fs.writeFileSync(configPath, YAML.stringify(config))
+    return { seeded: seedTranscript(db), port: config.gateway.port }
+  } finally {
+    db.close()
+  }
+}
 
-  const db = new Database(path.join(home, "sessions", "registry.db"))
-  const seeded = seedTranscript(db)
-  db.close()
-  report(home, config.gateway.port, seeded)
+function main() {
+  const { home } = parseArgs(process.argv)
+  const Database = requireFromJinn("better-sqlite3")
+  const { seeded, port } = prepareSandbox(home, (file) => new Database(file))
+  report(home, port, seeded)
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) main()
