@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { prefetchLiveSessionSnapshot, readPrefetchedLiveSessionSnapshot } from '@/hooks/use-live-session'
 
 export interface CommittedSelection {
@@ -6,6 +6,14 @@ export interface CommittedSelection {
   committedId: string | null
   /** No pane may mount yet — a bare `/` has not decided which chat it opens. */
   awaitingOpen: boolean
+  /**
+   * Commit a selection at once, skipping the hold.
+   *
+   * The hold below is only worth paying while the outgoing transcript is on
+   * screen; where it is not, holding preserves nothing and reveals the chat the
+   * reader already left. Only the caller can see which it is.
+   */
+  commitWithoutHold: (sessionId: string) => void
 }
 
 /**
@@ -28,6 +36,33 @@ export function isOpenSelectionInbound(state: {
 }
 
 /**
+ * The beat a commit spends ahead of the URL.
+ *
+ * `commitWithoutHold` runs in the tap that starts a navigation, and react-router
+ * wraps navigation in a transition — so for one beat `selectedId` still names
+ * the chat the reader left. Anything reading the selection has to sit that beat
+ * out, or it commits the pane straight back to that chat and undoes the open.
+ * The record retires as soon as the URL moves, wherever it lands, so a
+ * superseded navigation cannot strand the pane on a selection that never came.
+ */
+function useUrlOvertake(selectedId: string | null) {
+  const selectedIdRef = useRef(selectedId)
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+  const overtakenRef = useRef<{ selectedId: string | null } | null>(null)
+  const overtake = useCallback(() => {
+    overtakenRef.current = { selectedId: selectedIdRef.current }
+  }, [])
+  /** True while the URL still names the selection the commit went past. */
+  const awaitingUrl = useCallback(() => {
+    if (!overtakenRef.current) return false
+    if (overtakenRef.current.selectedId === selectedId) return true
+    overtakenRef.current = null
+    return false
+  }, [selectedId])
+  return { overtake, awaitingUrl }
+}
+
+/**
  * The selection the PANE shows, which deliberately lags the URL.
  *
  * Two lags, one rule: never commit a pane that will immediately be replaced, or
@@ -43,7 +78,9 @@ export function isOpenSelectionInbound(state: {
  *   first commit, so the outgoing transcript is held instead of discarded. The
  *   hold runs until the destination can paint, with no deadline behind it: a
  *   timer that gives up mid-fetch commits a pane that has nothing but a spinner
- *   to show, which is the blank-then-spinner this lag exists to prevent.
+ *   to show, which is the blank-then-spinner this lag exists to prevent. That
+ *   hold assumes the outgoing transcript is on screen; where it is not, the
+ *   caller says so with `commitWithoutHold` and there is no lag at all.
  *
  * Nothing lags out of a composer: the pane that just created a session adopts
  * that id in the same commit, and delaying it would strand the send.
@@ -57,8 +94,14 @@ export function useCommittedSelection(
   const [commit, setCommit] = useState<{ id: string | null } | null>(
     () => (awaitingSelection ? null : { id: selectedId }),
   )
+  const { overtake, awaitingUrl } = useUrlOvertake(selectedId)
+  const commitWithoutHold = useCallback((sessionId: string) => {
+    overtake()
+    setCommit({ id: sessionId })
+  }, [overtake])
 
   useEffect(() => {
+    if (awaitingUrl()) return
     if (awaitingSelection) return
     if (commit && commit.id === selectedId) return
     // Only a move between two sessions has a transcript worth holding: an
@@ -81,7 +124,7 @@ export function useCommittedSelection(
       cancelled = true
       controller.abort()
     }
-  }, [selectedId, awaitingSelection, commit])
+  }, [selectedId, awaitingSelection, commit, awaitingUrl])
 
-  return { committedId: commit?.id ?? null, awaitingOpen: !commit }
+  return { committedId: commit?.id ?? null, awaitingOpen: !commit, commitWithoutHold }
 }

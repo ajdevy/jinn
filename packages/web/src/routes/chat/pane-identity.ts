@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import type { Message } from '@/lib/conversations'
 import { isOpenSelectionInbound, useCommittedSelection } from './selection-commit'
 
@@ -34,6 +35,13 @@ export interface PaneIdentity {
   awaitingOpen: boolean
   /** Optimistic bubble to seed the pane with, when it belongs to this selection. */
   pendingMessage: Message | undefined
+  /** The element the pane is rendered in. A phone hides this slot behind the
+   *  chat list, which is how `revealSelection` tells whether the pane the reader
+   *  is leaving is on screen at all. */
+  paneSlotRef: RefObject<HTMLDivElement | null>
+  /** A reader-initiated open, which puts the pane slot on screen in the same
+   *  paint it happens in. */
+  revealSelection: (sessionId: string) => void
   /** The pane created this session — keep it mounted under its current key. */
   adoptSession: (sessionId: string, pending?: Message) => void
   /** The user asked for a blank composer — give them a fresh pane. */
@@ -52,7 +60,7 @@ export function usePaneIdentity(
   pendingEmployee: string | null,
   opening: OpeningState,
 ): PaneIdentity {
-  const { committedId, awaitingOpen } = useCommittedSelection(
+  const { committedId, awaitingOpen, commitWithoutHold } = useCommittedSelection(
     urlSelectedId,
     isOpenSelectionInbound({ selectedId: urlSelectedId, ...opening }),
   )
@@ -73,6 +81,15 @@ export function usePaneIdentity(
   useEffect(() => {
     setAdopted((current) => (current && committedId && committedId !== current.sessionId ? null : current))
   }, [committedId])
+  const paneSlotRef = useRef<HTMLDivElement | null>(null)
+  const revealSelection = useCallback((sessionId: string) => {
+    // A slot a phone has display-toggled away measures zero high. The pane is
+    // still mounted inside it, so the hold would not keep anything the reader
+    // can see: it would put the chat they just left back in front of them for
+    // the length of the destination's fetch, over the tap that left it.
+    if (paneSlotRef.current?.clientHeight) return
+    commitWithoutHold(sessionId)
+  }, [commitWithoutHold])
   const paneKey = committedId && committedId !== adopted?.sessionId
     ? committedId
     : `__new__:${composerCount}:${pendingEmployee ?? ''}`
@@ -81,6 +98,8 @@ export function usePaneIdentity(
     committedId,
     awaitingOpen,
     pendingMessage: adopted?.sessionId === committedId ? adopted?.pending : undefined,
+    paneSlotRef,
+    revealSelection,
     adoptSession,
     startComposer,
   }

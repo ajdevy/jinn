@@ -127,7 +127,7 @@ function ChatPage() {
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
   const sessionsQuery = useSessions()
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
-  const { paneKey, committedId, awaitingOpen, pendingMessage, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
+  const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
   // chat list folds. The ribbon's top toggle drives listOpen (persisted), so nav
   // never leaves the rail. There is no list⇄nav swap any more.
@@ -328,12 +328,12 @@ function ChatPage() {
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
       newChatIntentRef.current = false
-      // On mobile, opening a session pushes from the list into the thread. The
-      // one exception is the background auto-select of the most-recent session
-      // (see handleSessionsLoaded): it primes selectedId for the desktop thread
-      // but must NOT drop a phone user into a chat when they tapped the Chat tab
-      // — that tab should always land on the LIST (GRS-023).
-      if (opts?.navigateMobile !== false) setMobileView('chat')
+      // On mobile, opening a session pushes from the list into the thread, and the
+      // pane arrives with it (see revealSelection). The one exception is the
+      // background auto-select of the most-recent session (handleSessionsLoaded):
+      // it primes selectedId for the desktop thread but must NOT drop a phone user
+      // into a chat when they tapped the Chat tab — always the LIST (GRS-023).
+      if (opts?.navigateMobile !== false) { revealSelection(id); setMobileView('chat') }
       // Open a tab — label will be updated once session meta loads
       chatTabs.openTab({ sessionId: id, label: 'Loading...', status: 'idle', unread: false })
       // Skip when already selected — and dedupe PUSH re-fires while the same
@@ -348,7 +348,7 @@ function ChatPage() {
         })
       }
     },
-    [chatTabs, navigate]
+    [chatTabs, navigate, revealSelection]
   )
 
   // URL → tab/intent sync: covers selections that did NOT come through
@@ -1107,7 +1107,7 @@ function ChatPage() {
             />
           </div>
 
-          <div className={cn(
+          <div ref={paneSlotRef} className={cn(
             "flex-1 overflow-hidden flex flex-col",
             mobileView === 'sidebar' ? 'hidden lg:flex' : 'flex'
           )}>

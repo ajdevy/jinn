@@ -8,7 +8,8 @@
  * `showSessionHydration`): the one line this harness restates, and it has to
  * stay in step.
  */
-import { useEffect } from 'react'
+import { startTransition, useEffect, useLayoutEffect, useState } from 'react'
+import type { RefObject } from 'react'
 import { act } from '@testing-library/react'
 import { vi } from 'vitest'
 import { usePaneIdentity } from '../pane-identity'
@@ -16,8 +17,9 @@ import { useHydrationSpinner, useRouteLoadingPresence } from '@/components/chat/
 import { useLiveSession } from '@/hooks/use-live-session'
 import type { GatewayEventListener } from '@jinn/gateway-events'
 
-/** One committed paint of the pane. A frame only exists when something is
- *  mounted, so an absent frame IS the withheld mount. */
+/** One committed paint of the pane the reader can see. A frame only exists when
+ *  something is mounted and on screen, so an absent frame IS the withheld mount
+ *  — or, on a phone, the pane slot hidden behind the chat list. */
 export interface Frame {
   sessionId: string | null
   content: boolean
@@ -51,11 +53,11 @@ export function transcript(id: string, rows: number) {
   }))
 }
 
-function Pane({ sessionId }: { sessionId: string | null }) {
+function Pane({ sessionId, onScreen = true }: { sessionId: string | null; onScreen?: boolean }) {
   const { messages, hydrating, streamingText } = useLiveSession(sessionId, { subscribe })
   const spinner = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
   useEffect(() => {
-    frames.push({ sessionId, content: messages.length > 0, spinner })
+    if (onScreen) frames.push({ sessionId, content: messages.length > 0, spinner })
   })
   return null
 }
@@ -75,6 +77,74 @@ export function Surface({ selectedId, sessionsPending = false, sessionCount = 0,
   })
   if (awaitingOpen) return null
   return <Pane key={paneKey} sessionId={committedId} />
+}
+
+/** jsdom lays nothing out, so the one measurement the route takes off the pane
+ *  slot is supplied here: a slot the phone has display-toggled away is zero
+ *  high, and a slot on screen is not. */
+function useSlotHeight(slotRef: RefObject<HTMLDivElement | null>, onScreen: boolean) {
+  useLayoutEffect(() => {
+    if (slotRef.current) {
+      Object.defineProperty(slotRef.current, 'clientHeight', { configurable: true, value: onScreen ? 640 : 0 })
+    }
+  }, [slotRef, onScreen])
+}
+
+interface PhoneSurfaceProps {
+  /** The chat the URL already names, or null to start on the list. */
+  initialSelectedId: string | null
+  /** The rows the chat list offers. */
+  rows: string[]
+}
+
+/**
+ * The phone layout, where the pane slot is a screen rather than a column.
+ *
+ * The route hides the slot with a class while the chat list is up, so the pane
+ * inside it stays mounted on the session the reader last read. Tapping a row
+ * reveals that slot in the same urgent paint, while the URL behind it lands a
+ * transition later — which is the disagreement this surface exists to expose,
+ * and the reason a desktop-shaped harness measured this open as clean.
+ */
+export function PhoneSurface({ initialSelectedId, rows }: PhoneSurfaceProps) {
+  const [selectedId, setSelectedId] = useState(initialSelectedId)
+  const [newChatIntent, setNewChatIntent] = useState(false)
+  const [onList, setOnList] = useState(initialSelectedId === null)
+  const { paneKey, committedId, awaitingOpen, paneSlotRef, revealSelection } = usePaneIdentity(selectedId, null, {
+    newChatIntent,
+    sessionsPending: false,
+    sessionCount: rows.length,
+  })
+  useSlotHeight(paneSlotRef, !onList)
+  const openChat = (id: string) => {
+    // handleSelect's order: the reveal is urgent and paints at once, while the
+    // navigation behind it is a react-router transition and lands a frame later.
+    revealSelection(id)
+    setOnList(false)
+    startTransition(() => setSelectedId(id))
+  }
+  return (
+    <>
+      {rows.map((id) => (
+        <button key={id} data-testid={`row-${id}`} onClick={() => openChat(id)} />
+      ))}
+      {/* The back chip pops the thread without touching the URL; browser back
+          lands on the bare `/` the list was opened from, which is where the
+          route arms the new-chat intent so the auto-select cannot hijack it. */}
+      <button data-testid="back" onClick={() => setOnList(true)} />
+      <button
+        data-testid="pop-to-list"
+        onClick={() => {
+          setOnList(true)
+          setNewChatIntent(true)
+          startTransition(() => setSelectedId(null))
+        }}
+      />
+      <div ref={paneSlotRef}>
+        {awaitingOpen ? null : <Pane key={paneKey} sessionId={committedId} onScreen={!onList} />}
+      </div>
+    </>
+  )
 }
 
 /** The route-level fallback a cold direct open waits at before the chat chunk
