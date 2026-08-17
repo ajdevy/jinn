@@ -22,6 +22,9 @@ export interface RealtimeUsage {
   outputTextTokens: number;
   cachedInputAudioTokens: number;
   cachedInputTextTokens: number;
+  /** Image tokens are optional for adapters that cannot receive images. */
+  inputImageTokens?: number;
+  cachedInputImageTokens?: number;
 }
 
 /** A tool the model may call mid-conversation. `parameters` is a JSON Schema. */

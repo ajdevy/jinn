@@ -15,7 +15,7 @@ import { createSession, getSessionSpend, insertMessage, recordTurnAccounting } f
 import { priceTurn } from "../talk/session/pricing.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { TALK_TOOL_INTENTS, estimateToolTokens, isKnownIntent, toolsByName } from "../talk/session/tools.js";
-import type { TalkActionRecord, TalkSession } from "../talk/session/types.js";
+import type { TalkActionRecord, TalkSession, VisualCaptureReceipt } from "../talk/session/types.js";
 import { readJsonBody } from "./http-helpers.js";
 import { json } from "./route-helpers.js";
 
@@ -27,6 +27,12 @@ const send = (res: ServerResponse, status: number, body: unknown): void => json(
 
 /** Accept a usage payload only when every token count is a non-negative finite
  *  number, so a malformed client cannot quietly bill a session zero. */
+function tokenCount(raw: Record<string, unknown>, key: string, optional = false): number | null {
+  const count = raw[key]
+  if (count === undefined && optional) return 0
+  return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : null
+}
+
 function numericUsage(value: unknown): RealtimeUsage | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -40,11 +46,45 @@ function numericUsage(value: unknown): RealtimeUsage | null {
   ] as const;
   const usage = {} as RealtimeUsage;
   for (const key of keys) {
-    const count = raw[key];
-    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return null;
+    const count = tokenCount(raw, key)
+    if (count === null) return null
     usage[key] = count;
   }
+  for (const key of ["inputImageTokens", "cachedInputImageTokens"] as const) {
+    const count = tokenCount(raw, key, true)
+    if (count === null) return null
+    usage[key] = count
+  }
   return usage;
+}
+
+const VISUAL_RECEIPT_FIELDS = [
+  "contextRevision",
+  "bytes",
+  "width",
+  "height",
+  "estimatedImageTokens",
+  "latencyMs",
+] as const;
+
+function boundedLabel(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max
+}
+
+function visualReceipt(value: unknown): VisualCaptureReceipt | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+  const hasNumbers = VISUAL_RECEIPT_FIELDS.every((key) => tokenCount(raw, key) !== null)
+  if (!boundedLabel(raw.requestKey, 200) || !boundedLabel(raw.reason, 120) || !hasNumbers) return null
+  if ((raw.bytes as number) > 180_000 || (raw.width as number) > 1280 || (raw.height as number) > 1280) return null
+  return raw as unknown as VisualCaptureReceipt
+}
+
+function visualReceipts(value: unknown): VisualCaptureReceipt[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 8) return null
+  const receipts = value.map(visualReceipt)
+  return receipts.includes(null) ? null : receipts as VisualCaptureReceipt[]
 }
 
 /**
@@ -61,8 +101,9 @@ export async function recordTurn(
 ): Promise<void> {
   const parsed = await readJsonBody(req as JsonRequest, res);
   if (!parsed.ok) return;
-  const body = (parsed.body ?? {}) as { usage?: unknown; transcript?: unknown };
+  const body = (parsed.body ?? {}) as { usage?: unknown; transcript?: unknown; visualReceipts?: unknown };
   const usage = numericUsage(body.usage);
+  const receipts = visualReceipts(body.visualReceipts);
   if (!usage) {
     send(res, 400, { error: "usage must carry a non-negative number for every RealtimeUsage token count." });
     return;
@@ -71,9 +112,13 @@ export async function recordTurn(
     send(res, 400, { error: "transcript must be a string when present." });
     return;
   }
+  if (!receipts) {
+    send(res, 400, { error: "visualReceipts must contain only bounded public capture metadata." });
+    return;
+  }
   const priced = priceTurn(session.model, usage);
   recordTurnAccounting(session.sessionId, { cost: priced.costUsd, numTurns: 1 });
-  const turn = registry.appendTurn(session.id, body.transcript ?? "");
+  const turn = registry.appendTurn(session.id, body.transcript ?? "", undefined, receipts);
   send(res, 200, {
     ...turn,
     costUsd: priced.costUsd,

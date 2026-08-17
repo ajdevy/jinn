@@ -11,6 +11,7 @@
  */
 import { authFetch } from "@/lib/auth"
 import type { TalkUsage } from "./usage-delta"
+import type { VisualCaptureReceipt } from "../context/visual-capture"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -113,8 +114,17 @@ export async function resumeTalkSession(id: string): Promise<TalkToken> {
 }
 
 /** `usage` is this turn's delta. See `usage-delta.ts` for why that matters. */
-export async function postTalkTurn(id: string, usage: TalkUsage, transcript: string): Promise<void> {
-  await talkFetch(sessionPath(id, "turn"), jsonBody({ usage, transcript }))
+export async function postTalkTurn(
+  id: string,
+  usage: TalkUsage,
+  transcript: string,
+  visualReceipts: readonly VisualCaptureReceipt[] = [],
+): Promise<void> {
+  await talkFetch(sessionPath(id, "turn"), jsonBody({
+    usage,
+    transcript,
+    ...(visualReceipts.length ? { visualReceipts } : {}),
+  }))
 }
 
 /**

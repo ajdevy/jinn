@@ -4,8 +4,6 @@ import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject
 import { ClientProviders } from './routes/client-providers'
 import { ContributedRoute, reservedSegments } from './routes/contributed-route'
 import { registerTalkNavigator } from './components/talk/tools/router-handle'
-import { describeLocation } from './components/talk/context/page-snapshot'
-import { publishPageContext } from './components/talk/context/page-context-store'
 import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
@@ -13,6 +11,7 @@ import { startKeyboardInset } from './lib/native/keyboard-inset'
 import { useRouteLoadingPresence } from './components/chat/chat-hydration'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
+import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
 import './routes/globals.css'
 
 const ChatPage = lazyRoute(() => import('./routes/chat/page'), 'chat')
@@ -111,45 +110,51 @@ function AppShell() {
   )
 }
 
-const appRoutes: RouteObject[] = [
+const routeElements: Partial<Record<AppRouteId, ReactNode>> = {
   // Its own boundary, and the announcement is the chat's rather than the shell's:
   // the pane that replaces this fallback carries the same wait straight on, so
   // the reader sees one loading state instead of "loading page" and then, a beat
   // later, "loading chat".
-  { path: '/', element: <Suspense fallback={<RouteLoading label="Loading chat" />}><ChatPage /></Suspense> },
-  { path: '/chat', element: <Navigate to="/" replace /> },
-  { path: '/cron', element: <CronPage /> },
-  { path: '/cron/:id', element: <CronDetailPage /> },
+  chat: <Suspense fallback={<RouteLoading label="Loading chat" />}><ChatPage /></Suspense>,
+  "chat-redirect": <Navigate to="/" replace />,
+  "cron-list": <CronPage />,
+  "cron-detail": <CronDetailPage />,
   // Todos v2 slice 6 (stage-C cutover): the board IS /todos and
   // /todos/:todoId is the full task page. The legacy list is gone.
-  { path: '/todos', element: <TodosIndexRedirect /> },
-  { path: '/todos/b/:board', element: <TodoBoardPage /> },
-  { path: '/todos/:todoId', element: <TaskPage /> },
-  { path: '/notes', element: <NotesFeatureRoute /> },
+  "todos-index": <TodosIndexRedirect />,
+  "todo-board": <TodoBoardPage />,
+  "todo-detail": <TaskPage />,
+  "notes-list": <NotesFeatureRoute />,
   // Folder/note deep links: /notes/f/<folder>, /notes/n/<rel>, or both.
-  { path: '/notes/*', element: <NotesFeatureRoute /> },
-  { path: '/experiments', element: <ExperimentsPage /> },
-  { path: '/experiments/:id', element: <ExperimentDetailPage /> },
+  notes: <NotesFeatureRoute />,
+  "experiments-list": <ExperimentsPage />,
+  "experiment-detail": <ExperimentDetailPage />,
   // GRS-021d: Kanban became Todos. Old links redirect.
-  { path: '/kanban', element: <Navigate to="/todos" replace /> },
-  { path: '/logs', element: <LogsPage /> },
-  { path: '/limits', element: <LimitsPage /> },
-  { path: '/org', element: <OrgPage /> },
-  { path: '/settings', element: <SettingsPage /> },
-  { path: '/settings/plugins', element: <PluginsSettingsPage /> },
-  { path: '/skills', element: <SkillsPage /> },
-  { path: '/skills/:name', element: <SkillDetailPage /> },
-  { path: '/file', element: <FilePage /> },
-  { path: '/more', element: <MorePage /> },
-  { path: '/workflow', element: <WorkflowListPage /> },
-  { path: '/workflow/:id', element: <WorkflowPage /> },
-  { path: '/workflow/:id/runs/:runId', element: <WorkflowRunPage /> },
+  "kanban-redirect": <Navigate to="/todos" replace />,
+  logs: <LogsPage />,
+  limits: <LimitsPage />,
+  org: <OrgPage />,
+  settings: <SettingsPage />,
+  "settings-plugins": <PluginsSettingsPage />,
+  "skills-list": <SkillsPage />,
+  "skill-detail": <SkillDetailPage />,
+  file: <FilePage />,
+  more: <MorePage />,
+  "workflow-list": <WorkflowListPage />,
+  "workflow-detail": <WorkflowPage />,
+  "workflow-run": <WorkflowRunPage />,
   // The orb bench is screenshot-verified on built sandboxes, never on a dev
   // server pointed at a live gateway, so it has to survive the build. It is a
   // lazy route: nothing of it loads until someone types the path.
-  { path: '/talk-orb', element: <TalkOrbHarnessPage /> },
-  ...(import.meta.env.DEV ? [{ path: '/redesign', element: <RedesignPage /> }] : []),
-]
+  "talk-orb": <TalkOrbHarnessPage />,
+  redesign: <RedesignPage />,
+}
+
+const appRoutes: RouteObject[] = APP_ROUTES.flatMap((route) => {
+  if (route.id === "plugin-contributed" || (route.availability === "development" && !import.meta.env.DEV)) return []
+  const element = routeElements[route.id]
+  return element ? [{ path: route.path, element }] : []
+})
 
 const router = createBrowserRouter([
   {
@@ -158,7 +163,10 @@ const router = createBrowserRouter([
       ...appRoutes,
       // A plugin's page, last and on the splat so the app's own routes are
       // matched first — a contribution can never shadow one of them.
-      { path: '*', element: <ContributedRoute reserved={reservedSegments(appRoutes.map((route) => route.path))} /> },
+      {
+        path: '*',
+        element: <ContributedRoute reserved={reservedSegments(APP_ROUTES.filter((route) => route.id !== "plugin-contributed").map((route) => route.path))} />,
+      },
     ],
   },
 ])
@@ -168,15 +176,6 @@ const router = createBrowserRouter([
 // handed back rather than dropped: it is what tells the tool surface the route
 // has actually landed, which is the only honest end for its latency clock.
 registerTalkNavigator((path) => router.navigate(path))
-
-// The orb is told where the operator is without being asked, and the URL is
-// where almost every Jinn surface already keeps that. Subscribing to the router
-// rather than rendering a hook keeps this on the same React-free seam the
-// navigator uses: the talk transport is not a component either.
-const publishLocation = (location: { pathname: string; search: string }) =>
-  publishPageContext(describeLocation(location.pathname, location.search))
-publishLocation(router.state.location)
-router.subscribe((state) => publishLocation(state.location))
 
 // A plugin navigates from an event handler or a backend callback rather than
 // from a render, so it reaches the router through a module-level handle for the

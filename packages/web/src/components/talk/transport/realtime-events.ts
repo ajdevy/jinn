@@ -10,13 +10,14 @@
 import { addTalkUsage, emptyTalkUsage, type TalkUsage } from "./usage-delta"
 
 export type RealtimeFrame =
-  | { type: "tool_call"; callId: string; name: string; arguments: string }
+  | { type: "tool_call"; callId: string; name: string; arguments: string; eventId?: string; itemId?: string }
   /** An assistant response began — the driver's, or one server-side VAD made on
    *  its own. Until it is done, the conversation holds no room for another. */
   | { type: "turn_started" }
   /** The assistant turn finished. `usage` is the session total after it. */
   | { type: "turn_done"; usage: TalkUsage }
-  | { type: "transcript"; role: "assistant" | "user"; text: string; final: boolean }
+  | { type: "transcript"; role: "assistant" | "user"; text: string; final: boolean; eventId?: string; itemId?: string }
+  | { type: "item_created"; eventId: string; itemId: string; previousItemId?: string }
   /** The provider's voice-activity detector heard the operator start talking. */
   | { type: "speech_started" }
   | { type: "speech_stopped" }
@@ -25,7 +26,8 @@ export type RealtimeFrame =
 interface TokenDetails {
   audio_tokens?: number
   text_tokens?: number
-  cached_tokens_details?: { audio_tokens?: number; text_tokens?: number }
+  image_tokens?: number
+  cached_tokens_details?: { audio_tokens?: number; text_tokens?: number; image_tokens?: number }
 }
 
 function count(value: number | undefined): number {
@@ -58,6 +60,8 @@ function readResponseUsage(raw: unknown): TalkUsage {
     outputTextTokens: count(output.text_tokens),
     cachedInputAudioTokens: count(input.cached_tokens_details?.audio_tokens),
     cachedInputTextTokens: count(input.cached_tokens_details?.text_tokens),
+    inputImageTokens: count(input.image_tokens),
+    cachedInputImageTokens: count(input.cached_tokens_details?.image_tokens),
   }
 }
 
@@ -68,7 +72,11 @@ function errorMessage(error: unknown): string {
   return "The realtime provider reported an error with no message."
 }
 
-type FrameReader = (event: Record<string, unknown>) => RealtimeFrame
+type FrameReader = (event: Record<string, unknown>) => RealtimeFrame | null
+
+function identity(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
+}
 
 /** The provider's event names, mapped to what the orb does about them. A table
  *  rather than a switch so another event is one line and no new branch.
@@ -81,6 +89,8 @@ const READERS: Readonly<Record<string, FrameReader>> = {
     callId: String(event.call_id),
     name: String(event.name),
     arguments: String(event.arguments ?? ""),
+    ...(identity(event.event_id) ? { eventId: identity(event.event_id) } : {}),
+    ...(identity(event.item_id) ? { itemId: identity(event.item_id) } : {}),
   }),
   "response.output_audio_transcript.delta": (event) => ({
     type: "transcript",
@@ -99,7 +109,17 @@ const READERS: Readonly<Record<string, FrameReader>> = {
     role: "user",
     text: String(event.transcript ?? ""),
     final: true,
+    ...(identity(event.event_id) ? { eventId: identity(event.event_id) } : {}),
+    ...(identity(event.item_id) ? { itemId: identity(event.item_id) } : {}),
   }),
+  "conversation.item.created": (event) => {
+    const item = event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : null
+    const eventId = identity(event.event_id)
+    const itemId = identity(item?.id)
+    if (!eventId || !itemId) return null
+    const previousItemId = identity(event.previous_item_id)
+    return { type: "item_created", eventId, itemId, ...(previousItemId ? { previousItemId } : {}) }
+  },
   "input_audio_buffer.speech_started": () => ({ type: "speech_started" }),
   "input_audio_buffer.speech_stopped": () => ({ type: "speech_stopped" }),
   error: (event) => ({ type: "error", message: errorMessage(event.error) }),

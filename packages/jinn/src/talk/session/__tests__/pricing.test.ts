@@ -32,6 +32,14 @@ describe("priceTurn", () => {
     expect(cachedAudio.costUsd).toBeCloseTo(0.3, 9);
   });
 
+  it("prices fresh and cached image input by model", () => {
+    expect(priceTurn("gpt-realtime-2.1", usage({ inputImageTokens: 1_000_000 })).costUsd).toBeCloseTo(5, 9);
+    expect(priceTurn("gpt-realtime-2.1-mini", usage({
+      inputImageTokens: 1_000_000,
+      cachedInputImageTokens: 1_000_000,
+    })).costUsd).toBeCloseTo(0.08, 9);
+  });
+
   it("prices the mixed-modality turn the echo run actually measured", () => {
     // docs/realtime-providers.md: 58 input audio tokens and 119 input text tokens,
     // 64 of the text already cached. 58x$32 + 55x$4 + 64x$0.40, per 1M.

@@ -103,8 +103,10 @@ describe("OpenAI realtime server events", () => {
 
     expect(provider.usage()).toEqual({
       inputAudioTokens: 200,
+      inputImageTokens: 0,
       inputTextTokens: 10,
       cachedInputAudioTokens: 2,
+      cachedInputImageTokens: 0,
       cachedInputTextTokens: 4,
       outputAudioTokens: 34,
       outputTextTokens: 18,

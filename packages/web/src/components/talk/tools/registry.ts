@@ -10,6 +10,7 @@ import { RESOLVE_TOOLS } from "./resolve-tools"
 import { toolDefinition, type TalkTool, type ToolDefinition, type ToolResult } from "./tool-spec"
 import { parseToolArgs } from "./validate-args"
 import { WRITE_TOOLS } from "./write-tools"
+import { VISUAL_CAPTURE_TOOL } from "./visual-tools"
 
 /**
  * Every tool the Talk orb can execute, and the one entry point that runs them.
@@ -31,6 +32,7 @@ export const TALK_TOOLS: readonly TalkTool[] = [
   ...PAGE_TOOLS,
   FOCUS_ELEMENT_TOOL,
   ESCAPE_HATCH_TOOL,
+  VISUAL_CAPTURE_TOOL,
 ]
 
 const BY_NAME = new Map(TALK_TOOLS.map((tool) => [tool.name, tool]))

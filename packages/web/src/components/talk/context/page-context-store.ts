@@ -9,39 +9,51 @@
  * than the location, and an identical push would cost a `session.update` for a
  * page that did not move.
  */
-import { describeLocation, type PageSnapshot } from "./page-snapshot"
+import { browserInstanceId } from "./browser-instance"
+import { semanticScreenChanged } from "./screen-context-diff"
+import { describeLocation, type PageSnapshot, type TalkScreenContext } from "./page-snapshot"
 
 /** Chat at home, which is where the app opens. `main.tsx` publishes the real
  *  location as soon as the router exists, so this stands for one tick. */
-const INITIAL = Object.freeze(describeLocation("/", ""))
+function ambient(snapshot: PageSnapshot): TalkScreenContext {
+  return {
+    ...snapshot,
+    version: 1,
+    revision: 0,
+    routeId: snapshot.kind === "chat" ? "chat" : snapshot.kind,
+    capturedAt: new Date(0).toISOString(),
+    freshness: snapshot.selection ? "partial" : "complete",
+    missing: snapshot.selection ? ["selected-object"] : [],
+    title: snapshot.kind,
+    selectedObject: null,
+    visibleItems: [],
+    controls: [],
+    meaningfulText: "",
+    browserInstanceId: browserInstanceId(),
+    focus: null,
+    hidden: false,
+    visualGaps: [],
+  }
+}
 
-let current: PageSnapshot = INITIAL
+const INITIAL = Object.freeze(ambient(describeLocation("/", "")))
+
+let current: TalkScreenContext = INITIAL
 const listeners = new Set<() => void>()
-
-function sameEntries(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
-  const keys = Object.keys(a)
-  if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => a[key] === b[key])
-}
-
-function sameSnapshot(a: PageSnapshot, b: PageSnapshot): boolean {
-  return a.kind === b.kind
-    && a.path === b.path
-    && a.selection?.kind === b.selection?.kind
-    && a.selection?.id === b.selection?.id
-    && sameEntries(a.params, b.params)
-    && sameEntries(a.filters, b.filters)
-}
 
 /** Name where the operator is now. Frozen, so a subscriber that holds on to one
  *  is holding the page as it was, not a value that changes under it. */
 export function publishPageContext(next: PageSnapshot): void {
-  if (sameSnapshot(current, next)) return
-  current = Object.freeze(next)
+  publishScreenContext(ambient(next))
+}
+
+export function publishScreenContext(next: TalkScreenContext): void {
+  if (!semanticScreenChanged(current, next)) return
+  current = Object.freeze({ ...next, revision: current.revision + 1 })
   for (const listener of listeners) listener()
 }
 
-export function getPageContext(): PageSnapshot {
+export function getPageContext(): TalkScreenContext {
   return current
 }
 

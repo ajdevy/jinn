@@ -16,6 +16,7 @@ import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
 import { PluginNotices } from "@/plugins/sdk/plugin-notices"
 import { DiskPluginsBridge } from "@/plugins/disk-plugins-bridge"
+import { TalkContextBridge } from "@/components/talk/context/talk-context-bridge"
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -41,6 +42,7 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                 <GatewayProvider>
                   <InstanceMigrationGate />
                   <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
+                  <TalkContextBridge />
                   {/* Above the router, so route changes never remount the orb. */}
                   <TalkOrbOverlay />
                   <DocumentTitle />

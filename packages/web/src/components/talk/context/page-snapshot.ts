@@ -14,44 +14,18 @@ import { resolveDeepLink } from "@/components/chat/chat-route-helpers"
 import { filtersFromSearchParams } from "@/lib/todos"
 import { parseBoardParam, boardKey } from "@/routes/todos/board/board-route"
 import { parseNotesLocation } from "@/routes/notes/notes-route"
+import type { PageKind, PageSnapshot } from "./screen-context-types"
 
-/** The surface the operator is on. Named rather than left to be re-derived from
- *  the path, so that everything downstream — the renderer, the object lookup —
- *  branches on one closed set instead of parsing the URL again. */
-export type PageKind =
-  | "chat"
-  | "todos"
-  | "todo"
-  | "workflows"
-  | "workflow"
-  | "workflow-run"
-  | "experiments"
-  | "experiment"
-  | "org"
-  | "cron"
-  | "notes"
-  | "other"
-
-/** The one object this view is focused on: the Todo it opened, the run it is
- *  showing, the session chat has selected. `kind` is the operator's word for it,
- *  because the snapshot is read aloud rather than switched on. */
-export interface PageSelection {
-  kind: string
-  id: string
-}
-
-export interface PageSnapshot {
-  kind: PageKind
-  /** The path exactly as the address bar has it. The one field an unrecognised
-   *  route still fills, which is what "degrade, never throw" means here. */
-  path: string
-  /** What the path names beyond the selection — the board, the workflow a run
-   *  belongs to, the folder a note sits in. */
-  params: Readonly<Record<string, string>>
-  /** Filters, sort and search, for the pages that keep them in the URL. */
-  filters: Readonly<Record<string, string>>
-  selection: PageSelection | null
-}
+export type {
+  PageKind,
+  PageSelection,
+  PageSnapshot,
+  SemanticControl,
+  SemanticObject,
+  SemanticRelation,
+  SemanticVisibleItem,
+  TalkScreenContext,
+} from "./screen-context-types"
 
 /** Everything but the path, which `describeLocation` fills for every branch.
  *  `null` is "no declared route matches this", which the app renders as the
@@ -178,6 +152,57 @@ function orgView(rest: string[], params: URLSearchParams): View {
   return listOrDetail("org", "org", "employee", params.get("employee")?.trim())
 }
 
+function staticView(kind: PageKind, rest: string[]): View {
+  return rest.length === 0 ? { kind, params: {}, filters: {}, selection: null } : null
+}
+
+function skillView(rest: string[]): View {
+  if (rest.length > 1) return null
+  return listOrDetail("skills", "skill", "skill", rest[0])
+}
+
+function fileView(rest: string[], params: URLSearchParams): View {
+  if (rest.length > 0) return null
+  const path = params.get("path")?.trim()
+  return {
+    kind: "file",
+    params: {},
+    filters: {},
+    selection: path ? { kind: "published file", id: path } : null,
+  }
+}
+
+type RouteReader = (rest: string[], params: URLSearchParams, pathname: string) => View
+
+function settingsView(rest: string[]): View {
+  if (rest.length === 0) return staticView("settings", rest)
+  return rest.length === 1 && rest[0] === "plugins" ? staticView("settings-plugins", []) : null
+}
+
+function redirectView(head: "chat" | "kanban", rest: string[]): View {
+  if (rest.length > 0) return null
+  return { kind: head === "chat" ? "chat" : "todos", params: {}, filters: {}, selection: null }
+}
+
+const ROUTE_READERS: Readonly<Record<string, RouteReader>> = {
+  todos: (rest, params) => todosView(rest, params),
+  workflow: (rest, params) => workflowView(rest, params),
+  experiments: (rest) => experimentsView(rest),
+  cron: (rest, params) => cronView(rest, params),
+  org: (rest, params) => orgView(rest, params),
+  notes: (_rest, _params, pathname) => notesView(pathname),
+  logs: (rest) => staticView("logs", rest),
+  limits: (rest) => staticView("limits", rest),
+  settings: (rest) => settingsView(rest),
+  skills: (rest) => skillView(rest),
+  file: (rest, params) => fileView(rest, params),
+  more: (rest) => staticView("more", rest),
+  "talk-orb": (rest) => staticView("talk-orb", rest),
+  redesign: (rest) => staticView("redesign", rest),
+  chat: (rest) => redirectView("chat", rest),
+  kanban: (rest) => redirectView("kanban", rest),
+}
+
 /**
  * Describe a location. Anything unrecognised comes back as its path and nothing
  * else — a route this parser has not been taught is a page the orb should name
@@ -189,28 +214,7 @@ function orgView(rest: string[], params: URLSearchParams): View {
 export function describeLocation(pathname: string, search: string): PageSnapshot {
   const params = new URLSearchParams(search)
   const [head, ...rest] = segmentsOf(pathname)
-
-  const view = ((): View => {
-    switch (head) {
-      case undefined:
-        return chatView(params)
-      case "todos":
-        return todosView(rest, params)
-      case "workflow":
-        return workflowView(rest, params)
-      case "experiments":
-        return experimentsView(rest)
-      case "cron":
-        return cronView(rest, params)
-      case "org":
-        return orgView(rest, params)
-      case "notes":
-        // The one splat route: a folder and a note path nest to any depth.
-        return notesView(pathname)
-      default:
-        return null
-    }
-  })()
+  const view = head === undefined ? chatView(params) : ROUTE_READERS[head]?.(rest, params, pathname) ?? null
 
   return { ...(view ?? UNKNOWN), path: pathname }
 }

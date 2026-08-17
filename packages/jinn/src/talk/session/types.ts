@@ -11,12 +11,26 @@
  */
 export type TalkSessionState = "live" | "parked" | "closed";
 
+/** Public telemetry for the one bounded image fallback used by an operator
+ * utterance. The image itself never crosses the gateway accounting route. */
+export interface VisualCaptureReceipt {
+  requestKey: string;
+  contextRevision: number;
+  reason: string;
+  bytes: number;
+  width: number;
+  height: number;
+  estimatedImageTokens: number;
+  latencyMs: number;
+}
+
 /** One completed exchange. The transcript is kept only to estimate context; the
  *  gateway never replays it to the provider. */
 export interface TalkTurnRecord {
   at: number;
   text: string;
   estimatedTokens: number;
+  visualReceipts?: VisualCaptureReceipt[];
 }
 
 /**
@@ -68,4 +82,6 @@ export interface TalkSession {
   expandedIntents: string[];
   /** Every write this session attempted, oldest first. */
   actions: TalkActionRecord[];
+  /** Receipt identities already accepted, bounded with the action audit. */
+  visualReceiptKeys: string[];
 }

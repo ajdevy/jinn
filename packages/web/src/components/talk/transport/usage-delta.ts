@@ -22,6 +22,8 @@ export interface TalkUsage {
   outputTextTokens: number
   cachedInputAudioTokens: number
   cachedInputTextTokens: number
+  inputImageTokens: number
+  cachedInputImageTokens: number
 }
 
 const USAGE_KEYS: readonly (keyof TalkUsage)[] = [
@@ -31,6 +33,8 @@ const USAGE_KEYS: readonly (keyof TalkUsage)[] = [
   "outputTextTokens",
   "cachedInputAudioTokens",
   "cachedInputTextTokens",
+  "inputImageTokens",
+  "cachedInputImageTokens",
 ]
 
 export function emptyTalkUsage(): TalkUsage {
@@ -41,6 +45,8 @@ export function emptyTalkUsage(): TalkUsage {
     outputTextTokens: 0,
     cachedInputAudioTokens: 0,
     cachedInputTextTokens: 0,
+    inputImageTokens: 0,
+    cachedInputImageTokens: 0,
   }
 }
 

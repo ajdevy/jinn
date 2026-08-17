@@ -114,6 +114,25 @@ describe("the rest of the lifecycle", () => {
     })
   })
 
+  it("posts bounded visual receipts with the turn that paid for them", async () => {
+    authFetch.mockResolvedValue(json({ spendUsd: 0.02 }))
+    const receipt = {
+      requestKey: "item-user-1",
+      contextRevision: 9,
+      reason: "workflow-graph-spatial-layout",
+      bytes: 3,
+      width: 900,
+      height: 600,
+      estimatedImageTokens: 765,
+      latencyMs: 24,
+    }
+
+    await postTalkTurn("talk-1", emptyTalkUsage(), "The left node is Build.", [receipt])
+
+    const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({ visualReceipts: [receipt] })
+  })
+
   it("escapes an id rather than letting it shape the path", async () => {
     authFetch.mockResolvedValue(json({ id: "x", state: "closed" }))
 

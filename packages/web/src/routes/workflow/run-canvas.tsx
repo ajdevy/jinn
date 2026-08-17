@@ -144,6 +144,7 @@ export function RunCanvas({
 
   return (
     <ReactFlow
+      data-talk-visual-gap="workflow-graph-spatial-layout"
       nodes={graph.nodes}
       edges={graph.edges}
       nodeTypes={editorNodeTypes}

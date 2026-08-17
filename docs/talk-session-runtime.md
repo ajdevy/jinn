@@ -173,7 +173,7 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 | `POST /api/talk/sessions/:id/resume` | parked to live, returns a fresh token. |
 | `POST /api/talk/sessions/:id/heartbeat` | Refresh `lastSeenAt`. |
 | `POST /api/talk/sessions/:id/tools` | `{ intents: string[] }` returns the additional `RealtimeTool[]` to inject plus the new total token cost. Never returns a tool already exposed. |
-| `POST /api/talk/sessions/:id/turn` | `{ usage: RealtimeUsage, transcript? }` prices the delta, calls `recordTurnAccounting`, appends to history, applies rolling truncation, returns `{ spendUsd, contextTokens, truncatedTurns, handoffSuggested }`. |
+| `POST /api/talk/sessions/:id/turn` | `{ usage: RealtimeUsage, transcript?, visualReceipts? }` prices the delta including image input, stores bounded public capture telemetry, calls `recordTurnAccounting`, appends to history, applies rolling truncation, returns `{ spendUsd, contextTokens, truncatedTurns, handoffSuggested }`. |
 | `POST /api/talk/sessions/:id/actions` | `{ tool, subject, lane, consent, undoOf? }` logs one attempted write, refusals included, and returns the stored record with the id and timestamp the gateway stamped. |
 | `POST /api/talk/sessions/:id/handoff` | `{ prompt }` spawns a normal text Session with the talk session as parent, returns `{ sessionId }`. |
 | `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, actions, spendUsd, contextTokens, briefChars, briefTokens, exposedTools }`. |
@@ -377,16 +377,23 @@ not a proposal for what that catalog should contain. ICI-757's write tools are
 declared client-side in `packages/web`, so `tools.ts` stays read-only; what the
 gateway owns of a write is the action log below.
 
-### Ambient page context
+### Authoritative screen context
 
-The orb is told where the operator is instead of having to ask. Almost every Jinn
-surface already keeps that in the URL, so `components/talk/context/` parses the
-location into a `PageSnapshot` — the surface, the path, the route params, the
-active filters and search, and the one object the view is focused on — adds the
-ids and titles of whatever the page's own react-query cache is already holding,
-and names the instance and port so a machine running several Jinns side by side
-is never ambiguous. Nothing here fetches: a cold cache renders as a view with no
-object list rather than as traffic the operator did not ask for.
+The orb is told what the operator is actually looking at. `APP_ROUTES` is the
+router's canonical manifest, and every route has a matching entry in
+`TALK_SURFACE_COVERAGE`; `docs/talk-control-coverage.md` is generated from those
+two typed inventories. `TalkContextBridge` combines the location with the
+page's existing react-query cache and safe rendered semantics: title, selected
+object, relations and retrieval anchor, visible items, controls, focus, and
+declared visual gaps. Query-cache changes on an unchanged URL therefore publish
+new context. A cold selected object is explicitly `partial` with a named missing
+field instead of being invented or fetched behind the operator's back.
+
+Private DOM is excluded from semantic text and image fallback: the orb overlay,
+hidden content, explicit secret markers, password inputs, and password-like
+autocomplete fields. The plugin wildcard is also honest: until the host SDK can
+publish contributed-page semantics it reports `plugin-context-unavailable`
+rather than guessing from arbitrary DOM.
 
 **The browser composes `instructions`.** `RealtimeConfig` carries model, voice
 and turn detection only, and `createRealtimeProvider` forwards nothing else, so
@@ -404,23 +411,28 @@ instructions together rather than relying on the provider to merge one field at 
 time — a context push that silently cleared the catalog would take the whole orb
 down, and the bytes are on a local data channel.
 
-**Bounded, and the object list is the only part that gives ground.**
+**Bounded semantic transport.**
 `PAGE_CONTEXT_BUDGET_CHARS` is 1200, about 300 tokens at the four-characters-per-token
 estimate above, against the 6000-token rolling budget. Instance, route, params and
 selection are clipped field by field and always survive; the object list then
 takes whatever room is left, one entry at a time, and says `+N more` for what it
 dropped. A 400-card board renders in about a dozen entries and stays under the cap.
 
-**Debounced and unsubscribed.** The router publishes on every navigation, and the
-driver pushes on a 400 ms trailing debounce, so typing in the board's search box
-costs one `session.update` rather than one per keystroke. `driver.stop()` lets go
-of the store and is called wherever the connection is dropped — close, park, page
-unload, and the generation-mismatch paths — because a driver outliving its
-channel would go on pushing at nothing.
+**Semantic changes only, then debounced.** The context store normalizes semantic
+state and increments its revision only when meaning changes; timestamps, fresh
+object identities, and reordered maps do not cause a push. The driver then uses
+a 400 ms trailing debounce. `driver.stop()` lets go of the store wherever the
+connection is dropped.
 
-One thing is deliberately absent: the workflow editor's selected node is local
-component state rather than a URL param, so the snapshot cannot see it. That is
-recorded rather than fixed here.
+**Visual fallback is one declared exception.** Workflow graph spatial layout is
+marked as a visual-only gap. For a provider user-item id, context revision, and
+gap reason, the driver may append exactly one sanitized `input_image`. It clones
+only the application root (the portalled orb is outside it), rasterizes at most
+1280 by 1280 and 180,000 bytes, and fails closed when the gap was not declared,
+structured context is complete, or the raster exceeds the bound. The next turn
+stores only public telemetry — dimensions, bytes, estimated image tokens and
+latency — while image tokens are priced alongside audio and text. The image
+bytes themselves never enter the gateway turn route or Talk history.
 
 ### The standing brief
 

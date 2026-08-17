@@ -84,6 +84,32 @@ describe("turn accounting", () => {
     const missing = await call(config, "POST", `/api/talk/sessions/${id}/turn`, { usage: {} });
     expect(missing.status).toBe(400);
   });
+
+  it("prices image input and keeps one bounded visual receipt in the turn audit", async () => {
+    const id = (await open()).id as string;
+    const receipt = {
+      requestKey: "item-user-1",
+      contextRevision: 9,
+      reason: "workflow-graph-spatial-layout",
+      bytes: 3,
+      width: 900,
+      height: 600,
+      estimatedImageTokens: 765,
+      latencyMs: 24,
+    };
+    const turn = await call(config, "POST", `/api/talk/sessions/${id}/turn`, {
+      usage: { ...usage(), inputImageTokens: 1000, cachedInputImageTokens: 0 },
+      transcript: "The left node is Build.",
+      visualReceipts: [receipt, receipt],
+    });
+
+    expect(turn.status).toBe(200);
+    expect(turn.body.costUsd as number).toBeCloseTo(ONE_TURN_USD + 0.005, 6);
+    const status = await call(config, "GET", `/api/talk/sessions/${id}`);
+    expect(status.body.turns).toEqual([
+      expect.objectContaining({ visualReceipts: [expect.objectContaining(receipt)] }),
+    ]);
+  });
 });
 
 describe("rolling context truncation", () => {

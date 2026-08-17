@@ -231,6 +231,7 @@ function Canvas() {
 
   return (
     <ReactFlow
+      data-talk-visual-gap="workflow-graph-spatial-layout"
       nodes={nodes}
       edges={edges}
       onNodesChange={onNodesChange}

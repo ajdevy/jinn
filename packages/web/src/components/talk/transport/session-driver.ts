@@ -16,6 +16,8 @@ import type { OrbState } from "../orb-motion"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
 import { postTalkTurn } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
+import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
+import { runVisualToolRequest } from "./visual-tool-request"
 
 /**
  * How long the page has to settle before the orb is told about it. Typing in the
@@ -34,6 +36,7 @@ export interface TalkDriverOptions {
   send: (event: Record<string, unknown>) => void
   onState: (state: OrbState) => void
   onError: (message: string) => void
+  visualCapture?: ReturnType<typeof createVisualCapture>
 }
 
 export interface TalkDriver {
@@ -87,6 +90,9 @@ interface DriverState {
    *  waiting out the debounce on. Both live exactly as long as the connection. */
   unfollow: (() => void) | null
   settling: ReturnType<typeof setTimeout> | null
+  lastUserRequestKey: string | null
+  visualReceipts: VisualCaptureReceipt[]
+  visualCapture: ReturnType<typeof createVisualCapture>
 }
 
 /**
@@ -163,7 +169,18 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
   driver.executed.add(call.callId)
   driver.outstanding += 1
 
-  const result = await executeToolCall(call.name, call.arguments)
+  let result: Record<string, unknown>
+  if (call.name === "capture_current_view") {
+    result = await runVisualToolRequest({
+      arguments: call.arguments,
+      requestKey: driver.lastUserRequestKey,
+      capture: driver.visualCapture,
+      send: driver.options.send,
+      receipts: driver.visualReceipts,
+    })
+  } else {
+    result = await executeToolCall(call.name, call.arguments)
+  }
   driver.options.send({
     type: "conversation.item.create",
     item: { type: "function_call_output", call_id: call.callId, output: JSON.stringify(result) },
@@ -178,9 +195,10 @@ function finishTurn(driver: DriverState, total: TalkUsage): void {
   const delta = usageDelta(driver.billed, total)
   driver.billed = total
   const transcript = driver.said
+  const visualReceipts = driver.visualReceipts.splice(0)
   driver.said = ""
   show(driver, "listening")
-  void postTalkTurn(driver.options.sessionId, delta, transcript).catch(() => {
+  void postTalkTurn(driver.options.sessionId, delta, transcript, visualReceipts).catch(() => {
     // Accounting must not interrupt a conversation. An unposted turn
     // under-reports spend; a thrown one would drop the rest of the exchange.
   })
@@ -199,6 +217,15 @@ function endResponse(driver: DriverState, total: TalkUsage): void {
   if (driver.owed && driver.outstanding === 0) requestResponse(driver)
 }
 
+function handleTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { type: "transcript" }>): void {
+  if (frame.role !== "assistant") {
+    if (frame.final && frame.itemId) driver.lastUserRequestKey = frame.itemId
+    return
+  }
+  show(driver, "speaking")
+  if (frame.final) driver.said = frame.text
+}
+
 function handle(driver: DriverState, frame: RealtimeFrame): void {
   switch (frame.type) {
     case "tool_call":
@@ -214,10 +241,7 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
       endResponse(driver, frame.usage)
       return
     case "transcript":
-      // The operator's own transcript is not the orb talking.
-      if (frame.role !== "assistant") return
-      show(driver, "speaking")
-      if (frame.final) driver.said = frame.text
+      handleTranscript(driver, frame)
       return
     case "speech_started":
       show(driver, "listening")
@@ -227,6 +251,9 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
       return
     case "error":
       driver.options.onError(frame.message)
+      return
+    case "item_created":
+      return
   }
 }
 
@@ -242,6 +269,9 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
     owed: false,
     unfollow: null,
     settling: null,
+    lastUserRequestKey: null,
+    visualReceipts: [],
+    visualCapture: options.visualCapture ?? createVisualCapture(),
   }
   const read = createFrameReader()
   return {

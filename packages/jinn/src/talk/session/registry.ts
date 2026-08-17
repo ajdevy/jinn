@@ -18,7 +18,7 @@ import {
   truncateTurns,
 } from "./context.js";
 import { alwaysOnTools, toolsForIntents } from "./tools.js";
-import type { TalkActionRecord, TalkSession, TalkTurnRecord } from "./types.js";
+import type { TalkActionRecord, TalkSession, TalkTurnRecord, VisualCaptureReceipt } from "./types.js";
 
 /** Three missed 30-second heartbeats. */
 export const TALK_SESSION_TTL_MS = 90_000;
@@ -80,6 +80,7 @@ export class TalkSessionRegistry {
       exposedTools: alwaysOnTools().map((tool) => tool.name),
       expandedIntents: [],
       actions: [],
+      visualReceiptKeys: [],
     };
     this.sessions.set(session.id, session);
     return session;
@@ -122,9 +123,28 @@ export class TalkSessionRegistry {
   }
 
   /** Append one completed exchange and re-apply the rolling truncation. */
-  appendTurn(id: string, text: string, budgetTokens = TALK_CONTEXT_BUDGET_TOKENS): TalkTurnResult {
+  appendTurn(
+    id: string,
+    text: string,
+    budgetTokens = TALK_CONTEXT_BUDGET_TOKENS,
+    visualReceipts: readonly VisualCaptureReceipt[] = [],
+  ): TalkTurnResult {
     const session = this.require(id);
-    const turn: TalkTurnRecord = { at: this.now(), text, estimatedTokens: estimateTokens(text) };
+    const accepted = visualReceipts.filter((receipt) => {
+      const key = `${receipt.requestKey}:${receipt.contextRevision}:${receipt.reason}`;
+      if (session.visualReceiptKeys.includes(key)) return false;
+      session.visualReceiptKeys.push(key);
+      return true;
+    });
+    if (session.visualReceiptKeys.length > TALK_ACTION_LOG_LIMIT) {
+      session.visualReceiptKeys.splice(0, session.visualReceiptKeys.length - TALK_ACTION_LOG_LIMIT);
+    }
+    const turn: TalkTurnRecord = {
+      at: this.now(),
+      text,
+      estimatedTokens: estimateTokens(text),
+      ...(accepted.length ? { visualReceipts: accepted } : {}),
+    };
     const truncated = truncateTurns([...session.turns, turn], budgetTokens);
     session.turns = truncated.turns;
     session.truncatedTurns += truncated.dropped;

@@ -15,6 +15,8 @@ interface RealtimeRate {
   inputText: number;
   cachedInputText: number;
   outputText: number;
+  inputImage: number;
+  cachedInputImage: number;
 }
 
 /**
@@ -25,8 +27,8 @@ interface RealtimeRate {
  * and the operator pins a versioned id in `realtime.model` to get real numbers.
  */
 const RATES: Record<string, RealtimeRate> = {
-  "gpt-realtime-2.1": { inputAudio: 32, cachedInputAudio: 0.4, outputAudio: 64, inputText: 4, cachedInputText: 0.4, outputText: 24 },
-  "gpt-realtime-2.1-mini": { inputAudio: 10, cachedInputAudio: 0.3, outputAudio: 20, inputText: 0.6, cachedInputText: 0.06, outputText: 2.4 },
+  "gpt-realtime-2.1": { inputAudio: 32, cachedInputAudio: 0.4, outputAudio: 64, inputText: 4, cachedInputText: 0.4, outputText: 24, inputImage: 5, cachedInputImage: 0.5 },
+  "gpt-realtime-2.1-mini": { inputAudio: 10, cachedInputAudio: 0.3, outputAudio: 20, inputText: 0.6, cachedInputText: 0.06, outputText: 2.4, inputImage: 0.8, cachedInputImage: 0.08 },
 };
 
 /** Stands in for the model when `realtime.model` is unset: the provider picks,
@@ -54,11 +56,15 @@ export function priceTurn(model: string, usage: RealtimeUsage): TurnPrice {
   // turning into a negative charge.
   const cachedAudioTokens = Math.min(usage.inputAudioTokens, usage.cachedInputAudioTokens);
   const cachedTextTokens = Math.min(usage.inputTextTokens, usage.cachedInputTextTokens);
+  const inputImageTokens = usage.inputImageTokens ?? 0;
+  const cachedImageTokens = Math.min(inputImageTokens, usage.cachedInputImageTokens ?? 0);
   const costUsd =
     ((usage.inputAudioTokens - cachedAudioTokens) * rate.inputAudio +
       cachedAudioTokens * rate.cachedInputAudio +
       (usage.inputTextTokens - cachedTextTokens) * rate.inputText +
       cachedTextTokens * rate.cachedInputText +
+      (inputImageTokens - cachedImageTokens) * rate.inputImage +
+      cachedImageTokens * rate.cachedInputImage +
       usage.outputAudioTokens * rate.outputAudio +
       usage.outputTextTokens * rate.outputText) /
     PER_MILLION;

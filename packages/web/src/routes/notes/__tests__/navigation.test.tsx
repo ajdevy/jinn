@@ -25,8 +25,12 @@ vi.mock("@/hooks/use-gateway", () => ({
 describe("Notes navigation", () => {
   it("feature-gates /notes before lazy-rendering it", () => {
     const source = readFileSync(resolve(process.cwd(), "src/main.tsx"), "utf8")
+    const routes = readFileSync(resolve(process.cwd(), "src/lib/app-routes.ts"), "utf8")
     expect(source).toContain("lazyRoute(() => import('./routes/notes/page'), 'notes')")
-    expect(source).toContain("{ path: '/notes', element: <NotesFeatureRoute /> }")
+    expect(source).toContain('"notes-list": <NotesFeatureRoute />')
+    expect(routes).toContain(
+      '{ id: "notes-list", path: "/notes", availability: "notes-enabled", surface: "notes" }',
+    )
   })
 
   it("hides Notes by default and restores it only when enabled", () => {

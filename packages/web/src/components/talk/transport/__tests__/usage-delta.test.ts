@@ -8,6 +8,8 @@ const READING = {
   outputTextTokens: 30,
   cachedInputAudioTokens: 600,
   cachedInputTextTokens: 80,
+  inputImageTokens: 765,
+  cachedInputImageTokens: 100,
 }
 
 describe("usageDelta", () => {
@@ -16,7 +18,7 @@ describe("usageDelta", () => {
   })
 
   it("bills only what the second reading added to the first", () => {
-    const later = { ...READING, inputAudioTokens: 1500, outputAudioTokens: 650, cachedInputAudioTokens: 1100 }
+    const later = { ...READING, inputAudioTokens: 1500, outputAudioTokens: 650, cachedInputAudioTokens: 1100, inputImageTokens: 1530 }
 
     expect(usageDelta(READING, later)).toEqual({
       inputAudioTokens: 600,
@@ -25,6 +27,8 @@ describe("usageDelta", () => {
       outputTextTokens: 0,
       cachedInputAudioTokens: 500,
       cachedInputTextTokens: 0,
+      inputImageTokens: 765,
+      cachedInputImageTokens: 0,
     })
   })
 

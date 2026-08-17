@@ -15,6 +15,7 @@ interface OpenAiInputTokens {
   audio_tokens?: number;
   cached_tokens?: number;
   cached_tokens_details?: { text_tokens?: number; audio_tokens?: number };
+  image_tokens?: number;
 }
 
 /** Shape of `response.usage` on a `response.done` event. */
@@ -31,6 +32,8 @@ export function emptyUsage(): RealtimeUsage {
     outputTextTokens: 0,
     cachedInputAudioTokens: 0,
     cachedInputTextTokens: 0,
+    inputImageTokens: 0,
+    cachedInputImageTokens: 0,
   };
 }
 
@@ -66,6 +69,7 @@ export function addUsage(total: RealtimeUsage, usage: OpenAiUsage, model: string
   total.inputTextTokens += input.text_tokens ?? 0;
   total.cachedInputAudioTokens += cached.audio;
   total.cachedInputTextTokens += cached.text;
+  total.inputImageTokens = (total.inputImageTokens ?? 0) + (input.image_tokens ?? 0);
   total.outputAudioTokens += output.audio_tokens ?? 0;
   total.outputTextTokens += output.text_tokens ?? 0;
 }

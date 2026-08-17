@@ -8,7 +8,7 @@
  * only part allowed to give ground.
  */
 import { clip } from "../tools/read-shapes"
-import type { PageKind, PageSnapshot } from "./page-snapshot"
+import type { PageKind, PageSnapshot, TalkScreenContext } from "./page-snapshot"
 import type { InstanceIdentity } from "./instance-identity"
 import type { VisibleObject } from "./visible-objects"
 
@@ -36,6 +36,17 @@ const SURFACE_LABEL: Record<PageKind, string> = {
   org: "Org",
   cron: "Cron",
   notes: "Notes",
+  logs: "Activity",
+  limits: "Limits",
+  settings: "Settings",
+  "settings-plugins": "Plugin settings",
+  skills: "Skills",
+  skill: "Skill",
+  file: "File",
+  more: "More",
+  "talk-orb": "Talk orb bench",
+  redesign: "Design bench",
+  plugin: "Plugin",
   other: "Page",
 }
 
@@ -47,6 +58,24 @@ function pairs(entries: Readonly<Record<string, string>>): string {
   return Object.entries(entries)
     .map(([key, value]) => `${key}=${clip(value, VALUE_CHARS)}`)
     .join(", ")
+}
+
+function semanticLines(screen: TalkScreenContext): string[] {
+  const lines = [`Context: revision ${screen.revision}, ${screen.freshness}, captured ${clip(screen.capturedAt, VALUE_CHARS)}`]
+  const object = screen.selectedObject
+  if (object) {
+    lines.push(`Object: ${clip(object.title, VALUE_CHARS)}${object.status ? ` · ${clip(object.status, VALUE_CHARS)}` : ""}`)
+    const scalarFields = Object.entries(object.fields).flatMap(([key, value]) =>
+      value === null || value === undefined || typeof value === "object" ? [] : [[key, String(value)] as const])
+    const fields = pairs(Object.fromEntries(scalarFields))
+    if (fields) lines.push(`State: ${fields}`)
+    if (object.relations.length > 0) lines.push(`Relations: ${object.relations.map((relation) => `${relation.kind}:${relation.id}`).join(", ")}`)
+    lines.push(`Retrieve: ${pairs(Object.fromEntries(Object.entries(object.retrievalAnchor).map(([key, value]) => [key, String(value)])))}`)
+  }
+  if (screen.controls.length > 0) lines.push(`Controls: ${screen.controls.slice(0, 8).map((control) => `${control.operation}:${clip(control.label, TITLE_CHARS)}`).join("; ")}`)
+  if (screen.meaningfulText) lines.push(`Visible meaning: ${clip(screen.meaningfulText, 300)}`)
+  if (screen.missing.length > 0) lines.push(`Missing: ${screen.missing.map((value) => clip(value, VALUE_CHARS)).join(", ")}`)
+  return lines
 }
 
 /** The lines that are never traded away for room: which Jinn, which page, which
@@ -65,6 +94,7 @@ function fixedLines(snapshot: PageSnapshot, instance: InstanceIdentity): string[
   if (snapshot.selection) {
     lines.push(`Selected: ${snapshot.selection.kind} ${clip(snapshot.selection.id, VALUE_CHARS)}`)
   }
+  if ("version" in snapshot) lines.push(...semanticLines(snapshot as TalkScreenContext))
   const filters = pairs(snapshot.filters)
   if (filters) lines.push(`Filters: ${filters}`)
   return lines
