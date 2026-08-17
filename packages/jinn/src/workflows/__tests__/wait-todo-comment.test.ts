@@ -107,20 +107,11 @@ beforeEach(() => {
   service = buildService();
 });
 
-afterEach(() => {
-  service.dispose();
-  database.close();
-  fs.rmSync(root, { recursive: true, force: true });
-  vi.useRealTimers();
-});
-
-// The work-items store opens the process-singleton database inside this home. POSIX lets the
-// directory go with the handle still open; Windows answers EPERM and fails the whole file, so
-// close the singleton before removing what it holds — the same order the other suites use.
-afterAll(async () => {
-  (await import("../../shared/db.js")).__closeDbForTest();
-  fs.rmSync(home, { recursive: true, force: true });
-});
+// Both teardowns close the handle before removing what holds it, on one line each like the
+// sibling recovery suite. POSIX lets a directory go with its database still open; Windows
+// answers EPERM and fails the whole file, and the work-items store's singleton lives in `home`.
+afterEach(() => { service.dispose(); database.close(); fs.rmSync(root, { recursive: true, force: true }); vi.useRealTimers(); });
+afterAll(async () => { (await import("../../shared/db.js")).__closeDbForTest(); fs.rmSync(home, { recursive: true, force: true }); });
 
 describe("Wait todo-comment mode", () => {
   it("parks a Todo-bound run with the timeout deadline and the canvas config", async () => {

@@ -980,7 +980,7 @@
       "lines": 1000
     },
     "packages/jinn/src/workflows/__tests__/wait-todo-comment.test.ts": {
-      "lines": 324
+      "lines": 321
     },
     "packages/jinn/src/workflows/__tests__/workflow-control-flow.test.ts": {
       "lines": 385
