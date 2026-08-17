@@ -114,7 +114,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-afterAll(() => { fs.rmSync(home, { recursive: true, force: true }); });
+// The work-items store opens the process-singleton database inside this home. POSIX lets the
+// directory go with the handle still open; Windows answers EPERM and fails the whole file, so
+// close the singleton before removing what it holds — the same order the other suites use.
+afterAll(async () => {
+  (await import("../../shared/db.js")).__closeDbForTest();
+  fs.rmSync(home, { recursive: true, force: true });
+});
 
 describe("Wait todo-comment mode", () => {
   it("parks a Todo-bound run with the timeout deadline and the canvas config", async () => {

@@ -125,7 +125,10 @@ describe("a broken plugin keeps its row", () => {
     install("half", { id: "half", server: "../escape.js" });
     const row = await rowFor("half");
     expect(row.status).toBe("loaded");
-    expect(row.client).toBe(fs.realpathSync(path.join(pluginsDir, "half", "client.js")));
+    // `.native` because the module resolves with the async `fs.realpath`, which goes through libuv
+    // and expands a Windows 8.3 short name (`RUNNER~1` -> `runneradmin`). The JS `realpathSync`
+    // only walks symlinks and leaves the short form intact, so the two spell one path two ways.
+    expect(row.client).toBe(fs.realpathSync.native(path.join(pluginsDir, "half", "client.js")));
     expect(row.server).toBeNull();
     expect(row.error).toMatch(/server/);
   });

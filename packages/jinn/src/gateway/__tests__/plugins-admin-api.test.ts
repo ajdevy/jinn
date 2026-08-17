@@ -183,7 +183,9 @@ describe("reveal", () => {
 
     expect(answer.status).toBe(200);
     const [, args, options] = spawned.mock.calls[0]!;
-    expect(args).toEqual([fs.realpathSync(path.join(pluginsDir, "inbox"))]);
+    // `.native` to match the async `fs.realpath` the route resolves through: on Windows that
+    // expands an 8.3 short name (`RUNNER~1` -> `runneradmin`) and the JS `realpathSync` does not.
+    expect(args).toEqual([fs.realpathSync.native(path.join(pluginsDir, "inbox"))]);
     expect(options).toMatchObject({ stdio: "ignore" });
   });
 

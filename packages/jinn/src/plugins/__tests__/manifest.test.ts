@@ -9,7 +9,14 @@ import { isContainedIn, validateManifest } from "../manifest.js";
  * plugin's, are the cases a string comparison gets wrong.
  */
 
-const dir = path.join(path.sep, "instance", "plugins", "safe");
+/**
+ * Resolved, not joined. The module resolves entries with `path.resolve`, and on Windows a
+ * separator-rooted path like `\instance\plugins\safe` is not fully qualified: resolving it
+ * prepends the current drive, so a joined expectation would differ from the module's answer by
+ * `D:` alone. `path.resolve` from the root gives both sides the same fully-qualified base, and
+ * is identical to joining on POSIX.
+ */
+const dir = path.resolve(path.sep, "instance", "plugins", "safe");
 
 function validate(fields: Record<string, unknown>, pluginDir = dir) {
   return validateManifest(fields, pluginDir);
@@ -132,7 +139,7 @@ describe("traversal and absolute paths", () => {
 });
 
 describe("isContainedIn", () => {
-  const root = path.join(path.sep, "instance", "plugins", "safe");
+  const root = path.resolve(path.sep, "instance", "plugins", "safe");
 
   it("accepts a file inside the root, at any depth", () => {
     expect(isContainedIn(root, path.join(root, "client.js"))).toBe(true);

@@ -1,3 +1,9 @@
+/* Every function below — openat, fdopendir, mkdirat, fstatat, strdup, strtok_r — is POSIX.1-2008,
+ * so say so. Without this, glibc defines __STRICT_ANSI__ under the `-std=c11` the compile uses and
+ * hides all of them; the calls then fall back to implicit int declarations and -Werror turns the
+ * pointer conversions into 20 errors. _DARWIN_C_SOURCE stays so macOS still resolves to its full
+ * C level rather than being narrowed by the POSIX macro alone. */
+#define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 #include <dirent.h>
 #include <errno.h>
