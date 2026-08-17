@@ -280,7 +280,7 @@ describe("a rejection carrying feedback sends the work round again", () => {
     const run = await runToGate(definition, "OPS-6", "assigned", "operator");
 
     const current = service.getDefinition(definition.id)!;
-    service.retireDefinition({ id: definition.id, expectedRevision: current.revision });
+    service.setRetired({ id: definition.id, retired: true, expectedRevision: current.revision });
     await decide(definition, run.id, "reject", { reason: "Needs a second pass." });
 
     expect(lifecycle.revisions.at(-1)!.rearm).toEqual({ unavailable: `workflow \`${definition.id}\` is retired` });

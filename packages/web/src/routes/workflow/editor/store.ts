@@ -48,7 +48,7 @@ export interface EditorState {
   tidy: () => void
   setSave: (save: SaveState) => void
   /** Record the server's answer to a save — revision advances, edits stay. */
-  acknowledge: (saved: Pick<WorkflowDefinitionV2Wire, "revision" | "enabled" | "updatedAt">) => void
+  acknowledge: (saved: Pick<WorkflowDefinitionV2Wire, "revision" | "enabled" | "retiredAt" | "updatedAt">) => void
   /** Replace everything with a fresh server definition (conflict reload, enable flip). */
   applyDefinition: (definition: WorkflowDefinitionV2Wire) => void
   setIssues: (issues: WorkflowIssueV2Wire[] | null) => void
@@ -211,7 +211,7 @@ export function createEditorStore(definition: WorkflowDefinitionV2Wire) {
 
     acknowledge: (saved) => {
       set((state) => ({
-        meta: { ...state.meta, revision: saved.revision, enabled: saved.enabled, updatedAt: saved.updatedAt },
+        meta: { ...state.meta, revision: saved.revision, enabled: saved.enabled, retiredAt: saved.retiredAt ?? null, updatedAt: saved.updatedAt },
         save: { state: "saved" },
       }))
     },

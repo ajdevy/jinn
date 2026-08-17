@@ -50,7 +50,7 @@ describe("Workflow v2 canonical API", () => {
     const result = { id: "release-flow", revision: 2 };
     const service = {
       getDefinition: vi.fn(() => result), saveDefinition: vi.fn(() => result), duplicateDefinition: vi.fn(() => result),
-      retireDefinition: vi.fn(() => result), setEnabled: vi.fn(() => result), startManual: vi.fn(async () => result),
+      setRetired: vi.fn(() => result), setEnabled: vi.fn(() => result), startManual: vi.fn(async () => result),
       listRuns: vi.fn(() => ({ items: [result], nextCursor: null })), getRun: vi.fn(() => ({ ...result, attempts: [] })),
       getRunSpend: vi.fn(() => 0),
       cancelRun: vi.fn(async () => result), rerun: vi.fn(async () => result), getAttemptTranscript: vi.fn(() => []),

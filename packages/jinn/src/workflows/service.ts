@@ -229,8 +229,8 @@ export class WorkflowService {
   duplicateDefinition(sourceId: WorkflowId, input: { id: WorkflowId; title: string }): WorkflowDefinition {
     const value = this.options.repository.duplicateDefinition(sourceId, input); this.definitionChanged(value); return value;
   }
-  retireDefinition(input: { id: string; expectedRevision: number }): WorkflowDefinition {
-    const value = this.options.repository.retireDefinition(input.id, input.expectedRevision, this.now());
+  setRetired(input: { id: string; retired: boolean; expectedRevision: number }): WorkflowDefinition {
+    const value = this.options.repository.setRetired(input.id, input.retired, input.expectedRevision, this.now());
     this.definitionChanged(value); return value;
   }
   setEnabled(input: { id: string; enabled: boolean; expectedRevision: number }): WorkflowDefinition {

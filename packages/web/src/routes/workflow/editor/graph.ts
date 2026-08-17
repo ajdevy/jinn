@@ -36,6 +36,7 @@ export interface EditorMeta {
   description?: string
   revision: number
   enabled: boolean
+  retiredAt: string | null
   inputs?: WorkflowDefinitionV2Wire["inputs"]
   createdAt: string
   updatedAt: string
@@ -48,6 +49,7 @@ export function toEditorMeta(definition: WorkflowDefinitionV2Wire): EditorMeta {
     ...(definition.description === undefined ? {} : { description: definition.description }),
     revision: definition.revision,
     enabled: definition.enabled,
+    retiredAt: definition.retiredAt ?? null,
     ...(definition.inputs === undefined ? {} : { inputs: definition.inputs }),
     createdAt: definition.createdAt,
     updatedAt: definition.updatedAt,

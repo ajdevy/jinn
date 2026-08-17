@@ -14,6 +14,7 @@ import {
 import { queryKeys } from "@/lib/query-keys"
 import { EditorCanvas, SaveChip, useAutosave } from "./editor/editor"
 import { createEditorStore, EditorStoreContext, useEditor, useEditorApi, type EditorStoreApi } from "./editor/store"
+import { WorkflowLifecycleMenu } from "./lifecycle-menu"
 import {
   StatusGlyph,
   TRIGGER_KIND_LABEL,
@@ -235,6 +236,16 @@ function WorkflowSurface({ store }: { store: EditorStoreApi }) {
         <EnableSwitch flushNow={flushNow} />
         {meta.enabled && hasManualTrigger && <RunButton workflowId={meta.id} />}
         <LensControl lens={lens} setLens={setLens} />
+        <WorkflowLifecycleMenu
+          variant="header"
+          workflow={meta}
+          onChanged={(saved) => store.getState().acknowledge(saved)}
+          onFailure={(error) => store.getState().setSave(
+            error instanceof ApiError && error.status === 409
+              ? { state: "conflict" }
+              : { state: "error", message: error instanceof Error ? error.message : "Request failed." },
+          )}
+        />
       </header>
       <div className="min-h-0 flex-1">
         {lens === "editor" ? (

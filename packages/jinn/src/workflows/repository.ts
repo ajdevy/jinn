@@ -228,10 +228,10 @@ export class WorkflowRepository {
     if (!row) repositoryError('not-found', `Workflow definition ${id} was not found.`);
     return parseStoredDefinition(row);
   }
-  private requireMutable(id: string, revision: number): WorkflowDefinition {
-    const value = this.requireDefinition(id);
-    if (value.revision !== revision) repositoryError('revision-conflict', `Workflow definition ${id} revision does not match.`);
-    if (value.retiredAt !== undefined) repositoryError('retired', `Workflow definition ${id} is retired.`);
+  private requireMutable(id: string, revision: number, mustBeRetired = false): WorkflowDefinition {
+    const value = this.requireDefinition(id); if (value.revision !== revision) repositoryError('revision-conflict', `Workflow definition ${id} revision does not match.`);
+    if (value.retiredAt !== undefined && !mustBeRetired) repositoryError('retired', `Workflow definition ${id} is retired.`);
+    if (value.retiredAt === undefined && mustBeRetired) repositoryError('bad-input', `Workflow definition ${id} is not retired.`);
     return value;
   }
   private write(value: WorkflowDefinition, insert: boolean, expected = 0): void {
@@ -278,11 +278,11 @@ export class WorkflowRepository {
       const saved = parseInputDefinition({ ...current, revision: current.revision + 1, enabled, updatedAt: stamp });
       this.write(saved, false, revision); return this.requireDefinition(workflowId); }).immediate();
   }
-  retireDefinition(id: string, expectedRevision: number, at: string): WorkflowDefinition {
+  setRetired(id: string, retired: boolean, expectedRevision: number, at: string): WorkflowDefinition {
     const workflowId = parseWorkflowId(id); const revision = parseExpectedRevision(`Workflow definition ${workflowId}`, expectedRevision);
-    if (typeof at !== 'string') repositoryError('bad-input', 'Workflow definition is invalid.'); const stamp = this.transactionStamp();
-    return this.db.transaction(() => { const current = this.requireMutable(workflowId, revision);
-      const saved = parseInputDefinition({ ...current, revision: current.revision + 1, enabled: false, retiredAt: at, updatedAt: stamp });
+    if (typeof at !== 'string' || typeof retired !== 'boolean') repositoryError('bad-input', 'Workflow definition is invalid.'); const stamp = this.transactionStamp();
+    return this.db.transaction(() => { const { retiredAt: _retiredAt, ...current } = this.requireMutable(workflowId, revision, !retired);
+      const saved = parseInputDefinition({ ...current, revision: current.revision + 1, enabled: false, ...(retired ? { retiredAt: at } : {}), updatedAt: stamp });
       this.write(saved, false, revision); return this.requireDefinition(workflowId); }).immediate();
   }
   duplicateDefinition(id: WorkflowId, input: { id: WorkflowId; title: string }): WorkflowDefinition {
