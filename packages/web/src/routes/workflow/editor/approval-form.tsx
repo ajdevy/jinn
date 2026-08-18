@@ -116,13 +116,15 @@ function ChoicesSection({ config, update }: {
   const choices = storedChoices(config)
   return (
     <section className="space-y-2 rounded-[var(--radius-lg)] bg-[var(--fill-tertiary)] p-3">
-      <div className="flex items-center justify-between gap-[var(--space-3)]">
-        <label
-          htmlFor="approval-fixed-choices"
-          className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]"
-        >
+      {/* The whole row is the label, so the tap target clears 34px even though the
+          switch track itself is only 20px tall. */}
+      <label
+        htmlFor="approval-fixed-choices"
+        className="flex min-h-[34px] cursor-pointer items-center justify-between gap-[var(--space-3)]"
+      >
+        <span className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
           Offer fixed choices
-        </label>
+        </span>
         <Switch
           id="approval-fixed-choices"
           checked={choices !== null}
@@ -131,7 +133,7 @@ function ChoicesSection({ config, update }: {
             update(next ? { ...rest, options: ["Option 1", "Option 2"] } : rest)
           }}
         />
-      </div>
+      </label>
       {choices === null ? (
         <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
           Approved or rejected, with no labelled alternatives to pick between.
