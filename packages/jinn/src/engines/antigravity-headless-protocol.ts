@@ -75,13 +75,14 @@ function parseResult(event: Record<string, unknown>): AntigravityParsedLine | nu
   return { ...common, error: nonEmptyString(result.error) ?? "Antigravity turn failed" };
 }
 
-export function buildAntigravityHeadlessArgs(opts: EngineRunOpts, prompt: string): string[] {
+export function buildAntigravityHeadlessArgs(opts: EngineRunOpts): string[] {
   const args: string[] = [];
   if (opts.resumeSessionId) args.push("--conversation", opts.resumeSessionId);
   if (opts.model) args.push("--model", opts.model);
   args.push("--dangerously-skip-permissions");
   args.push(...(opts.cliFlags ?? []).filter((flag) => flag !== "--chrome"));
-  args.push("--output-format", "stream-json", "-p", prompt);
+  args.push("--input-format", "stream-json");
+  args.push("--output-format", "stream-json", "-p");
   return args;
 }
 

@@ -6,12 +6,14 @@ import * as headless from "../antigravity-headless.js";
 const { parseAntigravityStreamLine } = headless;
 
 interface FakeProc extends EventEmitter {
+  stdin: EventEmitter & { end: (text?: string) => void };
   stdout: EventEmitter;
   stderr: EventEmitter;
   exitCode: number | null;
   killed: boolean;
   pid: number;
   signals: NodeJS.Signals[];
+  stdinWrites: string[];
   kill: (signal?: NodeJS.Signals) => boolean;
   unref: () => void;
   emitStdout: (text: string) => void;
@@ -33,6 +35,9 @@ function makeFakeProc(): FakeProc {
   const proc = new EventEmitter() as FakeProc;
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
+  proc.stdin = new EventEmitter() as FakeProc["stdin"];
+  proc.stdinWrites = [];
+  proc.stdin.end = (text = "") => { proc.stdinWrites.push(text); };
   proc.exitCode = null;
   proc.killed = false;
   proc.pid = 63_630;
@@ -222,8 +227,9 @@ describe("buildAntigravityHeadlessArgs", () => {
       "--model", "example-model",
       "--dangerously-skip-permissions",
       "--verbose",
+      "--input-format", "stream-json",
       "--output-format", "stream-json",
-      "-p", "continue work",
+      "-p",
     ]);
   });
 });
@@ -400,9 +406,10 @@ describe("AntigravityHeadlessEngine", () => {
 
   it("runs a Windows npm shim through cmd.exe and kills its process tree", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const hostilePrompt = "say \"ok\" & echo %PATH% !value! ^ done";
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
-      prompt: "continue",
+      prompt: hostilePrompt,
       cwd: "C:\\workspace",
       bin: "C:\\tools\\agy.cmd",
       sessionId: "jinn-session-windows",
@@ -412,6 +419,10 @@ describe("AntigravityHeadlessEngine", () => {
 
     expect(call.bin).toMatch(/[\\/]System32[\\/]cmd\.exe$/);
     expect(call.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    expect(call.args.join(" ")).not.toContain(hostilePrompt);
+    expect(call.proc.stdinWrites).toEqual([
+      `${JSON.stringify({ type: "user", message: hostilePrompt })}\n`,
+    ]);
     engine.kill("jinn-session-windows", "test cleanup");
     expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
       expect.stringMatching(/[\\/]System32[\\/]taskkill\.exe$/),

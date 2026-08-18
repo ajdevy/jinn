@@ -30,10 +30,10 @@ function buildPrompt(opts: EngineRunOpts): string {
   return prompt;
 }
 
-function spawnHeadless(opts: EngineRunOpts, prompt: string): ChildProcess {
+function spawnHeadless(opts: EngineRunOpts): ChildProcess {
   const launch = spawnableCommand(
     resolveBin("agy", opts.bin),
-    buildAntigravityHeadlessArgs(opts, prompt),
+    buildAntigravityHeadlessArgs(opts),
   );
   return spawn(launch.command, launch.args, {
     cwd: opts.cwd,
@@ -41,7 +41,7 @@ function spawnHeadless(opts: EngineRunOpts, prompt: string): ChildProcess {
       ...buildEngineChildEnv(process.env),
       ...antigravityJinnSessionEnv(opts.resolvedMcp),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     detached: process.platform !== "win32",
     ...launch.options,
   });
@@ -75,10 +75,11 @@ export class AntigravityHeadlessEngine implements InterruptibleEngine {
 
   async run(opts: EngineRunOpts): Promise<EngineResult> {
     const trackingId = opts.sessionId ?? `antigravity-${Date.now()}`;
+    const prompt = buildPrompt(opts);
     const mcpConfig = ensureAntigravityJinnMcpConfig(opts.resolvedMcp);
     let proc: ChildProcess;
     try {
-      proc = spawnHeadless(opts, buildPrompt(opts));
+      proc = spawnHeadless(opts);
     } catch (error) {
       cleanupAntigravityJinnMcpConfig(mcpConfig);
       throw error;
@@ -89,6 +90,7 @@ export class AntigravityHeadlessEngine implements InterruptibleEngine {
       proc,
       live,
       runOpts: opts,
+      prompt,
       cleanup: () => {
         cleanupAntigravityJinnMcpConfig(mcpConfig);
         this.liveProcesses.delete(trackingId);

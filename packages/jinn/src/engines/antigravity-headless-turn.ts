@@ -41,6 +41,7 @@ interface TurnOpts {
   proc: ChildProcess;
   live: LiveAntigravityProcess;
   runOpts: EngineRunOpts;
+  prompt: string;
   cleanup: () => void;
 }
 
@@ -71,11 +72,13 @@ export class AntigravityHeadlessTurn {
     const { proc } = this.opts;
     proc.stdout!.on("data", this.onStdout);
     proc.stderr!.on("data", this.onStderr);
+    proc.stdin!.on("error", this.onStdinError);
     proc.on("close", this.onClose);
     proc.on("exit", this.onExit);
     proc.on("error", this.onError);
     this.hardTimeout = setTimeout(this.onTimeout, ANTIGRAVITY_TURN_TIMEOUT_MS);
     this.hardTimeout.unref?.();
+    proc.stdin!.end(`${JSON.stringify({ type: "user", message: this.opts.prompt })}\n`);
   }
 
   private onStdout = (chunk: Buffer): void => {
@@ -88,6 +91,10 @@ export class AntigravityHeadlessTurn {
 
   private onStderr = (chunk: Buffer): void => {
     if (!this.settled) this.stderr = (this.stderr + chunk.toString()).slice(-10 * 1024);
+  };
+
+  private onStdinError = (): void => {
+    // The process close/error event provides the authoritative diagnostic.
   };
 
   private onClose = (code: number | null): void => {
@@ -166,6 +173,7 @@ export class AntigravityHeadlessTurn {
     const { proc } = this.opts;
     proc.stdout?.removeListener("data", this.onStdout);
     proc.stderr?.removeListener("data", this.onStderr);
+    proc.stdin?.removeListener("error", this.onStdinError);
     proc.removeListener("close", this.onClose);
     proc.removeListener("exit", this.onExit);
     proc.removeListener("error", this.onError);
