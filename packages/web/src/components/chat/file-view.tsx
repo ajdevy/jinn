@@ -3,8 +3,8 @@ import { MarkdownView, SyntaxHighlighter, oneDark, oneLight } from "../markdown-
 import { ExternalLink, ArrowLeft } from "lucide-react";
 import { useTheme } from "@/routes/providers";
 import { buildFileReadRequest } from "@/lib/file-read-request";
+import { authFetch } from "@/lib/auth";
 import { EXT_TO_LANG, MARKDOWN_EXTS, getExt } from "@/lib/file-language";
-
 /** What the scoped knowledge and managed-file readers return. */
 interface FileReadResponse {
   content?: string;
@@ -84,7 +84,7 @@ export function FileView({
     setNotFound(false);
     setData(null);
 
-    fetch(request.url)
+    authFetch(request.url)
       .then(async (res) => {
         if (res.status === 404) {
           if (!cancelled) setNotFound(true);

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/lib/conversations";
 import { FileOpenContext } from "../file-open-context";
 import { FileView } from "../file-view";
 import { ChatMessages } from "../chat-messages";
+import { createBrowserGatewayTransport, installGatewayTransport } from "@/lib/gateway-transport";
 
 vi.mock("@/routes/providers", () => ({
   useTheme: () => ({ theme: "light" }),
@@ -18,10 +19,12 @@ vi.mock("@/components/markdown-view", () => ({
 }));
 
 const fetchMock = vi.fn<typeof fetch>();
+const GATEWAY_ORIGIN = "https://qa-a.example:7779";
+let restoreTransport: (() => void) | null = null;
 
 function responseFor(request: string): Response {
   const rawPath = new URL(request, "http://gateway.test").searchParams.get("path") ?? "";
-  const body = request.startsWith("/api/knowledge/read")
+  const body = new URL(request).pathname === "/api/knowledge/read"
     ? {
         path: rawPath,
         title: "Knowledge file",
@@ -49,6 +52,17 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input) => responseFor(String(input)));
   vi.stubGlobal("fetch", fetchMock);
+  restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+    origin: GATEWAY_ORIGIN,
+    request: (input, init) => fetch(input, init),
+    navigate: vi.fn(),
+  }));
+});
+
+afterEach(() => {
+  restoreTransport?.();
+  restoreTransport = null;
+  vi.unstubAllGlobals();
 });
 
 const supportedPaths = [
@@ -99,7 +113,10 @@ describe("FileView requests opened from chat", () => {
     expect(link.getAttribute("href")).toBe(`/file?path=${encodeURIComponent(path)}`);
     fireEvent.click(link);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expectedUrl));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `${GATEWAY_ORIGIN}${expectedUrl}`,
+      expect.objectContaining({ credentials: "include" }),
+    ));
   });
 
   it.each(specialChatPaths)("linkifies and opens special chat path %s", async (path, expectedUrl) => {
@@ -109,7 +126,10 @@ describe("FileView requests opened from chat", () => {
     expect(link.getAttribute("href")).toBe(`/file?path=${encodeURIComponent(path)}`);
     fireEvent.click(link);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expectedUrl));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `${GATEWAY_ORIGIN}${expectedUrl}`,
+      expect.objectContaining({ credentials: "include" }),
+    ));
   });
 
   it.each(literalPercentChatPaths)("round-trips literal percent-like chat path %s", async (path, expectedUrl) => {
@@ -119,7 +139,10 @@ describe("FileView requests opened from chat", () => {
     expect(link.getAttribute("href")).toBe(`/file?path=${encodeURIComponent(path)}`);
     fireEvent.click(link);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expectedUrl));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `${GATEWAY_ORIGIN}${expectedUrl}`,
+      expect.objectContaining({ credentials: "include" }),
+    ));
   });
 
   it("keeps a lone-surrogate supported-root path as inline code", () => {

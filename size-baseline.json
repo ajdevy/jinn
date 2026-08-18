@@ -1322,7 +1322,7 @@
       ]
     },
     "packages/web/src/components/cli-terminal.tsx": {
-      "lines": 585,
+      "lines": 578,
       "exempt": [
         "complexity",
         "max-depth",

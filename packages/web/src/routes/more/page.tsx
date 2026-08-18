@@ -12,7 +12,7 @@ import { useFeatures } from "@/hooks/use-features"
 import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
 import { CreateWorkspaceDialog } from "@/components/workspaces/create-workspace-dialog"
 import type { WorkspaceInfo } from "@/lib/api"
-
+import { gatewayTransport } from "@/lib/gateway-transport"
 // GRS-022 — the mobile "More" overflow. The 4th bottom-tab slot opens this
 // grouped iOS-Settings-style screen holding every destination that isn't a
 // primary tab. Reachable at /more (deep-linkable); the mobile tab bar keeps its
@@ -198,7 +198,7 @@ function WorkspacesGroup() {
     setStartError(null)
     try {
       const started = await startWorkspace.mutateAsync(workspace.id)
-      window.location.assign(started.switchUrl)
+      gatewayTransport().navigate(started.switchUrl)
     } catch (error) {
       setStartError({ id: workspace.id, message: error instanceof Error ? error.message : "Could not start workspace" })
     }

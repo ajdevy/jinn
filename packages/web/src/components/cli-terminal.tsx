@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { usePageVisibility } from "../hooks/use-page-visibility";
 import { dlog } from "../lib/debug-log";
 import { nextReconnectDelay } from "../lib/ws-backoff";
+import { gatewayTransport } from "../lib/gateway-transport";
 
 /**
  * Theme-aware xterm color palettes. The app exposes exactly two visual themes
@@ -88,15 +89,7 @@ function resolveXtermFont(): string {
 }
 
 function getPtyWsUrl(sessionId: string): string {
-  const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL;
-  if (gatewayUrl) {
-    return `${gatewayUrl.replace(/^http/, "ws")}/ws/pty/${sessionId}`;
-  }
-  if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/ws/pty/${sessionId}`;
-  }
-  return `ws://127.0.0.1:7777/ws/pty/${sessionId}`;
+  return gatewayTransport().socketUrl(`/ws/pty/${encodeURIComponent(sessionId)}`);
 }
 
 /**

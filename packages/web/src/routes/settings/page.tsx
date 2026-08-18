@@ -7,6 +7,7 @@ import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 import { THEMES } from "@/lib/themes"
 import { api } from "@/lib/api"
+import { authFetch } from "@/lib/auth"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
@@ -269,18 +270,17 @@ export default function SettingsPage() {
   // Poll for WhatsApp QR code when WhatsApp connector is configured
   useEffect(() => {
     if (!config.connectors?.whatsapp) return
-
     let cancelled = false
 
     async function checkQr() {
       try {
-        const statusRes = await fetch("/api/status")
+        const statusRes = await authFetch("/api/status")
         const status = await statusRes.json()
         const connStatus = status?.connectors?.whatsapp?.status
         if (!cancelled) setWaStatus(connStatus ?? "unknown")
 
         if (connStatus === "qr_pending") {
-          const qrRes = await fetch("/api/connectors/whatsapp/qr")
+          const qrRes = await authFetch("/api/connectors/whatsapp/qr")
           const data = await qrRes.json()
           if (!cancelled) setWaQr(data.qr)
         } else {

@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { Check, ChevronRight, Copy } from "lucide-react"
 import { ApiError, api, type InstanceMigration, type OpenInstanceMigrationResult } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
+import { gatewayTransport } from "@/lib/gateway-transport"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -43,7 +44,7 @@ function writeDismissedKey(migrationKey: string): void {
 
 export function InstanceMigrationGate({
   service = defaultService,
-  navigate = (url) => window.location.assign(url),
+  navigate = (url) => gatewayTransport().navigate(url),
 }: {
   service?: InstanceMigrationService
   navigate?: (url: string) => void

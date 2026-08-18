@@ -8,6 +8,7 @@ import {
 import { Slot } from "@/contrib/slot"
 import { AREAS } from "@/contrib/types"
 import { todoPath } from "@/lib/todo-id"
+import { gatewayTransport } from "@/lib/gateway-transport"
 
 /* Todos v2 slice 6 — the task page's breadcrumb bar (design-doc §7.1, mock
  * task-detail.html). Board context › ancestor IDs › current ID + title. The
@@ -125,7 +126,7 @@ export function CrumbBar({
           type="button"
           aria-label={`Copy link to ${id}`}
           data-testid="task-copy-link"
-          onClick={() => copyText(`${window.location.origin}${todoPath(id)}`)}
+          onClick={() => copyText(gatewayTransport().httpUrl(todoPath(id)))}
           className="focus-ring grid size-[34px] flex-none place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
         >
           <LinkIcon size={14} strokeWidth={2} aria-hidden />

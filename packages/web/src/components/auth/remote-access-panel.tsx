@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Copy, KeyRound, Laptop, LogOut, ShieldCheck, Smartphone, Unlink } from "lucide-react"
 import type { AuthState, PairedDevice, PairingCode } from "@/lib/auth"
+import { gatewayTransport } from "@/lib/gateway-transport"
 import { AuthStateIcon, AuthStateLabel } from "./auth-motion"
 
 interface RemoteAccessPanelProps {
@@ -17,7 +18,7 @@ export function RemoteAccessPanel({ authState, devices = [], onCreatePairingCode
   const [forgetting, setForgetting] = useState(false)
   const [unpairingId, setUnpairingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dashboardUrl = typeof window !== "undefined" ? window.location.origin : ""
+  const dashboardUrl = gatewayTransport().profile.origin
   const canCreatePairingCode = Boolean(authState?.authRequired && authState.authenticated && authState.canBootstrapLocal)
 
   async function createCode() {

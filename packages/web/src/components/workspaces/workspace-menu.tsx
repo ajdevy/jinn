@@ -3,6 +3,7 @@ import { Check, ChevronRight, Layers3, LoaderCircle, Plus } from "lucide-react"
 import type { WorkspaceInfo } from "@/lib/api"
 import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
 import { cn } from "@/lib/utils"
+import { gatewayTransport } from "@/lib/gateway-transport"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -192,7 +193,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
     setStartError(null)
     try {
       const started = await startWorkspace.mutateAsync(workspace.id)
-      window.location.assign(started.switchUrl)
+      gatewayTransport().navigate(started.switchUrl)
     } catch (error) {
       setStartError({ id: workspace.id, message: error instanceof Error ? error.message : "Could not start workspace" })
     }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPluginContext, pluginEventsUrl } from '../plugin-context'
+import { createBrowserGatewayTransport, installGatewayTransport } from '../../lib/gateway-transport'
 
 /**
  * `ctx.events`. The property under test is that a plugin reaches its OWN event
@@ -36,22 +37,30 @@ class SocketDouble {
 }
 
 const lastSocket = () => sockets.at(-1)!
+let restoreTransport: (() => void) | null = null
 
 beforeEach(() => {
   sockets.length = 0
   vi.stubGlobal('WebSocket', SocketDouble)
+  restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+    origin: 'https://qa-a.example:7779',
+    request: vi.fn(),
+    navigate: vi.fn(),
+  }))
 })
 
 afterEach(() => {
+  restoreTransport?.()
+  restoreTransport = null
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('pluginEventsUrl', () => {
   it('targets the plugin’s own events path, and carries a cursor when given one', () => {
-    expect(pluginEventsUrl('inbox-demo')).toBe(`ws://${location.host}/api/plugins/inbox-demo/events`)
+    expect(pluginEventsUrl('inbox-demo')).toBe('wss://qa-a.example:7779/api/plugins/inbox-demo/events')
     expect(pluginEventsUrl('inbox-demo', 12)).toBe(
-      `ws://${location.host}/api/plugins/inbox-demo/events?since=12`,
+      'wss://qa-a.example:7779/api/plugins/inbox-demo/events?since=12',
     )
   })
 })
@@ -70,7 +79,7 @@ describe('ctx.events', () => {
     // not read, because there is nothing in the signature that would read it.
     context.events(() => {}, { since: 3, id: 'other-plugin', pluginId: 'other-plugin' } as never)
 
-    expect(lastSocket().url).toBe(`ws://${location.host}/api/plugins/inbox-demo/events?since=3`)
+    expect(lastSocket().url).toBe('wss://qa-a.example:7779/api/plugins/inbox-demo/events?since=3')
     expect(lastSocket().url).not.toContain('other-plugin')
   })
 
