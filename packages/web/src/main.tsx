@@ -8,7 +8,7 @@ import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { startKeyboardInset } from './lib/native/keyboard-inset'
-import { useRouteLoadingPresence } from './components/chat/chat-hydration'
+import { RouteLoading } from './components/route-loading'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
@@ -56,15 +56,6 @@ if (typeof window !== 'undefined') {
     : (callback: () => void) => window.setTimeout(callback, 0)
   scheduleIdle(() => void ChatPage.prefetch())
   scheduleIdle(() => void TodoBoardPage.prefetch())
-}
-
-function RouteLoading({ label = 'Loading page' }: { label?: string }) {
-  useRouteLoadingPresence()
-  return (
-    <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={label}>
-      <div className="size-5 animate-spin rounded-full border-2 border-[var(--fill-tertiary)] border-t-[var(--accent)]" />
-    </div>
-  )
 }
 
 function NotesFeatureRoute() {
