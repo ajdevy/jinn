@@ -93,8 +93,8 @@ export const TALK_COMPANY_CAPABILITY_COVERAGE = {
   },
   "chat-core": {
     status: "supported",
-    operations: ["read_session", "talk_send_to_session"],
-    evidence: "normal session and exact inserted-message rereads",
+    operations: ["read_session", "talk_search_chat_messages", "talk_send_to_session"],
+    evidence: "bounded current-chat excerpts, normal session reads, and exact inserted-message rereads",
   },
   "chat-lifecycle": {
     status: "explicit-gap",
@@ -128,7 +128,9 @@ export const TALK_COMPANY_CAPABILITY_COVERAGE = {
   },
   "screen-navigation-and-visual": {
     status: "supported",
-    operations: BROWSER_CONTROL_OPERATIONS.map((operation) => operation.name),
+    operations: BROWSER_CONTROL_OPERATIONS
+      .filter((operation) => operation.name !== "talk_search_chat_messages")
+      .map((operation) => operation.name),
     evidence: "browser receipt, awaited UI effect, or bounded sanitized visual receipt",
   },
   "capability-inventory": {

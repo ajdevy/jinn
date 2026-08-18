@@ -31,7 +31,7 @@ function browser(
   };
 }
 
-/** Browser entries are bounded to navigation, focus, resolution, and visual evidence. */
+/** Browser entries are bounded to navigation, focus, current-view reads, and visual evidence. */
 export const BROWSER_CONTROL_OPERATIONS: readonly TalkControlOperation[] = [
   browser("open_todos", "Open the Todo board with optional visible filters.", params({
     board: string("Board scope."),
@@ -51,5 +51,8 @@ export const BROWSER_CONTROL_OPERATIONS: readonly TalkControlOperation[] = [
   }), "workflows"),
   browser("focus_element", "Focus and reveal a safe visible control.", params({ target: string("The semantic control target.") }, ["target"]), "page"),
   browser("resolve_and_open", "Resolve a spoken Todo, chat, Workflow, or Experiment reference and open it.", params({ what: string("The spoken reference.") }, ["what"]), "navigation"),
+  browser("talk_search_chat_messages", "Search earlier messages in the chat currently on screen. Use this for questions about what was said or decided earlier. Returns matching excerpts only; speak excerpts and relative time, never identifiers.", params({
+    query: string("All words to match in the current chat, at most 512 characters."),
+  }, ["query"]), "sessions", "read"),
   browser("capture_current_view", "Capture one bounded image only for a declared semantic visual gap.", params({ reason: string("The declared visual-gap reason.") }, ["reason"]), "visual", "read"),
 ];

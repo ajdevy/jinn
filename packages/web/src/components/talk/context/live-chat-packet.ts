@@ -5,6 +5,7 @@ import {
 import { queryClient } from "@/lib/query-client"
 import type { Message } from "@/lib/conversations"
 import type { SemanticObject } from "./screen-context-types"
+import { safeSpokenText } from "./spoken-text"
 
 const TEXT_CHARS = 240
 const TAIL_LENGTH = 4
@@ -14,15 +15,7 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
-function safeText(value: unknown): string {
-  return (typeof value === "string" ? value.trim() : "")
-    .replace(/\bBearer\s+\S+/gi, "[redacted]")
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted]")
-    .replace(/\b(password|secret|api[-_ ]?key|token)\s*[:=]\s*\S+/gi, "$1=[redacted]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[identifier]")
-    .replace(/\b[0-9a-f]{16,}\b/gi, "[identifier]")
-    .slice(0, TEXT_CHARS)
-}
+const safeText = (value: unknown): string => safeSpokenText(value, TEXT_CHARS)
 
 function lastUserTimestamp(messages: Message[]): number {
   return messages.reduce((latest, message) => (

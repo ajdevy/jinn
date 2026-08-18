@@ -34,6 +34,16 @@ describe("the authoritative Talk control manifest", () => {
     }
     expect(byName.get("open_todo")).toMatchObject({ target: "browser", mutability: "effect" });
     expect(byName.get("capture_current_view")).toMatchObject({ target: "browser", mutability: "read" });
+    expect(byName.get("talk_search_chat_messages")).toMatchObject({
+      target: "browser",
+      mutability: "read",
+      operatorOnly: false,
+      parameters: {
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: { type: "string" } },
+      },
+    });
     expect(byName.get("read_talk_capability")).toMatchObject({ target: "gateway", mutability: "read", operatorOnly: false });
   });
 

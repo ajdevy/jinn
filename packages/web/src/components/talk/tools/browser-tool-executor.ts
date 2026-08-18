@@ -1,4 +1,5 @@
 import { FOCUS_ELEMENT_TOOL } from "./focus-element"
+import { CHAT_MESSAGE_SEARCH_TOOL } from "./chat-message-search"
 import { NAVIGATE_TOOLS } from "./navigate-tools"
 import { RESOLVE_TOOLS } from "./resolve-tools"
 import { type TalkTool, type ToolResult } from "./tool-spec"
@@ -13,6 +14,7 @@ const BROWSER_TOOLS: readonly TalkTool[] = [
   ...NAVIGATE_TOOLS,
   ...RESOLVE_TOOLS,
   FOCUS_ELEMENT_TOOL,
+  CHAT_MESSAGE_SEARCH_TOOL,
 ]
 
 const BY_NAME = new Map(BROWSER_TOOLS.map((tool) => [tool.name, tool]))

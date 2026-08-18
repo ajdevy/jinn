@@ -42,7 +42,7 @@ A normal question uses semantic context. One bounded image is permitted only whe
 | --- | --- | --- | --- |
 | todo-core | supported | read_todo, talk_edit_todo, talk_comment_todo, talk_assign_todo, talk_delegate_todo | authoritative Todo, comment, assignment, and linked-session rereads |
 | todo-extended | explicit gap | — | todo-extended-command-adapter-missing; reuse create, transition, label, relation, attachment, and comment-delete commands |
-| chat-core | supported | read_session, talk_send_to_session | normal session and exact inserted-message rereads |
+| chat-core | supported | read_session, talk_search_chat_messages, talk_send_to_session | bounded current-chat excerpts, normal session reads, and exact inserted-message rereads |
 | chat-lifecycle | explicit gap | — | chat-lifecycle-command-adapter-missing; reuse create, rename, archive, duplicate, delete, queue, stop, and reset commands |
 | delegation | supported | talk_delegate_todo | Todo-to-session link, child session, and dispatch rereads |
 | workflow-core | supported | talk_start_workflow_run, read_workflow_runs, read_workflow_run | workflow-run repository rereads |
