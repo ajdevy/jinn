@@ -23,7 +23,7 @@ export function TalkOrbOverlay() {
   if (!settings.talkOrb) return null
   return (
     <Suspense fallback={null}>
-      <TalkLiveSurface sessionId={sessionId} />
+      <TalkLiveSurface sessionId={sessionId} variant={settings.talkOrbVariant} />
     </Suspense>
   )
 }

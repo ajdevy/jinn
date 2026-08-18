@@ -1,4 +1,7 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
+import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
+import type { OrbVariant } from "@/components/talk/orb-motion"
 import type { TalkCapability } from "@/lib/talk-capability"
 import type { TalkMicrophone } from "@/lib/settings"
 import { useSettings } from "@/routes/settings-provider"
@@ -166,6 +169,28 @@ function MicrophoneField({
   )
 }
 
+function OrbStyleField({
+  variant,
+  onChange,
+}: {
+  variant: OrbVariant
+  onChange: (variant: OrbVariant) => void
+}) {
+  return (
+    <div className="mt-[var(--space-4)]">
+      <div className="mb-[var(--space-2)] flex items-baseline justify-between gap-[var(--space-3)]">
+        <span className="text-[length:var(--text-footnote)] font-medium text-[var(--text-primary)]">
+          Orb style
+        </span>
+        <Link to="/talk-orb" className="text-[length:var(--text-caption1)] text-[var(--system-blue)] no-underline">
+          Preview all states
+        </Link>
+      </div>
+      <OrbVariantPicker value={variant} onChange={onChange} />
+    </div>
+  )
+}
+
 export function VoiceSection({
   provider,
   apiKey,
@@ -178,7 +203,7 @@ export function VoiceSection({
   const [replacing, setReplacing] = useState(false)
   const stored = apiKey === REDACTED
   const note = readiness(capability, provider, apiKey)
-  const { settings, setTalkMicrophone } = useSettings()
+  const { settings, setTalkMicrophone, setTalkOrbVariant } = useSettings()
 
   function replace() {
     setReplacing(true)
@@ -203,6 +228,8 @@ export function VoiceSection({
       </FieldRow>
 
       <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
+
+      <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
 
       <Guidance
         replacing={replacing}

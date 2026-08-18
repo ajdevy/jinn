@@ -83,7 +83,18 @@ describe("provider-owned interruption and false-start recovery", () => {
     talk.driver.receive(speechStarted("item-user-1", 1_000))
 
     expect(talk.cancels()).toHaveLength(0)
-    expect(talk.states.at(-1)).toBe("listening")
+    expect(talk.states.at(-1)).toBe("interrupted")
+
+    talk.driver.receive(speechStopped("item-user-1", 1_300))
+    expect(talk.states.at(-1)).toBe("thinking")
+  })
+
+  it("does not call ordinary listening an interruption", () => {
+    const talk = driver()
+
+    talk.driver.receive(speechStarted("item-user-1", 1_000))
+
+    expect(talk.states).not.toContain("interrupted")
   })
 
   it("continues exactly once after correlated short empty speech", () => {

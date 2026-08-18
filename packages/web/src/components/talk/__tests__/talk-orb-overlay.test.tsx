@@ -8,11 +8,14 @@ vi.mock("@/hooks/use-gateway", () => ({ useGateway: () => ({ subscribe: () => ()
 
 /** Counts module evaluations, so "the chunk is not fetched" is an assertion
  *  rather than a hope: the factory only runs when the lazy import resolves. */
-const orb = vi.hoisted(() => ({ loads: 0 }))
+const orb = vi.hoisted(() => ({ loads: 0, variants: [] as string[] }))
 
 vi.mock("../talk-orb", () => {
   orb.loads += 1
-  return { TalkOrb: () => <div data-talk-orb /> }
+  return { TalkOrb: ({ variant }: { variant?: string }) => {
+    if (variant) orb.variants.push(variant)
+    return <div data-talk-orb data-orb-variant={variant} />
+  } }
 })
 
 const stored = vi.hoisted(() => ({ settings: {} as JinnSettings }))
@@ -27,12 +30,13 @@ vi.mock("../talk-action-log", async (importOriginal) => ({
   bindTalkActionLog: (id: string | null) => bindTalkActionLog(id),
 }))
 
-function withTalkOrb(enabled: boolean) {
-  stored.settings = { ...DEFAULTS, talkOrb: enabled }
+function withTalkOrb(enabled: boolean, variant = DEFAULTS.talkOrbVariant) {
+  stored.settings = { ...DEFAULTS, talkOrb: enabled, talkOrbVariant: variant }
 }
 
 afterEach(() => {
   orb.loads = 0
+  orb.variants = []
   bindTalkActionLog.mockClear()
   act(() => setTalkSessionId(null))
   clearResumableTalkSession()
@@ -64,6 +68,17 @@ describe("TalkOrbOverlay", () => {
       timeout: 15_000,
     })
     expect(orb.loads).toBe(1)
+  })
+
+  it("hands the persisted paint strategy to the live control", async () => {
+    withTalkOrb(true, "ring")
+
+    render(<TalkOrbOverlay />)
+
+    await waitFor(() => expect(document.querySelector("[data-talk-orb]")?.getAttribute("data-orb-variant")).toBe("ring"), {
+      timeout: 15_000,
+    })
+    expect(orb.variants).toContain("ring")
   })
 
   it("hands the open talk session down to the surface, and lets it go on the way out", async () => {

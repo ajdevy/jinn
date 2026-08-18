@@ -194,7 +194,7 @@ interface InterruptionDriverState {
 function startInterruption(
   driver: InterruptionDriverState,
   frame: Extract<RealtimeFrame, { type: "speech_started" }>,
-): void {
+): boolean {
   if (driver.responding || driver.playbackResponseId) {
     const responseId = driver.playbackResponseId ?? driver.activeResponseId
     driver.recovery.begin(
@@ -205,8 +205,10 @@ function startInterruption(
     )
     driver.owed = false
     driver.interrupted = true
+    return true
   } else {
     driver.recovery.newerSpeech(frame.itemId)
+    return false
   }
 }
 
@@ -236,15 +238,15 @@ export function handleInterruptionFrame(
   driver: InterruptionDriverState,
   frame: RealtimeFrame,
   settleProactive: () => void,
-  show: (state: "listening" | "thinking") => void,
+  show: (state: "listening" | "thinking" | "interrupted") => void,
   continueResponse: () => void,
 ): boolean {
   if (handleOutputFrame(driver, frame, continueResponse)) return true
   switch (frame.type) {
     case "speech_started":
-      startInterruption(driver, frame)
+      const interrupted = startInterruption(driver, frame)
       settleProactive()
-      show("listening")
+      show(interrupted ? "interrupted" : "listening")
       return true
     case "speech_stopped":
       driver.recovery.speechStopped(frame)

@@ -1,11 +1,12 @@
 import { useEffect, type RefObject } from "react"
 import { createPortal } from "react-dom"
-import type { OrbState } from "./orb-motion"
+import type { OrbState, OrbVariant } from "./orb-motion"
 import { bindTalkActionLog } from "./talk-action-log"
 import { TalkOrb } from "./talk-orb"
 
 interface TalkSurfaceProps {
   state?: OrbState
+  variant?: OrbVariant
   levelRef?: RefObject<number>
   /** The durable Talk session that owns any browser-side action receipts. */
   sessionId?: string | null
@@ -22,6 +23,7 @@ interface TalkSurfaceProps {
  */
 export function TalkSurface({
   state = "idle",
+  variant = "mist",
   levelRef,
   sessionId = null,
   active = false,
@@ -34,7 +36,7 @@ export function TalkSurface({
   }, [sessionId])
 
   return createPortal(
-    <TalkOrb state={state} levelRef={levelRef} active={active} label={label} onToggle={onToggle} />,
+    <TalkOrb variant={variant} state={state} levelRef={levelRef} active={active} label={label} onToggle={onToggle} />,
     document.body,
   )
 }

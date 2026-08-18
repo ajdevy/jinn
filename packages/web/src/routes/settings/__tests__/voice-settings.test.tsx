@@ -26,10 +26,15 @@ const fetchTalkCapability = vi.hoisted(() => vi.fn())
 const settingsMock = vi.hoisted(() => ({
   talkOrb: true,
   talkMicrophone: 'far_field' as 'far_field' | 'near_field',
+  talkOrbVariant: 'mist',
 }))
 const setTalkMicrophone = vi.hoisted(() => vi.fn())
+const setTalkOrbVariant = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
+vi.mock('@/components/talk/orb-canvas', () => ({
+  OrbCanvas: ({ variant }: { variant: string }) => <canvas data-test-orb-variant={variant} />,
+}))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
@@ -46,6 +51,7 @@ vi.mock('@/routes/settings-provider', () => ({
     setLanguage: vi.fn(),
     setTalkOrb: vi.fn(),
     setTalkMicrophone,
+    setTalkOrbVariant,
     resetAll: vi.fn(),
   }),
 }))
@@ -76,6 +82,7 @@ beforeEach(() => {
   settingsMock.talkOrb = true
   settingsMock.talkMicrophone = 'far_field'
   setTalkMicrophone.mockReset()
+  setTalkOrbVariant.mockReset()
   apiMocks.getConfig.mockResolvedValue({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } })
   apiMocks.updateConfig.mockResolvedValue({})
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
@@ -170,6 +177,17 @@ describe('the Voice section', () => {
 })
 
 describe('the Talk Orb row', () => {
+  it('offers the four calm orb styles in Voice settings', async () => {
+    renderSettings()
+
+    const styles = await screen.findByRole('radiogroup', { name: 'Talk orb style' })
+    expect(Array.from(styles.querySelectorAll('[data-orb-variant-option]')).map((option) =>
+      option.getAttribute('data-orb-variant-option'))).toEqual(['mist', 'coin', 'ring', 'pulse'])
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Ring orb' }))
+    expect(setTalkOrbVariant).toHaveBeenCalledWith('ring')
+  })
+
   it('says voice is not set up when the orb is on and the gateway cannot open one', async () => {
     fetchTalkCapability.mockResolvedValue({ configured: false, provider: null, providers: ['openai'] })
     renderSettings()

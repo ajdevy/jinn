@@ -30,6 +30,7 @@ interface SettingsContextValue {
   setOperatorName: (name: string | null) => void
   setLanguage: (language: string) => void
   setTalkOrb: (enabled: boolean) => void
+  setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
   setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
@@ -50,6 +51,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setOperatorName: () => {},
   setLanguage: () => {},
   setTalkOrb: () => {},
+  setTalkOrbVariant: () => {},
   setTalkMicrophone: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
@@ -187,6 +189,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setTalkOrbVariant = useCallback(
+    (variant: JinnSettings["talkOrbVariant"]) => {
+      update((prev) => ({ ...prev, talkOrbVariant: variant }))
+    },
+    [update],
+  )
+
   const setTalkMicrophone = useCallback(
     (microphone: JinnSettings["talkMicrophone"]) => {
       update((prev) => ({ ...prev, talkMicrophone: microphone }))
@@ -251,6 +260,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setOperatorName,
         setLanguage,
         setTalkOrb,
+        setTalkOrbVariant,
         setTalkMicrophone,
         setEmployeeOverride,
         clearEmployeeOverride,

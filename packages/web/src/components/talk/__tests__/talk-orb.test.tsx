@@ -81,6 +81,16 @@ describe("TalkOrb carries no text", () => {
   })
 })
 
+describe("TalkOrb paint strategy", () => {
+  it("exposes the selected geometry without changing the live hit target", () => {
+    const { sphere } = mountOrb({ variant: "ring" })
+
+    expect(sphere.getAttribute("data-orb-variant")).toBe("ring")
+    expect(sphere.style.width).toBe("64px")
+    expect(sphere.style.height).toBe("64px")
+  })
+})
+
 describe("TalkOrb as the voice control", () => {
   it("is a real button, so it is reachable and operable by keyboard", () => {
     const { sphere } = mountOrb()
