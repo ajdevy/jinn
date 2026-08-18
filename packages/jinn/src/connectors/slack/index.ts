@@ -61,9 +61,7 @@ export class SlackConnector implements Connector {
   constructor(config: SlackConnectorConfig) {
     this.id = config.id || "slack";
     this.app = new App({
-      token: config.botToken,
-      appToken: config.appToken,
-      socketMode: true,
+      token: config.botToken, appToken: config.appToken, socketMode: true, tokenVerificationEnabled: false,
     });
     this.ignoreOldMessagesOnBoot = config.ignoreOldMessagesOnBoot !== false;
     const allowFrom = Array.isArray(config.allowFrom)
