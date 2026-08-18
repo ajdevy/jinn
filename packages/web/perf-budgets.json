@@ -16,7 +16,7 @@
     }
   },
   "initialCriticalPath": {
-    "baselineGzipBytes": 189328,
+    "baselineGzipBytes": 189609,
     "budgetGzipBytes": 195000
   }
 }
