@@ -1690,7 +1690,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 911
+      "lines": 874
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 340,
@@ -1705,7 +1705,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 1093,
+      "lines": 964,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1784,7 +1784,7 @@
       ]
     },
     "packages/web/src/routes/todos/pickers/picker-contents.tsx": {
-      "lines": 369,
+      "lines": 365,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1845,7 +1845,6 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/props-rail.tsx": {
-      "lines": 303,
       "exempt": [
         "complexity",
         "max-lines-per-function"
