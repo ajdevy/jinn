@@ -76,7 +76,7 @@ function RowSummary({ session, avatarName, displayName, title, strong, showPin, 
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-subheadline text-foreground",
-              strong ? "font-[var(--weight-semibold)]" : "font-[var(--weight-medium)]",
+              strong ? "font-[var(--weight-semibold)]" : "font-[var(--weight-regular)]",
             )}
           >
             {title}
