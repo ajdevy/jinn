@@ -41,8 +41,15 @@ vi.mock("../transport/webrtc-connection", async () => ({
 const { TalkOrbOverlay } = await import("../talk-orb-overlay")
 const { setTalkSessionId } = await import("../talk-session-store")
 const { FakeConnection, connect } = await import("../transport/__tests__/fake-connection")
+const { browserControlFixture } = await import("../transport/__tests__/control-fixture")
 
-const OPENED = { id: "talk-1", token: "secret-1", expiresAt: 1_700_000_600, model: "gpt-realtime-2.1" }
+const OPENED = {
+  id: "talk-1",
+  token: "secret-1",
+  expiresAt: 1_700_000_600,
+  model: "gpt-realtime-2.1",
+  manifest: browserControlFixture(),
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })

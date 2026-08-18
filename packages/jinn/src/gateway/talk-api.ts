@@ -14,35 +14,45 @@ import { setTimeout as delay } from "node:timers/promises";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig, Session } from "../shared/types.js";
 import type { RealtimeTool } from "../shared/voice.js";
-import { createSession, getSessionSpend } from "../sessions/registry.js";
+import { createSession } from "../sessions/registry.js";
+import { buildTalkControlManifest } from "../talk/control/manifest.js";
+import { createTalkDomainRuntime } from "../talk/control/domain-adapters.js";
+import type { TalkControlRuntime } from "../talk/control/runtime.js";
 import { scanOrg } from "./org.js";
 import { UnknownRealtimeProviderError, createRealtimeProvider } from "../talk/realtime/index.js";
 import { buildStandingBrief } from "../talk/session/brief.js";
-import { TALK_CONTEXT_BUDGET_TOKENS, contextTokens, estimateTokens } from "../talk/session/context.js";
-import { UNPINNED_MODEL, isPricingKnown } from "../talk/session/pricing.js";
+import { UNPINNED_MODEL } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
-import { alwaysOnTools, estimateToolTokens, toolsByName } from "../talk/session/tools.js";
+import { alwaysOnTools, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { json, type ParsedRoute } from "./route-helpers.js";
+import { handleTalkControl } from "./talk-control-api.js";
+import { talkSessionStatus } from "./talk-session-status.js";
 import { handleTalkConfigApi } from "./talk-config-api.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
+import type { ApiContext } from "./api.js";
+import type { CallerIdentity } from "./session-comm-guards.js";
 
 export interface TalkApiOptions {
   getConfig: () => JinnConfig;
-  authenticated: boolean;
+  caller: CallerIdentity;
+  context: ApiContext;
   /** Start the engine run for a handoff session. The dispatcher owns the engine
    *  wiring, so it passes this in rather than being imported from here. */
   runHandoff?: (session: Session, prompt: string) => void;
 }
 
 const talkSessions = new TalkSessionRegistry();
+const controlRuntimes = new Map<string, TalkControlRuntime>();
+const controlManifest = buildTalkControlManifest();
 const REAP_INTERVAL_MS = 30_000;
 
 // Unref'd: an idle reaper must never be the reason the process stays alive. It
 // is the only thing that closes a session whose tab went away without a DELETE.
 setInterval(() => {
   for (const id of talkSessions.reap()) {
+    controlRuntimes.delete(id);
     logger.info(`Talk session ${id} closed: no heartbeat for ${TALK_SESSION_TTL_MS}ms`);
   }
 }, REAP_INTERVAL_MS).unref();
@@ -102,37 +112,10 @@ async function mint(res: ServerResponse, config: JinnConfig, tools: RealtimeTool
   }
 }
 
-/** The session as the client sees it. Carries no credential: a token is only
- *  ever returned by the call that minted it. */
-function statusOf(session: TalkSession) {
-  return {
-    id: session.id,
-    sessionId: session.sessionId,
-    state: session.state,
-    model: session.model,
-    openedAt: session.openedAt,
-    lastSeenAt: session.lastSeenAt,
-    turns: session.turns,
-    truncatedTurns: session.truncatedTurns,
-    actions: session.actions,
-    brief: session.brief,
-    // Reported alongside the turn budget, and deliberately not inside it: the
-    // brief rides `instructions`, which the provider replaces rather than
-    // accumulates, so it is not what truncation is defending against.
-    briefChars: session.brief.length,
-    briefTokens: estimateTokens(session.brief),
-    contextTokens: contextTokens(session.turns),
-    contextBudgetTokens: TALK_CONTEXT_BUDGET_TOKENS,
-    exposedTools: session.exposedTools,
-    toolTokens: estimateToolTokens(toolsByName(session.exposedTools)),
-    spendUsd: getSessionSpend([session.sessionId]),
-    pricingKnown: isPricingKnown(session.model),
-  };
-}
-
 /** The collection itself: POST opens a session, and nothing else lives here. */
-async function openRoute(res: ServerResponse, config: JinnConfig, method: string): Promise<boolean> {
+async function openRoute(res: ServerResponse, options: TalkApiOptions, method: string): Promise<boolean> {
   if (method !== "POST") return false;
+  const config = options.getConfig();
   const tools = alwaysOnTools();
   const token = await mint(res, config, tools);
   if (!token) return true; // mint already answered with 503 or 502
@@ -150,7 +133,11 @@ async function openRoute(res: ServerResponse, config: JinnConfig, method: string
     brief: buildStandingBrief(config, scanOrg(config)).text,
     tokenExpiresAt: token.expiresAt,
   });
-  send(res, 201, { ...statusOf(session), token: token.value, expiresAt: token.expiresAt, tools });
+  controlRuntimes.set(session.id, createTalkDomainRuntime(controlManifest, {
+    context: options.context,
+    sourceSessionId: row.id,
+  }));
+  send(res, 201, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
   return true;
 }
 
@@ -183,13 +170,14 @@ async function reissueToken(res: ServerResponse, config: JinnConfig, session: Ta
   const token = await mintSuccessor(res, config, session, tools);
   if (!token) return;
   talkSessions.recordToken(session.id, token.expiresAt);
-  send(res, 200, { ...statusOf(session), token: token.value, expiresAt: token.expiresAt, tools });
+  send(res, 200, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
 }
 
 /** `/api/talk/sessions/:id` itself: read it or close it. */
 function sessionResource(res: ServerResponse, id: string, method: string): boolean {
   if (method === "DELETE") {
     talkSessions.close(id);
+    controlRuntimes.delete(id);
     send(res, 200, { id, state: "closed" });
     return true;
   }
@@ -199,7 +187,7 @@ function sessionResource(res: ServerResponse, id: string, method: string): boole
     send(res, 404, { error: `Talk session ${id} does not exist: it was closed or never opened.` });
     return true;
   }
-  send(res, 200, statusOf(session));
+  send(res, 200, talkSessionStatus(session, controlManifest));
   return true;
 }
 
@@ -214,7 +202,7 @@ async function sessionAction(
 ): Promise<boolean> {
   switch (action) {
     case "park":
-      send(res, 200, statusOf(talkSessions.park(id)));
+      send(res, 200, talkSessionStatus(talkSessions.park(id), controlManifest));
       return true;
     case "resume":
       await reissueToken(res, options.getConfig(), talkSessions.resume(id));
@@ -223,7 +211,7 @@ async function sessionAction(
       await reissueToken(res, options.getConfig(), talkSessions.heartbeat(id));
       return true;
     case "heartbeat":
-      send(res, 200, statusOf(talkSessions.heartbeat(id)));
+      send(res, 200, talkSessionStatus(talkSessions.heartbeat(id), controlManifest));
       return true;
     case "tools":
       await expandTools(req, res, talkSessions.heartbeat(id), talkSessions);
@@ -233,6 +221,15 @@ async function sessionAction(
       return true;
     case "actions":
       await recordAction(req, res, talkSessions.heartbeat(id), talkSessions);
+      return true;
+    case "control":
+      await handleTalkControl(req, res, id, {
+        caller: options.caller,
+        manifest: controlManifest,
+        registry: talkSessions,
+        runtime: controlRuntimes.get(id),
+        send,
+      });
       return true;
     case "handoff":
       await handOff(req, res, talkSessions.heartbeat(id), options.getConfig(), options.runHandoff);
@@ -253,8 +250,9 @@ function talkSessionsPath(pathname: string): string[] | null {
 
 /** Writes need the operator. Reads stay open, like the rest of the read surface. */
 function unauthorizedWrite(res: ServerResponse, method: string, options: TalkApiOptions): boolean {
-  if (method === "GET" || options.authenticated) return false;
-  send(res, 401, { error: "Talk session authentication required." });
+  if (method === "GET" || options.caller.kind === "operator") return false;
+  const status = options.caller.kind === "unauthenticated" ? 401 : 403;
+  send(res, status, { error: "Talk session operator authentication required." });
   return true;
 }
 
@@ -286,7 +284,7 @@ export async function handleTalkApi(
   if (unauthorizedWrite(res, method, options)) return true;
 
   try {
-    if (parts.length === 3) return await openRoute(res, config, method);
+    if (parts.length === 3) return await openRoute(res, options, method);
     if (parts.length === 4) return sessionResource(res, parts[3]!, method);
     if (method !== "POST") return false;
     return await sessionAction(req, res, parts[3]!, parts[4]!, options);

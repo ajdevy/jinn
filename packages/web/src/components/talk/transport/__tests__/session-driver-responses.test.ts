@@ -23,6 +23,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 const { createTalkDriver } = await import("../session-driver")
+const { browserControlFixture } = await import("./control-fixture")
 
 const RESPONSE_CREATED = JSON.stringify({ type: "response.created" })
 const RESPONSE_DONE = JSON.stringify({ type: "response.done", response: {} })
@@ -42,6 +43,7 @@ function driver() {
   const sent: Array<Record<string, unknown>> = []
   const built = createTalkDriver({
     sessionId: "talk-1",
+    manifest: browserControlFixture(),
     send: (event) => sent.push(event),
     onState: () => {},
     onError: () => {},

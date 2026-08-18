@@ -15,6 +15,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 const { createTalkDriver } = await import("../session-driver")
 const { findTool, toolDefinitions } = await import("@/components/talk/tools/registry")
 const { bindTalkActionLog, clearTalkActions } = await import("@/components/talk/talk-action-log")
+const { browserControlFixture } = await import("./control-fixture")
 
 function accepted(body: unknown = {}) {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
@@ -36,6 +37,7 @@ function driver(overrides: { onState?: (state: string) => void; onError?: (messa
   const sent: Array<Record<string, unknown>> = []
   const built = createTalkDriver({
     sessionId: "talk-1",
+    manifest: browserControlFixture(),
     send: (event) => sent.push(event),
     onState: overrides.onState ?? (() => {}),
     onError: overrides.onError ?? (() => {}),
@@ -73,7 +75,7 @@ describe("declaring the tool catalog", () => {
     expect(sent[0]!.type).toBe("session.update")
   })
 
-  it("declares the browser's own tools — every name is one executeToolCall can run", () => {
+  it("declares exactly the manifest fixture and keeps each browser target executable", () => {
     const { sent, driver: talk } = driver()
 
     talk.start()

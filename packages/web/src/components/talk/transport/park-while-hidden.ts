@@ -24,7 +24,7 @@ export function useParkWhileHidden(controls: SessionControls): void {
       const generation = controls.generationRef.current
       void resumeTalkSession(live.id)
         .then(async (resumed) => {
-          const attachment = await controls.attach(live.id, resumed.token, live.brief)
+          const attachment = await controls.attach(live.id, resumed.token, live.brief, live.manifest)
           if (generation !== controls.generationRef.current) {
             // Closed while this was connecting. The microphone does not come
             // back on for a session that has already been deleted.

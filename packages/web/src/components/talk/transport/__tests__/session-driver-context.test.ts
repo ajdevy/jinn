@@ -12,6 +12,7 @@ const { describeLocation } = await import("@/components/talk/context/page-snapsh
 const { publishPageContext, resetPageContext } = await import("@/components/talk/context/page-context-store")
 const { FakeConnection } = await import("./fake-connection")
 type Fake = InstanceType<typeof FakeConnection>
+const { browserControlFixture } = await import("./control-fixture")
 
 /** A driver speaking over a fake data channel, exactly as `useAttach` wires the
  *  real one: the driver is built first, and sends through the connection. */
@@ -19,6 +20,7 @@ function attached(brief?: string) {
   let connection: Fake | null = null
   const driver = createTalkDriver({
     sessionId: "talk-1",
+    manifest: browserControlFixture(),
     brief,
     send: (event) => connection?.send(event),
     onState: () => {},

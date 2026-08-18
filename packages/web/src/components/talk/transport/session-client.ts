@@ -12,6 +12,8 @@
 import { authFetch } from "@/lib/auth"
 import type { TalkUsage } from "./usage-delta"
 import type { VisualCaptureReceipt } from "../context/visual-capture"
+import { parseTalkControlManifest, type TalkControlManifest } from "./control-manifest"
+import type { TalkUiEffect } from "./ui-effects"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -28,6 +30,7 @@ export interface OpenTalkSession {
    *  gateway predates it, which the driver handles by sending page context
    *  alone. */
   brief: string
+  manifest: TalkControlManifest
 }
 
 export interface TalkToken {
@@ -80,8 +83,9 @@ function jsonBody(body: unknown): RequestInit {
  */
 export async function openTalkSession(): Promise<OpenTalkSession> {
   const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions")
-  if (typeof opened.id !== "string" || typeof opened.token !== "string") {
-    throw new Error("The gateway opened a talk session without an id and a credential.")
+  const manifest = parseTalkControlManifest(opened.manifest)
+  if (typeof opened.id !== "string" || typeof opened.token !== "string" || !manifest) {
+    throw new Error("The gateway opened a talk session without an id, credential, and valid control manifest.")
   }
   return {
     id: opened.id,
@@ -89,7 +93,23 @@ export async function openTalkSession(): Promise<OpenTalkSession> {
     expiresAt: opened.expiresAt ?? 0,
     model: opened.model ?? "",
     brief: opened.brief ?? "",
+    manifest,
   }
+}
+
+export interface TalkControlCall {
+  providerCallId: string
+  providerItemId?: string
+  tool: string
+  arguments: string
+}
+
+export type TalkControlResult =
+  | { ok: true; verified: true; receiptId: string; replayed: boolean; operation: string; data: Record<string, unknown>; evidence: Record<string, unknown>; uiEffect: TalkUiEffect | null }
+  | { ok: false; code: string; error: string }
+
+export function postTalkControlCall(id: string, call: TalkControlCall): Promise<TalkControlResult> {
+  return talkFetch<TalkControlResult>(sessionPath(id, "control"), jsonBody(call))
 }
 
 /** `keepalive` because this is also what a closing tab sends, and an unload

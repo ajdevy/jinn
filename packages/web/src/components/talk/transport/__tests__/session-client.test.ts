@@ -12,6 +12,7 @@ const {
   closeTalkSession,
   openTalkSession,
   parkTalkSession,
+  postTalkControlCall,
   postTalkTurn,
   resumeTalkSession,
   startTalkHeartbeat,
@@ -22,7 +23,22 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 }
 
-const OPENED = { id: "talk-1", token: "ephemeral-secret", expiresAt: 1_700_000_600, model: "gpt-realtime-2.1" }
+const MANIFEST = {
+  version: 1,
+  operations: [{
+    name: "read_todo",
+    description: "Read one Todo.",
+    parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+    target: "gateway",
+    exposure: "always",
+    intent: "todos",
+    mutability: "read",
+    operatorOnly: false,
+    verification: "todo-reread",
+  }],
+} as const
+
+const OPENED = { id: "talk-1", token: "ephemeral-secret", expiresAt: 1_700_000_600, model: "gpt-realtime-2.1", manifest: MANIFEST }
 
 beforeEach(() => {
   authFetch.mockReset()
@@ -77,6 +93,26 @@ describe("opening a session", () => {
 })
 
 describe("the rest of the lifecycle", () => {
+  it("posts one provider call to the session's universal control route", async () => {
+    authFetch.mockResolvedValue(json({ ok: true, verified: true, operation: "read_todo", data: {}, evidence: {}, uiEffect: null }))
+
+    await postTalkControlCall("talk-1", {
+      providerCallId: "call-1",
+      providerItemId: "item-1",
+      tool: "read_todo",
+      arguments: '{"id":"ABC-1"}',
+    })
+
+    const [url, init] = authFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/talk/sessions/talk-1/control")
+    expect(JSON.parse(String(init.body))).toEqual({
+      providerCallId: "call-1",
+      providerItemId: "item-1",
+      tool: "read_todo",
+      arguments: '{"id":"ABC-1"}',
+    })
+  })
+
   it("closes with a DELETE on the session itself", async () => {
     authFetch.mockResolvedValue(json({ id: "talk-1", state: "closed" }))
 

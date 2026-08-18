@@ -1,0 +1,152 @@
+import { createHash, randomUUID } from "node:crypto";
+import { operationByName } from "./manifest.js";
+import type {
+  TalkControlDispatch,
+  TalkControlFailure,
+  TalkControlResult,
+  TalkControlRuntimeOptions,
+  TalkControlSuccess,
+} from "./types.js";
+
+interface HeldCall {
+  fingerprint: string;
+  promise: Promise<TalkControlResult>;
+}
+
+function failure(code: string, error: string): TalkControlFailure {
+  return { ok: false, code, error };
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stable(object[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function parseArguments(raw: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function fingerprint(tool: string, args: Record<string, unknown>): string {
+  return createHash("sha256").update(`${tool}\0${stable(args)}`).digest("hex");
+}
+
+function matchesType(value: unknown, expected: unknown): boolean {
+  switch (expected) {
+    case "string": return typeof value === "string";
+    case "integer": return typeof value === "number" && Number.isInteger(value);
+    case "number": return typeof value === "number" && Number.isFinite(value);
+    case "boolean": return typeof value === "boolean";
+    case "object": return !!value && typeof value === "object" && !Array.isArray(value);
+    default: return false;
+  }
+}
+
+function propertyProblem(key: string, value: unknown, schema: unknown): string | null {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return `${key} has no valid schema.`;
+  const typed = schema as Record<string, unknown>;
+  if (!matchesType(value, typed.type)) return `${key} has the wrong type.`;
+  if (Array.isArray(typed.enum) && !typed.enum.includes(value)) return `${key} is outside its allowed values.`;
+  return null;
+}
+
+function argumentsProblem(args: Record<string, unknown>, operation: NonNullable<ReturnType<typeof operationByName>>): string | null {
+  const properties = operation.parameters.properties as Record<string, unknown>;
+  for (const required of operation.parameters.required) {
+    if (!(required in args)) return `${required} is required.`;
+  }
+  for (const [key, value] of Object.entries(args)) {
+    if (!(key in properties)) return `${key} is not allowed.`;
+    const problem = propertyProblem(key, value, properties[key]);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+function preflight(
+  input: TalkControlDispatch,
+  operation: ReturnType<typeof operationByName>,
+): { ok: true; operation: NonNullable<typeof operation>; args: Record<string, unknown> } | { ok: false; result: TalkControlFailure } {
+  if (!operation) return { ok: false, result: failure("unknown-operation", "This operation is not in the Talk manifest.") };
+  if (operation.target !== "gateway") return { ok: false, result: failure("wrong-target", "This operation must execute in the browser.") };
+  if (operation.operatorOnly && input.caller.kind !== "operator") return { ok: false, result: failure("operator-required", "This operation requires the authenticated operator.") };
+  if (!input.providerCallId || input.providerCallId.length > 200) return { ok: false, result: failure("invalid-provider-call", "A bounded provider call id is required.") };
+  const args = parseArguments(input.arguments);
+  if (!args) return { ok: false, result: failure("invalid-arguments", "Tool arguments must be a JSON object.") };
+  const problem = argumentsProblem(args, operation);
+  return problem
+    ? { ok: false, result: failure("invalid-arguments", problem) }
+    : { ok: true, operation, args };
+}
+
+function replayed(result: TalkControlResult): TalkControlResult {
+  return result.ok ? { ...result, replayed: true } : result;
+}
+
+export class TalkControlRuntime {
+  private readonly options: TalkControlRuntimeOptions;
+  private readonly calls = new Map<string, HeldCall>();
+
+  constructor(options: TalkControlRuntimeOptions) {
+    this.options = options;
+  }
+
+  dispatch(input: TalkControlDispatch): Promise<TalkControlResult> {
+    const checked = preflight(input, operationByName(this.options.manifest, input.tool));
+    if (!checked.ok) return Promise.resolve(checked.result);
+
+    const key = `${input.talkSessionId}:${input.providerCallId}`;
+    const digest = fingerprint(input.tool, checked.args);
+    const existing = this.calls.get(key);
+    if (existing) {
+      if (existing.fingerprint !== digest) {
+        return Promise.resolve(failure("provider-call-conflict", "This provider call id was already used for different input."));
+      }
+      return existing.promise.then(replayed);
+    }
+
+    const promise = this.execute(input, checked.operation, checked.args);
+    this.calls.set(key, { fingerprint: digest, promise });
+    return promise;
+  }
+
+  private async execute(
+    input: TalkControlDispatch,
+    operation: NonNullable<ReturnType<typeof operationByName>>,
+    args: Record<string, unknown>,
+  ): Promise<TalkControlResult> {
+    try {
+      const execution = await this.options.execute(operation, args, {
+        talkSessionId: input.talkSessionId,
+        providerCallId: input.providerCallId,
+        ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+        idempotencyKey: `talk:${input.talkSessionId}:${input.providerCallId}`,
+      });
+      const verification = await this.options.verify(operation, args, execution);
+      if (!verification.ok) {
+        return failure("verification-failed", "The operation completed without matching authoritative evidence.");
+      }
+      const result: TalkControlSuccess = {
+        ok: true,
+        receiptId: randomUUID(),
+        replayed: false,
+        verified: true,
+        operation: operation.name,
+        data: execution.data,
+        evidence: verification.evidence,
+        uiEffect: execution.uiEffect,
+      };
+      return result;
+    } catch {
+      return failure("execution-failed", "The gateway could not complete this operation.");
+    }
+  }
+}

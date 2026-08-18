@@ -13,8 +13,15 @@ const { useTalkSession } = await import("../use-talk-session")
 const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
 const { FakeConnection, connect } = await import("./fake-connection")
 const { resetPageContext } = await import("@/components/talk/context/page-context-store")
+const { browserControlFixture } = await import("./control-fixture")
 
-export const OPENED = { id: "talk-1", token: "secret-1", expiresAt: 1_700_000_600, model: "gpt-realtime-2.1" }
+export const OPENED = {
+  id: "talk-1",
+  token: "secret-1",
+  expiresAt: 1_700_000_600,
+  model: "gpt-realtime-2.1",
+  manifest: browserControlFixture(),
+}
 export const CONFIGURED = { configured: true, provider: "openai", providers: ["openai"] }
 
 /** The live handle the probe last rendered with. A `let` so the tests read the

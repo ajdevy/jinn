@@ -10,6 +10,7 @@ import { useCallback, type RefObject } from "react"
 import type { OrbState } from "../orb-motion"
 import { createTalkDriver, type TalkDriver } from "./session-driver"
 import type { ConnectRealtime, TalkConnection } from "./webrtc-connection"
+import type { TalkControlManifest } from "./control-manifest"
 
 export interface Attachment {
   connection: TalkConnection
@@ -37,7 +38,7 @@ export function useAttach(
   setError: (message: string) => void,
 ) {
   return useCallback(
-    async (id: string, token: string, brief: string): Promise<Attachment> => {
+    async (id: string, token: string, brief: string, manifest: TalkControlManifest): Promise<Attachment> => {
       let connection: TalkConnection | null = null
       let channelOpen = false
       let started = false
@@ -49,6 +50,7 @@ export function useAttach(
       const driver = createTalkDriver({
         sessionId: id,
         brief,
+        manifest,
         send: (event) => connection?.send(event),
         onState: setState,
         onError: setError,

@@ -19,7 +19,7 @@ The code lives in `packages/jinn/src/talk/session/`:
 |---|---|
 | `types.ts` | `TalkSession`, `TalkSessionState`, `TalkTurnRecord`, `TalkActionRecord` |
 | `registry.ts` | the in-memory `Map<id, TalkSession>`: open, park, resume, heartbeat, turn, action, close, reap |
-| `tools.ts` | the tool catalog: always-on set, on-intent groups, token cost of a tool list |
+| `tools.ts` | provider declarations derived from the authoritative control manifest, plus token-cost reporting |
 | `context.ts` | rolling truncation against a token budget, and the handoff predicate |
 | `pricing.ts` | `RealtimeUsage` to USD, per model, from a rate table |
 
@@ -110,11 +110,10 @@ validator that rejected malformed cards. Every persona revision moved the
 behaviour.
 
 **Now.** Behaviour is a list of `RealtimeTool` values with JSON Schema
-`parameters`, declared in `talk/session/tools.ts` and passed to the provider's
-own tool-calling protocol. There is no persona file to load, no card grammar to
-parse, and no validator: a malformed call is the provider's schema error, not a
-text-parsing failure. The UI payload contract is a typed union owned in code by
-ICI-754.
+`parameters`, sourced from `talk/control/manifest.ts` and passed to the
+provider's own tool-calling protocol. There is no persona file to load or card
+grammar to parse. The gateway validates arguments again before execution, so a
+malformed or schema-breaking replay fails closed even if a provider emits it.
 
 ### 3. State collapsed from three stores into one registry plus one ledger row
 
@@ -144,16 +143,16 @@ parent, and returns that session's id. The existing `notifyParentSession`
 callback machinery reaches it because it is a Session like any other. No polling
 code exists in this subsystem.
 
-### 5. Context went from whole-payload-per-turn to progressive exposure plus rolling truncation
+### 5. Context went from whole-payload-per-turn to a bounded manifest plus rolling truncation
 
 **Before.** Every turn re-injected the whole payload into the system prompt: the
 persona file, the card reference, and a live roster of attached threads. The
 per-turn cost grew with the roster and could not be bounded from the client.
 
-**Now.** The token minted at open carries only the always-on tool set;
-`POST /api/talk/sessions/:id/tools` adds a named group and returns an empty array
-if that group is already exposed. The browser transport does not yet call it —
-see "The browser half" below for why the tool list it declares is its own.
+**Now.** The token minted at open and every browser `session.update` carry
+declarations derived from the same versioned control manifest. The compatibility
+`POST /api/talk/sessions/:id/tools` route returns no duplicates while the current
+manifest is universally exposed.
 Turn history is truncated against `TALK_CONTEXT_BUDGET_TOKENS` by dropping oldest
 turns. Both numbers are reported back:
 `GET /api/talk/sessions/:id` returns `contextTokens` and `exposedTools`, and
@@ -167,7 +166,7 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 
 | Method and path | Does |
 |---|---|
-| `POST /api/talk/sessions` | Open. Creates the `sessions` row, mints a token scoped to the always-on tool set, builds the standing brief, returns `{ id, token, expiresAt, model, tools, brief, contextBudgetTokens }`. |
+| `POST /api/talk/sessions` | Open. Creates the `sessions` row, mints a token scoped to the authoritative manifest, builds the standing brief, returns `{ id, token, expiresAt, model, tools, manifest, brief, contextBudgetTokens }`. |
 | `POST /api/talk/sessions/:id/token` | Re-mint, on expiry or on resume. |
 | `POST /api/talk/sessions/:id/park` | live to parked. |
 | `POST /api/talk/sessions/:id/resume` | parked to live, returns a fresh token. |
@@ -175,6 +174,7 @@ All under `/api/talk/*`. All writes are operator-authenticated.
 | `POST /api/talk/sessions/:id/tools` | `{ intents: string[] }` returns the additional `RealtimeTool[]` to inject plus the new total token cost. Never returns a tool already exposed. |
 | `POST /api/talk/sessions/:id/turn` | `{ usage: RealtimeUsage, transcript?, visualReceipts? }` prices the delta including image input, stores bounded public capture telemetry, calls `recordTurnAccounting`, appends to history, applies rolling truncation, returns `{ spendUsd, contextTokens, truncatedTurns, handoffSuggested }`. |
 | `POST /api/talk/sessions/:id/actions` | `{ tool, subject, lane, consent, undoOf? }` logs one attempted write, refusals included, and returns the stored record with the id and timestamp the gateway stamped. |
+| `POST /api/talk/sessions/:id/control` | Routes one provider call through the manifest. Gateway-target writes require operator authority, reuse the provider call id as the domain idempotency key, re-read authoritative state, and return a verified receipt plus a typed UI effect. |
 | `POST /api/talk/sessions/:id/handoff` | `{ prompt }` spawns a normal text Session with the talk session as parent, returns `{ sessionId }`. |
 | `GET /api/talk/sessions/:id` | `{ state, openedAt, turns, actions, spendUsd, contextTokens, briefChars, briefTokens, exposedTools }`. |
 | `DELETE /api/talk/sessions/:id` | Close. Idempotent. |
@@ -236,19 +236,13 @@ no model parameter: the model, voice, and tool scope are bound to the credential
 when the gateway mints it, and a browser that could name its own model could name
 a dearer one.
 
-**The tool list the transport declares is the web catalog, not this one.** On the
-data channel opening it sends one `session.update` carrying
-`toolDefinitions()` from `components/talk/tools/registry.ts`. The two catalogs
-share no name at all — the gateway's always-on set is
-`{search_knowledge, hand_off_to_chat}` and the browser's is
-`{focus_element, open_chats, open_todos, read_todo, resolve_and_open}` — and only the
-browser's have an executor on the page, so a session configured from the
-gateway's list could emit nothing this client can run. Progressive exposure is
-therefore not wired on the browser side: the web registry carries a binary
-`always` / `on-intent` flag and no named intent groups to progress through, and
-`POST /api/talk/sessions/:id/tools` speaks in groups. Unifying the two catalogs —
-including the `read_session` name that exists in both with incompatible schemas —
-is its own piece of work and is not this one.
+**The gateway issues one control manifest.** The browser validates its version,
+uses its declarations for every `session.update`, and dispatches by each entry's
+target. Navigation, focus, resolution, and the bounded visual fallback execute
+in the browser. Company reads and writes post back to `/control`; browser
+executors cannot override those names. A successful company write is not spoken
+until the gateway re-reads its authoritative store and returns `verified: true`.
+Only then does the browser invalidate exact caches and await visible navigation.
 
 ---
 
@@ -352,30 +346,21 @@ The oversized-single-turn case is what `handoffSuggested` exists for: a turn ove
 `TALK_HANDOFF_TURN_TOKENS` (1500) is a research request wearing a conversation's
 clothes, and the client offers a text session instead of answering it out loud.
 
-### Progressive tool exposure
+### Authoritative control manifest
 
-`tools.ts` splits the catalog into an always-on set and named on-intent groups.
-The token minted at open carries only the always-on set. A client that hears a
-matching intent posts to `POST /api/talk/sessions/:id/tools`, and
-`toolsForIntents` returns only the tools not already exposed. Asking twice for the
-same intent returns an empty array rather than a duplicate declaration, because a
-provider session carrying two tools of the same name is rejected. Two invariants
-are tested: the always-on list is a strict subset of the full catalog, and the
-endpoint is idempotent per intent.
+`talk/control/manifest.ts` is the only provider catalog. Each closed schema names
+its execution target, mutability, operator requirement, intent, and verification
+rule. `talk/session/tools.ts` only projects these entries into provider function
+declarations. The open response carries the same manifest to the browser, so a
+page update cannot replace it with a second catalog.
 
-No client posts to it yet. The browser transport declares the whole web catalog
-in the `session.update` it sends when the data channel opens, and re-declares it
-on every later `session.update` (see "Ambient page context" below); it has no
-intent detection at all — "The browser half" above says why the two catalogs have
-not been unified. The endpoint is the gateway half of a mechanism whose other
-half is unbuilt.
-
-What ships here is the mechanism plus a small read-only seed. `search_knowledge`
-and `hand_off_to_chat` are always on; `todos`, `sessions`, and `org` are the seed
-groups. **ICI-756 owns the full catalog** and extends `tools.ts`; the seed here is
-not a proposal for what that catalog should contain. ICI-757's write tools are
-declared client-side in `packages/web`, so `tools.ts` stays read-only; what the
-gateway owns of a write is the action log below.
+Gateway calls are deduplicated by `(talk session id, provider call id)` before
+their adapter awaits. The same call and arguments await or replay one receipt;
+changed arguments under the same call id fail closed. Domain adapters propagate
+that stable key into Todo edits, delegations, and Workflow starts, and every
+success is checked by an authoritative re-read. The compatibility `/tools`
+endpoint remains idempotent and derives from the manifest rather than owning
+another list.
 
 ### Authoritative screen context
 

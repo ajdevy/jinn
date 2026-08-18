@@ -4,6 +4,7 @@ import { publishScreenContext, resetPageContext } from "@/components/talk/contex
 import { createVisualCapture } from "@/components/talk/context/visual-capture"
 import { toolDefinitions } from "@/components/talk/tools/registry"
 import { createTalkDriver } from "../session-driver"
+import { browserControlFixture } from "./control-fixture"
 
 const authFetch = vi.fn()
 vi.mock("@/lib/auth", async (importOriginal) => {
@@ -59,6 +60,7 @@ describe("session visual fallback", () => {
     const sent: Array<Record<string, unknown>> = []
     const driver = createTalkDriver({
       sessionId: "talk-1",
+      manifest: browserControlFixture(),
       send: (event) => sent.push(event),
       onState: () => {},
       onError: () => {},

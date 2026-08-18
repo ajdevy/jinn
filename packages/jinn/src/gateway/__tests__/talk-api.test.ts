@@ -9,6 +9,10 @@ import {
 import type { JinnConfig } from "../../shared/types.js";
 import { TALK_BRIEF_BUDGET_CHARS } from "../../talk/session/brief.js";
 import { TALK_CONTEXT_BUDGET_TOKENS, estimateTokens } from "../../talk/session/context.js";
+import { buildTalkControlManifest } from "../../talk/control/manifest.js";
+
+const workItems = await import("../../work-items/store.js");
+const comments = await import("../../work-items/comments.js");
 
 let config: JinnConfig;
 let minting: ReturnType<typeof stubMintingFetch>;
@@ -61,6 +65,69 @@ describe("opening a talk session", () => {
   it("answers 401 for an unauthenticated write", async () => {
     const res = await call(config, "POST", "/api/talk/sessions", undefined, {});
     expect(res.status).toBe(401);
+  });
+
+  it("returns the same authoritative manifest used to mint provider tools", async () => {
+    const body = await open();
+    const manifest = buildTalkControlManifest();
+    expect(body.manifest).toEqual(manifest);
+    expect((body.tools as Array<{ name: string }>).map((tool) => tool.name))
+      .toEqual(manifest.operations.map((operation) => operation.name));
+  });
+});
+
+describe("universal Talk control", () => {
+  it("propagates one stable operation key into a conditional Todo edit", async () => {
+    const todo = workItems.createWorkItem({ title: "Before voice edit" });
+    const session = await open();
+    const request = {
+      providerCallId: "provider-call-edit-1",
+      tool: "talk_edit_todo",
+      arguments: JSON.stringify({ id: todo.id, expectedVersion: todo.version, title: "After voice edit" }),
+    };
+    const path = `/api/talk/sessions/${session.id as string}/control`;
+    expect((await call(config, "POST", path, request)).body).toMatchObject({ ok: true, verified: true, replayed: false });
+    expect((await call(config, "POST", path, request)).body).toMatchObject({ ok: true, verified: true, replayed: true });
+    const updated = workItems.getWorkItem(todo.id)!;
+    expect(updated.title).toBe("After voice edit");
+    expect(updated.version).toBe(todo.version + 1);
+  });
+
+  it("executes, verifies, and deduplicates a gateway Todo comment", async () => {
+    const todo = workItems.createWorkItem({ title: "Verify the operator control route" });
+    const session = await open();
+    const body = {
+      providerCallId: "provider-call-comment-1",
+      providerItemId: "provider-item-1",
+      tool: "talk_comment_todo",
+      arguments: JSON.stringify({ id: todo.id, body: "One verified comment" }),
+    };
+
+    const first = await call(config, "POST", `/api/talk/sessions/${session.id as string}/control`, body);
+    const replay = await call(config, "POST", `/api/talk/sessions/${session.id as string}/control`, body);
+
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ ok: true, verified: true, replayed: false, operation: "talk_comment_todo" });
+    expect(replay.body).toMatchObject({ ok: true, verified: true, replayed: true, receiptId: first.body.receiptId });
+    expect(comments.listComments(todo.id).comments.map((comment) => comment.body))
+      .toEqual(["One verified comment"]);
+    const status = await call(config, "GET", `/api/talk/sessions/${session.id as string}`);
+    expect(status.body.actions).toMatchObject([{ tool: "talk_comment_todo", subject: todo.id }]);
+  });
+
+  it("fails a changed replay and non-operator control call closed", async () => {
+    const todo = workItems.createWorkItem({ title: "Refuse authority confusion" });
+    const session = await open();
+    const path = `/api/talk/sessions/${session.id as string}/control`;
+    const original = {
+      providerCallId: "provider-call-conflict-1",
+      tool: "read_todo",
+      arguments: JSON.stringify({ id: todo.id }),
+    };
+    expect((await call(config, "POST", path, original)).body).toMatchObject({ ok: true });
+    expect((await call(config, "POST", path, { ...original, arguments: JSON.stringify({ id: "PLA-999" }) })).body)
+      .toMatchObject({ ok: false, code: "provider-call-conflict" });
+    expect((await call(config, "POST", path, original, {})).status).toBe(401);
   });
 });
 
@@ -149,43 +216,37 @@ describe("park and resume", () => {
 });
 
 describe("progressive tool exposure", () => {
-  it("mints the opening credential with only the always-on set", async () => {
+  it("mints the opening credential with the authoritative universal set", async () => {
     const body = await open();
-    expect((body.tools as Array<{ name: string }>).map((tool) => tool.name))
-      .toEqual(["search_knowledge", "hand_off_to_chat"]);
+    const expected = buildTalkControlManifest().operations.map((operation) => operation.name);
+    expect((body.tools as Array<{ name: string }>).map((tool) => tool.name)).toEqual(expected);
     const sent = minting.calls[0]!.body as { session: { tools: Array<{ name: string }> } };
-    expect(sent.session.tools.map((tool) => tool.name))
-      .toEqual(["search_knowledge", "hand_off_to_chat"]);
+    expect(sent.session.tools.map((tool) => tool.name)).toEqual(expected);
   });
 
-  it("adds an intent's tools once, at a strictly larger token cost", async () => {
+  it("does not add a duplicate catalog for a known intent", async () => {
     const opened = await open();
     const id = opened.id as string;
     const before = opened.toolTokens as number;
 
     const first = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
     expect(first.status).toBe(200);
-    expect((first.body.tools as Array<{ name: string }>).map((tool) => tool.name))
-      .toEqual(["list_work_items", "get_work_item"]);
-    expect(first.body.toolTokens as number).toBeGreaterThan(before);
+    expect(first.body.tools).toEqual([]);
+    expect(first.body.toolTokens).toBe(before);
 
     const second = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
     expect(second.body.tools).toEqual([]);
     expect(second.body.toolTokens).toBe(first.body.toolTokens);
   });
 
-  it("re-mints against everything the session has been granted, not the always-on set", async () => {
+  it("re-mints against the same universal manifest", async () => {
     const id = (await open()).id as string;
     await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
     await call(config, "POST", `/api/talk/sessions/${id}/token`);
 
     const sent = minting.calls.at(-1)!.body as { session: { tools: Array<{ name: string }> } };
-    expect(sent.session.tools.map((tool) => tool.name)).toEqual([
-      "search_knowledge",
-      "hand_off_to_chat",
-      "list_work_items",
-      "get_work_item",
-    ]);
+    expect(sent.session.tools.map((tool) => tool.name))
+      .toEqual(buildTalkControlManifest().operations.map((operation) => operation.name));
   });
 
   it("rejects an unknown intent with 400 naming the ones it knows", async () => {

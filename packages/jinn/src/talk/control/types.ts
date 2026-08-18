@@ -1,0 +1,95 @@
+import type { JsonObject } from "../../shared/types.js";
+import type { CallerIdentity } from "../../gateway/session-comm-guards.js";
+
+export type TalkControlTarget = "gateway" | "browser";
+export type TalkControlExposure = "always" | "on-intent";
+export type TalkControlMutability = "read" | "write" | "effect";
+
+export interface TalkControlParameters extends JsonObject {
+  type: "object";
+  properties: JsonObject;
+  required: string[];
+  additionalProperties: false;
+}
+
+export interface TalkControlOperation {
+  name: string;
+  description: string;
+  parameters: TalkControlParameters;
+  target: TalkControlTarget;
+  exposure: TalkControlExposure;
+  intent: string;
+  mutability: TalkControlMutability;
+  operatorOnly: boolean;
+  verification: string;
+}
+
+export interface TalkControlManifest {
+  version: 1;
+  operations: TalkControlOperation[];
+}
+
+export interface TalkUiEffect {
+  invalidate?: string[];
+  navigate?: string;
+  focus?: string;
+}
+
+export interface TalkControlDispatch {
+  talkSessionId: string;
+  providerCallId: string;
+  providerItemId?: string;
+  tool: string;
+  arguments: string;
+  caller: CallerIdentity;
+}
+
+export interface TalkControlExecution {
+  data: Record<string, unknown>;
+  uiEffect: TalkUiEffect | null;
+}
+
+export interface TalkControlVerification {
+  ok: boolean;
+  evidence: Record<string, unknown>;
+}
+
+export type TalkControlSuccess = {
+  ok: true;
+  receiptId: string;
+  replayed: boolean;
+  verified: true;
+  operation: string;
+  data: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  uiEffect: TalkUiEffect | null;
+};
+
+export type TalkControlFailure = {
+  ok: false;
+  code: string;
+  error: string;
+};
+
+export type TalkControlResult = TalkControlSuccess | TalkControlFailure;
+
+export interface TalkControlAdapterContext {
+  talkSessionId: string;
+  providerCallId: string;
+  providerItemId?: string;
+  idempotencyKey: string;
+}
+
+export interface TalkControlRuntimeOptions {
+  manifest: TalkControlManifest;
+  execute: (
+    operation: TalkControlOperation,
+    args: Record<string, unknown>,
+    context: TalkControlAdapterContext,
+  ) => Promise<TalkControlExecution>;
+  verify: (
+    operation: TalkControlOperation,
+    args: Record<string, unknown>,
+    execution: TalkControlExecution,
+  ) => Promise<TalkControlVerification>;
+}

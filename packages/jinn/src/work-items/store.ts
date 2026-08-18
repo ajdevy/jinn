@@ -772,7 +772,7 @@ export interface UpdateWorkItemInput {
 export interface ConditionalWorkItemUpdateOptions {
   expectedVersion: number;
   idempotencyKey?: string;
-  actor?: string | null;
+  actor?: string | null; origin?: WriteOrigin;
 }
 
 export interface ConditionalWorkItemUpdateResult {
@@ -893,7 +893,7 @@ export function updateWorkItemConditional(
         workItemId: id,
         kind: 'metadata_edited',
         actor: opts.actor ?? null,
-        detail: { updatedFields: fields.map((field) => field.name) },
+        detail: { updatedFields: fields.map((field) => field.name), ...(opts.origin ? { origin: opts.origin } : {}) },
         versionEffect: 'companion',
       });
       item = getWorkItem(id)!;

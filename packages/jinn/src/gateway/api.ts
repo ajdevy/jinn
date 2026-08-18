@@ -1634,8 +1634,8 @@ export async function handleApiRequest(
     if (context.workflowService && await handleWorkflowApi(req, res, { method, pathname, url }, { service: context.workflowService,
       authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok })) return;
     if (await handleTalkApi(req, res, { method, pathname, url }, {
-      getConfig: context.getConfig,
-      authenticated: authenticateGatewayRequest(req, context.gatewayAuthToken, jinnHome).ok,
+      getConfig: context.getConfig, caller: resolveScopedWriteCallerIdentity(req, context),
+      context,
       runHandoff: (session, prompt) => {
         const engine = context.sessionManager.getEngine(session.engine);
         if (engine) dispatchWebSessionRun(session, prompt, engine, context);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TALK_ACTION_LOG_LIMIT, TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../registry.js";
+import { allTools } from "../tools.js";
 
 /** An injected clock, so the reaper is tested against elapsed time rather than
  *  against how long the test suite is willing to sleep. */
@@ -13,11 +14,11 @@ function openOne(registry: TalkSessionRegistry) {
 }
 
 describe("TalkSessionRegistry lifecycle", () => {
-  it("opens live and carries only the always-on tools", () => {
+  it("opens live with the authoritative universal tool manifest", () => {
     const registry = new TalkSessionRegistry(clockAt().now);
     const session = openOne(registry);
     expect(session.state).toBe("live");
-    expect(session.exposedTools).toEqual(["search_knowledge", "hand_off_to_chat"]);
+    expect(session.exposedTools).toEqual(allTools().map((tool) => tool.name));
     expect(session.expandedIntents).toEqual([]);
   });
 
@@ -126,16 +127,16 @@ describe("TalkSessionRegistry turns and tools", () => {
     expect(result.handoffSuggested).toBe(true);
   });
 
-  it("adds an intent's tools once and nothing the second time", () => {
+  it("does not progressively add tools after the universal manifest is exposed", () => {
     const registry = new TalkSessionRegistry(clockAt().now);
     const session = openOne(registry);
 
     const first = registry.exposeTools(session.id, ["todos"]);
-    expect(first.map((tool) => tool.name)).toEqual(["list_work_items", "get_work_item"]);
+    expect(first).toEqual([]);
 
     const second = registry.exposeTools(session.id, ["todos"]);
     expect(second).toEqual([]);
-    expect(registry.get(session.id)!.exposedTools).toHaveLength(4);
+    expect(registry.get(session.id)!.exposedTools).toEqual(allTools().map((tool) => tool.name));
   });
 
   it("refuses turns and tool expansion on a closed session", () => {

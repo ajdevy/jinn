@@ -11,13 +11,14 @@ import { describeInstance } from "../context/instance-identity"
 import { getPageContext, subscribePageContext } from "../context/page-context-store"
 import { renderPageContext } from "../context/render-page-context"
 import { visibleObjects } from "../context/visible-objects"
-import { executeToolCall, toolDefinitions } from "../tools/registry"
 import type { OrbState } from "../orb-motion"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
 import { postTalkTurn } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
 import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
-import { runVisualToolRequest } from "./visual-tool-request"
+import { functionTools, type TalkControlManifest } from "./control-manifest"
+import type { TalkUiEffect } from "./ui-effects"
+import { executeTalkTool } from "./tool-call-executor"
 
 /**
  * How long the page has to settle before the orb is told about it. Typing in the
@@ -32,11 +33,13 @@ export interface TalkDriverOptions {
    *  — the company, its conventions, and who works here. Absent on a session
    *  opened against a gateway that does not send one. */
   brief?: string
+  manifest: TalkControlManifest
   /** Send one client event over the `oai-events` data channel. */
   send: (event: Record<string, unknown>) => void
   onState: (state: OrbState) => void
   onError: (message: string) => void
   visualCapture?: ReturnType<typeof createVisualCapture>
+  applyUiEffect?: (effect: TalkUiEffect | null) => Promise<void>
 }
 
 export interface TalkDriver {
@@ -51,19 +54,10 @@ export interface TalkDriver {
 }
 
 /**
- * The provider's tool declaration is a function tool: `{ type: "function" }`
- * around the same `{ name, description, parameters }` the registry already
- * exports, which is exactly what the gateway's own adapter sends
- * (`buildSessionPayload` in talk/realtime/openai.ts).
- *
- * It is the WEB catalog that goes out, not the gateway's. The two share no tool
- * name at all, and only these have an executor in the browser — a session
- * configured from the gateway's list could emit nothing this page can run.
+ * The provider receives the gateway-issued manifest projected into ordinary
+ * function declarations. Target metadata stays in the driver and decides
+ * whether a call runs as a bounded browser effect or through `/control`.
  */
-function functionTools() {
-  return toolDefinitions().map((tool) => ({ type: "function", ...tool }))
-}
-
 /** Everything one live conversation remembers: what has been billed, what the
  *  assistant last said, what the orb is currently showing, and enough about the
  *  tool calls in flight to answer one utterance exactly once. */
@@ -116,7 +110,7 @@ function sendSessionConfig(driver: DriverState): void {
     type: "session.update",
     session: {
       type: "realtime",
-      tools: functionTools(),
+      tools: functionTools(driver.options.manifest),
       instructions: brief ? `${brief}\n\n${context}` : context,
     },
   })
@@ -170,16 +164,18 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
   driver.outstanding += 1
 
   let result: Record<string, unknown>
-  if (call.name === "capture_current_view") {
-    result = await runVisualToolRequest({
-      arguments: call.arguments,
+  try {
+    result = await executeTalkTool(call, {
+      sessionId: driver.options.sessionId,
+      manifest: driver.options.manifest,
       requestKey: driver.lastUserRequestKey,
       capture: driver.visualCapture,
-      send: driver.options.send,
       receipts: driver.visualReceipts,
+      send: driver.options.send,
+      applyUiEffect: driver.options.applyUiEffect,
     })
-  } else {
-    result = await executeToolCall(call.name, call.arguments)
+  } catch {
+    result = { ok: false, error: "The verified Talk control could not be completed." }
   }
   driver.options.send({
     type: "conversation.item.create",

@@ -95,7 +95,7 @@ async function openSession(controls: SessionControls): Promise<void> {
     const session = await openTalkSession()
     opened = session.id
     setTalkSessionId(opened)
-    const attachment = await controls.attach(opened, session.token, session.brief)
+    const attachment = await controls.attach(opened, session.token, session.brief, session.manifest)
     if (generation !== controls.generationRef.current) {
       detach(attachment)
       setTalkSessionId(null)
@@ -106,6 +106,7 @@ async function openSession(controls: SessionControls): Promise<void> {
       id: opened,
       attachment,
       brief: session.brief,
+      manifest: session.manifest,
       stopHeartbeat: startTalkHeartbeat(opened),
     }
     controls.setActive(true)
