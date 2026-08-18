@@ -10,6 +10,8 @@ const createWorkflow = vi.fn()
 const setWorkflowEnabled = vi.fn()
 const setWorkflowRetired = vi.fn()
 const duplicateWorkflow = vi.fn()
+const listWorkflowRuns = vi.fn()
+const saveWorkflowDefinition = vi.fn()
 
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
@@ -32,6 +34,9 @@ vi.mock("@/lib/api", () => {
       setWorkflowEnabledV2: (...args: unknown[]) => setWorkflowEnabled(...args),
       setWorkflowRetiredV2: (...args: unknown[]) => setWorkflowRetired(...args),
       duplicateWorkflowV2: (...args: unknown[]) => duplicateWorkflow(...args),
+      listWorkflowRunsV2: (...args: unknown[]) => listWorkflowRuns(...args),
+      saveWorkflowDefinitionV2: (...args: unknown[]) => saveWorkflowDefinition(...args),
+      getOrg: () => Promise.resolve({ departments: [], employees: [], hierarchy: { root: null, sorted: [], warnings: [] } }),
     },
   }
 })
@@ -41,7 +46,9 @@ vi.mock("@/components/page-layout", () => ({
 vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
 import { ApiError } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 import WorkflowListPage from "../list"
+import WorkflowPage from "../page"
 
 const summary = {
   id: "morning-digest",
@@ -55,6 +62,11 @@ const summary = {
 }
 const archivedSummary = { ...summary, enabled: false, retiredAt: "2026-08-01T09:00:00.000Z" }
 const definition = { ...summary, schemaVersion: 1, nodes: [], edges: [] }
+const editorDefinition = {
+  ...definition,
+  nodes: [{ id: "trigger", type: "trigger", name: "Kickoff", config: { kind: "manual" } }],
+  ui: { positions: { trigger: { x: 0, y: 0 } } },
+}
 
 function renderList(path = "/workflow") {
   const router = createMemoryRouter([
@@ -70,10 +82,34 @@ function renderList(path = "/workflow") {
   return router
 }
 
+/** The editor is the surface the conflict tests need: it is the one holding a
+ *  revision in a store, so a refused write is what leaves it stale. */
+function renderEditor(): QueryClient {
+  const router = createMemoryRouter([{ path: "/workflow/:id", element: <WorkflowPage /> }],
+    { initialEntries: ["/workflow/morning-digest"] })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  client.setQueryData(queryKeys.workflows.list(false), [])
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+  return client
+}
+
 /** The row is a link, so every menu assertion has to prove the click stayed put. */
 async function openRowMenu() {
   await userEvent.click(await screen.findByLabelText("Workflow actions for Morning Digest"))
 }
+
+async function archive() {
+  await userEvent.click(await screen.findByLabelText("Workflow actions for Morning Digest"))
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Archive workflow" }))
+  await userEvent.click(await screen.findByRole("button", { name: "Archive" }))
+}
+
+const staleArchive = () => new ApiError(409,
+  "Workflow definition morning-digest revision does not match.", "revision-conflict")
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -83,6 +119,7 @@ beforeEach(() => {
   setWorkflowRetired.mockResolvedValue({ ...definition, enabled: false, revision: 4 })
   setWorkflowEnabled.mockResolvedValue({ ...definition, enabled: false, revision: 4 })
   duplicateWorkflow.mockResolvedValue({ ...definition, id: "copy-of-morning-digest", revision: 1, enabled: false })
+  listWorkflowRuns.mockResolvedValue({ items: [], nextCursor: null })
 })
 
 describe("workflow list lifecycle menu", () => {
@@ -166,7 +203,7 @@ describe("workflow list lifecycle menu", () => {
   })
 
   it("says so and refetches when a lifecycle write is rejected as stale", async () => {
-    setWorkflowEnabled.mockRejectedValue(new ApiError(409, "Workflow definition morning-digest revision does not match.", "revision-conflict"))
+    setWorkflowEnabled.mockRejectedValue(staleArchive())
     renderList()
     await openRowMenu()
 
@@ -174,5 +211,61 @@ describe("workflow list lifecycle menu", () => {
 
     expect((await screen.findByRole("status")).textContent).toContain("changed elsewhere")
     await waitFor(() => expect(listWorkflowDefinitions.mock.calls.length).toBeGreaterThan(1))
+  })
+
+  it("closes the archive confirmation when the write is refused", async () => {
+    setWorkflowRetired.mockRejectedValue(staleArchive())
+    renderList()
+
+    await archive()
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect((await screen.findByRole("status")).textContent).toContain("changed elsewhere")
+  })
+
+  it("sizes both dialogs' actions to the mobile tap target", async () => {
+    renderList()
+    await openRowMenu()
+
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Archive workflow" }))
+    for (const name of ["Cancel", "Archive"]) {
+      expect(screen.getByRole("button", { name }).className).toContain("h-[34px]")
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    await openRowMenu()
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Duplicate…" }))
+    for (const name of ["Cancel", "Duplicate"]) {
+      expect(screen.getByRole("button", { name }).className).toContain("h-[34px]")
+    }
+  })
+})
+
+describe("workflow editor lifecycle menu", () => {
+  beforeEach(() => {
+    getWorkflowDefinition.mockResolvedValue(structuredClone(editorDefinition))
+  })
+
+  it("recovers the header from a refused archive instead of holding the stale revision", async () => {
+    setWorkflowRetired.mockRejectedValueOnce(staleArchive())
+    const client = renderEditor()
+    expect(await screen.findByRole("switch", { name: /disable workflow/i })).toBeTruthy()
+    // Someone else disabled it, so the revision the header is holding is behind.
+    getWorkflowDefinition.mockResolvedValue({ ...structuredClone(editorDefinition), revision: 7, enabled: false })
+
+    await archive()
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(getWorkflowDefinition.mock.calls.length).toBeGreaterThan(1))
+    expect(client.getQueryState(queryKeys.workflows.list(false))?.isInvalidated).toBe(true)
+    expect(await screen.findByRole("switch", { name: /enable workflow/i })).toBeTruthy()
+    expect(screen.getByRole("button", { name: /changed elsewhere/i })).toBeTruthy()
+
+    setWorkflowRetired.mockResolvedValue({
+      ...structuredClone(editorDefinition), revision: 8, enabled: false, retiredAt: "2026-08-18T10:00:00.000Z",
+    })
+    await archive()
+
+    await waitFor(() => expect(setWorkflowRetired).toHaveBeenLastCalledWith("morning-digest", true, 7))
   })
 })

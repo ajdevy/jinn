@@ -16,7 +16,7 @@ import {
 } from "@/components/chat/session-row-menu"
 import { api, type WorkflowDefinitionV2Wire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
-import { WorkflowNameDialog } from "./name-dialog"
+import { DIALOG_ACTION_CLASS, DIALOG_CANCEL_CLASS, WorkflowNameDialog } from "./name-dialog"
 
 /** What a lifecycle action needs to know about its Workflow. The list row and the
  *  editor header both already hold every field, so neither has to fetch. */
@@ -56,7 +56,7 @@ function ArchiveConfirmDialog({ title, open, onCancel, onConfirm, pending }: {
           <button
             type="button"
             onClick={onCancel}
-            className="h-8 rounded-full px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
+            className={DIALOG_CANCEL_CLASS}
           >
             Cancel
           </button>
@@ -65,7 +65,7 @@ function ArchiveConfirmDialog({ title, open, onCancel, onConfirm, pending }: {
             autoFocus
             disabled={pending}
             onClick={onConfirm}
-            className="h-8 rounded-full bg-[var(--accent)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:opacity-50"
+            className={DIALOG_ACTION_CLASS}
           >
             {pending ? "Archiving…" : "Archive"}
           </button>
@@ -119,7 +119,15 @@ function useLifecycleWrites(workflow: LifecycleWorkflow, settled: () => void,
         ? api.setWorkflowRetiredV2(workflow.id, action === "archive", workflow.revision)
         : api.setWorkflowEnabledV2(workflow.id, action === "enable", workflow.revision),
     onSuccess: (saved) => { cache(saved); onChanged?.(saved) },
-    onError: onFailure,
+    onError: (error) => {
+      // A refused write leaves nothing for the confirmation to confirm, and the
+      // revision behind it is the one thing now known to be out of date. Dropping
+      // the whole `workflows` namespace refetches the list and the open definition
+      // alike, so the caller recovers instead of retrying the same stale request.
+      settled()
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
+      onFailure(error)
+    },
   })
   // A duplicate is a different Workflow, so it never reaches `onChanged` — handing
   // it to a caller holding this one would swap it out from under the operator.

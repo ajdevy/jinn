@@ -1,6 +1,14 @@
 import { useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
+/** Both workflow dialogs end in the same pair — a quiet Cancel beside a filled
+ *  action — and they are shared so the pair keeps one height. They drifted apart
+ *  at 32px, under the 34px tap target a phone needs. */
+export const DIALOG_CANCEL_CLASS =
+  "h-[34px] rounded-full px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
+export const DIALOG_ACTION_CLASS =
+  "h-[34px] rounded-full bg-[var(--accent)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:opacity-50"
+
 /** Workflow IDs are lowercase slugs — derive one from the human title. */
 export function slugFromTitle(title: string): string {
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^[^a-z]+/, "").replace(/-+$/, "").slice(0, 64)
@@ -19,14 +27,14 @@ function DialogButtons({ onCancel, submitLabel, pendingLabel, pending, disabled 
       <button
         type="button"
         onClick={onCancel}
-        className="h-8 rounded-full px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
+        className={DIALOG_CANCEL_CLASS}
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={disabled || pending}
-        className="h-8 rounded-full bg-[var(--accent)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:opacity-50"
+        className={DIALOG_ACTION_CLASS}
       >
         {pending ? pendingLabel : submitLabel}
       </button>
