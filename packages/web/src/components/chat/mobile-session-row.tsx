@@ -52,14 +52,16 @@ interface SummaryProps {
   readSessions: Set<string>
 }
 
-/** Avatar, then the two lines a phone list cell reads by: who, and what about. */
+/** Avatar, then the two lines a phone list cell reads by — the chat TITLE is
+ *  the strong line (it's what the operator scans to switch), the employee name
+ *  the quiet one. Identity is already ambient in the emoji avatar. */
 function RowSummary({ session, avatarName, displayName, title, strong, showPin, isArchived, readSessions }: SummaryProps) {
   const stallNow = useStallClock(session.status === "running")
   const dot = getStatusDot(session, readSessions, false, stallNow)
   return (
     <>
-      <span className="relative flex size-11 shrink-0 items-center justify-center">
-        <EmployeeAvatar name={avatarName} size={44} />
+      <span className="relative flex size-[30px] shrink-0 items-center justify-center">
+        <EmployeeAvatar name={avatarName} size={30} />
         {dot ? (
           <StatusDot
             color={dot.color}
@@ -77,7 +79,7 @@ function RowSummary({ session, avatarName, displayName, title, strong, showPin, 
               strong ? "font-[var(--weight-semibold)]" : "font-[var(--weight-medium)]",
             )}
           >
-            {displayName}
+            {title}
           </span>
           {isArchived ? (
             <span className="shrink-0 text-caption2 font-[var(--weight-medium)] text-[var(--text-tertiary)]">
@@ -90,7 +92,7 @@ function RowSummary({ session, avatarName, displayName, title, strong, showPin, 
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-footnote text-[var(--text-tertiary)]">{title}</span>
+          <span className="min-w-0 truncate text-caption1 text-[var(--text-tertiary)]">{displayName}</span>
           <SessionAttentionChips session={session} />
         </span>
       </span>
@@ -165,7 +167,7 @@ function RowSurface({
         touchAction: "pan-y",
       }}
       className={cn(
-        "relative flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left data-[pressed]:bg-[var(--fill-primary)]",
+        "relative flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left data-[pressed]:bg-[var(--fill-primary)]",
         isActive ? "bg-[var(--fill-secondary)]" : "bg-[var(--sidebar-bg)]",
       )}
     >
