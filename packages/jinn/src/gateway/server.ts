@@ -670,8 +670,7 @@ export async function startGateway(
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
   });
-  const antigravityEngines = createAntigravityEnginePair(antigravityLifecycle);
-  const antigravityInteractiveEngine = antigravityEngines.pty;
+  const { work: antigravityEngine, pty: antigravityInteractiveEngine } = createAntigravityEnginePair(antigravityLifecycle);
   grokLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
@@ -686,7 +685,6 @@ export async function startGateway(
   logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (headless + interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
 
   const codexEngine = new CodexEngine();
-  const antigravityEngine = antigravityEngines.work;
   const grokEngine = new GrokEngine();
   const hermesEngine = new HermesAcpEngine();
   const engines = new Map<string, Engine>();
