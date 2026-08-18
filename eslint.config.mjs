@@ -12,9 +12,9 @@ const PACKAGE_TREES = [
   "packages/gateway-events/src/**/*.ts",
   // The shell packages' only TypeScript is the native config at each package
   // root; `shell-ios/ios/` is a generated Xcode project and
-  // `shell-desktop/src-tauri/` is a Rust crate, so neither carries any.
+  // `shell/src-tauri/` is a Rust crate, so neither carries any.
   "packages/shell-ios/*.ts",
-  "packages/shell-desktop/*.ts",
+  "packages/shell/*.ts",
 ]
 
 // The trees `tsconfig.e2e.json` and `tsconfig.scripts.json` cover. The project

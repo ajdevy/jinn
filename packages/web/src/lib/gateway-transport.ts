@@ -3,10 +3,28 @@ export interface GatewayProfile {
   origin: string
 }
 
+export interface GatewaySocketConnection {
+  readonly readyState: number
+  binaryType: BinaryType
+  onopen: ((event: Event) => void) | null
+  onmessage: ((event: MessageEvent) => void) | null
+  onclose: ((event: CloseEvent) => void) | null
+  onerror: ((event: Event) => void) | null
+  addEventListener(type: "message", listener: (event: MessageEvent) => void): void
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void
+  close(code?: number, reason?: string): void
+}
+
+export const GATEWAY_SOCKET_CONNECTING = 0
+export const GATEWAY_SOCKET_OPEN = 1
+export const GATEWAY_SOCKET_CLOSING = 2
+export const GATEWAY_SOCKET_CLOSED = 3
+
 export interface GatewayTransport {
   profile: GatewayProfile
   httpUrl(path: string): string
   socketUrl(path: string): string
+  openSocket(path: string): GatewaySocketConnection
   request(path: string, init?: RequestInit): Promise<Response>
   navigate(switchUrl: string): void
 }
@@ -15,6 +33,7 @@ export interface BrowserGatewayEnvironment {
   origin: string
   request(input: string, init?: RequestInit): Promise<Response>
   navigate(url: string): void
+  openSocket?(url: string): GatewaySocketConnection
 }
 
 function gatewayPath(path: string): string {
@@ -49,6 +68,10 @@ export function createBrowserGatewayTransport(environment: BrowserGatewayEnviron
       const url = new URL(httpUrl(path))
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
       return url.toString()
+    },
+    openSocket(path) {
+      const url = this.socketUrl(path)
+      return environment.openSocket?.(url) ?? new WebSocket(url)
     },
     request(path, init = {}) {
       return environment.request(httpUrl(path), { ...init, credentials: "include" })

@@ -1,4 +1,5 @@
 import type { Runtime } from "./contracts"
+import { nativeBridge } from "./native-bridge"
 
 function detectOs(userAgent: string): Runtime["os"] {
   if (/Android/i.test(userAgent)) return "android"
@@ -29,9 +30,10 @@ export function detectRuntime(): Runtime {
   }
 
   const userAgent = navigator.userAgent
+  const tauri = nativeBridge()?.runtime === "tauri"
   const standalone = window.matchMedia?.("(display-mode: standalone)").matches === true
   return {
-    container: standalone ? "pwa" : "browser",
+    container: tauri ? "tauri" : standalone ? "pwa" : "browser",
     os: detectOs(userAgent),
     engine: detectEngine(userAgent),
     secureContext: window.isSecureContext,

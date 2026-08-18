@@ -96,7 +96,7 @@ describe("platform adapter contract", () => {
     })
   })
 
-  it("loads the unsupported Tauri stub lazily", async () => {
+  it("loads the Tauri adapter lazily", async () => {
     const load = vi.fn(async () => createFallbackAdapter("tauri"))
     const platform = createPlatform({ runtime: { ...runtime, container: "tauri" }, adapters: [createLazyTauriAdapter(load)] })
 

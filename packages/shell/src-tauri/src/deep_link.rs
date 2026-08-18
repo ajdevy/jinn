@@ -1,8 +1,4 @@
-//! `jinn://` URLs, translated into gateway routes.
-//!
-//! The shell renders nothing of its own — its document is the gateway's — so a
-//! deep link is a route on the gateway's origin rather than anything this crate
-//! owns. `jinn://org` becomes `<gateway>/org`.
+//! `jinn://` URLs, translated into routes inside the bundled dashboard.
 
 use tauri::{AppHandle, Runtime, Url, WebviewWindow};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -26,7 +22,7 @@ fn navigate<R: Runtime>(window: &WebviewWindow<R>, urls: &[Url]) {
     let current = match window.url() {
         Ok(url) => url,
         Err(error) => {
-            eprintln!("could not read the window's URL, so {link} has no gateway to open on: {error}");
+            eprintln!("could not read the bundled window URL, so {link} cannot open: {error}");
             return;
         }
     };
@@ -41,8 +37,8 @@ fn navigate<R: Runtime>(window: &WebviewWindow<R>, urls: &[Url]) {
     }
 }
 
-/// `jinn://todos/ICI-1` on `http://gateway/chat` becomes
-/// `http://gateway/todos/ICI-1`.
+/// `jinn://todos/ABC-1` on `tauri://localhost/chat` becomes
+/// `tauri://localhost/todos/ABC-1`.
 ///
 /// A custom scheme has no meaningful authority, so the first segment after
 /// `//` parses as the host and the rest as the path. Rejoining them is what
@@ -61,20 +57,23 @@ mod tests {
     use tauri::Url;
 
     fn route(link: &str) -> Option<String> {
-        let gateway = Url::parse("http://192.0.2.10:7778/chat").expect("gateway URL");
-        route_on(&gateway, &Url::parse(link).expect("link URL")).map(|url| url.to_string())
+        let app = Url::parse("tauri://localhost/chat").expect("app URL");
+        route_on(&app, &Url::parse(link).expect("link URL")).map(|url| url.to_string())
     }
 
     #[test]
     fn a_bare_route_becomes_a_path() {
-        assert_eq!(route("jinn://org").as_deref(), Some("http://192.0.2.10:7778/org"));
+        assert_eq!(
+            route("jinn://org").as_deref(),
+            Some("tauri://localhost/org")
+        );
     }
 
     #[test]
     fn a_nested_route_keeps_its_segments() {
         assert_eq!(
             route("jinn://todos/ICI-1").as_deref(),
-            Some("http://192.0.2.10:7778/todos/ICI-1")
+            Some("tauri://localhost/todos/ICI-1")
         );
     }
 
@@ -82,7 +81,7 @@ mod tests {
     fn a_query_survives() {
         assert_eq!(
             route("jinn://logs?level=error").as_deref(),
-            Some("http://192.0.2.10:7778/logs?level=error")
+            Some("tauri://localhost/logs?level=error")
         );
     }
 

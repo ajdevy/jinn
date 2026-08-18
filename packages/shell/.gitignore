@@ -1,0 +1,4 @@
+# The Rust build tree and schemas `tauri-build` regenerates on every build.
+dist/
+src-tauri/target/
+src-tauri/gen/

@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode } from 'react'
+import { Component, Suspense, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
@@ -12,7 +12,12 @@ import { useRouteLoadingPresence } from './components/chat/chat-hydration'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
+import { NativePairingScreen } from './components/auth/native-pairing-screen'
+import { installSavedNativeGateway } from './lib/native-gateway-bootstrap'
+import { nativeBridge } from './platform/native-bridge'
 import './routes/globals.css'
+
+const initialNativeOrigin = installSavedNativeGateway()
 
 const ChatPage = lazyRoute(() => import('./routes/chat/page'), 'chat')
 const CronPage = lazyRoute(() => import('./routes/cron/page'), 'cron')
@@ -184,6 +189,8 @@ registerTalkNavigator((path) => router.navigate(path))
 registerHostNavigator((path) => void router.navigate(path))
 
 function App() {
+  const [nativeOrigin, setNativeOrigin] = useState(initialNativeOrigin)
+  if (nativeBridge() && !nativeOrigin) return <NativePairingScreen onPaired={setNativeOrigin} />
   return (
     <AppErrorBoundary>
       <RouterProvider router={router} />
@@ -196,7 +203,7 @@ function App() {
  * instead of on a network round trip. Production only: in `vite dev` a worker
  * would sit in front of the gateway proxy and serve yesterday's bundle.
  */
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && !nativeBridge() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
       console.error('[service-worker] registration failed', error)

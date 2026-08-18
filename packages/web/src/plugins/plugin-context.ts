@@ -114,7 +114,8 @@ function subscribeToPluginEvents(
   handler: PluginEventHandler,
   options?: PluginEventsOptions,
 ): () => void {
-  const socket = new WebSocket(pluginEventsUrl(pluginId, options?.since))
+  const query = options?.since === undefined ? '' : `?since=${encodeURIComponent(String(options.since))}`
+  const socket = gatewayTransport().openSocket(`/api/plugins/${pluginId}/events${query}`)
 
   socket.addEventListener('message', (frame: MessageEvent) => {
     let page: PluginEventFrame

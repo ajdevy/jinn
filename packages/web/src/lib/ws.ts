@@ -1,7 +1,7 @@
 import { dlog } from "./debug-log";
 import { nextReconnectDelay } from "./ws-backoff";
 import { decodeGatewayEvent, type GatewayEventListener } from "@jinn/gateway-events";
-import { gatewayTransport } from "./gateway-transport";
+import { gatewayTransport, type GatewaySocketConnection } from "./gateway-transport";
 
 /**
  * App-level ping cadence. Keeps idle NAT/proxy/Tailscale flows warm and — paired
@@ -32,7 +32,7 @@ export function createGatewaySocket(
   onEvent: GatewayEventListener,
   opts?: { onOpen?: () => void; onClose?: () => void },
 ): GatewaySocket {
-  let ws: WebSocket | null = null;
+  let ws: GatewaySocketConnection | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,9 +94,9 @@ export function createGatewaySocket(
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-    let sock: WebSocket;
+    let sock: GatewaySocketConnection;
     try {
-      sock = new WebSocket(gatewayTransport().socketUrl("/ws"));
+      sock = gatewayTransport().openSocket("/ws");
     } catch (err) {
       dlog("ws", `construct failed: ${String(err)}`);
       scheduleReconnect();

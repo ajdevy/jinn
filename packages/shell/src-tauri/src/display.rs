@@ -20,7 +20,7 @@ pub fn announce_refresh_rate<R: Runtime>(webview: &Webview<R>) {
         None => "null".to_string(),
     };
 
-    if let Err(error) = webview.eval(&format!("window.{GLOBAL} = {value}")) {
+    if let Err(error) = webview.eval(format!("window.{GLOBAL} = {value}")) {
         eprintln!("could not publish {GLOBAL} to the page, so the probe cannot judge its own reading: {error}");
     }
 }

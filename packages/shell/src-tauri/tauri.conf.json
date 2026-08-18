@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "identifier": "run.jinn.shell.desktop",
   "build": {
-    "frontendDist": "../public"
+    "frontendDist": "../dist/web"
   },
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {

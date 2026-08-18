@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The bundled dashboard may use only the core IPC required by the four application transport commands. Gateway credentials and networking stay in Rust.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

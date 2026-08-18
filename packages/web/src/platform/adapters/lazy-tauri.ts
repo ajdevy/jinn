@@ -3,7 +3,7 @@ import type { PlatformAdapter } from "../contracts"
 type Loader = () => Promise<PlatformAdapter>
 
 export function createLazyTauriAdapter(
-  load: Loader = async () => (await import("./tauri-stub")).createTauriStubAdapter(),
+  load: Loader = async () => (await import("./tauri")).createTauriAdapter(),
 ): PlatformAdapter {
   let pending: Promise<PlatformAdapter> | undefined
   const adapter = () => (pending ??= load())
