@@ -360,7 +360,7 @@ const SessionRow = React.memo(function SessionRow({
               defaultValue={displayTitle}
               className={cn(
                 "min-w-0 flex-1 truncate border-none bg-transparent text-subheadline outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
-                sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
+                sessionIsActive ? "font-medium text-foreground" : "text-[var(--text-secondary)]"
               )}
               onFocus={(e) => e.target.select()}
               onClick={(e) => e.stopPropagation()}
@@ -388,7 +388,7 @@ const SessionRow = React.memo(function SessionRow({
             <span
               className={cn(
                 "min-w-0 flex-1 truncate text-subheadline",
-                sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
+                sessionIsActive ? "font-medium text-foreground" : "text-[var(--text-secondary)]"
               )}
             >
               {cleanPreview(sessionTitle) || "Untitled"}
@@ -562,7 +562,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
                 className={cn(
                   "min-w-0 flex-1 truncate text-subheadline",
                   isUnread || isActive
-                    ? "font-semibold text-foreground"
+                    ? "font-medium text-foreground"
                     : "text-[var(--text-secondary)]"
                 )}
               >
@@ -744,7 +744,7 @@ const EmployeeRow = React.memo(function EmployeeRow({
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-subheadline text-foreground",
-                    hasUnread || isActive ? "font-semibold" : "font-medium"
+                    "font-medium"
                   )}
                 >
                   {displayName}
