@@ -34,9 +34,23 @@ describe("SettingsProvider operator emoji", () => {
     expect(JSON.parse(localStorage.getItem("jinn-settings")!).operatorEmoji).toBe("🦊")
   })
 
-  it("keeps the stored emoji when the backend has none", async () => {
+  it("clears a stale stored emoji when the backend reports none", async () => {
     localStorage.setItem("jinn-settings", JSON.stringify({ operatorEmoji: "🐼" }))
-    useOnboarding.mockReturnValue({ data: { operatorName: "Operator" } })
+    useOnboarding.mockReturnValue({ data: { operatorEmoji: null, operatorName: "Operator" } })
+
+    render(
+      <SettingsProvider>
+        <OperatorEmoji />
+      </SettingsProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId("operator-emoji").textContent).toBe("none"))
+    expect(JSON.parse(localStorage.getItem("jinn-settings")!).operatorEmoji).toBeNull()
+  })
+
+  it("leaves the stored emoji alone until the onboarding query resolves", async () => {
+    localStorage.setItem("jinn-settings", JSON.stringify({ operatorEmoji: "🐼" }))
+    useOnboarding.mockReturnValue({ data: undefined })
 
     render(
       <SettingsProvider>

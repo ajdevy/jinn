@@ -101,9 +101,22 @@ beforeAll(async () => {
   api = await import("../api.js");
 });
 
+const claudeMdPath = path.join(jinnHome, "CLAUDE.md");
+
+function writeOperatingManual(name: string, language?: string) {
+  const languageSection = language
+    ? `\n\n## Language\nAlways respond in ${language}. All communication with the user must be in ${language}.`
+    : "";
+  fs.writeFileSync(
+    claudeMdPath,
+    `# Operating Manual\n\nYou are **${name}**, a personal AI assistant and COO of an AI organization.${languageSection}\n`,
+  );
+}
+
 beforeEach(() => {
   currentConfig = baseConfig();
   fs.writeFileSync(path.join(jinnHome, "config.yaml"), yaml.dump(currentConfig));
+  fs.rmSync(claudeMdPath, { force: true });
 });
 
 afterAll(() => {
@@ -147,5 +160,29 @@ describe("operator emoji on /api/onboarding", () => {
 
     expect(readPortal()).not.toHaveProperty("operatorEmoji");
     expect((await call("GET", "/api/onboarding")).body.operatorEmoji).toBeNull();
+  });
+
+  it("leaves a customized operating manual untouched on an emoji-only post", async () => {
+    writeOperatingManual("Northwind", "Esperanto");
+    const before = fs.readFileSync(claudeMdPath, "utf-8");
+
+    await call("POST", "/api/onboarding", { operatorEmoji: "🦊" });
+
+    expect(fs.readFileSync(claudeMdPath, "utf-8")).toBe(before);
+  });
+
+  it("renames the operating manual on a portal-name post while keeping the configured language", async () => {
+    currentConfig = {
+      ...baseConfig(),
+      portal: { ...baseConfig().portal, language: "Esperanto" },
+    } as JinnConfig;
+    fs.writeFileSync(path.join(jinnHome, "config.yaml"), yaml.dump(currentConfig));
+    writeOperatingManual("Northwind", "Esperanto");
+
+    await call("POST", "/api/onboarding", { portalName: "Contoso" });
+
+    const md = fs.readFileSync(claudeMdPath, "utf-8");
+    expect(md).toContain("You are **Contoso**,");
+    expect(md).toContain("Always respond in Esperanto.");
   });
 });

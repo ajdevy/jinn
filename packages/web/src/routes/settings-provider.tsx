@@ -76,19 +76,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // correct COO name and operator icon show up even if localStorage has stale
   // values from a previous onboarding or another browser.
   useEffect(() => {
-    if (
-      !onboarding ||
-      (!onboarding.companyName && !onboarding.portalName && !onboarding.operatorName && !onboarding.operatorEmoji)
-    ) {
-      return
-    }
+    if (!onboarding) return
     setSettings((prev) => {
       const merged = {
         ...prev,
         ...(onboarding.companyName ? { companyName: onboarding.companyName } : {}),
         ...(onboarding.portalName ? { portalName: onboarding.portalName } : {}),
         ...(onboarding.operatorName ? { operatorName: onboarding.operatorName } : {}),
-        ...(onboarding.operatorEmoji ? { operatorEmoji: onboarding.operatorEmoji } : {}),
+        // The emoji lives only in gateway config, so an absent one means unset —
+        // it has to clear a stale local value rather than leave it standing.
+        operatorEmoji: onboarding.operatorEmoji ?? null,
+      }
+      if (
+        merged.companyName === prev.companyName &&
+        merged.portalName === prev.portalName &&
+        merged.operatorName === prev.operatorName &&
+        merged.operatorEmoji === prev.operatorEmoji
+      ) {
+        return prev
       }
       saveSettings(merged)
       return merged

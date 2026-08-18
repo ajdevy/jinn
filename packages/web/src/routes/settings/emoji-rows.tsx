@@ -14,13 +14,30 @@ const SWATCH_CLASS =
   "flex size-[44px] cursor-pointer items-center justify-center rounded-[13px] border-none bg-[var(--fill-quaternary)] text-[26px] leading-none transition-colors hover:bg-[var(--fill-tertiary)]"
 
 const PORTAL_DEFAULT_EMOJI = "\u{1F9DE}"
+const ERROR_CLASS =
+  "mt-[var(--space-2)] rounded-[var(--radius-lg)] p-[8px_10px] text-[length:var(--text-caption1)] text-[var(--system-red)]"
+const ERROR_WASH = { background: "color-mix(in srgb, var(--system-red) 8%, transparent)" }
 
 /** The icon on the operator's own comments and messages. Persisted in gateway
  *  config rather than localStorage, so it follows them to any browser. */
 export function OperatorEmojiRow() {
   const { settings, setOperatorEmoji } = useSettings()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const current = settings.operatorEmoji ?? OPERATOR_DEFAULT_EMOJI
+
+  const choose = (emoji: string) => {
+    const previous = settings.operatorEmoji
+    setOperatorEmoji(emoji)
+    setSaveError(null)
+    setPickerOpen(false)
+    // The gateway owns this setting, so a rejected write has to take the local
+    // one back with it — otherwise the swatch shows a pick no browser will see.
+    api.completeOnboarding({ operatorEmoji: emoji }).catch((err: unknown) => {
+      setOperatorEmoji(previous)
+      setSaveError(err instanceof Error ? err.message : String(err))
+    })
+  }
 
   return (
     <div>
@@ -36,17 +53,15 @@ export function OperatorEmojiRow() {
           {current}
         </button>
         {pickerOpen && (
-          <EmojiPicker
-            current={current}
-            onSelect={(emoji) => {
-              setOperatorEmoji(emoji)
-              api.completeOnboarding({ operatorEmoji: emoji }).catch(() => {})
-              setPickerOpen(false)
-            }}
-            onClose={() => setPickerOpen(false)}
-          />
+          <EmojiPicker current={current} onSelect={choose} onClose={() => setPickerOpen(false)} />
         )}
       </div>
+      {saveError && (
+        <p role="alert" className={ERROR_CLASS} style={ERROR_WASH}>
+          Could not save the operator emoji: {saveError}. It is unchanged. Check that the gateway
+          is running and pick again.
+        </p>
+      )}
     </div>
   )
 }

@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5781,
+      "lines": 5764,
       "exempt": [
         "complexity",
         "max-depth",
@@ -850,7 +850,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 847
+      "lines": 837
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1392,
+      "lines": 1384,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1810,
+      "lines": 1807,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1243,7 +1243,7 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 306,
+      "lines": 343,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1672,7 +1672,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1657,
+      "lines": 1633,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1801,7 +1801,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/activity.tsx": {
-      "lines": 615,
+      "lines": 613,
       "exempt": [
         "complexity",
         "max-lines-per-function"

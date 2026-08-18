@@ -33,8 +33,10 @@ import {
   type VirtualAnchor,
 } from './transcript-virtualizer'
 import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
+import { formatTimestamp, shouldShowTimestamp, TimestampDivider, validTimestamp } from './message-timestamps'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
+export { TimestampDivider } from './message-timestamps'
 export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
 export { turnSpacerClass } from './turn-spacer'
@@ -356,10 +358,6 @@ function itemHasActiveDelegation(item: MessageItem): boolean {
   ))
 }
 
-function validTimestamp(value: number): number | null {
-  return Number.isFinite(value) && value > 0 ? value : null
-}
-
 /** Locate the durable start of the engine segment closed by `answerIndex`.
  * The initiating user starts the first segment. After a completed reply, a
  * callback/relay starts the next one; callbacks that arrive before any reply
@@ -612,6 +610,19 @@ function shouldShowTimestamp(messages: Message[], index: number): boolean {
   if (validTimestamp(messages[index - 1]?.timestamp) === null) return false
   const gap = messages[index].timestamp - messages[index - 1].timestamp
   return gap > 5 * 60 * 1000
+
+/* ── Role-switch spacer ─────────────────────────────────── */
+
+// One source of truth for the gap above a row, computed from the previous
+// message's role. The streaming container uses the SAME function as the final
+// row that replaces it, so the swap is a pure text-node replacement — zero
+// movement by construction.
+export function turnSpacerClass(prevRole: Message['role'], role: Message['role']): string {
+  // The switch AFTER a user message gets extra headroom (24px): the accent
+  // bubble's fill weight optically eats a plain 16px gap before the reply.
+  if (prevRole === 'user' && role !== 'user') return 'h-[var(--space-6)]'
+  if (prevRole !== role) return 'h-[var(--space-4)]'
+  return 'h-[var(--space-1)]'
 }
 
 /* ── Shared assistant row shell ─────────────────────────── */
@@ -620,14 +631,6 @@ function shouldShowTimestamp(messages: Message[], index: number): boolean {
 // MessageRow that replaces it. The structural-parity guarantee (the swap can
 // never move the text) holds because both sides render THIS component — no
 // hand-copied class strings that can drift apart.
-
-export function TimestampDivider({ label }: { label: string }) {
-  return (
-    <div className="text-center py-[var(--space-3)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-      {label}
-    </div>
-  )
-}
 
 export function AssistantRowShell({ transcript, entering, children }: { transcript?: React.ReactNode; entering?: boolean; children?: React.ReactNode }) {
   return (
