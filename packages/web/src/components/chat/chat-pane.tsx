@@ -650,7 +650,7 @@ export function ChatPane({
 
       {/* Input — chat-style composer for every view, including CLI (the PTY engine
           accepts attachments + the prompt is injected into xterm via bracketed-paste). */}
-      <ChatInput
+      <ChatInput sessionId={sessionId}
         disabled={false}
         loading={loading}
         onSend={handleSend}

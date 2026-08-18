@@ -54,9 +54,13 @@ describe("the registered set", () => {
       "open_todos",
       "read_todo",
       "resolve_and_open",
+      "talk_draft_and_send",
+      "talk_draft_reply",
+      "talk_replace_draft",
       "talk_search_chat_messages",
+      "talk_send_draft",
     ])
-    expect(alwaysOnDefinitions()).toHaveLength(6)
+    expect(alwaysOnDefinitions()).toHaveLength(10)
   })
 
   it("keeps the decision verbs and the generic page actions off the resident list", () => {

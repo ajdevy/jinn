@@ -7,6 +7,10 @@ import { useSkills } from '@/hooks/use-skills'
 import { WhisperDownloadModal } from '@/components/stt/whisper-download-modal'
 import { MicWaveform } from './mic-waveform'
 import { EmployeeAvatar } from '@/components/ui/employee-avatar'
+import { useChatComposerControl } from './chat-composer-control'
+import { resolveSendTap, resolveTranscriptLanding } from './armed-send'
+
+export { resolveSendTap, resolveTranscriptLanding } from './armed-send'
 
 /** Hold threshold (ms) that separates a quick tap from a tap-and-hold. */
 export const MIC_HOLD_THRESHOLD_MS = 250
@@ -56,65 +60,6 @@ export function resolveClientCommand(text: string): ClientCommand | null {
   return null
 }
 
-/* ── Armed-send state machine (STT) ───────────────────────────────────────
- * The operator can queue a send DURING dictation: while STT is still capturing
- * or transcribing (the "pending" window), the Send button is already pressable
- * in an "armed" affordance. Tapping it arms an auto-send that fires the instant
- * the transcribed text lands in the field — no second tap, no waiting.
- *
- * The two functions below are the pure core (state → action), extracted so the
- * arm / auto-send-on-populate / empty-no-send / disarm rules are unit-testable
- * without a DOM. The component owns the side effects (setState, onSend).
- */
-
-/** Inputs that decide what a tap on the Send button does. */
-export interface SendTapContext {
-  /** The button is currently a Stop control (a turn is streaming + interruptible). */
-  isStop: boolean
-  /** An auto-send is already armed (waiting for the transcript to land). */
-  armed: boolean
-  /** STT is active — recording or transcribing — so words haven't landed yet. */
-  sttPending: boolean
-  /** The field already has text / media ready to send. */
-  hasContent: boolean
-}
-
-export type SendTapAction =
-  | 'stop'    // interrupt the streaming turn
-  | 'disarm'  // a second tap while armed cancels the queued send
-  | 'arm'     // queue an auto-send for when the transcript lands
-  | 'send'    // normal immediate send
-  | 'noop'    // nothing to do (empty field, no pending STT)
-
-/**
- * Resolve what a Send-button tap should do. Order matters: Stop wins over
- * everything; a second tap while armed toggles the queue off; during the STT
- * pending window a tap arms; otherwise it's a normal send (or a no-op when the
- * field is empty).
- */
-export function resolveSendTap(c: SendTapContext): SendTapAction {
-  if (c.isStop) return 'stop'
-  if (c.armed) return 'disarm'
-  if (c.sttPending) return 'arm'
-  if (c.hasContent) return 'send'
-  return 'noop'
-}
-
-export type TranscriptLandAction =
-  | 'send'    // armed + real text → fire the auto-send now
-  | 'disarm'  // armed + empty transcript → cancel the queue, keep the field
-  | 'fill'    // not armed → just drop the text into the field (normal STT)
-
-/**
- * Resolve what happens when a transcript lands. An armed send fires only when
- * the transcript actually carried words; an empty transcript disarms cleanly
- * (never sends a blank message) and leaves the field for the operator.
- */
-export function resolveTranscriptLanding(armed: boolean, transcript: string): TranscriptLandAction {
-  if (!armed) return 'fill'
-  return transcript.trim().length > 0 ? 'send' : 'disarm'
-}
-
 /* ── Speech-to-text provenance ─────────────────────────────────────────────
  * One bit per composed message: does its text contain any speech-to-text
  * content? Typing never sets it, any dictated fragment does, a full clear
@@ -141,9 +86,11 @@ export function nextSpeechProvenance(current: boolean, event: SpeechProvenanceEv
 }
 
 interface ChatInputProps {
+  /** Existing chat owned by this composer. Null is the new-chat composer. */
+  sessionId?: string | null
   disabled: boolean
   loading: boolean
-  onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean, speech?: boolean) => void
+  onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean, speech?: boolean) => void | Promise<void>
   onInterrupt?: () => void
   onNewSession: () => void
   onStatusRequest: () => void
@@ -229,6 +176,7 @@ async function fileToAttachment(file: File): Promise<MediaAttachment> {
 /* ── Component ──────────────────────────────────────────── */
 
 export function ChatInput({
+  sessionId = null,
   disabled,
   loading,
   onSend,
@@ -275,9 +223,13 @@ export function ChatInput({
   // and must never trigger a re-render.
   const speechRef = useRef(false)
   const pendingAttachmentsRef = useRef<MediaAttachment[]>([])
+  const submittingRef = useRef(false)
+  const disabledRef = useRef(disabled)
+  const sendTextRef = useRef<(rawText: string, media: MediaAttachment[]) => Promise<boolean>>(async () => false)
   armedRef.current = sendArmed
   pendingAttachmentsRef.current = pendingAttachments
   valueRef.current = value
+  disabledRef.current = disabled
 
   const resize = useCallback((el: HTMLTextAreaElement) => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
@@ -495,11 +447,12 @@ export function ChatInput({
   // Send core — resolves client-only commands, otherwise clears the composer and
   // hands text + media to onSend. Shared by the Enter/tap path (handleSubmit) and
   // the STT auto-send path (applyTranscript), so both behave identically.
-  function sendText(rawText: string, media: MediaAttachment[]) {
+  async function sendText(rawText: string, media: MediaAttachment[]): Promise<boolean> {
     const trimmed = rawText.trim()
     const hasMedia = media.length > 0
 
-    if ((!trimmed && !hasMedia) || disabled) return
+    if ((!trimmed && !hasMedia) || disabledRef.current || submittingRef.current) return false
+    submittingRef.current = true
 
     // Capture provenance before any reset, then consume it — this message's
     // speech-derived state must not bleed into the next one.
@@ -508,18 +461,24 @@ export function ChatInput({
 
     const command = resolveClientCommand(trimmed)
     if (command === 'new') {
+      valueRef.current = ''
       setValue('')
       setSendArmed(false)
       onNewSession()
-      return
+      submittingRef.current = false
+      return true
     }
     if (command === 'status') {
+      valueRef.current = ''
       setValue('')
       setSendArmed(false)
       onStatusRequest()
-      return
+      submittingRef.current = false
+      return true
     }
     const mediaToSend = hasMedia ? [...media] : undefined
+    valueRef.current = ''
+    pendingAttachmentsRef.current = []
     setValue('')
     setPendingAttachments([])
     setSendArmed(false)
@@ -530,12 +489,23 @@ export function ChatInput({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-
-    onSend(trimmed, mediaToSend, false, speech)
+    try {
+      const sending = onSend(trimmed, mediaToSend, false, speech)
+      if (sending) await sending
+      return true
+    } finally {
+      submittingRef.current = false
+    }
   }
+  sendTextRef.current = sendText
+
+  useChatComposerControl({
+    sessionId, textareaRef, disabledRef, submittingRef, valueRef, speechRef,
+    pendingAttachmentsRef, sendTextRef, setValue, setSendArmed, setShowMentions, setShowCommands,
+  })
 
   function handleSubmit() {
-    sendText(value, pendingAttachments)
+    void sendText(value, pendingAttachments)
   }
 
   async function handleFileAttach(e: React.ChangeEvent<HTMLInputElement>) {
@@ -592,7 +562,7 @@ export function ChatInput({
       // Armed + real words → fire the combined message now, then clear + disarm.
       // Dictated words landed, so this send is speech-derived.
       speechRef.current = nextSpeechProvenance(speechRef.current, { type: 'transcript' })
-      sendText(merged, pendingAttachmentsRef.current)
+      void sendText(merged, pendingAttachmentsRef.current)
       return
     }
     if (action === 'fill') {

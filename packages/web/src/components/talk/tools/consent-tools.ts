@@ -72,7 +72,7 @@ const recordReading: TalkTool = {
   },
 }
 
-const sendToSession: TalkTool = {
+export const NAMED_SESSION_SEND_TOOL: TalkTool = {
   name: "talk_send_to_session",
   description: "Send a message into a chat session. Asks first: whoever is on it may act on the message straight away.",
   exposure: "on-intent",
@@ -97,4 +97,4 @@ const sendToSession: TalkTool = {
   },
 }
 
-export const CONSENT_TOOLS: readonly TalkTool[] = [startWorkflowRun, recordReading, sendToSession]
+export const CONSENT_TOOLS: readonly TalkTool[] = [startWorkflowRun, recordReading, NAMED_SESSION_SEND_TOOL]

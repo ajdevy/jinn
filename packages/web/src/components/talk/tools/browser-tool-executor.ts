@@ -1,5 +1,7 @@
 import { FOCUS_ELEMENT_TOOL } from "./focus-element"
 import { CHAT_MESSAGE_SEARCH_TOOL } from "./chat-message-search"
+import { CHAT_COMPOSER_TOOLS } from "./chat-composer-tools"
+import { NAMED_SESSION_SEND_TOOL } from "./consent-tools"
 import { NAVIGATE_TOOLS } from "./navigate-tools"
 import { RESOLVE_TOOLS } from "./resolve-tools"
 import { type TalkTool, type ToolResult } from "./tool-spec"
@@ -15,15 +17,16 @@ const BROWSER_TOOLS: readonly TalkTool[] = [
   ...RESOLVE_TOOLS,
   FOCUS_ELEMENT_TOOL,
   CHAT_MESSAGE_SEARCH_TOOL,
+  ...CHAT_COMPOSER_TOOLS,
+  NAMED_SESSION_SEND_TOOL,
 ]
 
 const BY_NAME = new Map(BROWSER_TOOLS.map((tool) => [tool.name, tool]))
 
 export async function executeBrowserToolCall(name: string, argsJson?: string): Promise<ToolResult> {
   const tool = BY_NAME.get(name)
-  // Compatibility for pre-manifest fixtures and old gateways. The canonical
-  // catalog never declares these names as browser targets, so legacy consent/
-  // undo modules stay outside the live chunk unless an old runtime asks.
+  // Compatibility for pre-manifest fixtures and old gateways. Canonical
+  // browser operations are all explicit above; only legacy names fall back.
   if (!tool) return (await import("./registry")).executeToolCall(name, argsJson)
   const parsed = parseToolArgs(name, tool.parameters, argsJson)
   if (!parsed.ok) return { ok: false, error: parsed.error }
