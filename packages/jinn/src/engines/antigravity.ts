@@ -29,12 +29,11 @@ import {
 } from "./antigravity-mcp.js";
 
 /**
- * Antigravity (`agy`) engine — PTY-interactive, modeled on InteractiveClaudeEngine.
+ * Antigravity (`agy`) interactive PTY adapter, modeled on InteractiveClaudeEngine.
  *
- * Why interactive-only: `agy` has no working headless/`--print` mode, so every
- * turn is driven through a real PTY (the same instance also backs the dashboard
- * xterm view). `agy` has no hook system either, so unlike the Claude engine we
- * detect turn boundaries by tailing agy's own per-conversation transcript:
+ * Queued work turns use AntigravityHeadlessEngine's supported stream-JSON print
+ * protocol. This adapter backs the dashboard xterm view and preserves PTY-native
+ * turns by tailing agy's per-conversation transcript:
  *   ~/.gemini/antigravity-cli/brain/<convId>/.system_generated/logs/transcript.jsonl
  * A turn completes after a MODEL/PLANNER_RESPONSE/status:DONE line and a short
  * quiet window with no more transcript activity. agy can continue tool work
