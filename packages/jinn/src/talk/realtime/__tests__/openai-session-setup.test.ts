@@ -21,11 +21,23 @@ beforeEach(() => {
 });
 
 describe("buildSessionPayload", () => {
-  it("asks for server VAD with barge-in by default", () => {
+  it("keeps automatic responses for direct provider sessions", () => {
     const payload = buildSessionPayload({}) as { audio: { input: { turn_detection: Record<string, unknown> } } };
     expect(payload.audio.input.turn_detection).toEqual({
       type: "server_vad",
       create_response: true,
+      interrupt_response: true,
+    });
+    expect(payload.audio.input).toMatchObject({
+      transcription: { model: "gpt-4o-mini-transcribe" },
+    });
+  });
+
+  it("lets an ephemeral browser session gate response creation", () => {
+    const payload = buildSessionPayload({}, false) as { audio: { input: { turn_detection: Record<string, unknown> } } };
+    expect(payload.audio.input.turn_detection).toEqual({
+      type: "server_vad",
+      create_response: false,
       interrupt_response: true,
     });
   });

@@ -37,17 +37,18 @@ export interface OpenAiRealtimeOptions {
  * mid-sentence when the user talks over it (barge-in). `none` disables both, so
  * the caller drives turns with `commitAudio` — the push-to-talk shape.
  */
-function turnDetectionPayload(mode: RealtimeTurnDetection | undefined): JsonObject | null {
+function turnDetectionPayload(mode: RealtimeTurnDetection | undefined, createResponse: boolean): JsonObject | null {
   if (mode === "none") return null;
-  return { type: "server_vad", create_response: true, interrupt_response: true };
+  return { type: "server_vad", create_response: createResponse, interrupt_response: true };
 }
 
 /** The `session` object shared by the WebSocket handshake and token minting. */
-export function buildSessionPayload(options: RealtimeSessionOptions): JsonObject {
+export function buildSessionPayload(options: RealtimeSessionOptions, createResponse = true): JsonObject {
   const audio: JsonObject = {
     input: {
       format: { type: "audio/pcm", rate: 24000 },
-      turn_detection: turnDetectionPayload(options.turnDetection),
+      transcription: { model: "gpt-4o-mini-transcribe" },
+      turn_detection: turnDetectionPayload(options.turnDetection, createResponse),
     },
     output: {
       format: { type: "audio/pcm", rate: 24000 },
@@ -102,7 +103,7 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
       headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         expires_after: { anchor: "created_at", seconds: EPHEMERAL_TOKEN_TTL_SECONDS },
-        session: buildSessionPayload({ ...this.defaults, ...options }),
+        session: buildSessionPayload({ ...this.defaults, ...options }, false),
       }),
     });
     if (!response.ok) {

@@ -144,6 +144,13 @@ describe("createFrameReader", () => {
     })
   })
 
+  it("preserves a failed input transcription as a fail-closed turn signal", () => {
+    expect(frame({
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "item-user-1",
+    })).toEqual({ type: "transcript_failed", itemId: "item-user-1" })
+  })
+
   it("preserves provider acknowledgement identity for a created conversation item", () => {
     expect(frame({
       type: "conversation.item.created",
@@ -159,8 +166,27 @@ describe("createFrameReader", () => {
   })
 
   it("reads the two ends of an assistant response", () => {
-    expect(frame({ type: "response.created" })).toEqual({ type: "turn_started" })
+    expect(frame({ type: "response.created", response: { id: "response-1" } })).toEqual({
+      type: "turn_started",
+      responseId: "response-1",
+    })
     expect(frame({ type: "response.done", response: {} })).toMatchObject({ type: "turn_done" })
+  })
+
+  it("preserves provider cancellation evidence at turn completion", () => {
+    expect(frame({
+      type: "response.done",
+      response: {
+        id: "response-1",
+        status: "cancelled",
+        status_details: { reason: "turn_detected" },
+      },
+    })).toMatchObject({
+      type: "turn_done",
+      responseId: "response-1",
+      status: "cancelled",
+      cancellationReason: "turn_detected",
+    })
   })
 
   it("preserves the provider response and output item identities at turn completion", () => {
@@ -175,8 +201,34 @@ describe("createFrameReader", () => {
   })
 
   it("reads the two ends of a spoken turn", () => {
-    expect(frame({ type: "input_audio_buffer.speech_started" })).toEqual({ type: "speech_started" })
-    expect(frame({ type: "input_audio_buffer.speech_stopped" })).toEqual({ type: "speech_stopped" })
+    expect(frame({
+      type: "input_audio_buffer.speech_started",
+      item_id: "item-user-1",
+      audio_start_ms: 1_000,
+    })).toEqual({ type: "speech_started", itemId: "item-user-1", audioStartMs: 1_000 })
+    expect(frame({
+      type: "input_audio_buffer.speech_stopped",
+      item_id: "item-user-1",
+      audio_end_ms: 1_240,
+    })).toEqual({ type: "speech_stopped", itemId: "item-user-1", audioEndMs: 1_240 })
+  })
+
+  it("correlates WebRTC output truncation with the interrupted response", () => {
+    expect(frame({ type: "output_audio_buffer.cleared", response_id: "response-1" })).toEqual({
+      type: "output_cleared",
+      responseId: "response-1",
+    })
+  })
+
+  it("preserves playback start and stop correlation", () => {
+    expect(frame({ type: "output_audio_buffer.started", response_id: "response-7" })).toEqual({
+      type: "output_started",
+      responseId: "response-7",
+    })
+    expect(frame({ type: "output_audio_buffer.stopped", response_id: "response-7" })).toEqual({
+      type: "output_stopped",
+      responseId: "response-7",
+    })
   })
 
   it("carries the provider's own words on an error", () => {
