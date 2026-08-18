@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildTalkControlManifest } from "../manifest.js";
+import { readFileSync } from "node:fs";
+import {
+  buildTalkControlManifest,
+  renderTalkCompanyCoverageMarkdown,
+  TALK_COMPANY_CAPABILITY_COVERAGE,
+  validateTalkCompanyCoverage,
+} from "../manifest.js";
 
 describe("the authoritative Talk control manifest", () => {
   it("owns every provider declaration exactly once", () => {
@@ -28,10 +34,22 @@ describe("the authoritative Talk control manifest", () => {
     }
     expect(byName.get("open_todo")).toMatchObject({ target: "browser", mutability: "effect" });
     expect(byName.get("capture_current_view")).toMatchObject({ target: "browser", mutability: "read" });
+    expect(byName.get("read_talk_capability")).toMatchObject({ target: "gateway", mutability: "read", operatorOnly: false });
   });
 
-  it("contains no credentials, capabilities, or machine paths", () => {
+  it("contains no credentials or machine paths", () => {
     const serialized = JSON.stringify(buildTalkControlManifest());
-    expect(serialized).not.toMatch(/authorization|bearer|capability|api[_-]?key|\/Users\//i);
+    expect(serialized).not.toMatch(/authorization|bearer|api[_-]?key|\/Users\//i);
+  });
+
+  it("declares every company lane as executable or an explicit planned gap", () => {
+    expect(validateTalkCompanyCoverage()).toEqual([]);
+    expect(Object.values(TALK_COMPANY_CAPABILITY_COVERAGE).every((entry) => entry.status === "supported"
+      || Boolean(entry.reason && entry.plannedAdapter))).toBe(true);
+  });
+
+  it("keeps the company section of the operator coverage report fresh", () => {
+    const report = readFileSync("../../docs/talk-control-coverage.md", "utf8");
+    expect(report).toContain(renderTalkCompanyCoverageMarkdown());
   });
 });

@@ -6,6 +6,7 @@ import { currentApproval } from "../../work-items/approval-rows.js";
 import { initDb } from "../../shared/db.js";
 import { TalkTopicRepository } from "../topics/repository.js";
 import type { TalkControlExecution, TalkControlOperation, TalkControlVerification } from "./types.js";
+import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./manifest.js";
 
 interface VerificationHost {
   workflowService?: WorkflowService;
@@ -112,6 +113,16 @@ const verifyTopicCommitment: VerifyHandler = (_args, execution) => {
   return { ok: !!topic, evidence: topic ? { topicId: topic.id, revision: topic.revision } : {} };
 };
 
+const verifyCapability: VerifyHandler = (args, execution) => {
+  const capability = text(args, "capability");
+  const declared = TALK_COMPANY_CAPABILITY_COVERAGE[capability as keyof typeof TALK_COMPANY_CAPABILITY_COVERAGE];
+  const status = String(execution.data.status ?? "");
+  return {
+    ok: declared ? status === declared.status : status === "unknown",
+    evidence: declared ? { capability, status: declared.status } : { capability, status: "unknown" },
+  };
+};
+
 const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   read_todo: verifyTodo,
   talk_edit_todo: verifyEdit,
@@ -127,6 +138,7 @@ const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   read_workflow_runs: verifyWorkflowRuns,
   talk_recall_topic: verifyTopicResolution,
   talk_remember_topic: verifyTopicCommitment,
+  read_talk_capability: verifyCapability,
 };
 
 export async function verifyTalkDomainOperation(

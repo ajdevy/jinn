@@ -29,6 +29,36 @@ function caller() {
 }
 
 describe("Talk domain retry resilience", () => {
+  it("returns executable coverage or an exact named gap without inventing a command", async () => {
+    const host = {
+      sourceSessionId: "normal-talk-chat",
+      context: { getConfig: () => ({ gateway: {}, engines: {} }) },
+    } as unknown as Parameters<typeof createRuntime>[1];
+    const ask = (providerCallId: string, capability: string) => createRuntime(manifest, host).dispatch({
+      talkSessionId: "talk-capabilities",
+      providerCallId,
+      tool: "read_talk_capability",
+      arguments: JSON.stringify({ capability }),
+      caller: caller(),
+    });
+
+    await expect(ask("capability-supported", "todo-core")).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      data: { capability: "todo-core", status: "supported", operations: expect.arrayContaining(["talk_edit_todo"]) },
+    });
+    await expect(ask("capability-gap", "notes")).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      data: { capability: "notes", status: "explicit-gap", reason: "notes-command-adapter-missing" },
+    });
+    await expect(ask("capability-unknown", "not-a-lane")).resolves.toMatchObject({
+      ok: true,
+      verified: true,
+      data: { capability: "not-a-lane", status: "unknown", knownCapabilities: expect.any(Array) },
+    });
+  });
+
   it("replays a committed comment after the outer receipt write is lost", async () => {
     const item = workItems.createWorkItem({ title: "Survive the lost receipt" });
     const stored = new Map<string, TalkControlReceipt>();

@@ -28,6 +28,7 @@ import { verifyTalkDomainOperation } from "./verification.js";
 import { executeVoiceApproval } from "./voice-approval-adapter.js";
 import { dispatchTalkSessionMessage } from "./session-message-adapter.js";
 import { delegateTodoWithTalk } from "./delegation-adapter.js";
+import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./manifest.js";
 
 export interface TalkControlHost {
   context: ApiContext;
@@ -220,6 +221,18 @@ const rememberTopic: DomainHandler = (_host, args, call) => {
   return { data: { topic }, uiEffect: null };
 };
 
+const readCapability: DomainHandler = (_host, args) => {
+  const capability = requiredText(args, "capability");
+  const coverage = TALK_COMPANY_CAPABILITY_COVERAGE[capability as keyof typeof TALK_COMPANY_CAPABILITY_COVERAGE];
+  if (!coverage) {
+    return {
+      data: { status: "unknown", capability, knownCapabilities: Object.keys(TALK_COMPANY_CAPABILITY_COVERAGE) },
+      uiEffect: null,
+    };
+  }
+  return { data: { capability, ...coverage }, uiEffect: null };
+};
+
 const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   read_todo: readTodo,
   talk_edit_todo: editTodo,
@@ -235,6 +248,7 @@ const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   read_workflow_run: readWorkflowRun,
   talk_recall_topic: recallTopic,
   talk_remember_topic: rememberTopic,
+  read_talk_capability: readCapability,
 };
 
 async function execute(host: TalkControlHost, operation: TalkControlOperation, args: Record<string, unknown>, call: TalkControlAdapterContext): Promise<TalkControlExecution> {
