@@ -28,6 +28,7 @@ interface SettingsContextValue {
   setIconBgHidden: (hidden: boolean) => void
   setEmojiOnly: (emojiOnly: boolean) => void
   setOperatorName: (name: string | null) => void
+  setOperatorEmoji: (emoji: string | null) => void
   setLanguage: (language: string) => void
   setTalkOrb: (enabled: boolean) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
@@ -47,6 +48,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setIconBgHidden: () => {},
   setEmojiOnly: () => {},
   setOperatorName: () => {},
+  setOperatorEmoji: () => {},
   setLanguage: () => {},
   setTalkOrb: () => {},
   setEmployeeOverride: () => {},
@@ -69,17 +71,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setSettings(loadSettings())
   }, [])
 
-  // Then sync companyName/portalName/operatorName from backend config (source of truth) once
-  // the shared onboarding query resolves. This ensures the correct COO name
-  // shows up even if localStorage has stale values from a previous onboarding.
+  // Then sync companyName/portalName/operatorName/operatorEmoji from backend config
+  // (source of truth) once the shared onboarding query resolves. This ensures the
+  // correct COO name and operator icon show up even if localStorage has stale
+  // values from a previous onboarding or another browser.
   useEffect(() => {
-    if (!onboarding || (!onboarding.companyName && !onboarding.portalName && !onboarding.operatorName)) return
+    if (
+      !onboarding ||
+      (!onboarding.companyName && !onboarding.portalName && !onboarding.operatorName && !onboarding.operatorEmoji)
+    ) {
+      return
+    }
     setSettings((prev) => {
       const merged = {
         ...prev,
         ...(onboarding.companyName ? { companyName: onboarding.companyName } : {}),
         ...(onboarding.portalName ? { portalName: onboarding.portalName } : {}),
         ...(onboarding.operatorName ? { operatorName: onboarding.operatorName } : {}),
+        ...(onboarding.operatorEmoji ? { operatorEmoji: onboarding.operatorEmoji } : {}),
       }
       saveSettings(merged)
       return merged
@@ -171,6 +180,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setOperatorEmoji = useCallback(
+    (emoji: string | null) => {
+      update((prev) => ({ ...prev, operatorEmoji: emoji || null }))
+    },
+    [update],
+  )
+
   const setLanguage = useCallback(
     (language: string) => {
       update((prev) => ({ ...prev, language: language || "English" }))
@@ -240,6 +256,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setIconBgHidden,
         setEmojiOnly,
         setOperatorName,
+        setOperatorEmoji,
         setLanguage,
         setTalkOrb,
         setEmployeeOverride,
