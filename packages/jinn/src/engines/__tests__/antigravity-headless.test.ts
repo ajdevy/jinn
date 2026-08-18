@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as headless from "../antigravity-headless.js";
 
@@ -56,6 +57,7 @@ function makeFakeProc(): FakeProc {
 }
 
 vi.mock("node:child_process", () => ({
+  execFileSync: vi.fn(),
   spawn: vi.fn((bin: string, args: string[], opts: unknown) => {
     const proc = makeFakeProc();
     spawnCalls.push({ bin, args, opts, proc });
@@ -65,6 +67,7 @@ vi.mock("node:child_process", () => ({
 
 beforeEach(() => {
   spawnCalls.length = 0;
+  vi.spyOn(process, "kill").mockImplementation(() => true);
 });
 
 afterEach(() => {
@@ -139,9 +142,10 @@ describe("parseAntigravityStreamLine", () => {
 
     expect(parsed).toEqual({
       conversationId: "conversation-2",
-      deltas: [],
+      deltas: [{ type: "context", content: "10" }],
       terminal: true,
       result: "finished\n",
+      contextTokens: 10,
     });
   });
 
@@ -322,6 +326,7 @@ describe("AntigravityHeadlessEngine", () => {
       sessionId: "conversation-6",
       result: "All checks passed.",
       numTurns: 1,
+      contextTokens: 10,
     });
   });
 
@@ -349,14 +354,17 @@ describe("AntigravityHeadlessEngine", () => {
     expect(engine.isAlive("jinn-session-3")).toBe(false);
   });
 
-  it("settles from process exit when an inherited pipe prevents close", async () => {
+  it("reaps descendants and ignores late output when the leader exits with an inherited pipe", async () => {
     vi.useFakeTimers();
+    const processKill = vi.mocked(process.kill);
+    const deltas: unknown[] = [];
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
       prompt: "continue",
       cwd: "/workspace",
       sessionId: "jinn-session-4",
       resumeSessionId: "conversation-8",
+      onStream: (delta) => deltas.push(delta),
     });
     const call = spawnCalls[0]!;
     call.proc.emitStderr("process exited unexpectedly\n");
@@ -373,10 +381,49 @@ describe("AntigravityHeadlessEngine", () => {
       result: "",
       error: "Antigravity exited with code 1: process exited unexpectedly",
     });
+    expect(processKill).toHaveBeenCalledWith(-63_630, "SIGTERM");
+
+    call.proc.emitStdout(`${JSON.stringify({
+      event: "step_update",
+      step_update: {
+        conversation_id: "conversation-8",
+        step_index: 9,
+        state: "ACTIVE",
+        step_type: "tool",
+        tool_name: "manage_task",
+      },
+    })}\n`);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(processKill).toHaveBeenCalledWith(-63_630, "SIGKILL");
+    expect(deltas).toEqual([]);
+  });
+
+  it("runs a Windows npm shim through cmd.exe and kills its process tree", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const engine = new headless.AntigravityHeadlessEngine();
+    const resultPromise = engine.run({
+      prompt: "continue",
+      cwd: "C:\\workspace",
+      bin: "C:\\tools\\agy.cmd",
+      sessionId: "jinn-session-windows",
+      resumeSessionId: "conversation-windows",
+    });
+    const call = spawnCalls[0]!;
+
+    expect(call.bin).toMatch(/[\\/]System32[\\/]cmd\.exe$/);
+    expect(call.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    engine.kill("jinn-session-windows", "test cleanup");
+    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
+      expect.stringMatching(/[\\/]System32[\\/]taskkill\.exe$/),
+      ["/pid", "63630", "/t", "/f"],
+      expect.objectContaining({ windowsHide: true }),
+    );
+    call.proc.close(null);
+    await expect(resultPromise).resolves.toMatchObject({ error: "Interrupted: test cleanup" });
   });
 
   it("interrupts only the tracked process group and reports the reason", async () => {
-    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
       prompt: "continue",
@@ -401,7 +448,7 @@ describe("AntigravityHeadlessEngine", () => {
 
   it("terminates and settles a turn at the hard timeout", async () => {
     vi.useFakeTimers();
-    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
       prompt: "continue",
@@ -423,7 +470,7 @@ describe("AntigravityHeadlessEngine", () => {
   });
 
   it("reaps the owned process group after an explicit terminal result", async () => {
-    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
       prompt: "run checks",

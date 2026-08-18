@@ -29,8 +29,7 @@ import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { enforcePtyIdleCap, PtyLifecycleManager, type PtyLifecycleOpts } from "../engines/pty-lifecycle.js";
 import { CodexEngine, startCodexSessionHomeSweeps } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
-import { AntigravityEngine } from "../engines/antigravity.js";
-import { AntigravityHeadlessEngine } from "../engines/antigravity-headless.js";
+import { createAntigravityEnginePair } from "../engines/antigravity-runtime.js";
 import { PiEngine } from "../engines/pi.js";
 import { GrokEngine } from "../engines/grok.js";
 import { GrokInteractiveEngine } from "../engines/grok-interactive.js";
@@ -671,7 +670,8 @@ export async function startGateway(
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
   });
-  const antigravityInteractiveEngine = new AntigravityEngine(antigravityLifecycle);
+  const antigravityEngines = createAntigravityEnginePair(antigravityLifecycle);
+  const antigravityInteractiveEngine = antigravityEngines.pty;
   grokLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
@@ -686,7 +686,7 @@ export async function startGateway(
   logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (headless + interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
 
   const codexEngine = new CodexEngine();
-  const antigravityEngine = new AntigravityHeadlessEngine();
+  const antigravityEngine = antigravityEngines.work;
   const grokEngine = new GrokEngine();
   const hermesEngine = new HermesAcpEngine();
   const engines = new Map<string, Engine>();
