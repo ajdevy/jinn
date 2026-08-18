@@ -120,13 +120,17 @@ export interface WorkflowChildRunSummary {
   runId: string;
   workflowId: string;
   nodeId: string;
-  itemIndex: number;
+  /** Absent on a run an attempt session started: that is a single spawn, not one item of a batch. */
+  itemIndex?: number;
   status: WorkflowRunStatus;
   startedAt: string;
   endedAt?: string;
   endOutput?: Record<string, JsonValue>;
   error?: WorkflowError;
 }
+
+/** A Workflow Call child, which is always one item of its node's batch. */
+export type WorkflowFanoutChildSummary = WorkflowChildRunSummary & { itemIndex: number };
 
 export interface WorkflowRunDetail extends WorkflowRunRecord {
   nodeRuns: WorkflowNodeRunRecord[];

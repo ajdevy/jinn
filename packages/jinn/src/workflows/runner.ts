@@ -28,7 +28,7 @@ import { planStopNudge, STOP_NUDGE_TEXT } from "../sessions/stop-nudge.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
-  WorkflowChildRunSummary,
+  WorkflowFanoutChildSummary,
   WorkflowError,
   WorkflowNodeRunRecord,
   WorkflowRunDetail,
@@ -117,15 +117,15 @@ function fanoutInput(run: WorkflowRunDetail, node: WorkflowCallNode, plan: Fanou
     .map(([key, binding]) => [key, resolveBinding(binding, context)]));
 }
 
-function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowChildRunSummary[] {
-  return run.childRuns.filter((child) => child.nodeId === nodeId);
+function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowFanoutChildSummary[] {
+  return run.childRuns.filter((child): child is WorkflowFanoutChildSummary => child.nodeId === nodeId && child.itemIndex !== undefined);
 }
 
-function childTerminal(child: WorkflowChildRunSummary): boolean {
+function childTerminal(child: WorkflowFanoutChildSummary): boolean {
   return ["completed", "failed", "cancelled"].includes(child.status);
 }
 
-function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowChildRunSummary[]): void {
+function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowFanoutChildSummary[]): void {
   if (children.some((child) => child.itemIndex >= plan.items.length)) {
     throw new Error(`Workflow Call ${node.id} has a child outside its item range.`);
   }

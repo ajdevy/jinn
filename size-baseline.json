@@ -1058,7 +1058,7 @@
       ]
     },
     "packages/jinn/src/workflows/service.ts": {
-      "lines": 504,
+      "lines": 482,
       "exempt": [
         "complexity",
         "max-depth"
