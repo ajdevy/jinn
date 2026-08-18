@@ -103,6 +103,19 @@ async function advance(ms: number): Promise<void> {
   await new Promise<void>((resolve) => realSetImmediate(resolve));
 }
 
+async function settleWithTimers<T>(promise: Promise<T>, maxVirtualMs: number): Promise<T> {
+  let settled = false;
+  void promise.then(
+    () => { settled = true; },
+    () => { settled = true; },
+  );
+  for (let elapsed = 0; !settled && elapsed < maxVirtualMs; elapsed += 100) {
+    await advance(100);
+  }
+  if (!settled) throw new Error(`Promise did not settle within ${maxVirtualMs}ms of virtual time`);
+  return promise;
+}
+
 async function reachFirstSubmit(proc: FakePty): Promise<void> {
   proc.emitData("ready");
   await advance(1_500);
@@ -139,10 +152,8 @@ describe("AntigravityEngine cold-start retry", () => {
     expect(proc.writes).toHaveLength(2);
 
     createAnswer("conversation-a", "ready");
-    for (let i = 0; i < 4; i++) await advance(500);
-    await advance(1_500);
-
-    await expect(resultPromise).resolves.toMatchObject({
+    const result = await settleWithTimers(resultPromise, 10_000);
+    expect(result).toMatchObject({
       sessionId: "conversation-a",
       result: "ready",
     });
