@@ -19,7 +19,9 @@ afterAll(() => {
   process.chdir(originalCwd);
   if (originalHome === undefined) delete process.env.JINN_HOME;
   else process.env.JINN_HOME = originalHome;
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 describe("gateway child JINN_HOME identity", () => {
