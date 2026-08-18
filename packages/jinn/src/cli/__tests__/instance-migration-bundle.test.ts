@@ -178,6 +178,7 @@ describe("instance migration bundle generator", () => {
     )
     expect(run(root, "generate", "--base-ref", "v0.25.0", "--version", "0.26.0").status).toBe(1)
     expect(run(root, "generate", "--base-ref", "v0.25.0", "--version", "0.26.0", "--allow-empty").status).toBe(0)
+    expect(run(root, "check", "--base-ref", "v0.25.0", "--version", "0.26.0").status).toBe(0)
 
     write(root, "escape", "placeholder")
     fs.rmSync(path.join(root, "packages/jinn/template/escape"))
