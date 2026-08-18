@@ -68,6 +68,7 @@ import { importLegacyWorkflowDefinitions } from "../workflows/import-v1.js";
 import { WorkflowRepository } from "../workflows/repository.js";
 import { WorkflowSessionExecutor } from "../workflows/session-executor.js";
 import { WorkflowService } from "../workflows/service.js";
+import { createTalkProactiveGatewayEmit } from "./talk-proactive-events.js";
 
 function hasRestartAcknowledgement(session: Session): boolean {
   const meta = session.transportMeta;
@@ -761,10 +762,8 @@ export async function startGateway(
   let currentConfig = config;
 
   const startTime = Date.now();
-
-  // Broadcast function (defined early so apiContext can reference it)
   const wsClients = new Set<import("ws").WebSocket>();
-  const emit: GatewayEmit = (event, payload): void => {
+  const broadcast: GatewayEmit = (event, payload): void => {
     const message = JSON.stringify({ event, payload, ts: Date.now() });
     for (const client of wsClients) {
       if (client.readyState === 1) {
@@ -777,6 +776,7 @@ export async function startGateway(
       }
     }
   };
+  const emit = createTalkProactiveGatewayEmit(initDb(), broadcast);
   sessionManager.setGatewayEmitter(emit);
   // ICI-570: in-process Todo writes (cron mints, session-lifecycle reconciles)
   // reach the dashboard through the same company:changed lane the routes use.

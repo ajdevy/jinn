@@ -8,6 +8,10 @@ function signature(state: OrbState) {
 }
 
 describe("orbParams", () => {
+  it("includes a visible error state in Aurora's motion vocabulary", () => {
+    expect(ORB_STATES).toContain("error")
+  })
+
   it("gives every state a distinct signature", () => {
     for (const a of ORB_STATES) {
       for (const b of ORB_STATES) {

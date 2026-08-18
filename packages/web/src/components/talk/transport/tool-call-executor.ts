@@ -1,5 +1,5 @@
 import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
-import { executeToolCall } from "../tools/registry"
+import { executeBrowserToolCall } from "../tools/browser-tool-executor"
 import type { RealtimeFrame } from "./realtime-events"
 import { postTalkControlCall, type TalkControlCall } from "./session-client"
 import { operationByName, type TalkControlManifest } from "./control-manifest"
@@ -20,6 +20,25 @@ interface TalkToolExecutionOptions {
 }
 
 const APPROVAL_OPERATIONS = new Set(["prepare_voice_approval", "commit_voice_approval"])
+const APPLIED_EFFECT_LIMIT = 500
+const appliedEffects = new Set<string>()
+
+async function applyVerifiedEffect(
+  options: TalkToolExecutionOptions,
+  result: Extract<Awaited<ReturnType<typeof postTalkControlCall>>, { ok: true }>,
+): Promise<void> {
+  if (!result.uiEffect) return
+  const key = `${options.sessionId}:${result.receiptId}`
+  if (appliedEffects.has(key)) return
+  appliedEffects.add(key)
+  if (appliedEffects.size > APPLIED_EFFECT_LIMIT) appliedEffects.delete(appliedEffects.values().next().value!)
+  try {
+    await (options.applyUiEffect ?? applyTalkUiEffect)(result.uiEffect)
+  } catch (failure) {
+    appliedEffects.delete(key)
+    throw failure
+  }
+}
 
 function gatewayCall(call: Extract<RealtimeFrame, { type: "tool_call" }>, options: TalkToolExecutionOptions) {
   return Object.fromEntries(Object.entries({
@@ -44,7 +63,7 @@ async function executeGatewayTool(
   }
   if (options.operatorTranscript) await options.operatorTranscript.persisted
   const result = await postTalkControlCall(options.sessionId, gatewayCall(call, options))
-  if (result.ok) await (options.applyUiEffect ?? applyTalkUiEffect)(result.uiEffect)
+  if (result.ok) await applyVerifiedEffect(options, result)
   return result
 }
 
@@ -64,5 +83,5 @@ export async function executeTalkTool(
       receipts: options.receipts,
     })
   }
-  return executeToolCall(call.name, call.arguments)
+  return executeBrowserToolCall(call.name, call.arguments)
 }

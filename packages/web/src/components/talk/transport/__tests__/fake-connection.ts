@@ -16,11 +16,13 @@ export class FakeConnection {
   closes = 0
   private readonly onOpen: () => void
   private readonly onFrame: (data: string) => void
+  private readonly onClose: ConnectOptions["onClose"]
 
-  constructor(options: { token: string; onOpen: () => void; onFrame: (data: string) => void }) {
+  constructor(options: Pick<ConnectOptions, "token" | "onOpen" | "onFrame"> & Partial<Pick<ConnectOptions, "onClose">>) {
     this.token = options.token
     this.onOpen = options.onOpen
     this.onFrame = options.onFrame
+    this.onClose = options.onClose ?? (() => {})
     FakeConnection.opened.push(this)
   }
 
@@ -32,7 +34,17 @@ export class FakeConnection {
   }
 
   close() {
-    this.closes += 1
+    if (this.closes > 0) return
+    this.closes = 1
+    this.onClose("expected")
+  }
+
+  /** The provider/network dropping an established peer, as distinct from the
+   *  operator deliberately ending it. */
+  fail() {
+    if (this.closes > 0) return
+    this.closes = 1
+    this.onClose("failed")
   }
 
   /** The data channel reaching `open`, which is what starts the conversation. */

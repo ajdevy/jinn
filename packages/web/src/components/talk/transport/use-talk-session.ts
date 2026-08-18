@@ -49,6 +49,12 @@ export interface TalkSessionHandle {
   toggle: () => void
   /** End only the old realtime runtime, then begin a separate Talk chat. */
   startOver: () => void
+  /** Speak one already-authorized proactive receipt through the live provider. */
+  cue: (
+    summary: string,
+    receiptId: string,
+    settled: (outcome: "completed" | "interrupted") => void,
+  ) => boolean
 }
 
 /** Tear the realtime session down locally, whether it is parked or closed. */
@@ -107,7 +113,7 @@ function installOpenedSession(controls: SessionControls, session: OpenTalkSessio
 function reportOpenFailure(controls: SessionControls, failure: unknown, providers: string[], opened: string | null): void {
   if (failure instanceof VoiceUnconfiguredError) controls.setSetup({ providers })
   else controls.setError(reason(failure))
-  controls.setState("idle")
+  controls.setState("error")
   controls.setActive(false)
   if (opened) {
     clearResumableTalkSession(opened)
@@ -131,7 +137,7 @@ async function openSession(controls: SessionControls): Promise<void> {
     providers = capability.providers
     if (!capability.configured) {
       controls.setSetup({ providers })
-      controls.setState("idle")
+      controls.setState("error")
       return
     }
     const session = await openTalkSession()
@@ -165,6 +171,11 @@ async function closeSession(controls: SessionControls): Promise<void> {
   } catch (failure) {
     controls.setError(reason(failure))
   }
+}
+
+async function retrySession(controls: SessionControls): Promise<void> {
+  await closeSession(controls)
+  await openSession(controls)
 }
 
 /**
@@ -221,19 +232,24 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   useDiscoverResumable(controls)
 
   const toggle = useCallback(() => {
-    if (liveRef.current?.attachment) void closeSession(controls)
+    if (liveRef.current?.attachment && error) void retrySession(controls)
+    else if (liveRef.current?.attachment) void closeSession(controls)
     else if (liveRef.current || readResumableTalkSession()) {
       void resumeHeldSession(controls, () => openSession(controls))
     }
     else void openSession(controls)
-  }, [controls])
+  }, [controls, error])
 
   const startOver = useCallback(() => {
     void startOverTalkRuntime(controls, () => openSession(controls))
   }, [controls])
 
+  const cue = useCallback((summary: string, receiptId: string, settled: (outcome: "completed" | "interrupted") => void) => {
+    return liveRef.current?.attachment?.driver.cue(summary, receiptId, settled) ?? false
+  }, [])
+
   useParkWhileHidden(controls)
   useCloseOnLeaving(liveRef, generationRef, forget)
 
-  return { active, parked, state, levelRef, error, setup, toggle, startOver }
+  return { active, parked, state, levelRef, error, setup, toggle, startOver, cue }
 }

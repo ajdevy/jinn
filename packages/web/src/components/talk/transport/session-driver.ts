@@ -7,27 +7,19 @@
  * calls and responses are still open — so `use-talk-session.ts` is left with
  * lifecycle alone.
  */
-import { describeInstance } from "../context/instance-identity"
-import { getPageContext, subscribePageContext } from "../context/page-context-store"
-import { renderPageContext } from "../context/render-page-context"
-import { visibleObjects } from "../context/visible-objects"
 import type { OrbState } from "../orb-motion"
 import { persistOperatorTranscript, type OperatorTranscriptEvidence } from "./operator-transcript-evidence"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
-import { postTalkScreenContext } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
 import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
-import { functionTools, type TalkControlManifest } from "./control-manifest"
-import type { TalkUiEffect } from "./ui-effects"
+import type { TalkControlManifest } from "./control-manifest"
+import { applyTalkUiEffect, type TalkUiEffect } from "./ui-effects"
 import { executeTalkTool } from "./tool-call-executor"
 import { recordSettledTurn } from "./turn-recorder"
+import { createSessionContextBridge } from "./session-context-bridge"
+import { DriverProactiveCues, type ProactiveCueSettled } from "./driver-proactive-cues"
 
-/**
- * How long the page has to settle before the orb is told about it. Typing in the
- * board's search box rewrites the URL on every keystroke, and a push per
- * keystroke would be a `session.update` per keystroke.
- */
-export const PAGE_CONTEXT_DEBOUNCE_MS = 400
+export { PAGE_CONTEXT_DEBOUNCE_MS } from "./session-context-bridge"
 export interface TalkDriverOptions {
   sessionId: string
   browserInstanceId?: string
@@ -52,6 +44,9 @@ export interface TalkDriver {
   start: () => void
   /** Handle one raw data-channel frame. */
   receive: (data: string) => void
+  /** Speak one server-authorized urgent cue. Receipt identity is retained for
+   *  this attachment so a replay cannot produce a second response. */
+  cue: (summary: string, receiptId: string, settled: ProactiveCueSettled) => boolean
   /** Stop following the page. Called wherever the connection is dropped — a
    *  driver that outlived its channel would keep pushing context at nothing. */
   stop: () => void
@@ -83,58 +78,18 @@ interface DriverState {
   /** A tool answered while a response was in flight, so a request is still
    *  owed once that response ends. */
   owed: boolean
-  /** How this driver lets go of the page store, and the push it is currently
-   *  waiting out the debounce on. Both live exactly as long as the connection. */
-  unfollow: (() => void) | null
-  settling: ReturnType<typeof setTimeout> | null
+  /** The operator started speaking over the current response. Its tool effects
+   *  may still settle (and are still answered once), but none of those late
+   *  results may start another spoken response. A provider-created response
+   *  for the new utterance clears this fence. */
+  interrupted: boolean
+  proactive: DriverProactiveCues
+  stopped: boolean
   lastUserRequestKey: string | null
   lastUserEvidence: OperatorTranscriptEvidence | null
   visualReceipts: VisualCaptureReceipt[]
   visualCapture: ReturnType<typeof createVisualCapture>
 }
-/**
- * Declare the session: the tool catalog, what this instance is, and where the
- * operator is.
- *
- * The tools ride along on every push rather than leaning on the provider to
- * merge one field at a time. `instructions` is a replaced field, and a context
- * push that silently cleared the tool list would take the whole orb down — the
- * extra bytes are on a local data channel and cost nothing worth having.
- *
- * The brief is re-sent for the same reason, and it leads: it is the standing
- * half, and the page underneath it is what changes. A push that carried only
- * the page would erase everything the orb knows about the company.
- */
-function sendSessionConfig(driver: DriverState): void {
-  const page = getPageContext()
-  const context = renderPageContext(page, visibleObjects(page), describeInstance())
-  const brief = driver.options.brief
-  const memory = driver.options.topicMemory ? `Talk topic memory: ${driver.options.topicMemory}` : ""
-  if (driver.options.browserInstanceId && driver.options.credentialGeneration) {
-    void postTalkScreenContext(driver.options.sessionId, page, driver.options.browserInstanceId,
-      driver.options.credentialGeneration).catch(() => {})
-  }
-  driver.options.send({
-    type: "session.update",
-    session: {
-      type: "realtime",
-      tools: functionTools(driver.options.manifest),
-      instructions: [brief, memory, context].filter(Boolean).join("\n\n"),
-    },
-  })
-}
-
-/** Follow the page, one push per settled change. */
-function followPage(driver: DriverState): void {
-  driver.unfollow = subscribePageContext(() => {
-    if (driver.settling) clearTimeout(driver.settling)
-    driver.settling = setTimeout(() => {
-      driver.settling = null
-      sendSessionConfig(driver)
-    }, PAGE_CONTEXT_DEBOUNCE_MS)
-  })
-}
-
 function show(driver: DriverState, next: OrbState): void {
   if (next === driver.state) return
   driver.state = next
@@ -148,6 +103,7 @@ function show(driver: DriverState, next: OrbState): void {
  * model never speaks — a silent stall, which is the worse of the two failures.
  */
 function requestResponse(driver: DriverState): void {
+  if (driver.interrupted) return
   if (driver.responding) {
     driver.owed = true
     return
@@ -182,17 +138,21 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
       capture: driver.visualCapture,
       receipts: driver.visualReceipts,
       send: driver.options.send,
-      applyUiEffect: driver.options.applyUiEffect,
+      applyUiEffect: async (effect) => {
+        if (driver.stopped) return
+        await (driver.options.applyUiEffect ?? applyTalkUiEffect)(effect)
+      },
     })
   } catch {
     result = { ok: false, error: "The verified Talk control could not be completed." }
   }
+  driver.outstanding -= 1
+  if (driver.stopped) return
   driver.options.send({
     type: "conversation.item.create",
     item: { type: "function_call_output", call_id: call.callId, output: JSON.stringify(result) },
   })
 
-  driver.outstanding -= 1
   if (driver.outstanding === 0) requestResponse(driver)
 }
 
@@ -219,7 +179,9 @@ function finishTurn(driver: DriverState, frame: Extract<RealtimeFrame, { type: "
 function endResponse(driver: DriverState, frame: Extract<RealtimeFrame, { type: "turn_done" }>): void {
   driver.responding = false
   finishTurn(driver, frame)
+  driver.proactive.settle("completed")
   if (driver.owed && driver.outstanding === 0) requestResponse(driver)
+  else driver.proactive.flush()
 }
 
 function handleTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { type: "transcript" }>): void {
@@ -238,6 +200,7 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
       void runTool(driver, frame)
       return
     case "turn_started":
+      driver.interrupted = false
       driver.responding = true
       // Whatever was owed, this response carries: it was created after those
       // outputs were appended, so it already speaks them.
@@ -250,12 +213,20 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
       handleTranscript(driver, frame)
       return
     case "speech_started":
+      if (driver.responding) {
+        driver.options.send({ type: "response.cancel" })
+        driver.responding = false
+        driver.owed = false
+        driver.interrupted = true
+      }
+      driver.proactive.settle("interrupted")
       show(driver, "listening")
       return
     case "speech_stopped":
       show(driver, "thinking")
       return
     case "error":
+      show(driver, "error")
       driver.options.onError(frame.message)
       return
     case "item_created":
@@ -264,7 +235,9 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
 }
 
 export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
-  const driver: DriverState = {
+  let driver: DriverState
+  const proactive = new DriverProactiveCues(options.send, () => show(driver, "thinking"))
+  driver = {
     options,
     billed: emptyTalkUsage(),
     said: "",
@@ -273,28 +246,32 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
     outstanding: 0,
     responding: false,
     owed: false,
-    unfollow: null,
-    settling: null,
+    interrupted: false,
+    stopped: false,
     lastUserRequestKey: null,
     lastUserEvidence: null,
     visualReceipts: [],
     visualCapture: options.visualCapture ?? createVisualCapture(),
+    proactive,
   }
   const read = createFrameReader()
+  const context = createSessionContextBridge(options)
   return {
-    start: () => {
-      sendSessionConfig(driver)
-      followPage(driver)
-    },
+    start: context.start,
     receive: (data: string) => {
       const frame = read(data)
       if (frame) handle(driver, frame)
     },
+    cue: (summary, receiptId, settled) => driver.proactive.accept(
+      summary,
+      receiptId,
+      settled,
+      driver.responding || driver.outstanding > 0,
+    ),
     stop: () => {
-      driver.unfollow?.()
-      driver.unfollow = null
-      if (driver.settling) clearTimeout(driver.settling)
-      driver.settling = null
+      driver.stopped = true
+      driver.proactive.stop()
+      context.stop()
     },
   }
 }

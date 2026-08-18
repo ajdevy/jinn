@@ -1,7 +1,7 @@
 /** The gateway → browser event protocol: the event map, its names, and the runtime that
  *  decodes a frame. The JSON-only shapes those events carry live in ./payloads.js,
  *  and the per-event payload guards in ./payload-guards.js. */
-import type { CompanyChangedEvent, JsonObject, JsonValue, MessageMediaWire } from "./payloads.js"
+import type { CompanyChangedEvent, JsonObject, JsonValue, MessageMediaWire, TalkProactiveCuePayload } from "./payloads.js"
 export type * from "./payloads.js"
 
 export interface GatewayEventMap {
@@ -69,6 +69,7 @@ export interface GatewayEventMap {
   "talk:tts:download:progress": { progress: number }
   "talk:tts:download:complete": Record<string, never>
   "talk:tts:download:error": { error: string }
+  "talk:proactive-cue": TalkProactiveCuePayload
 }
 
 export type GatewayEventName = keyof GatewayEventMap
@@ -111,6 +112,7 @@ export const GATEWAY_EVENTS = {
   talkTtsDownloadProgress: "talk:tts:download:progress",
   talkTtsDownloadComplete: "talk:tts:download:complete",
   talkTtsDownloadError: "talk:tts:download:error",
+  talkProactiveCue: "talk:proactive-cue",
 } as const satisfies Record<string, GatewayEventName>
 
 const gatewayEventNames = new Set<string>(Object.values(GATEWAY_EVENTS))

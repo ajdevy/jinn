@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
 import type { WriteOrigin } from './origin.js';
@@ -42,6 +41,9 @@ export interface AddCommentInput {
   parentCommentId?: string | null;
   /** The surface the write was issued from, when the request declared one. */
   origin?: WriteOrigin;
+  /** Stable machine-operation identity. When present, an exact retry returns
+   *  the first committed comment and changed input fails closed. */
+  idempotencyKey?: string;
 }
 
 /** Who is attempting an edit/tombstone: the derived author identity (string AND
@@ -63,7 +65,7 @@ export function setTodoCommentListener(listener: TodoCommentListener | null): vo
   todoCommentListener = listener;
 }
 
-function notifyTodoComment(comment: WorkItemComment): void {
+export function notifyTodoComment(comment: WorkItemComment): void {
   if (!todoCommentListener) return;
   try {
     const maybe = todoCommentListener(comment);
@@ -118,56 +120,7 @@ export function getComment(id: string): WorkItemComment | undefined {
   return getCommentRow(initDb(), id);
 }
 
-/** Add a comment (or single-level reply). A reply to a reply is re-parented to
- *  the thread root at write time. Throws on an unknown Todo, an unknown or
- *  cross-item parent, or a blank body; a tombstoned parent is fine (the thread
- *  shape survives deletion). */
-export function addComment(input: AddCommentInput): WorkItemComment {
-  const db = initDb();
-  const workItemId = parseTodoId(input.workItemId);
-  if (!input.body || !input.body.trim()) {
-    throw new Error('comment body must not be empty');
-  }
-  const now = new Date().toISOString();
-  const comment: WorkItemComment = {
-    id: `wic_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
-    workItemId,
-    parentCommentId: null,
-    authorKind: input.authorKind,
-    author: input.author,
-    body: input.body,
-    createdAt: now,
-    editedAt: null,
-    deletedAt: null,
-  };
-  const txn = db.transaction((): WorkItemComment => {
-    const itemExists = db.prepare('SELECT 1 FROM work_items WHERE id = ?').get(workItemId);
-    if (!itemExists) throw new Error(`Todo ${workItemId} not found`);
-    if (input.parentCommentId) {
-      const parent = getCommentRow(db, input.parentCommentId);
-      if (!parent) throw new WorkItemCommentError('comment-not-found', `parent comment ${input.parentCommentId} not found`);
-      if (parent.workItemId !== workItemId) {
-        throw new WorkItemCommentError('comment-not-found', `parent comment ${parent.id} belongs to a different Todo (${parent.workItemId})`);
-      }
-      comment.parentCommentId = parent.parentCommentId ?? parent.id;
-    }
-    db.prepare(
-      `INSERT INTO work_item_comments (id, work_item_id, parent_comment_id, author_kind, author, body, created_at, edited_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-    ).run(comment.id, comment.workItemId, comment.parentCommentId, comment.authorKind, comment.author, comment.body, comment.createdAt);
-    appendWorkItemEvent({
-      workItemId,
-      kind: 'comment_added',
-      actor: input.author,
-      detail: { commentId: comment.id, ...(input.origin ? { origin: input.origin } : {}) },
-      versionEffect: 'state', // new discussion resorts activity-ordered lists
-    });
-    return comment;
-  });
-  const committed = txn();
-  notifyTodoComment(committed);
-  return committed;
-}
+export { addComment } from './comment-add.js';
 
 /** The earliest live operator comment on `todoId` written inside the window
  *  `(after, until)` — how a parked `todo-comment` Wait node learns the operator

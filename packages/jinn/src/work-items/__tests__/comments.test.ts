@@ -86,6 +86,7 @@ describe("addComment", () => {
       comments.addComment({ workItemId: item.id, body: "   ", author: "operator", authorKind: "operator" }),
     ).toThrow(/body/);
   });
+
 });
 
 describe("tombstone semantics", () => {

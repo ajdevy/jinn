@@ -4,9 +4,9 @@
  * can be held apart by a test rather than by eye.
  */
 
-export type OrbState = "idle" | "listening" | "thinking" | "speaking"
+export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "error"
 
-export const ORB_STATES: readonly OrbState[] = ["idle", "listening", "thinking", "speaking"]
+export const ORB_STATES: readonly OrbState[] = ["idle", "listening", "thinking", "speaking", "error"]
 
 export interface OrbParams {
   /** Lobe radius, as a fraction of the sphere radius. */
@@ -59,6 +59,14 @@ const BASE: Record<OrbState, OrbParams> = {
     rotationSign: 1,
     orbit: 0.12,
     periods: [2.4, 3.4, 4.4],
+  },
+  error: {
+    radius: 0.42,
+    softness: 0.03,
+    brightness: 0.5,
+    rotationSign: 1,
+    orbit: 0.38,
+    periods: [0.9, 1.1, 1.3],
   },
 }
 

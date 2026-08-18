@@ -1,5 +1,4 @@
 import { api } from "@/lib/api"
-import { askSituation } from "../talk-situation-store"
 import { chatPath, experimentPath, todoPath, workflowPath } from "./nav-paths"
 import { companyTodoPrefix, go } from "./navigate-tools"
 import {
@@ -22,12 +21,12 @@ import { params, str, type TalkTool, type ToolArgs, type ToolResult } from "./to
  * change with nothing awaited in front of it, like the navigation tools. Words
  * cost a search per distinctive word plus the two lists that have no search
  * route, which is why they are the slower path — and when several things fit
- * them the sheet asks, because a voice channel gives the operator no way to
- * notice that a silent pick was the wrong one.
+ * them the tool answers with a short ranked list so Aurora can ask out loud,
+ * because silently picking rank one would be dishonest.
  */
 
-/** Enough cards to choose between, few enough to hear read out. */
-const SHEET_CARDS = 5
+/** Enough candidates to distinguish out loud without turning into a catalogue. */
+const SPOKEN_CANDIDATES = 5
 const SEARCH_LIMIT = 20
 
 const KIND_LABEL: Record<CandidateKind, string> = {
@@ -38,7 +37,6 @@ const KIND_LABEL: Record<CandidateKind, string> = {
 }
 
 /** Distinct per ask, so the sheet keys its entrance on each new question. */
-let asked = 0
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
@@ -106,36 +104,18 @@ async function candidatesFor(terms: readonly string[]): Promise<Candidate[]> {
 
 /** The kind first, because two objects can carry the same title and only their
  *  kind tells the operator which of the two they are about to open. */
-function card(candidate: RankedCandidate): { id: string; label: string; detail: string } {
+function spokenCandidate(candidate: RankedCandidate): string {
   const kind = KIND_LABEL[candidate.kind]
-  return {
-    id: `${candidate.kind}:${candidate.id}`,
-    label: candidate.title,
-    detail: candidate.detail ? `${kind} · ${candidate.detail}` : kind,
-  }
+  return `${candidate.title} (${kind}, ${candidate.id}${candidate.detail ? `, ${candidate.detail}` : ""})`
 }
 
-async function askWhichOne(what: string, ranked: readonly RankedCandidate[]): Promise<ToolResult> {
-  const offered = ranked.slice(0, SHEET_CARDS)
-  const cards = new Map(offered.map((candidate) => [card(candidate).id, candidate]))
-  const hint = offered.length < ranked.length ? `${ranked.length} things match "${what}". These are the closest.` : undefined
-  asked += 1
-
-  const choice = await askSituation({
-    id: `resolve-${asked}`,
-    title: "Which one did you mean?",
-    ...(hint ? { hint } : {}),
-    payload: { kind: "options", options: offered.map(card) },
-  })
-
-  const picked = choice === null ? undefined : cards.get(choice)
-  if (!picked) {
-    return {
-      ok: false,
-      error: `Nothing was opened: the operator did not pick one of the ${offered.length} things matching "${what}". Ask them which one they meant.`,
-    }
+function askWhichOne(what: string, ranked: readonly RankedCandidate[]): ToolResult {
+  const offered = ranked.slice(0, SPOKEN_CANDIDATES).map(spokenCandidate).join("; ")
+  const more = ranked.length > SPOKEN_CANDIDATES ? ` There are ${ranked.length} matches in all.` : ""
+  return {
+    ok: false,
+    error: `Nothing was opened because "${what}" is ambiguous. Ask which one they mean: ${offered}.${more}`,
   }
-  return go(pathFor(picked))
 }
 
 async function openByDescription(what: string): Promise<ToolResult> {

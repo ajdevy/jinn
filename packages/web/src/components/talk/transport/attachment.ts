@@ -30,6 +30,17 @@ export function detach(attachment: Attachment): void {
   attachment.connection.close()
 }
 
+function reportConnectionClose(
+  reason: "expected" | "failed",
+  setState: (state: OrbState) => void,
+  setError: (message: string | null) => void,
+): void {
+  if (reason === "failed") {
+    setError("The realtime connection was interrupted.")
+    setState("error")
+  } else setState("idle")
+}
+
 /**
  * Bring up the provider connection for an already-open talk session.
  *
@@ -41,7 +52,7 @@ export function useAttach(
   connect: ConnectRealtime,
   level: RefObject<number>,
   setState: (state: OrbState) => void,
-  setError: (message: string) => void,
+  setError: (message: string | null) => void,
 ) {
   return useCallback(
     async (id: string, token: string, brief: string, manifest: TalkControlManifest, identity: TalkCredentialIdentity): Promise<Attachment> => {
@@ -61,7 +72,10 @@ export function useAttach(
         topicMemory: identity.topicMemory,
         manifest,
         send: (event) => connection?.send(event),
-        onState: setState,
+        onState: (state) => {
+          if (state !== "error") setError(null)
+          setState(state)
+        },
         onError: setError,
       })
 
@@ -73,7 +87,10 @@ export function useAttach(
           start()
         },
         onFrame: driver.receive,
-        onClose: () => setState("idle"),
+        onClose: (reason) => {
+          driver.stop()
+          reportConnectionClose(reason, setState, setError)
+        },
       })
       start()
       return { connection, driver }

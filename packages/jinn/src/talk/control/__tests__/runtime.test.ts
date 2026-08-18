@@ -97,6 +97,33 @@ describe("TalkControlRuntime", () => {
     await expect(runtime.dispatch(call())).resolves.toMatchObject({ ok: false, code: "verification-failed" });
   });
 
+  it("does not durably cache a transient execution failure", async () => {
+    const held = new Map<string, TalkControlReceipt>();
+    const receipts: TalkControlReceiptStore = {
+      get: (sessionId, callId) => held.get(`${sessionId}:${callId}`) ?? null,
+      put: (receipt) => {
+        held.set(`${receipt.talkSessionId}:${receipt.providerCallId}`, receipt);
+        return { status: "stored", receipt };
+      },
+    };
+    const execute = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary outage"))
+      .mockResolvedValueOnce({ data: { commentId: "wic_1" }, uiEffect: null });
+    const options = {
+      manifest: buildTalkControlManifest(),
+      execute,
+      verify: async () => ({ ok: true, evidence: {} }),
+      receipts,
+    };
+
+    await expect(new TalkControlRuntime(options).dispatch(call()))
+      .resolves.toMatchObject({ ok: false, code: "execution-failed" });
+    await expect(new TalkControlRuntime(options).dispatch(call()))
+      .resolves.toMatchObject({ ok: true, verified: true, replayed: false });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(held.size).toBe(1);
+  });
+
   it("rejects missing, unknown, and wrongly typed arguments before execution", async () => {
     const execute = vi.fn(async () => ({ data: {}, uiEffect: null }));
     const runtime = new TalkControlRuntime({

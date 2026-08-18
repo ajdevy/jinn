@@ -58,7 +58,7 @@ describe("voice that was never set up", () => {
     expect(calls("/api/talk/sessions")).toHaveLength(0)
     expect(handle.error).toBeNull()
     expect(handle.active).toBe(false)
-    expect(handle.state).toBe("idle")
+    expect(handle.state).toBe("error")
     expect(getByTestId("open-session").textContent).toBe("none")
     expect(connect).not.toHaveBeenCalled()
   })

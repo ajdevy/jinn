@@ -1,0 +1,33 @@
+import { FOCUS_ELEMENT_TOOL } from "./focus-element"
+import { NAVIGATE_TOOLS } from "./navigate-tools"
+import { RESOLVE_TOOLS } from "./resolve-tools"
+import { type TalkTool, type ToolResult } from "./tool-spec"
+import { parseToolArgs } from "./validate-args"
+
+/**
+ * The browser-only catalog that can enter the live orb transport. Legacy
+ * situation/consent tools remain available to their isolated harnesses, but
+ * importing this lane cannot pull a sheet, preview, or undo surface into Talk.
+ */
+const BROWSER_TOOLS: readonly TalkTool[] = [
+  ...NAVIGATE_TOOLS,
+  ...RESOLVE_TOOLS,
+  FOCUS_ELEMENT_TOOL,
+]
+
+const BY_NAME = new Map(BROWSER_TOOLS.map((tool) => [tool.name, tool]))
+
+export async function executeBrowserToolCall(name: string, argsJson?: string): Promise<ToolResult> {
+  const tool = BY_NAME.get(name)
+  // Compatibility for pre-manifest fixtures and old gateways. The canonical
+  // catalog never declares these names as browser targets, so legacy consent/
+  // undo modules stay outside the live chunk unless an old runtime asks.
+  if (!tool) return (await import("./registry")).executeToolCall(name, argsJson)
+  const parsed = parseToolArgs(name, tool.parameters, argsJson)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+  try {
+    return await tool.execute(parsed.args)
+  } catch (error) {
+    return { ok: false, error: `"${name}" failed: ${error instanceof Error ? error.message : String(error)}.` }
+  }
+}

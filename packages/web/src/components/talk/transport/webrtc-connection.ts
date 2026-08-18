@@ -37,7 +37,7 @@ export interface ConnectOptions {
   level: { current: number }
   onOpen: () => void
   onFrame: (data: string) => void
-  onClose: () => void
+  onClose: (reason: "expected" | "failed") => void
 }
 
 export type ConnectRealtime = (options: ConnectOptions) => Promise<TalkConnection>
@@ -100,7 +100,7 @@ function wirePeer(
   peer: RTCPeerConnection,
   options: ConnectOptions,
   audio: HTMLAudioElement,
-  close: () => void,
+  close: (reason: "expected" | "failed") => void,
 ): { stop: () => void } {
   let stopMeter: (() => void) | null = null
   peer.ontrack = (event) => {
@@ -114,7 +114,7 @@ function wirePeer(
   // A connection the provider dropped is a closed session, not a live one the
   // orb keeps animating.
   peer.onconnectionstatechange = () => {
-    if (peer.connectionState === "failed" || peer.connectionState === "closed") close()
+    if (peer.connectionState === "failed" || peer.connectionState === "closed") close("failed")
   }
   return { stop: () => stopMeter?.() }
 }
@@ -125,14 +125,14 @@ export const connectRealtime: ConnectRealtime = async (options) => {
   const audio = remoteAudio()
   let closed = false
 
-  const close = () => {
+  const close = (reason: "expected" | "failed") => {
     if (closed) return
     closed = true
     meter.stop()
     for (const track of microphone.getTracks()) track.stop()
     audio.srcObject = null
     peer.close()
-    options.onClose()
+    options.onClose(reason)
   }
   const meter = wirePeer(peer, options, audio, close)
 
@@ -149,14 +149,15 @@ export const connectRealtime: ConnectRealtime = async (options) => {
 
     return {
       send: (event) => {
-        if (channel.readyState === "open") channel.send(JSON.stringify(event))
+        if (channel.readyState !== "open") throw new Error("The realtime data channel is not open.")
+        channel.send(JSON.stringify(event))
       },
-      close,
+      close: () => close("expected"),
     }
   } catch (error) {
     // Nothing half-open survives a failed connect: the microphone goes cold and
     // the peer goes away before the failure is reported.
-    close()
+    close("expected")
     throw error
   }
 }

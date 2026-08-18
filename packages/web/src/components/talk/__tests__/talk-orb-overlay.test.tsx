@@ -4,6 +4,8 @@ import { DEFAULTS, type JinnSettings } from "@/lib/settings"
 import { TalkOrbOverlay } from "../talk-orb-overlay"
 import { clearResumableTalkSession, setTalkSessionId } from "../talk-session-store"
 
+vi.mock("@/hooks/use-gateway", () => ({ useGateway: () => ({ subscribe: () => () => {} }) }))
+
 /** Counts module evaluations, so "the chunk is not fetched" is an assertion
  *  rather than a hope: the factory only runs when the lazy import resolves. */
 const orb = vi.hoisted(() => ({ loads: 0 }))

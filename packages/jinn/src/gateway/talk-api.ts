@@ -36,6 +36,7 @@ import { mintTalkToken } from "./talk-token-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 import type { ApiContext } from "./api.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
+import { handleTalkProactiveApi } from "./talk-proactive-api.js";
 
 export interface TalkApiOptions {
   getConfig: () => JinnConfig;
@@ -265,7 +266,9 @@ async function nonSessionRoutes(
   res: ServerResponse,
   pathname: string,
   config: JinnConfig,
+  options: TalkApiOptions,
 ): Promise<boolean> {
+  if (await handleTalkProactiveApi(req, res, pathname, options.caller)) return true;
   if (await handleTalkTtsApi(req, res, pathname, config)) return true;
   return handleTalkConfigApi(req, res, pathname, config);
 }
@@ -278,7 +281,7 @@ export async function handleTalkApi(
 ): Promise<boolean> {
   const { pathname, method } = route;
   const config = options.getConfig();
-  if (await nonSessionRoutes(req, res, pathname, config)) return true;
+  if (await nonSessionRoutes(req, res, pathname, config, options)) return true;
 
   const parts = talkSessionsPath(pathname);
   if (!parts) return false;

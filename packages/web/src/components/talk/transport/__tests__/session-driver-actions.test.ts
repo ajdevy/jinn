@@ -48,6 +48,56 @@ beforeEach(() => {
 })
 
 describe("gateway-target Talk controls", () => {
+  it("suppresses a late effect and provider reply after the attachment stops", async () => {
+    let finish: (response: Response) => void = () => {}
+    authFetch.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const applyUiEffect = vi.fn().mockResolvedValue(undefined)
+    const sent: Array<Record<string, unknown>> = []
+    const driver = createTalkDriver({
+      sessionId: "talk-stopped", manifest: { version: 1, operations: [operation] },
+      send: (event) => sent.push(event), onState: () => {}, onError: () => {}, applyUiEffect,
+    })
+
+    driver.receive(JSON.stringify({
+      type: "response.function_call_arguments.done", call_id: "late-call", name: operation.name, arguments: "{}",
+    }))
+    driver.stop()
+    finish(response({
+      ok: true, verified: true, receiptId: "late-receipt", replayed: false,
+      operation: operation.name, data: {}, evidence: {}, uiEffect: { invalidate: ["todos"] },
+    }))
+    await vi.waitFor(() => expect(authFetch).toHaveBeenCalledOnce())
+    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve()
+
+    expect(applyUiEffect).not.toHaveBeenCalled()
+    expect(sent.filter((event) => event.type === "conversation.item.create")).toHaveLength(0)
+    expect(sent.filter((event) => event.type === "response.create")).toHaveLength(0)
+  })
+
+  it("applies a replayed gateway receipt once across replacement drivers", async () => {
+    const applyUiEffect = vi.fn().mockResolvedValue(undefined)
+    authFetch.mockResolvedValue(response({
+      ok: true, verified: true, receiptId: "shared-receipt", replayed: true,
+      operation: operation.name, data: {}, evidence: {}, uiEffect: { invalidate: ["todos"] },
+    }))
+    const options = {
+      sessionId: "talk-replay", manifest: { version: 1 as const, operations: [operation] },
+      send: () => {}, onState: () => {}, onError: () => {}, applyUiEffect,
+    }
+
+    createTalkDriver(options).receive(JSON.stringify({
+      type: "response.function_call_arguments.done", call_id: "call-a", name: operation.name, arguments: "{}",
+    }))
+    createTalkDriver(options).receive(JSON.stringify({
+      type: "response.function_call_arguments.done", call_id: "call-b", name: operation.name, arguments: "{}",
+    }))
+
+    await vi.waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(applyUiEffect).toHaveBeenCalledTimes(1))
+    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve()
+    expect(applyUiEffect).toHaveBeenCalledTimes(1)
+  })
+
   it("routes through the gateway, applies a verified UI effect, and never runs the browser executor", async () => {
     const applyUiEffect = vi.fn().mockResolvedValue(undefined)
     authFetch.mockResolvedValue(response({

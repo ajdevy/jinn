@@ -11,6 +11,7 @@ const {
   TalkSessionMissingError,
   VoiceUnconfiguredError,
   closeTalkSession,
+  acknowledgeTalkProactiveCue,
   getTalkSession,
   openTalkSession,
   parkTalkSession,
@@ -103,14 +104,33 @@ describe("the rest of the lifecycle", () => {
       credentialGeneration: 4,
       brief: "standing brief",
       manifest: MANIFEST,
+      proactiveCues: [{
+        receiptId: "receipt-1", talkSessionId: "talk-1", topicId: null,
+        disposition: "quiet", urgency: "routine", summary: "A Todo changed.", uiEffect: null,
+      }],
     }))
 
     const session = await getTalkSession("talk-1")
 
-    expect(session).toMatchObject({ id: "talk-1", state: "parked", credentialGeneration: 4 })
+    expect(session).toMatchObject({
+      id: "talk-1",
+      state: "parked",
+      credentialGeneration: 4,
+      proactiveCues: [{ receiptId: "receipt-1" }],
+    })
     const [url, init] = authFetch.mock.calls[0] as [string, RequestInit]
     expect(url).toBe("/api/talk/sessions/talk-1")
     expect(init.method).toBe("GET")
+  })
+
+  it("acknowledges a proactive receipt with a bounded session-scoped write", async () => {
+    authFetch.mockResolvedValue(json({ receipt: { id: "receipt-1", acknowledgedAt: 123 } }))
+
+    await acknowledgeTalkProactiveCue("talk-1", "receipt-1", "interrupted")
+
+    const [url, init] = authFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/talk/proactive/talk-1/ack")
+    expect(JSON.parse(String(init.body))).toEqual({ receiptId: "receipt-1", outcome: "interrupted" })
   })
 
   it("names a missing resumable candidate so the caller can fall back safely", async () => {
@@ -137,6 +157,22 @@ describe("the rest of the lifecycle", () => {
       tool: "read_todo",
       arguments: '{"id":"ABC-1"}',
     })
+  })
+
+  it("retries one lost control response with the same provider identity", async () => {
+    authFetch
+      .mockRejectedValueOnce(new TypeError("network reset"))
+      .mockResolvedValueOnce(json({
+        ok: true, verified: true, receiptId: "receipt-1", replayed: true,
+        operation: "read_todo", data: {}, evidence: {}, uiEffect: null,
+      }))
+    const call = { providerCallId: "call-retry", tool: "read_todo", arguments: '{"id":"ABC-1"}' }
+
+    await expect(postTalkControlCall("talk-1", call)).resolves.toMatchObject({ ok: true, replayed: true })
+
+    expect(authFetch).toHaveBeenCalledTimes(2)
+    expect((authFetch.mock.calls as Array<[string, RequestInit]>).map(([, init]) => init.body))
+      .toEqual([JSON.stringify(call), JSON.stringify(call)])
   })
 
   it("closes with a DELETE on the session itself", async () => {

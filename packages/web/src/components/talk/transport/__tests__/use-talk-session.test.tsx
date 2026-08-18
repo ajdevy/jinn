@@ -207,7 +207,7 @@ describe("an open that fails", () => {
       await waitFor(() => expect(handle.error).toBe(message))
       expect(handle.setup).toBeNull()
       expect(handle.active).toBe(false)
-      expect(handle.state).toBe("idle")
+      expect(handle.state).toBe("error")
       expect(getByTestId("open-session").textContent).toBe("none")
       expect(connect).not.toHaveBeenCalled()
     },

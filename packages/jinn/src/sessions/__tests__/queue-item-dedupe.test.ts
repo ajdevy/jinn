@@ -163,4 +163,30 @@ describe("claimIncomingTurn — dedupe identity", () => {
     expect(queueRows(session.id).every((row) => row.dedupe_key === null)).toBe(true);
     expect(reg.getMessages(session.id)).toHaveLength(2);
   });
+
+  it("binds a durable Talk turn after settlement and rejects changed replay input", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:durable-talk" });
+    const input = {
+      ...turn(session, "keep this approach", "talk:session-1:provider-call-1"),
+      role: "user",
+      content: "keep this approach",
+      queueVisibility: "visible" as const,
+      durableDedupe: true,
+    };
+    const first = turns.claimIncomingTurn(input);
+    if (first.deduplicated) throw new Error("the first durable claim unexpectedly replayed");
+    reg.markQueueItemCompleted(first.queueItemId!);
+
+    const replay = turns.claimIncomingTurn(input);
+
+    expect(replay).toEqual({
+      deduplicated: true,
+      queueItemId: first.queueItemId,
+      messageId: first.messageId,
+    });
+    expect(queueRows(session.id)).toHaveLength(1);
+    expect(reg.getMessages(session.id).map((message) => message.content)).toEqual(["keep this approach"]);
+    expect(() => turns.claimIncomingTurn({ ...input, content: "changed retry", prompt: "changed retry" }))
+      .toThrow(/different input|dedupe/i);
+  });
 });

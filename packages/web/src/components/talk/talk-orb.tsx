@@ -133,6 +133,9 @@ interface TalkOrbProps {
   /** Whether a voice session is open. Names the control for a screen reader and
    *  is what `aria-pressed` reports. */
   active?: boolean
+  /** Accessible name for exceptional states whose next press is not the normal
+   *  start/end action. Aurora still carries no visible text. */
+  label?: string
   /** Start or end the voice session. Absent on a bench that drives the orb by
    *  hand, where the sphere is a control that does nothing. */
   onToggle?: () => void
@@ -212,7 +215,7 @@ function sphereStyle(drag: Point | null, flight: Flight | null, reduce: boolean)
  * hand every tap meant for the sphere to the scrim and the orb would go dead for
  * exactly as long as a decision is on screen.
  */
-export function TalkOrb({ state = "idle", levelRef, dock, active = false, onToggle }: TalkOrbProps) {
+export function TalkOrb({ state = "idle", levelRef, dock, active = false, label, onToggle }: TalkOrbProps) {
   const silent = useRef(0)
   const sphereRef = useRef<HTMLButtonElement | null>(null)
   const { corner, offset, takeDragged, handlers } = useOrbDrag()
@@ -231,8 +234,9 @@ export function TalkOrb({ state = "idle", levelRef, dock, active = false, onTogg
       <button
         ref={sphereRef}
         data-talk-orb
+        data-orb-state={state}
         type="button"
-        aria-label={active ? "End voice session" : "Start voice session"}
+        aria-label={label ?? (active ? "End voice session" : "Start voice session")}
         aria-pressed={active}
         className={cn(
           "pointer-events-auto absolute cursor-grab touch-none overflow-hidden rounded-full",

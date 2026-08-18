@@ -16,4 +16,6 @@ export type {
   GatewayEventMap,
   GatewayEventName,
   HydratedExperiment,
+  TalkProactiveCuePayload,
+  TalkProactiveUiEffect,
 } from "@jinn/gateway-events";

@@ -1,9 +1,7 @@
-import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "@/lib/api"
 import { queryClient } from "@/lib/query-client"
 import { queryKeys } from "@/lib/query-keys"
-import { answerSituation, dismissSituation, useSituation } from "../../talk-situation-store"
 import { clearTalkNavigator, registerTalkNavigator } from "../router-handle"
 import { executeToolCall } from "../registry"
 
@@ -33,12 +31,6 @@ function searchCalls(): number {
   return Object.values(mocked).reduce((total, fn) => total + fn.mock.calls.length, 0)
 }
 
-/** A macrotask drains the four searches and the ranking behind them, inside
- *  `act` so the situation the tool raises reaches the subscribed hook. */
-async function settle(): Promise<void> {
-  await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0) }) })
-}
-
 function open(what: string): Promise<{ ok: boolean; error?: string }> {
   return executeToolCall("resolve_and_open", JSON.stringify({ what })) as Promise<{ ok: boolean; error?: string }>
 }
@@ -56,7 +48,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  dismissSituation()
   clearTalkNavigator()
   queryClient.clear()
 })
@@ -122,23 +113,19 @@ describe("a description is looked for by every word it holds", () => {
     { id: "s-2", title: "Talk orb latency", employee: "a-lead" },
   ]
 
-  it("finds what the longest word alone would miss, and asks which", async () => {
+  it("finds what the longest word alone would miss, and asks which out loud", async () => {
     mocked.searchSessions.mockImplementation((term) =>
       Promise.resolve(term === "thing" ? [] : ORB_SESSIONS) as never)
-    const { result } = renderHook(() => useSituation())
-    const pending = open("talk orb thing")
-    await settle()
+    const result = await open("talk orb thing")
 
     expect(mocked.searchSessions.mock.calls.map(([term]) => term)).toEqual(
       expect.arrayContaining(["talk", "orb"]),
     )
-    const situation = result.current
-    expect(situation?.payload.kind).toBe("options")
-    const options = situation?.payload.kind === "options" ? situation.payload.options : []
-    expect(options.map((option) => option.label)).toEqual(["Talk orb resolution", "Talk orb latency"])
-
-    act(() => answerSituation(options[0].id))
-    expect(await pending).toEqual({ ok: true, data: { path: "/?session=s-1" } })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("ambiguous")
+    expect(result.error).toContain("Talk orb resolution (Chat, s-1")
+    expect(result.error).toContain("Talk orb latency (Chat, s-2")
+    expect(visited).toEqual([])
   })
 
   it("counts one object once, however many of its words were searched", async () => {
@@ -163,7 +150,7 @@ describe("a description is looked for by every word it holds", () => {
   })
 })
 
-describe("several matches are asked about, never guessed between", () => {
+describe("several matches are spoken, never guessed between", () => {
   beforeEach(() => {
     mocked.searchWorkItems.mockResolvedValue({
       workItems: [
@@ -173,31 +160,12 @@ describe("several matches are asked about, never guessed between", () => {
     } as never)
   })
 
-  it("raises the ranked candidates as options and waits", async () => {
-    const { result } = renderHook(() => useSituation())
-    const pending = open("talk orb")
-    await settle()
-
-    const situation = result.current
-    expect(situation?.payload.kind).toBe("options")
-    const options = situation?.payload.kind === "options" ? situation.payload.options : []
-    expect(options.map((option) => option.label)).toEqual(["Talk orb resolution", "Talk orb latency"])
-    // Rank 1 is on the sheet, not on the router.
-    expect(visited).toEqual([])
-
-    act(() => answerSituation(options[1].id))
-    expect(await pending).toEqual({ ok: true, data: { path: "/todos/ABC-745" } })
-    expect(visited).toEqual(["/todos/ABC-745"])
-  })
-
-  it("opens nothing at all when the sheet is dismissed", async () => {
-    const pending = open("talk orb")
-    await settle()
-
-    act(() => dismissSituation())
-    const result = await pending
+  it("returns ranked candidates for Aurora to ask about", async () => {
+    const result = await open("talk orb")
 
     expect(result.ok).toBe(false)
+    expect(result.error).toContain("Talk orb resolution (Todo, ABC-744, executing)")
+    expect(result.error).toContain("Talk orb latency (Todo, ABC-745, backlog)")
     expect(visited).toEqual([])
   })
 })

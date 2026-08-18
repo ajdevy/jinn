@@ -11,6 +11,8 @@ import { StrictMode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULTS, type JinnSettings } from "@/lib/settings"
 
+vi.mock("@/hooks/use-gateway", () => ({ useGateway: () => ({ subscribe: () => () => {} }) }))
+
 const authFetch = vi.fn()
 vi.mock("@/lib/auth", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/auth")>()

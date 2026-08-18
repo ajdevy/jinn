@@ -1,23 +1,14 @@
-import { createHash } from "node:crypto";
 import type { ApiContext } from "../../gateway/api.js";
 import { scanOrg } from "../../gateway/org.js";
-import { dispatchWebSessionRun } from "../../gateway/web-session-dispatch.js";
 import {
-  createSession,
-  enqueueQueueItem,
   getMessages,
   getSession,
-  getSessionBySessionKey,
-  insertMessage,
-  updateSession,
 } from "../../sessions/registry.js";
 import { assignWorkItem } from "../../work-items/assignment.js";
 import { addComment, commentsTail } from "../../work-items/comments.js";
 import { getWorkItemLabels } from "../../work-items/labels.js";
-import { reconcileWorkItem } from "../../work-items/reconcile.js";
 import {
   getWorkItem,
-  linkSession,
   updateWorkItemConditional,
   type UpdateWorkItemInput,
 } from "../../work-items/store.js";
@@ -35,6 +26,8 @@ import type {
 } from "./types.js";
 import { verifyTalkDomainOperation } from "./verification.js";
 import { executeVoiceApproval } from "./voice-approval-adapter.js";
+import { dispatchTalkSessionMessage } from "./session-message-adapter.js";
+import { delegateTodoWithTalk } from "./delegation-adapter.js";
 
 export interface TalkControlHost {
   context: ApiContext;
@@ -88,19 +81,6 @@ function workflowInput(raw: unknown): Record<string, JsonValue> {
   return parsed as Record<string, JsonValue>;
 }
 
-function dispatchSession(host: TalkControlHost, sessionId: string, prompt: string): { messageId: string; queueItemId: string } {
-  const session = getSession(sessionId);
-  if (!session) throw new Error(`Session ${sessionId} not found`);
-  const engine = host.context.sessionManager.getEngine(session.engine);
-  if (!engine) throw new Error(`Engine ${session.engine} is unavailable`);
-  const messageId = insertMessage(session.id, "user", prompt);
-  const sessionKey = session.sessionKey || session.sourceRef || session.id;
-  const queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-  host.context.emit("queue:updated", { sessionId: session.id, sessionKey });
-  dispatchWebSessionRun(session, prompt, engine, host.context, { queueItemId });
-  return { messageId, queueItemId };
-}
-
 function delegateTodo(host: TalkControlHost, args: Record<string, unknown>, call: TalkControlAdapterContext): TalkControlExecution {
   const id = requiredText(args, "id");
   const employeeName = requiredText(args, "employee");
@@ -108,41 +88,23 @@ function delegateTodo(host: TalkControlHost, args: Record<string, unknown>, call
   if (!item) throw new Error(`Todo ${id} not found`);
   const employee = scanOrg(host.context.getConfig()).get(employeeName);
   if (!employee) throw new Error(`Employee ${employeeName} not found`);
-  const engine = host.context.sessionManager.getEngine(employee.engine);
-  if (!engine) throw new Error(`Engine ${employee.engine} is unavailable`);
-  const digest = createHash("sha256").update(call.idempotencyKey).digest("hex");
-  const sessionKey = `talk-delegation:${digest}`;
-  const replay = getSessionBySessionKey(sessionKey);
-  if (replay) {
-    return { data: { todoId: id, sessionId: replay.id, employee: replay.employee, replayed: true }, uiEffect: { invalidate: [`todo:${id}`, `todo-sessions:${id}`, "sessions"], navigate: `/?session=${encodeURIComponent(replay.id)}` } };
-  }
   const prompt = typeof args.task === "string" && args.task.trim()
     ? args.task.trim()
     : [item.title, item.body].filter(Boolean).join("\n\n");
-  const assigned = assignWorkItem(id, employee.name, employee.department ?? null, "operator", "talk");
-  if (!assigned) throw new Error(`Todo ${id} not found`);
-  const session = createSession({
-    engine: employee.engine,
-    source: "web",
-    sourceRef: sessionKey,
-    connector: "web",
-    sessionKey,
-    replyContext: { source: "web" },
-    employee: employee.name,
-    model: employee.model,
-    effortLevel: employee.effortLevel,
-    parentSessionId: host.sourceSessionId,
+  return delegateTodoWithTalk({
+    context: host.context,
+    sourceSessionId: host.sourceSessionId,
+    todoId: id,
     prompt,
-    title: `Delegate ${id}`,
+    employee: {
+      name: employee.name,
+      department: employee.department ?? null,
+      engine: employee.engine,
+      model: employee.model,
+      effortLevel: employee.effortLevel,
+    },
+    call,
   });
-  insertMessage(session.id, "user", prompt);
-  linkSession(id, session.id);
-  reconcileWorkItem(id);
-  updateSession(session.id, { status: "running", lastActivity: new Date().toISOString() });
-  const queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-  host.context.emit("queue:updated", { sessionId: session.id, sessionKey });
-  dispatchWebSessionRun(session, prompt, engine, host.context, { queueItemId });
-  return { data: { todoId: id, sessionId: session.id, employee: employee.name, replayed: false }, uiEffect: { invalidate: [`todo:${id}`, `todo-sessions:${id}`, "sessions"], navigate: `/?session=${encodeURIComponent(session.id)}` } };
 }
 
 type DomainHandler = (
@@ -175,9 +137,16 @@ const editTodo: DomainHandler = (_host, args, call) => {
   return { data: { todo: todoData(id), replayed: result.replayed }, uiEffect: { invalidate: ["todos", `todo:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
 };
 
-const commentTodo: DomainHandler = (_host, args) => {
+const commentTodo: DomainHandler = (_host, args, call) => {
   const id = requiredText(args, "id");
-  const comment = addComment({ workItemId: id, body: requiredText(args, "body"), author: "operator", authorKind: "operator", origin: "talk" });
+  const comment = addComment({
+    workItemId: id,
+    body: requiredText(args, "body"),
+    author: "operator",
+    authorKind: "operator",
+    origin: "talk",
+    idempotencyKey: call.idempotencyKey,
+  });
   return { data: { commentId: comment.id, todoId: id }, uiEffect: { invalidate: ["todos", `todo:${id}`, `todo-comments:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
 };
 
@@ -191,9 +160,9 @@ const assignTodo: DomainHandler = (host, args) => {
   return { data: { todo: todoData(id) }, uiEffect: { invalidate: ["todos", `todo:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
 };
 
-const sendToSession: DomainHandler = (host, args) => {
+const sendToSession: DomainHandler = (host, args, call) => {
   const id = requiredText(args, "id");
-  const sent = dispatchSession(host, id, requiredText(args, "message"));
+  const sent = dispatchTalkSessionMessage(host.context, id, requiredText(args, "message"), call);
   return { data: { sessionId: id, ...sent }, uiEffect: { invalidate: ["sessions", `session:${id}`], navigate: `/?session=${encodeURIComponent(id)}` } };
 };
 

@@ -8,6 +8,8 @@ import type { TalkSession } from "../talk/session/types.js";
 import { formatTalkTopicMemory } from "../talk/topics/rehydrate.js";
 import { TalkTopicRepository } from "../talk/topics/repository.js";
 import { measureTopicContext } from "../talk/topics/telemetry.js";
+import { TalkProactiveRepository } from "../talk/proactive/repository.js";
+import { TalkProactiveService } from "../talk/proactive/service.js";
 
 /** The session as the client sees it. Credentials only leave the minting call. */
 export function talkSessionStatus(session: TalkSession, manifest: TalkControlManifest) {
@@ -38,6 +40,7 @@ export function talkSessionStatus(session: TalkSession, manifest: TalkControlMan
     pricingKnown: isPricingKnown(session.model),
     topicMemory: formatTalkTopicMemory(topics, navigation.currentTopicId),
     topicTelemetry: measureTopicContext(topics),
+    proactiveCues: new TalkProactiveService(new TalkProactiveRepository(initDb())).pendingCues(session.id),
     manifest,
   };
 }

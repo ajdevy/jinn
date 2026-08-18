@@ -96,6 +96,10 @@ function replayed(result: TalkControlResult): TalkControlResult {
   return result.ok ? { ...result, replayed: true } : result;
 }
 
+function retryableFailure(result: TalkControlResult): boolean {
+  return !result.ok && (result.code === "execution-failed" || result.code === "verification-failed");
+}
+
 export class TalkControlRuntime {
   private readonly options: TalkControlRuntimeOptions;
   private readonly calls = new Map<string, HeldCall>();
@@ -126,7 +130,7 @@ export class TalkControlRuntime {
     }
 
     const promise = this.execute(input, checked.operation, checked.args).then((result) => {
-      if (!this.options.receipts) return result;
+      if (!result.ok || !this.options.receipts) return result;
       const receipt = this.options.receipts.put({
         talkSessionId: input.talkSessionId,
         providerCallId: input.providerCallId,
@@ -138,6 +142,12 @@ export class TalkControlRuntime {
         return failure("provider-call-conflict", "This provider call id was already used for different input.");
       }
       return receipt.status === "replayed" ? replayed(receipt.receipt.result) : result;
+    }).then((result) => {
+      if (retryableFailure(result)) this.calls.delete(key);
+      return result;
+    }).catch((error: unknown) => {
+      this.calls.delete(key);
+      throw error;
     });
     this.calls.set(key, { fingerprint: digest, promise });
     return promise;

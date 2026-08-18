@@ -16,6 +16,7 @@ import { parseTalkControlManifest, type TalkControlManifest } from "./control-ma
 import type { TalkUiEffect } from "./ui-effects"
 import { browserInstanceId } from "../context/browser-instance"
 import type { TalkScreenContext } from "../context/page-snapshot"
+import { decodeGatewayEvent, type TalkProactiveCuePayload } from "@jinn/gateway-events"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -53,6 +54,15 @@ export interface ResumableTalkSession {
   brief: string
   manifest: TalkControlManifest
   topicMemory?: string
+  proactiveCues: TalkProactiveCuePayload[]
+}
+
+function proactiveCues(value: unknown): TalkProactiveCuePayload[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((payload) => {
+    const frame = decodeGatewayEvent({ event: "talk:proactive-cue", payload })
+    return frame?.event === "talk:proactive-cue" ? [frame.payload] : []
+  })
 }
 
 function sessionPath(id: string, action?: string): string {
@@ -145,6 +155,22 @@ export async function getTalkSession(id: string): Promise<ResumableTalkSession> 
     brief: held.brief ?? "",
     manifest,
     topicMemory: typeof held.topicMemory === "string" ? held.topicMemory : "",
+    proactiveCues: proactiveCues(held.proactiveCues),
+  }
+}
+
+export async function acknowledgeTalkProactiveCue(
+  talkSessionId: string,
+  receiptId: string,
+  outcome: "completed" | "interrupted",
+): Promise<void> {
+  const path = `/api/talk/proactive/${encodeURIComponent(talkSessionId)}/ack`
+  const request = jsonBody({ receiptId, outcome })
+  try {
+    await talkFetch(path, request)
+  } catch (failure) {
+    if (!(failure instanceof TypeError)) throw failure
+    await talkFetch(path, request)
   }
 }
 
@@ -176,8 +202,17 @@ export type TalkControlResult =
   | { ok: true; verified: true; receiptId: string; replayed: boolean; operation: string; data: Record<string, unknown>; evidence: Record<string, unknown>; uiEffect: TalkUiEffect | null }
   | { ok: false; code: string; error: string }
 
-export function postTalkControlCall(id: string, call: TalkControlCall): Promise<TalkControlResult> {
-  return talkFetch<TalkControlResult>(sessionPath(id, "control"), jsonBody(call))
+export async function postTalkControlCall(id: string, call: TalkControlCall): Promise<TalkControlResult> {
+  const request = jsonBody(call)
+  try {
+    return await talkFetch<TalkControlResult>(sessionPath(id, "control"), request)
+  } catch (failure) {
+    // A fetch-level failure cannot say whether the verified write committed.
+    // Retry once with the same providerCallId; the gateway's durable receipt
+    // turns that ambiguity into a replay instead of a duplicate mutation.
+    if (!(failure instanceof TypeError)) throw failure
+    return talkFetch<TalkControlResult>(sessionPath(id, "control"), request)
+  }
 }
 
 export interface TalkTranscriptEvidence {

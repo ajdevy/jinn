@@ -27,6 +27,8 @@ const { browserControlFixture } = await import("./control-fixture")
 
 const RESPONSE_CREATED = JSON.stringify({ type: "response.created" })
 const RESPONSE_DONE = JSON.stringify({ type: "response.done", response: {} })
+const SPEECH_STARTED = JSON.stringify({ type: "input_audio_buffer.speech_started" })
+const ASSISTANT_AUDIO = JSON.stringify({ type: "response.output_audio_transcript.delta", delta: "Hello" })
 
 function toolCall(callId: string) {
   return JSON.stringify({
@@ -41,11 +43,12 @@ function toolCall(callId: string) {
  *  matter here: the outputs it appends and the responses it asks for. */
 function driver() {
   const sent: Array<Record<string, unknown>> = []
+  const states: string[] = []
   const built = createTalkDriver({
     sessionId: "talk-1",
     manifest: browserControlFixture(),
     send: (event) => sent.push(event),
-    onState: () => {},
+    onState: (state) => states.push(state),
     onError: () => {},
   })
   const of = (type: string) => sent.filter((event) => event.type === type)
@@ -53,6 +56,8 @@ function driver() {
     driver: built,
     answers: () => of("conversation.item.create").map((event) => (event.item as { call_id: string }).call_id),
     requests: () => of("response.create"),
+    cancels: () => of("response.cancel"),
+    states,
   }
 }
 
@@ -70,6 +75,36 @@ beforeEach(() => {
 })
 
 describe("asking for a response after a tool call", () => {
+  it("speaks one urgent cue by receipt without adding a fake user message", () => {
+    const talk = driver()
+    const settled = vi.fn()
+
+    expect(talk.driver.cue("A blocked Todo needs attention.", "receipt-1", settled)).toBe(true)
+    expect(talk.driver.cue("A blocked Todo needs attention.", "receipt-1", settled)).toBe(true)
+
+    expect(talk.requests()).toEqual([{ type: "response.create", response: {
+      instructions: "Briefly tell the operator: A blocked Todo needs attention.",
+    } }])
+    expect(talk.answers()).toHaveLength(0)
+    expect(talk.states.at(-1)).toBe("thinking")
+    talk.driver.receive(RESPONSE_CREATED)
+    talk.driver.receive(RESPONSE_DONE)
+    expect(settled).toHaveBeenCalledOnce()
+    expect(settled).toHaveBeenCalledWith("completed")
+  })
+
+  it("records an urgent cue as interrupted when the operator barges in", () => {
+    const talk = driver()
+    const settled = vi.fn()
+    talk.driver.cue("A blocked Todo needs attention.", "receipt-1", settled)
+    talk.driver.receive(RESPONSE_CREATED)
+
+    talk.driver.receive(SPEECH_STARTED)
+
+    expect(settled).toHaveBeenCalledWith("interrupted")
+    expect(talk.cancels()).toHaveLength(1)
+  })
+
   it("answers both calls of one turn and then asks for a single response", async () => {
     const talk = driver()
 
@@ -107,6 +142,37 @@ describe("asking for a response after a tool call", () => {
 })
 
 describe("a response already in flight", () => {
+  it("cancels a speaking response once when the operator barges in", () => {
+    const talk = driver()
+
+    talk.driver.receive(RESPONSE_CREATED)
+    talk.driver.receive(ASSISTANT_AUDIO)
+    talk.driver.receive(SPEECH_STARTED)
+    talk.driver.receive(SPEECH_STARTED)
+
+    expect(talk.cancels()).toHaveLength(1)
+    expect(talk.states.at(-1)).toBe("listening")
+  })
+
+  it("does not speak a tool result that settles after a barge-in", async () => {
+    let finishComment: (value: unknown) => void = () => {}
+    addWorkItemComment.mockReturnValue(new Promise((resolve) => { finishComment = resolve }))
+    const talk = driver()
+
+    talk.driver.receive(RESPONSE_CREATED)
+    talk.driver.receive(toolCall("call-1"))
+    talk.driver.receive(SPEECH_STARTED)
+    finishComment({ comment: { id: "c-1" } })
+
+    await vi.waitFor(() => expect(talk.answers()).toEqual(["call-1"]))
+    talk.driver.receive(RESPONSE_DONE)
+    await settle()
+
+    expect(addWorkItemComment).toHaveBeenCalledTimes(1)
+    expect(talk.cancels()).toHaveLength(1)
+    expect(talk.requests()).toHaveLength(0)
+  })
+
   it("holds its request while the assistant is still speaking, then makes it once", async () => {
     const talk = driver()
 
