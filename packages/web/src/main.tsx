@@ -1,4 +1,4 @@
-import { Component, Suspense, useSyncExternalStore, type ReactNode } from 'react'
+import { Component, Suspense, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
@@ -12,12 +12,13 @@ import { useRouteLoadingPresence } from './components/chat/chat-hydration'
 import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
-import { NativePairingScreen } from './components/auth/native-pairing-screen'
-import { installSavedNativeGateway, nativeGatewayProfiles } from './lib/native-gateway-bootstrap'
+import type { NativeGatewayProfiles } from './lib/native-gateway-profiles'
 import { nativeBridge } from './platform/native-bridge'
 import './routes/globals.css'
 
-const initialNativeOrigin = installSavedNativeGateway()
+let profiles: NativeGatewayProfiles | undefined
+let initialNativeOrigin: string | undefined
+let PairingScreen: ComponentType<{ onPaired: (origin: string) => void }> | undefined
 
 const ChatPage = lazyRoute(() => import('./routes/chat/page'), 'chat')
 const CronPage = lazyRoute(() => import('./routes/cron/page'), 'cron')
@@ -106,7 +107,6 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 
 function AppShell() {
-  const profiles = nativeGatewayProfiles()
   const generation = useSyncExternalStore(
     profiles?.subscribe ?? (() => () => {}),
     () => profiles?.snapshot().generation ?? 0,
@@ -195,14 +195,13 @@ registerTalkNavigator((path) => router.navigate(path))
 registerHostNavigator((path) => void router.navigate(path))
 
 function App() {
-  const profiles = nativeGatewayProfiles()
   const snapshot = useSyncExternalStore(
     profiles?.subscribe ?? (() => () => {}),
     () => profiles?.snapshot(),
     () => undefined,
   )
   const nativeOrigin = snapshot?.profiles.find((profile) => profile.id === snapshot.activeId)?.origin ?? initialNativeOrigin
-  if (nativeBridge() && !nativeOrigin) return <NativePairingScreen onPaired={() => {}} />
+  if (nativeBridge() && !nativeOrigin && PairingScreen) return <PairingScreen onPaired={() => {}} />
   return (
     <AppErrorBoundary>
       <RouterProvider router={router} />
@@ -228,4 +227,18 @@ startKeyboardInset()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element #root not found')
-createRoot(rootEl).render(<App />)
+
+async function mount(): Promise<void> {
+  if (nativeBridge()) {
+    const [bootstrap, pairing] = await Promise.all([
+      import('./lib/native-gateway-bootstrap'),
+      import('./components/auth/native-pairing-screen'),
+    ])
+    initialNativeOrigin = bootstrap.installSavedNativeGateway()
+    profiles = bootstrap.nativeGatewayProfiles()
+    PairingScreen = pairing.NativePairingScreen
+  }
+  createRoot(rootEl!).render(<App />)
+}
+
+void mount()

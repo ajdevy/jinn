@@ -7,8 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { handleApiRequest, type ApiContext } from "../api.js";
 import { enforceOwnerOnlyDirectory } from "../../shared/owner-only.js";
 import {
-  createAuthSession,
-  issueLocalBootstrapGrant,
+  authCookieName, authDeviceCookieName, createAuthSession, issueLocalBootstrapGrant,
   LOCAL_BOOTSTRAP_GRANT_HEADER,
 } from "../auth.js";
 
@@ -94,7 +93,7 @@ function browserCookie(jinnHome: string, remoteAddress = "127.0.0.1"): string {
     { headers: { "user-agent": "Mozilla/5.0" }, socket: { remoteAddress } } as any,
     { kind: remoteAddress === "127.0.0.1" ? "local" : "remote" },
   );
-  return `jinn_auth=${session.secret}; jinn_device=${session.device.id}`;
+  return `${authCookieName(jinnHome)}=${session.secret}; ${authDeviceCookieName(jinnHome)}=${session.device.id}`;
 }
 
 afterEach(() => {
@@ -324,8 +323,8 @@ describe("auth UX API routes", () => {
 
     expect(paired.status).toBe(200);
     expect(paired.body).toMatchObject({ status: "ok" });
-    expect(String(paired.header("set-cookie"))).toContain("jinn_auth=");
-    expect(String(paired.header("set-cookie"))).toContain("jinn_device=");
+    expect(String(paired.header("set-cookie"))).toContain(`${authCookieName(context.jinnHome)}=`);
+    expect(String(paired.header("set-cookie"))).toContain(`${authDeviceCookieName(context.jinnHome)}=`);
     expect(String(paired.header("set-cookie"))).toContain("HttpOnly");
 
     const reused = makeRes();
@@ -461,15 +460,16 @@ describe("auth UX API routes", () => {
     expect(revokedCurrent.status).toBe(200);
     expect(revokedCurrent.body).toMatchObject({ status: "ok", current: true });
     expect(String(revokedCurrent.header("set-cookie"))).toContain("Max-Age=0");
-    expect(String(revokedCurrent.header("set-cookie"))).toContain("jinn_device=");
+    expect(String(revokedCurrent.header("set-cookie"))).toContain(`${authDeviceCookieName(context.jinnHome)}=`);
   });
 
   it("clears auth and device cookies on logout", async () => {
+    const context = ctx();
     const cap = makeRes();
-    await handleApiRequest(makeReq("POST", "/api/auth/logout", { body: {} }), cap.res, ctx());
+    await handleApiRequest(makeReq("POST", "/api/auth/logout", { body: {} }), cap.res, context);
 
     expect(cap.status).toBe(200);
     expect(String(cap.header("set-cookie"))).toContain("Max-Age=0");
-    expect(String(cap.header("set-cookie"))).toContain("jinn_device=");
+    expect(String(cap.header("set-cookie"))).toContain(`${authDeviceCookieName(context.jinnHome)}=`);
   });
 });

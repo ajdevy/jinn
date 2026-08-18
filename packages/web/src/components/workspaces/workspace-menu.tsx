@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { lazy, Suspense, useState } from "react"
 import { Check, ChevronRight, Layers3, LoaderCircle, Plus, X } from "lucide-react"
 import type { WorkspaceInfo } from "@/lib/api"
 import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
@@ -14,7 +14,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { CreateWorkspaceDialog } from "./create-workspace-dialog"
-import { NativeWorkspaceSwitcher } from "./native-workspace-switcher"
+
+const NativeWorkspaceSwitcher = lazy(async () => {
+  const module = await import("./native-workspace-switcher")
+  return { default: module.NativeWorkspaceSwitcher }
+})
 
 export type { WorkspaceInfo } from "@/lib/api"
 
@@ -234,7 +238,9 @@ export function WorkspaceLauncher({
 }
 
 export function WorkspaceSwitcher({ className }: { className?: string }) {
-  if (nativeBridge()) return <NativeWorkspaceSwitcher className={className} Launcher={WorkspaceLauncher} />
+  if (nativeBridge()) {
+    return <Suspense fallback={null}><NativeWorkspaceSwitcher className={className} Launcher={WorkspaceLauncher} /></Suspense>
+  }
   return <BrowserWorkspaceSwitcher className={className} />
 }
 
