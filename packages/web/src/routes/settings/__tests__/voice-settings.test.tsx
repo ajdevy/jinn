@@ -23,7 +23,11 @@ const apiMocks = vi.hoisted(() => ({
 
 const fetchTalkCapability = vi.hoisted(() => vi.fn())
 
-const settingsMock = vi.hoisted(() => ({ talkOrb: true }))
+const settingsMock = vi.hoisted(() => ({
+  talkOrb: true,
+  talkMicrophone: 'far_field' as 'far_field' | 'near_field',
+}))
+const setTalkMicrophone = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
@@ -41,6 +45,7 @@ vi.mock('@/routes/settings-provider', () => ({
     setPortalEmoji: vi.fn(),
     setLanguage: vi.fn(),
     setTalkOrb: vi.fn(),
+    setTalkMicrophone,
     resetAll: vi.fn(),
   }),
 }))
@@ -69,6 +74,8 @@ function save() {
 
 beforeEach(() => {
   settingsMock.talkOrb = true
+  settingsMock.talkMicrophone = 'far_field'
+  setTalkMicrophone.mockReset()
   apiMocks.getConfig.mockResolvedValue({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } })
   apiMocks.updateConfig.mockResolvedValue({})
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
@@ -79,6 +86,17 @@ beforeEach(() => {
 })
 
 describe('the Voice section', () => {
+  it('persists a close-mic profile independently of gateway secrets', async () => {
+    renderSettings()
+
+    const microphone = await screen.findByRole('combobox', { name: 'Talk microphone' })
+    expect((microphone as HTMLSelectElement).value).toBe('far_field')
+    fireEvent.change(microphone, { target: { value: 'near_field' } })
+
+    expect(setTalkMicrophone).toHaveBeenCalledWith('near_field')
+    expect(apiMocks.updateConfig).not.toHaveBeenCalled()
+  })
+
   it('offers the providers the gateway reports, and nothing invented', async () => {
     renderSettings()
 

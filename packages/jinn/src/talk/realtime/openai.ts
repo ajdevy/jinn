@@ -15,14 +15,15 @@ import type {
   RealtimeEvent,
   RealtimeProvider,
   RealtimeSessionOptions,
-  RealtimeTurnDetection,
   RealtimeUsage,
 } from "../../shared/voice.js";
 import { addUsage, emptyUsage, type OpenAiUsage } from "./openai-usage.js";
+import { buildSessionPayload, DEFAULT_REALTIME_MODEL } from "./openai-session-payload.js";
+
+export { buildSessionPayload } from "./openai-session-payload.js";
 
 const REALTIME_WS_URL = "wss://api.openai.com/v1/realtime";
 const CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
-const DEFAULT_MODEL = "gpt-realtime";
 /** The API's own default. Its documented range is 10-7200 seconds. */
 const EPHEMERAL_TOKEN_TTL_SECONDS = 600;
 
@@ -30,48 +31,6 @@ export interface OpenAiRealtimeOptions {
   apiKey: string;
   /** Defaults applied to every session; per-call options override them. */
   session?: RealtimeSessionOptions;
-}
-
-/**
- * `server_vad` closes each turn on detected silence and cancels the assistant
- * mid-sentence when the user talks over it (barge-in). `none` disables both, so
- * the caller drives turns with `commitAudio` — the push-to-talk shape.
- */
-function turnDetectionPayload(mode: RealtimeTurnDetection | undefined, createResponse: boolean): JsonObject | null {
-  if (mode === "none") return null;
-  return { type: "server_vad", create_response: createResponse, interrupt_response: true };
-}
-
-/** The `session` object shared by the WebSocket handshake and token minting. */
-export function buildSessionPayload(options: RealtimeSessionOptions, createResponse = true): JsonObject {
-  const audio: JsonObject = {
-    input: {
-      format: { type: "audio/pcm", rate: 24000 },
-      transcription: { model: "gpt-4o-mini-transcribe" },
-      turn_detection: turnDetectionPayload(options.turnDetection, createResponse),
-    },
-    output: {
-      format: { type: "audio/pcm", rate: 24000 },
-      ...(options.voice ? { voice: options.voice } : {}),
-    },
-  };
-  return {
-    type: "realtime",
-    model: options.model ?? DEFAULT_MODEL,
-    output_modalities: ["audio"],
-    audio,
-    ...(options.instructions ? { instructions: options.instructions } : {}),
-    ...(options.tools
-      ? {
-          tools: options.tools.map((tool) => ({
-            type: "function",
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-          })),
-        }
-      : {}),
-  };
 }
 
 class OpenAiRealtimeProvider implements RealtimeProvider {
@@ -83,7 +42,7 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
   private readonly total = emptyUsage();
   private socket: WebSocket | null = null;
   /** The model this session actually connected on, which is what its usage prices against. */
-  private model = DEFAULT_MODEL;
+  private model = DEFAULT_REALTIME_MODEL;
   /** Set by `interrupt()` so the next cancellation is attributed to us, not to VAD. */
   private cancelledByClient = false;
   /** Settles the `connect()` promise once the server acknowledges the session. */
@@ -119,7 +78,7 @@ class OpenAiRealtimeProvider implements RealtimeProvider {
   connect(options: RealtimeSessionOptions = {}): Promise<void> {
     if (this.socket) throw new Error("This realtime provider is already connected — construct a second one for a second session");
     const session = { ...this.defaults, ...options };
-    this.model = session.model ?? DEFAULT_MODEL;
+    this.model = session.model ?? DEFAULT_REALTIME_MODEL;
     const socket = new WebSocket(`${REALTIME_WS_URL}?model=${encodeURIComponent(this.model)}`, {
       headers: { Authorization: `Bearer ${this.apiKey}` },
     });

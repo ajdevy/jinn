@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS talk_session_actions (
   UNIQUE (talk_session_id, id)
 );
 
+CREATE TABLE IF NOT EXISTS talk_session_interruptions (
+  talk_session_id TEXT NOT NULL REFERENCES talk_sessions(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+  at INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind = 'speech_interruption'),
+  vad_type TEXT NOT NULL CHECK (vad_type IN ('server_vad', 'semantic_vad')),
+  cancelled_by TEXT NOT NULL CHECK (cancelled_by = 'provider'),
+  recovered INTEGER NOT NULL CHECK (recovered IN (0, 1)),
+  speech_ms INTEGER CHECK (speech_ms IS NULL OR (speech_ms >= 0 AND speech_ms <= 600000)),
+  PRIMARY KEY (talk_session_id, ordinal)
+);
+
 CREATE TABLE IF NOT EXISTS talk_session_visual_receipt_keys (
   talk_session_id TEXT NOT NULL REFERENCES talk_sessions(id) ON DELETE CASCADE,
   ordinal INTEGER NOT NULL CHECK (ordinal >= 1),

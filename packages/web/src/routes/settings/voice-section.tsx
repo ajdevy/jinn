@@ -1,5 +1,7 @@
 import { useState } from "react"
 import type { TalkCapability } from "@/lib/talk-capability"
+import type { TalkMicrophone } from "@/lib/settings"
+import { useSettings } from "@/routes/settings-provider"
 import { FieldRow, Section, SettingsInput, SettingsSelect } from "./shared"
 
 /**
@@ -122,12 +124,61 @@ function Guidance({
   )
 }
 
-export function VoiceSection({ provider, apiKey, capability, onChange, talkOrbOn }: VoiceSectionProps) {
+function ProviderField({
+  provider,
+  capability,
+  onChange,
+}: Pick<VoiceSectionProps, "provider" | "capability" | "onChange">) {
+  return (
+    <FieldRow label="Provider">
+      <SettingsSelect
+        ariaLabel="Voice provider"
+        value={provider}
+        onChange={(value) => onChange(["realtime", "provider"], value || null)}
+        options={[
+          { value: "", label: "Not set" },
+          ...(capability?.providers ?? []).map((name) => ({ value: name, label: name })),
+        ]}
+      />
+    </FieldRow>
+  )
+}
+
+function MicrophoneField({
+  microphone,
+  onMicrophoneChange,
+}: {
+  microphone: TalkMicrophone
+  onMicrophoneChange: (microphone: TalkMicrophone) => void
+}) {
+  return (
+    <FieldRow label="Microphone">
+      <SettingsSelect
+        ariaLabel="Talk microphone"
+        value={microphone}
+        onChange={(value) => onMicrophoneChange(value as TalkMicrophone)}
+        options={[
+          { value: "far_field", label: "Laptop or room mic" },
+          { value: "near_field", label: "Headset or close mic" },
+        ]}
+      />
+    </FieldRow>
+  )
+}
+
+export function VoiceSection({
+  provider,
+  apiKey,
+  capability,
+  onChange,
+  talkOrbOn,
+}: VoiceSectionProps) {
   // Replacing is a decision the operator makes here, not something the config
   // can be read for: an emptied field and a gateway with no key look the same.
   const [replacing, setReplacing] = useState(false)
   const stored = apiKey === REDACTED
   const note = readiness(capability, provider, apiKey)
+  const { settings, setTalkMicrophone } = useSettings()
 
   function replace() {
     setReplacing(true)
@@ -145,22 +196,13 @@ export function VoiceSection({ provider, apiKey, capability, onChange, talkOrbOn
         The speech-to-speech provider the Talk orb opens its sessions with.
       </div>
 
-      <FieldRow label="Provider">
-        {/* Null and not undefined: JSON.stringify drops an undefined key, and a key the gateway never sees is one it leaves alone. */}
-        <SettingsSelect
-          ariaLabel="Voice provider"
-          value={provider}
-          onChange={(value) => onChange(["realtime", "provider"], value || null)}
-          options={[
-            { value: "", label: "Not set" },
-            ...(capability?.providers ?? []).map((name) => ({ value: name, label: name })),
-          ]}
-        />
-      </FieldRow>
+      <ProviderField provider={provider} capability={capability} onChange={onChange} />
 
       <FieldRow label="API key">
         <KeyField stored={stored} apiKey={apiKey} onReplace={replace} onChange={onChange} />
       </FieldRow>
+
+      <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
 
       <Guidance
         replacing={replacing}

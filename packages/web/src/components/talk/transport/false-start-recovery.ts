@@ -31,6 +31,7 @@ interface Candidate {
   completedBeforeSpeech: boolean
   outputCleared: boolean
   transcriptEmpty: boolean
+  transcriptMeaningful: boolean
 }
 
 export type InterruptedTranscriptDecision = "continue" | "respond" | "pending"
@@ -68,6 +69,7 @@ export class FalseStartRecovery {
       completedBeforeSpeech,
       outputCleared: false,
       transcriptEmpty: false,
+      transcriptMeaningful: false,
     }
     return true
   }
@@ -81,8 +83,9 @@ export class FalseStartRecovery {
     const candidate = this.candidate
     if (!candidate || frame.responseId !== candidate.responseId) return false
     candidate.vadCancelled = frame.status === "cancelled" && frame.cancellationReason === "turn_detected"
-    if (!candidate.vadCancelled) this.forbid()
-    return true
+    if (!candidate.vadCancelled) this.discard()
+    else if (candidate.transcriptMeaningful) this.resolve(false)
+    return candidate.vadCancelled
   }
 
   outputCleared(frame: Extract<RealtimeFrame, { type: "output_cleared" }>): void {
@@ -104,7 +107,8 @@ export class FalseStartRecovery {
       return null
     }
     if (text.trim()) {
-      this.resolve(false)
+      candidate.transcriptMeaningful = true
+      if (candidate.vadCancelled) this.resolve(false)
       return "respond"
     }
     candidate.transcriptEmpty = true
@@ -156,10 +160,8 @@ export class FalseStartRecovery {
   }
 
   private resolve(recovered: boolean): void {
-    const candidate = this.candidate
+    const candidate = this.discard()
     if (!candidate) return
-    this.candidate = null
-    this.closedResponses.add(candidate.responseId)
     this.report({
       kind: "speech_interruption",
       vadType: this.vadType,
@@ -167,6 +169,14 @@ export class FalseStartRecovery {
       recovered,
       speechMs: this.speechMs(candidate),
     })
+  }
+
+  private discard(): Candidate | null {
+    const candidate = this.candidate
+    if (!candidate) return null
+    this.candidate = null
+    this.closedResponses.add(candidate.responseId)
+    return candidate
   }
 }
 

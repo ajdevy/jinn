@@ -1,7 +1,11 @@
 import type { ServerResponse } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import type { JinnConfig } from "../shared/types.js";
-import type { RealtimeTool } from "../shared/voice.js";
+import type {
+  RealtimeNoiseReduction,
+  RealtimeTool,
+  RealtimeTurnDetection,
+} from "../shared/voice.js";
 import { logger } from "../shared/logger.js";
 import { UnknownRealtimeProviderError, createRealtimeProvider } from "../talk/realtime/index.js";
 import { json } from "./route-helpers.js";
@@ -12,12 +16,10 @@ import { json } from "./route-helpers.js";
  * Configuration gaps and provider failures are translated into the Talk HTTP
  * contract here so callers only need to decide which tool catalog to expose.
  */
-export async function mintTalkToken(
-  res: ServerResponse,
-  config: JinnConfig,
-  tools: RealtimeTool[],
-  expiresAfter?: number,
-) {
+export async function mintTalkToken(res: ServerResponse, config: JinnConfig, tools: RealtimeTool[],
+  expiresAfter?: number, noiseReduction?: RealtimeNoiseReduction) {
+  const turnDetection = automaticTurnDetection(config.realtime?.turnDetection);
+  const effectiveNoiseReduction = noiseReduction ?? config.realtime?.noiseReduction ?? "far_field";
   const mint = async () => {
     let realtime;
     try {
@@ -34,7 +36,12 @@ export async function mintTalkToken(
       return null;
     }
     try {
-      return await realtime.mintEphemeralToken({ tools });
+      const token = await realtime.mintEphemeralToken({ tools, turnDetection, noiseReduction: effectiveNoiseReduction });
+      return {
+        ...token,
+        vadType: turnDetection.type,
+        noiseReduction: effectiveNoiseReduction,
+      };
     } catch (error) {
       logger.warn(`Realtime token mint failed: ${error instanceof Error ? error.message : String(error)}`);
       json(res, { error: "The realtime provider refused to issue a session credential." }, 502);
@@ -54,4 +61,14 @@ export async function mintTalkToken(
     error: "The realtime provider reissued a session credential that expires no later than the one it replaced.",
   }, 502);
   return null;
+}
+
+/** Browser Talk always needs provider-owned VAD. `none` remains valid for
+ * direct push-to-talk provider consumers, but cannot drive the Talk orb. */
+function automaticTurnDetection(
+  configured: RealtimeTurnDetection | undefined,
+): Exclude<RealtimeTurnDetection, "none" | "server_vad"> | { type: "server_vad" } {
+  if (!configured || configured === "none") return { type: "semantic_vad", eagerness: "medium" };
+  if (configured === "server_vad") return { type: "server_vad" };
+  return configured;
 }
