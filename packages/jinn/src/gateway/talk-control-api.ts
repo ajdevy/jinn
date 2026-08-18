@@ -9,6 +9,10 @@ import type { CallerIdentity } from "./session-comm-guards.js";
 interface ControlBody {
   providerCallId: string;
   providerItemId?: string;
+  providerEventId?: string;
+  providerTranscriptItemId?: string;
+  browserInstanceId?: string;
+  credentialGeneration?: number;
   tool: string;
   arguments: string;
 }
@@ -21,6 +25,24 @@ interface TalkControlApiOptions {
   send: (res: ServerResponse, status: number, body: unknown) => void;
 }
 
+function bodyProblem(body: Record<string, unknown>): string | null {
+  const required = [body.providerCallId, body.tool, body.arguments];
+  if (!required.every((value) => typeof value === "string")) return "providerCallId, tool, and arguments are required strings.";
+  const optional = ["providerItemId", "providerEventId", "providerTranscriptItemId"];
+  const invalid = optional.find((key) => body[key] !== undefined && typeof body[key] !== "string");
+  return invalid ? `${invalid} must be a string when present.` : null;
+}
+
+function controlBody(body: Record<string, unknown>): ControlBody {
+  return Object.fromEntries(Object.entries({
+    providerCallId: body.providerCallId, providerItemId: body.providerItemId,
+    providerEventId: body.providerEventId, providerTranscriptItemId: body.providerTranscriptItemId,
+    browserInstanceId: typeof body.browserInstanceId === "string" ? body.browserInstanceId : undefined,
+    credentialGeneration: Number.isInteger(body.credentialGeneration) ? Number(body.credentialGeneration) : undefined,
+    tool: body.tool, arguments: body.arguments,
+  }).filter((entry) => entry[1] !== undefined)) as unknown as ControlBody;
+}
+
 async function readControlBody(
   req: IncomingMessage,
   res: ServerResponse,
@@ -29,20 +51,16 @@ async function readControlBody(
   const parsed = await readJsonBody(req, res);
   if (!parsed.ok) return null;
   const body = (parsed.body ?? {}) as Record<string, unknown>;
-  if (typeof body.providerCallId !== "string" || typeof body.tool !== "string" || typeof body.arguments !== "string") {
-    send(res, 400, { error: "providerCallId, tool, and arguments are required strings." });
-    return null;
-  }
-  if (body.providerItemId !== undefined && typeof body.providerItemId !== "string") {
-    send(res, 400, { error: "providerItemId must be a string when present." });
-    return null;
-  }
-  return {
-    providerCallId: body.providerCallId,
-    ...(body.providerItemId ? { providerItemId: body.providerItemId } : {}),
-    tool: body.tool,
-    arguments: body.arguments,
-  };
+  const problem = bodyProblem(body);
+  if (!problem) return controlBody(body);
+  send(res, 400, { error: problem });
+  return null;
+}
+
+function approvalCredentialMatches(body: ControlBody, session: ReturnType<TalkSessionRegistry["get"]>): boolean {
+  if (!session) return false;
+  const approval = new Set(["prepare_voice_approval", "commit_voice_approval"]).has(body.tool);
+  return !approval || (body.browserInstanceId === session.browserInstanceId && body.credentialGeneration === session.credentialGeneration);
 }
 
 function auditVerifiedControl(
@@ -57,8 +75,8 @@ function auditVerifiedControl(
   options.registry.recordAction(id, {
     tool: operation.name,
     subject: typeof args.id === "string" ? args.id : null,
-    lane: "fast",
-    consent: "not-required",
+    lane: body.tool === "commit_voice_approval" ? "consent" : "fast",
+    consent: body.tool === "commit_voice_approval" ? "granted" : "not-required",
   });
 }
 
@@ -75,6 +93,11 @@ export async function handleTalkControl(
   }
   const body = await readControlBody(req, res, options.send);
   if (!body) return;
+  const session = options.registry.get(id);
+  if (!approvalCredentialMatches(body, session)) {
+    options.send(res, 409, { ok: false, code: "credential-mismatch", error: "The control call does not match the active browser credential generation." });
+    return;
+  }
   const result = await options.runtime.dispatch({ talkSessionId: id, ...body, caller: options.caller });
   auditVerifiedControl(id, body, result, options);
   options.send(res, 200, result);

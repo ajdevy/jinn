@@ -47,6 +47,8 @@ export interface OpenTalkSessionOptions {
   brief: string;
   /** Expiry of the credential minted for this open, in provider seconds. */
   tokenExpiresAt: number;
+  /** Browser identity supplied outside provider tool arguments. */
+  browserInstanceId?: string;
 }
 
 export interface TalkTurnResult {
@@ -68,6 +70,8 @@ export class TalkSessionRegistry {
     const at = this.now();
     const session: TalkSession = {
       id: randomUUID(),
+      browserInstanceId: options.browserInstanceId ?? randomUUID(),
+      credentialGeneration: 1,
       sessionId: options.sessionId,
       state: "live",
       model: options.model,
@@ -113,7 +117,9 @@ export class TalkSessionRegistry {
   /** Remember the credential just handed out, so the next one can be required to
    *  outlive it. */
   recordToken(id: string, expiresAt: number): void {
-    this.require(id).tokenExpiresAt = expiresAt;
+    const session = this.require(id);
+    session.tokenExpiresAt = expiresAt;
+    session.credentialGeneration += 1;
   }
 
   heartbeat(id: string): TalkSession {

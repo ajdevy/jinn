@@ -7,7 +7,7 @@
  */
 import type { RefObject } from "react"
 import type { OrbState } from "../orb-motion"
-import type { Attachment } from "./attachment"
+import type { Attachment, TalkCredentialIdentity } from "./attachment"
 import type { TalkControlManifest } from "./control-manifest"
 
 export interface LiveSession {
@@ -19,6 +19,7 @@ export interface LiveSession {
    *  on a tab switch. */
   brief: string
   manifest: TalkControlManifest
+  browserInstanceId: string
   stopHeartbeat: () => void
 }
 
@@ -40,7 +41,7 @@ export interface SessionControls {
    *  belongs to a session nobody is waiting for, and hands itself back rather
    *  than turning the microphone on behind a closed session. */
   generationRef: RefObject<number>
-  attach: (id: string, token: string, brief: string, manifest: TalkControlManifest) => Promise<Attachment>
+  attach: (id: string, token: string, brief: string, manifest: TalkControlManifest, identity: TalkCredentialIdentity) => Promise<Attachment>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
   setState: (state: OrbState) => void

@@ -57,6 +57,10 @@ export interface TalkActionRecord {
 
 export interface TalkSession {
   id: string;
+  /** Server-minted browser binding for provider evidence sent by this tab. */
+  browserInstanceId: string;
+  /** Increments whenever the gateway issues a successor provider credential. */
+  credentialGeneration: number;
   /** The `sessions` row this talk session bills through, so its spend shows up
    *  in the cost report alongside every other session. */
   sessionId: string;

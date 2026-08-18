@@ -12,6 +12,7 @@ import { getPageContext, subscribePageContext } from "../context/page-context-st
 import { renderPageContext } from "../context/render-page-context"
 import { visibleObjects } from "../context/visible-objects"
 import type { OrbState } from "../orb-motion"
+import { persistOperatorTranscript, type OperatorTranscriptEvidence } from "./operator-transcript-evidence"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
 import { postTalkTurn } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
@@ -29,6 +30,8 @@ export const PAGE_CONTEXT_DEBOUNCE_MS = 400
 
 export interface TalkDriverOptions {
   sessionId: string
+  browserInstanceId?: string
+  credentialGeneration?: number
   /** What this instance is, as the gateway described it when the session opened
    *  — the company, its conventions, and who works here. Absent on a session
    *  opened against a gateway that does not send one. */
@@ -85,6 +88,7 @@ interface DriverState {
   unfollow: (() => void) | null
   settling: ReturnType<typeof setTimeout> | null
   lastUserRequestKey: string | null
+  lastUserEvidence: OperatorTranscriptEvidence | null
   visualReceipts: VisualCaptureReceipt[]
   visualCapture: ReturnType<typeof createVisualCapture>
 }
@@ -167,6 +171,9 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
   try {
     result = await executeTalkTool(call, {
       sessionId: driver.options.sessionId,
+      browserInstanceId: driver.options.browserInstanceId,
+      credentialGeneration: driver.options.credentialGeneration,
+      operatorTranscript: driver.lastUserEvidence,
       manifest: driver.options.manifest,
       requestKey: driver.lastUserRequestKey,
       capture: driver.visualCapture,
@@ -216,6 +223,7 @@ function endResponse(driver: DriverState, total: TalkUsage): void {
 function handleTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { type: "transcript" }>): void {
   if (frame.role !== "assistant") {
     if (frame.final && frame.itemId) driver.lastUserRequestKey = frame.itemId
+    driver.lastUserEvidence = persistOperatorTranscript(frame, driver.options) ?? driver.lastUserEvidence
     return
   }
   show(driver, "speaking")
@@ -266,6 +274,7 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
     unfollow: null,
     settling: null,
     lastUserRequestKey: null,
+    lastUserEvidence: null,
     visualReceipts: [],
     visualCapture: options.visualCapture ?? createVisualCapture(),
   }

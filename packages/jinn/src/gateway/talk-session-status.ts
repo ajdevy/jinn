@@ -9,6 +9,8 @@ import type { TalkSession } from "../talk/session/types.js";
 export function talkSessionStatus(session: TalkSession, manifest: TalkControlManifest) {
   return {
     id: session.id,
+    browserInstanceId: session.browserInstanceId,
+    credentialGeneration: session.credentialGeneration,
     sessionId: session.sessionId,
     state: session.state,
     model: session.model,

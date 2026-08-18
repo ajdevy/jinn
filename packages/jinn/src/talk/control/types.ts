@@ -39,6 +39,10 @@ export interface TalkControlDispatch {
   talkSessionId: string;
   providerCallId: string;
   providerItemId?: string;
+  providerEventId?: string;
+  providerTranscriptItemId?: string;
+  browserInstanceId?: string;
+  credentialGeneration?: number;
   tool: string;
   arguments: string;
   caller: CallerIdentity;
@@ -77,7 +81,16 @@ export interface TalkControlAdapterContext {
   talkSessionId: string;
   providerCallId: string;
   providerItemId?: string;
+  providerEventId?: string;
+  providerTranscriptItemId?: string;
+  browserInstanceId?: string;
+  credentialGeneration?: number;
   idempotencyKey: string;
+  caller: CallerIdentity;
+}
+
+export class TalkControlRefusal extends Error {
+  constructor(readonly code: string, message: string) { super(message); }
 }
 
 export interface TalkControlRuntimeOptions {

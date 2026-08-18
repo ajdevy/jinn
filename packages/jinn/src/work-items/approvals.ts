@@ -2,12 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { resolveApprovalRouteTarget, resolveRootApprovalTarget } from '../gateway/approval-authority.js';
 import { parseTodoApprovalRef } from '../workflows/todo-approval-ref.js';
-import { currentApproval, type WorkItemApproval } from './approval-rows.js';
+import { notifyApprovalDecision } from './approval-decision-listener.js';
+import { currentApproval } from './approval-rows.js';
 import { openDescendantsDeepestFirst } from './cascade.js';
 import { appendWorkItemEvent, getWorkItem, type ApprovalTargetKind, type WorkItem } from './store.js';
 import { transition } from './transitions.js';
 
 export { currentApproval, listApprovals, type WorkItemApproval } from './approval-rows.js';
+export {
+  setTodoApprovalDecisionListener,
+  type TodoApprovalDecisionEvent,
+  type TodoApprovalDecisionListener,
+} from './approval-decision-listener.js';
 
 /**
  * Todo approvals — the native write paths + the approval decision orchestrator
@@ -399,9 +405,9 @@ function applyNativeDecisionAtomic(
  * The route's consequence engine — approval authority is enforced UPSTREAM by
  * the gateway helper; this function assumes the caller was already authorized.
  */
-export async function decideWorkItemApproval(
+export function decideWorkItemApprovalSync(
   input: DecideWorkItemApprovalInput,
-): Promise<DecideWorkItemApprovalResult> {
+): DecideWorkItemApprovalResult {
   const decidedBy = input.decidedBy ?? 'operator';
   const item = getWorkItem(input.id);
   if (!item) return { ok: false, code: 'not-found', message: `work item ${input.id} not found` };
@@ -424,36 +430,13 @@ export async function decideWorkItemApproval(
 }
 
 /**
- * Decision bridge, mirroring `setTodoStatusChangeListener`: a decided Todo
- * approval notifies whoever mirrored the gate onto it (today, a parked workflow
- * run) so the decision — and the picked option — flows back to its origin. Fired
- * AFTER the decision transaction commits, best-effort: a consumer that throws
- * must never roll back or fail a decision the operator already made.
+ * Public async compatibility wrapper. The synchronous seam above exists for
+ * callers that must compose the approval decision into a larger SQLite
+ * transaction; routes and existing consumers keep the established Promise
+ * contract (including rejected write failures).
  */
-export interface TodoApprovalDecisionEvent {
-  item: WorkItem;
-  approval: WorkItemApproval;
-  decision: ApprovalDecision;
-  decidedBy: string;
-}
-
-export type TodoApprovalDecisionListener = (event: TodoApprovalDecisionEvent) => void | Promise<void>;
-
-let approvalDecisionListener: TodoApprovalDecisionListener | null = null;
-
-export function setTodoApprovalDecisionListener(listener: TodoApprovalDecisionListener | null): void {
-  approvalDecisionListener = listener;
-}
-
-function notifyApprovalDecision(item: WorkItem, decision: ApprovalDecision, decidedBy: string): void {
-  const approval = currentApproval(item.id);
-  if (!approval || !approvalDecisionListener) return;
-  try {
-    const maybe = approvalDecisionListener({ item, approval, decision, decidedBy });
-    if (maybe && typeof (maybe as Promise<void>).catch === 'function') {
-      void (maybe as Promise<void>).catch(() => undefined);
-    }
-  } catch {
-    // Best-effort bridge (see above): the decision has already committed.
-  }
+export async function decideWorkItemApproval(
+  input: DecideWorkItemApprovalInput,
+): Promise<DecideWorkItemApprovalResult> {
+  return decideWorkItemApprovalSync(input);
 }

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { operationByName } from "./manifest.js";
+import { TalkControlRefusal } from "./types.js";
 import type {
   TalkControlDispatch,
   TalkControlFailure,
@@ -35,8 +36,12 @@ function parseArguments(raw: string): Record<string, unknown> | null {
   }
 }
 
-function fingerprint(tool: string, args: Record<string, unknown>): string {
-  return createHash("sha256").update(`${tool}\0${stable(args)}`).digest("hex");
+function fingerprint(input: TalkControlDispatch, args: Record<string, unknown>): string {
+  return createHash("sha256").update(stable({
+    tool: input.tool, args, providerItemId: input.providerItemId,
+    providerEventId: input.providerEventId, providerTranscriptItemId: input.providerTranscriptItemId,
+    browserInstanceId: input.browserInstanceId, credentialGeneration: input.credentialGeneration,
+  })).digest("hex");
 }
 
 function matchesType(value: unknown, expected: unknown): boolean {
@@ -104,7 +109,7 @@ export class TalkControlRuntime {
     if (!checked.ok) return Promise.resolve(checked.result);
 
     const key = `${input.talkSessionId}:${input.providerCallId}`;
-    const digest = fingerprint(input.tool, checked.args);
+    const digest = fingerprint(input, checked.args);
     const existing = this.calls.get(key);
     if (existing) {
       if (existing.fingerprint !== digest) {
@@ -128,7 +133,12 @@ export class TalkControlRuntime {
         talkSessionId: input.talkSessionId,
         providerCallId: input.providerCallId,
         ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+        ...(input.providerEventId ? { providerEventId: input.providerEventId } : {}),
+        ...(input.providerTranscriptItemId ? { providerTranscriptItemId: input.providerTranscriptItemId } : {}),
+        ...(input.browserInstanceId ? { browserInstanceId: input.browserInstanceId } : {}),
+        ...(input.credentialGeneration ? { credentialGeneration: input.credentialGeneration } : {}),
         idempotencyKey: `talk:${input.talkSessionId}:${input.providerCallId}`,
+        caller: input.caller,
       });
       const verification = await this.options.verify(operation, args, execution);
       if (!verification.ok) {
@@ -145,7 +155,8 @@ export class TalkControlRuntime {
         uiEffect: execution.uiEffect,
       };
       return result;
-    } catch {
+    } catch (error) {
+      if (error instanceof TalkControlRefusal) return failure(error.code, error.message);
       return failure("execution-failed", "The gateway could not complete this operation.");
     }
   }

@@ -30,6 +30,7 @@ import type {
   TalkControlOperation,
 } from "./types.js";
 import { verifyTalkDomainOperation } from "./verification.js";
+import { executeVoiceApproval } from "./voice-approval-adapter.js";
 
 export interface TalkControlHost {
   context: ApiContext;
@@ -219,6 +220,8 @@ const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   talk_edit_todo: editTodo,
   talk_comment_todo: commentTodo,
   talk_assign_todo: assignTodo,
+  prepare_voice_approval: (_host, args, call) => executeVoiceApproval("prepare", args, call),
+  commit_voice_approval: (_host, args, call) => executeVoiceApproval("commit", args, call),
   talk_delegate_todo: delegateTodo,
   read_session: (_host, args) => ({ data: sessionData(requiredText(args, "id")), uiEffect: null }),
   talk_send_to_session: sendToSession,

@@ -10,26 +10,26 @@
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { setTimeout as delay } from "node:timers/promises";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig, Session } from "../shared/types.js";
-import type { RealtimeTool } from "../shared/voice.js";
 import { createSession } from "../sessions/registry.js";
 import { buildTalkControlManifest } from "../talk/control/manifest.js";
 import { createTalkDomainRuntime } from "../talk/control/domain-adapters.js";
 import type { TalkControlRuntime } from "../talk/control/runtime.js";
 import { scanOrg } from "./org.js";
-import { UnknownRealtimeProviderError, createRealtimeProvider } from "../talk/realtime/index.js";
 import { buildStandingBrief } from "../talk/session/brief.js";
 import { UNPINNED_MODEL } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
 import { alwaysOnTools, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { json, type ParsedRoute } from "./route-helpers.js";
+import { readJsonBody } from "./http-helpers.js";
 import { handleTalkControl } from "./talk-control-api.js";
 import { talkSessionStatus } from "./talk-session-status.js";
 import { handleTalkConfigApi } from "./talk-config-api.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
+import { handleTalkTranscript } from "./talk-transcript-api.js";
+import { mintTalkToken } from "./talk-token-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 import type { ApiContext } from "./api.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
@@ -71,53 +71,30 @@ function fail(res: ServerResponse, error: unknown): void {
   send(res, 500, { error: "The talk session runtime failed to handle this request." });
 }
 
-/**
- * Build the provider, or answer 503 for the config the operator is missing.
- *
- * A provider that cannot be constructed is a configuration gap, so it is
- * reported as an unavailable feature rather than as a crash. `reason` is what
- * the client acts on: it turns the refusal into a setup prompt rather than into
- * a message. The factory's own words stay in `detail`, which is for the log and
- * for a test — the surface has a card for this and does not need the exception.
- */
-function provider(config: JinnConfig, res: ServerResponse) {
-  try {
-    return createRealtimeProvider(config.realtime ?? {});
-  } catch (error) {
-    const detail = error instanceof UnknownRealtimeProviderError || error instanceof Error
-      ? error.message
-      : "realtime is not configured";
-    send(res, 503, { error: "Voice is not available.", reason: "unconfigured", detail });
-    return null;
-  }
-}
-
 /** The model the session is billed as. Unset means the provider picks, and a
  *  model the gateway cannot name is a model it cannot price. */
 function pinnedModel(config: JinnConfig): string {
   return config.realtime?.model?.trim() || UNPINNED_MODEL;
 }
 
-/** Mint a credential scoped to exactly `tools`. Answers 503 for a config gap and
- *  502 when the provider itself refuses, so the client can tell them apart. */
-async function mint(res: ServerResponse, config: JinnConfig, tools: RealtimeTool[]) {
-  const realtime = provider(config, res);
-  if (!realtime) return null;
-  try {
-    return await realtime.mintEphemeralToken({ tools });
-  } catch (error) {
-    logger.warn(`Realtime token mint failed: ${error instanceof Error ? error.message : String(error)}`);
-    send(res, 502, { error: "The realtime provider refused to issue a session credential." });
-    return null;
-  }
+async function requestedBrowserId(req: IncomingMessage, res: ServerResponse): Promise<string | null | undefined> {
+  const parsed = await readJsonBody(req, res, { allowEmpty: true });
+  if (!parsed.ok) return null;
+  const value = (parsed.body as { browserInstanceId?: unknown } | undefined)?.browserInstanceId;
+  const invalid = value !== undefined && (typeof value !== "string" || value.length < 8 || value.length > 200);
+  if (!invalid) return value as string | undefined;
+  send(res, 400, { error: "A bounded browserInstanceId is required." });
+  return null;
 }
 
 /** The collection itself: POST opens a session, and nothing else lives here. */
-async function openRoute(res: ServerResponse, options: TalkApiOptions, method: string): Promise<boolean> {
+async function openRoute(req: IncomingMessage, res: ServerResponse, options: TalkApiOptions, method: string): Promise<boolean> {
   if (method !== "POST") return false;
+  const requestedBrowser = await requestedBrowserId(req, res);
+  if (requestedBrowser === null) return true;
   const config = options.getConfig();
   const tools = alwaysOnTools();
-  const token = await mint(res, config, tools);
+  const token = await mintTalkToken(res, config, tools);
   if (!token) return true; // mint already answered with 503 or 502
   // The row exists so spend reuses the session ledger. `talk` is already a
   // non-connector source, so nothing tries to reply into it.
@@ -132,6 +109,7 @@ async function openRoute(res: ServerResponse, options: TalkApiOptions, method: s
     model: pinnedModel(config),
     brief: buildStandingBrief(config, scanOrg(config)).text,
     tokenExpiresAt: token.expiresAt,
+    ...(typeof requestedBrowser === "string" ? { browserInstanceId: requestedBrowser } : {}),
   });
   controlRuntimes.set(session.id, createTalkDomainRuntime(controlManifest, {
     context: options.context,
@@ -141,36 +119,31 @@ async function openRoute(res: ServerResponse, options: TalkApiOptions, method: s
   return true;
 }
 
-/**
- * Mint a credential that outlives the one the session already holds.
- *
- * Provider expiries are whole seconds anchored at the moment of minting, so two
- * mints inside one second expire together and a resumed client cannot tell its
- * new credential from the one it replaced. Waiting out the second is what makes
- * the successor genuinely longer-lived; a provider that still will not extend
- * has handed back a credential that dies with its predecessor, which is a
- * provider fault rather than something to pass on to the client.
- */
-async function mintSuccessor(res: ServerResponse, config: JinnConfig, session: TalkSession, tools: RealtimeTool[]) {
-  const token = await mint(res, config, tools);
-  if (!token || token.expiresAt > session.tokenExpiresAt) return token;
-  await delay(1000 - (Date.now() % 1000));
-  const retried = await mint(res, config, tools);
-  if (!retried || retried.expiresAt > session.tokenExpiresAt) return retried;
-  send(res, 502, {
-    error: "The realtime provider reissued a session credential that expires no later than the one it replaced.",
-  });
-  return null;
-}
-
 /** Re-mint for an expiring credential or a resume, scoped to whatever the
  *  session has been granted so far rather than to the always-on set. */
 async function reissueToken(res: ServerResponse, config: JinnConfig, session: TalkSession): Promise<void> {
   const tools = toolsByName(session.exposedTools);
-  const token = await mintSuccessor(res, config, session, tools);
+  const token = await mintTalkToken(res, config, tools, session.tokenExpiresAt);
   if (!token) return;
   talkSessions.recordToken(session.id, token.expiresAt);
   send(res, 200, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
+}
+
+async function recordSessionEvidence(
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+  action: string,
+): Promise<boolean> {
+  if (action === "turn") {
+    await recordTurn(req, res, talkSessions.heartbeat(id), talkSessions);
+    return true;
+  }
+  if (action === "transcript") {
+    await handleTalkTranscript(req, res, talkSessions.heartbeat(id), { send });
+    return true;
+  }
+  return false;
 }
 
 /** `/api/talk/sessions/:id` itself: read it or close it. */
@@ -200,6 +173,7 @@ async function sessionAction(
   action: string,
   options: TalkApiOptions,
 ): Promise<boolean> {
+  if (await recordSessionEvidence(req, res, id, action)) return true;
   switch (action) {
     case "park":
       send(res, 200, talkSessionStatus(talkSessions.park(id), controlManifest));
@@ -215,9 +189,6 @@ async function sessionAction(
       return true;
     case "tools":
       await expandTools(req, res, talkSessions.heartbeat(id), talkSessions);
-      return true;
-    case "turn":
-      await recordTurn(req, res, talkSessions.heartbeat(id), talkSessions);
       return true;
     case "actions":
       await recordAction(req, res, talkSessions.heartbeat(id), talkSessions);
@@ -284,7 +255,7 @@ export async function handleTalkApi(
   if (unauthorizedWrite(res, method, options)) return true;
 
   try {
-    if (parts.length === 3) return await openRoute(res, options, method);
+    if (parts.length === 3) return await openRoute(req, res, options, method);
     if (parts.length === 4) return sessionResource(res, parts[3]!, method);
     if (method !== "POST") return false;
     return await sessionAction(req, res, parts[3]!, parts[4]!, options);

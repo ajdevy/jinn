@@ -14,6 +14,7 @@ import type { TalkUsage } from "./usage-delta"
 import type { VisualCaptureReceipt } from "../context/visual-capture"
 import { parseTalkControlManifest, type TalkControlManifest } from "./control-manifest"
 import type { TalkUiEffect } from "./ui-effects"
+import { browserInstanceId } from "../context/browser-instance"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -21,6 +22,8 @@ export const HEARTBEAT_INTERVAL_MS = 30_000
 
 export interface OpenTalkSession {
   id: string
+  browserInstanceId: string
+  credentialGeneration: number
   /** The provider credential, minted for this open and never stored. */
   token: string
   /** Unix seconds. */
@@ -36,6 +39,8 @@ export interface OpenTalkSession {
 export interface TalkToken {
   token: string
   expiresAt: number
+  browserInstanceId: string
+  credentialGeneration: number
 }
 
 function sessionPath(id: string, action?: string): string {
@@ -82,13 +87,15 @@ function jsonBody(body: unknown): RequestInit {
  * possible, and asking costs nothing.
  */
 export async function openTalkSession(): Promise<OpenTalkSession> {
-  const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions")
+  const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions", jsonBody({ browserInstanceId: browserInstanceId() }))
   const manifest = parseTalkControlManifest(opened.manifest)
   if (typeof opened.id !== "string" || typeof opened.token !== "string" || !manifest) {
     throw new Error("The gateway opened a talk session without an id, credential, and valid control manifest.")
   }
   return {
     id: opened.id,
+    browserInstanceId: opened.browserInstanceId ?? browserInstanceId(),
+    credentialGeneration: opened.credentialGeneration ?? 1,
     token: opened.token,
     expiresAt: opened.expiresAt ?? 0,
     model: opened.model ?? "",
@@ -100,6 +107,10 @@ export async function openTalkSession(): Promise<OpenTalkSession> {
 export interface TalkControlCall {
   providerCallId: string
   providerItemId?: string
+  providerEventId?: string
+  providerTranscriptItemId?: string
+  browserInstanceId?: string
+  credentialGeneration?: number
   tool: string
   arguments: string
 }
@@ -110,6 +121,18 @@ export type TalkControlResult =
 
 export function postTalkControlCall(id: string, call: TalkControlCall): Promise<TalkControlResult> {
   return talkFetch<TalkControlResult>(sessionPath(id, "control"), jsonBody(call))
+}
+
+export interface TalkTranscriptEvidence {
+  browserInstanceId: string
+  credentialGeneration: number
+  providerItemId: string
+  providerEventId: string
+  transcript: string
+}
+
+export function postTalkTranscript(id: string, evidence: TalkTranscriptEvidence): Promise<void> {
+  return talkFetch(sessionPath(id, "transcript"), jsonBody(evidence))
 }
 
 /** `keepalive` because this is also what a closing tab sends, and an unload
@@ -130,7 +153,7 @@ export async function parkTalkSession(id: string): Promise<void> {
  *  with expires within its 600 seconds. */
 export async function resumeTalkSession(id: string): Promise<TalkToken> {
   const resumed = await talkFetch<TalkToken>(sessionPath(id, "resume"))
-  return { token: resumed.token, expiresAt: resumed.expiresAt }
+  return { token: resumed.token, expiresAt: resumed.expiresAt, browserInstanceId: resumed.browserInstanceId, credentialGeneration: resumed.credentialGeneration }
 }
 
 /** `usage` is this turn's delta. See `usage-delta.ts` for why that matters. */

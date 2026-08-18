@@ -17,6 +17,11 @@ export interface Attachment {
   driver: TalkDriver
 }
 
+export interface TalkCredentialIdentity {
+  browserInstanceId: string
+  credentialGeneration: number
+}
+
 /** Drop both halves. Called wherever the connection goes: close, park, page
  *  unload, and the paths where an attach finished behind a teardown. */
 export function detach(attachment: Attachment): void {
@@ -38,7 +43,7 @@ export function useAttach(
   setError: (message: string) => void,
 ) {
   return useCallback(
-    async (id: string, token: string, brief: string, manifest: TalkControlManifest): Promise<Attachment> => {
+    async (id: string, token: string, brief: string, manifest: TalkControlManifest, identity: TalkCredentialIdentity): Promise<Attachment> => {
       let connection: TalkConnection | null = null
       let channelOpen = false
       let started = false
@@ -49,6 +54,8 @@ export function useAttach(
       }
       const driver = createTalkDriver({
         sessionId: id,
+        browserInstanceId: identity.browserInstanceId,
+        credentialGeneration: identity.credentialGeneration,
         brief,
         manifest,
         send: (event) => connection?.send(event),

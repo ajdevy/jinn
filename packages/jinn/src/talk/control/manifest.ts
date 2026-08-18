@@ -40,6 +40,8 @@ const GATEWAY_OPERATIONS: readonly TalkControlOperation[] = [
   }, ["id", "expectedVersion"]), "todos", { mutability: "write", verification: "todo-version-reread" }),
   gateway("talk_comment_todo", "Add one operator comment to a Todo.", params({ id: string("The full Todo id."), body: string("The comment body.") }, ["id", "body"]), "todos", { mutability: "write", verification: "comment-reread" }),
   gateway("talk_assign_todo", "Assign a Todo to a named employee.", params({ id: string("The full Todo id."), assignee: string("The employee slug.") }, ["id", "assignee"]), "todos", { mutability: "write", verification: "todo-assignment-reread" }),
+  gateway("prepare_voice_approval", "Prepare a short-lived approval challenge for one Todo. This never decides it.", params({ id: string("The full Todo id.") }, ["id"]), "todos", { mutability: "write", verification: "approval-challenge-reread" }),
+  gateway("commit_voice_approval", "Commit a prepared challenge from the separately recorded final operator utterance. Arguments contain only the challenge id.", params({ challengeId: string("The prepared challenge id.") }, ["challengeId"]), "todos", { mutability: "write", verification: "approval-decision-reread" }),
   gateway("talk_delegate_todo", "Delegate an existing Todo to a named employee and open its resulting chat.", params({
     id: string("The full Todo id."),
     employee: string("The employee slug."),
