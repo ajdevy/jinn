@@ -1,5 +1,6 @@
 import { Archive, ArchiveRestore, Copy, ExternalLink, Pencil, Pin, PinOff, Square, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
+import { copyText } from "@/platform"
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -72,8 +73,7 @@ export function SessionRowMenu({
   const Separator = variant === "dropdown" ? DropdownMenuSeparator : ContextMenuSeparator
 
   const copySessionId = () => {
-    const copy = navigator.clipboard?.writeText(session.id)
-    if (copy) void copy.catch(() => {})
+    void copyText(session.id)
   }
 
   return (

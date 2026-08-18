@@ -13,6 +13,7 @@ import {
 import { operatorSafeTodoError } from "@/lib/todos"
 import { isTodoId, todoPath } from "@/lib/todo-id"
 import { closeGateCounts } from "@/lib/legal-targets"
+import { copyText } from "@/platform"
 import { useDepartments } from "@/hooks/use-departments"
 import { PageLayout } from "@/components/page-layout"
 import { useTheme } from "@/routes/providers"
@@ -171,14 +172,9 @@ export default function TaskPage() {
   }, [])
   const copyId = useCallback(() => {
     if (!id) return
-    const pending = navigator.clipboard?.writeText(id)
-    if (!pending) {
-      announce("Clipboard unavailable")
-      return
-    }
-    void pending
-      .then(() => announce(`Copied ${id}`))
-      .catch(() => announce("Couldn't copy the ID"))
+    void copyText(id).then((result) => {
+      announce(result.status === "performed" ? `Copied ${id}` : "Couldn't copy the ID")
+    })
   }, [id, announce])
 
   const setStatus = useSetWorkItemStatus()

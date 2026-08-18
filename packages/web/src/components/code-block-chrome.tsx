@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { copyText } from '@/platform'
 
 export function CodeBlockChrome({
   children,
@@ -14,9 +15,11 @@ export function CodeBlockChrome({
   const [copied, setCopied] = useState(false)
 
   function handleCopy() {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+    void copyText(code).then((result) => {
+      if (result.status === 'performed') {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }
     })
   }
 

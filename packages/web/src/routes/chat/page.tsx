@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, Suspense, lazy } from 'react'
 import { useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { copyText as platformCopyText } from '@/platform'
 import {
   initialMobileView,
   parseSelectedSession,
@@ -219,8 +220,7 @@ function ChatPage() {
   }, [showMoreMenu, showSessionPicker])
 
   const copyToClipboard = useCallback((text: string, field: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedField(field)
+    void platformCopyText(text).then((result) => { if (result.status === 'performed') setCopiedField(field) })
     setShowMoreMenu(false)
     setTimeout(() => setCopiedField(null), 1500)
   }, [])
@@ -769,7 +769,7 @@ function ChatPage() {
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => `[${m.role}]: ${m.content}`)
         .join('\n\n')
-      await navigator.clipboard.writeText(text)
+      if ((await platformCopyText(text)).status !== 'performed') return
       setCopiedField('chat')
       setTimeout(() => setCopiedField(null), 1500)
     } catch { /* silently fail */ }

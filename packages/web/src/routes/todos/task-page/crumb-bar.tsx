@@ -9,6 +9,7 @@ import { Slot } from "@/contrib/slot"
 import { AREAS } from "@/contrib/types"
 import { todoPath } from "@/lib/todo-id"
 import { gatewayTransport } from "@/lib/gateway-transport"
+import { copyText as platformCopyText } from "@/platform"
 
 /* Todos v2 slice 6 — the task page's breadcrumb bar (design-doc §7.1, mock
  * task-detail.html). Board context › ancestor IDs › current ID + title. The
@@ -51,7 +52,7 @@ export function CrumbBar({
   onCopyId: () => void
   mobile: boolean
 }) {
-  const copyText = (text: string) => void navigator.clipboard?.writeText(text).catch(() => {})
+  const copyText = (text: string) => void platformCopyText(text)
   return (
     <div
       data-testid="task-crumb-bar"
