@@ -120,6 +120,8 @@ impl NativeState {
     pub fn new() -> Result<Self, NativeError> {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|_| NativeError::transport())?;
         Ok(Self {
@@ -395,11 +397,15 @@ pub async fn forget(
     confine(&window)?;
     let origin = CanonicalOrigin::parse(&input.target.origin)?;
     close_origin_streams(&state.streams, &origin);
-    let remote_revoked = match state.credentials.get(&origin)? {
+    // Local removal is the authoritative operation. An unreachable gateway
+    // must not retain a keychain credential merely because best-effort remote
+    // revocation could not finish.
+    let credential = state.credentials.get(&origin)?;
+    let local_removed = state.credentials.delete(&origin)?;
+    let remote_revoked = match credential {
         Some(credential) => revoke_with_credential(&state.client, &origin, &credential).await,
         None => false,
     };
-    let local_removed = state.credentials.delete(&origin)?;
     Ok(ForgetReceipt {
         local_removed,
         remote_revoked,

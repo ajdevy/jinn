@@ -1,4 +1,4 @@
-import { Component, Suspense, useState, type ReactNode } from 'react'
+import { Component, Suspense, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
@@ -13,7 +13,7 @@ import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
 import { NativePairingScreen } from './components/auth/native-pairing-screen'
-import { installSavedNativeGateway } from './lib/native-gateway-bootstrap'
+import { installSavedNativeGateway, nativeGatewayProfiles } from './lib/native-gateway-bootstrap'
 import { nativeBridge } from './platform/native-bridge'
 import './routes/globals.css'
 
@@ -106,8 +106,14 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 
 function AppShell() {
+  const profiles = nativeGatewayProfiles()
+  const generation = useSyncExternalStore(
+    profiles?.subscribe ?? (() => () => {}),
+    () => profiles?.snapshot().generation ?? 0,
+    () => 0,
+  )
   return (
-    <ClientProviders>
+    <ClientProviders key={`gateway:${generation}`}>
       <Suspense fallback={<RouteLoading />}>
         <Outlet />
       </Suspense>
@@ -189,8 +195,14 @@ registerTalkNavigator((path) => router.navigate(path))
 registerHostNavigator((path) => void router.navigate(path))
 
 function App() {
-  const [nativeOrigin, setNativeOrigin] = useState(initialNativeOrigin)
-  if (nativeBridge() && !nativeOrigin) return <NativePairingScreen onPaired={setNativeOrigin} />
+  const profiles = nativeGatewayProfiles()
+  const snapshot = useSyncExternalStore(
+    profiles?.subscribe ?? (() => () => {}),
+    () => profiles?.snapshot(),
+    () => undefined,
+  )
+  const nativeOrigin = snapshot?.profiles.find((profile) => profile.id === snapshot.activeId)?.origin ?? initialNativeOrigin
+  if (nativeBridge() && !nativeOrigin) return <NativePairingScreen onPaired={() => {}} />
   return (
     <AppErrorBoundary>
       <RouterProvider router={router} />

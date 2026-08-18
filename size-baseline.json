@@ -1616,7 +1616,6 @@
       ]
     },
     "packages/web/src/routes/more/page.tsx": {
-      "lines": 312,
       "exempt": [
         "complexity",
         "max-lines-per-function"

@@ -1,5 +1,14 @@
 import { useState, type FormEvent } from "react"
-import { pairAndInstallNativeGateway } from "@/lib/native-gateway-bootstrap"
+import { LoaderCircle } from "lucide-react"
+import { pairAndInstallNativeGateway, pairNativeGatewayProfile } from "@/lib/native-gateway-bootstrap"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 function PairingFields({
   origin,
@@ -34,6 +43,52 @@ function PairingFields({
       required
     />
   </>
+}
+
+export function NativePairingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [origin, setOrigin] = useState("http://127.0.0.1:7779")
+  const [code, setCode] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(undefined)
+    try {
+      await pairNativeGatewayProfile(origin.trim(), code.trim())
+      onOpenChange(false)
+      setCode("")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Pairing failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+      <DialogContent className="w-[min(420px,calc(100vw-24px))] gap-0 rounded-[var(--radius-xl)] border-0 bg-[var(--material-regular)] p-2 shadow-[var(--shadow-overlay)]">
+        <form onSubmit={(event) => void submit(event)}>
+          <div className="p-5">
+            <DialogHeader className="gap-2 text-left">
+              <DialogTitle>Add gateway</DialogTitle>
+              <DialogDescription>Pair another Jinn gateway. It stays inactive until you choose it.</DialogDescription>
+            </DialogHeader>
+            <PairingFields origin={origin} code={code} onOrigin={setOrigin} onCode={setCode} />
+            {error && <p className="mt-3 text-footnote text-destructive" role="alert">{error}</p>}
+          </div>
+          <DialogFooter className="rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] p-3 sm:items-center">
+            <button type="button" disabled={busy} onClick={() => onOpenChange(false)} className="min-h-10 rounded-[var(--radius-md)] px-4 text-subheadline text-[var(--text-secondary)]">Cancel</button>
+            <button type="submit" disabled={busy || !origin.trim() || !code.trim()} className="inline-flex min-h-10 min-w-[132px] items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-subheadline font-semibold text-white disabled:opacity-45">
+              {busy && <LoaderCircle size={16} className="animate-spin" aria-hidden />}
+              {busy ? "Pairing…" : "Pair gateway"}
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 export function NativePairingScreen({ onPaired }: { onPaired: (origin: string) => void }) {

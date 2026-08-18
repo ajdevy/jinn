@@ -144,10 +144,21 @@ export async function logoutBrowser(): Promise<void> {
   await jsonOrThrow(res)
 }
 
+function assertGatewayProfile(profileId: string): void {
+  if (gatewayTransport().profile.id !== profileId) {
+    throw new DOMException("The gateway changed during authentication", "AbortError")
+  }
+}
+
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const transport = gatewayTransport()
+  const profileId = transport.profile.id
   const first = await transport.request(input, init)
   if (first.status !== 401) return first
+
+  // A native profile switch can happen between the original 401 and the local
+  // bootstrap flow. Never continue A's authentication attempt against B.
+  assertGatewayProfile(profileId)
 
   let state: AuthState
   try {
@@ -162,5 +173,6 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
   } catch {
     return first
   }
+  assertGatewayProfile(profileId)
   return transport.request(input, init)
 }

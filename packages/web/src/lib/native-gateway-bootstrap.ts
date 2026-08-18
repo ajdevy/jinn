@@ -1,32 +1,72 @@
 import { installGatewayTransport } from "./gateway-transport"
-import { createNativeGatewayTransport, pairNativeGateway } from "./native-gateway-transport"
+import {
+  createNativeGatewayProfiles,
+  type NativeGatewayProfiles,
+  type NativeGatewayProfilesSnapshot,
+} from "./native-gateway-profiles"
+import { queryClient } from "./query-client"
 import { nativeBridge } from "@/platform/native-bridge"
 
-const ACTIVE_ORIGIN_KEY = "jinn.native.active-origin"
+const PROFILE_BOUND_KEYS = [
+  "jinn-chat-tabs",
+  "jinn-read-sessions",
+  "jinn-sidebar-collapsed",
+  "jinn-sidebar-expanded",
+  "jinn-notes-last-location",
+] as const
+const PROFILE_BOUND_PREFIXES = ["jinn-intermediate-", "jinn-view-mode-", "jinn-note-draft-"] as const
 
-export function savedNativeGatewayOrigin(): string | undefined {
-  if (!nativeBridge() || typeof localStorage === "undefined") return undefined
-  return localStorage.getItem(ACTIVE_ORIGIN_KEY) ?? undefined
-}
+let manager: NativeGatewayProfiles | undefined
 
-export function installSavedNativeGateway(): string | undefined {
-  const bridge = nativeBridge()
-  const origin = savedNativeGatewayOrigin()
-  if (!bridge || !origin) return undefined
-  try {
-    installGatewayTransport(createNativeGatewayTransport(origin, bridge))
-    return origin
-  } catch {
-    localStorage.removeItem(ACTIVE_ORIGIN_KEY)
-    return undefined
+function resetProfileBoundStorage(storage: Storage): void {
+  for (const key of PROFILE_BOUND_KEYS) storage.removeItem(key)
+  const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter((key): key is string => key !== null)
+  for (const key of keys) {
+    if (PROFILE_BOUND_PREFIXES.some((prefix) => key.startsWith(prefix))) storage.removeItem(key)
   }
 }
 
-export async function pairAndInstallNativeGateway(origin: string, code: string): Promise<string> {
+function createManager(): NativeGatewayProfiles | undefined {
   const bridge = nativeBridge()
-  if (!bridge) throw new Error("The native gateway bridge is unavailable")
-  const receipt = await pairNativeGateway(origin, code, bridge)
-  localStorage.setItem(ACTIVE_ORIGIN_KEY, receipt.origin)
-  installGatewayTransport(createNativeGatewayTransport(receipt.origin, bridge))
-  return receipt.origin
+  if (!bridge || typeof localStorage === "undefined") return undefined
+  return createNativeGatewayProfiles({
+    bridge,
+    storage: localStorage,
+    beforeCommit: async () => {
+      await queryClient.cancelQueries()
+      queryClient.clear()
+      resetProfileBoundStorage(localStorage)
+    },
+  })
+}
+
+export function nativeGatewayProfiles(): NativeGatewayProfiles | undefined {
+  manager ??= createManager()
+  return manager
+}
+
+export function installSavedNativeGateway(): string | undefined {
+  const profiles = nativeGatewayProfiles()
+  const active = profiles?.snapshot().profiles.find((profile) => profile.id === profiles.snapshot().activeId)
+  if (!profiles || !active) return undefined
+  installGatewayTransport(profiles.transport)
+  return active.origin
+}
+
+export function nativeGatewaySnapshot(): NativeGatewayProfilesSnapshot | undefined {
+  return nativeGatewayProfiles()?.snapshot()
+}
+
+export async function pairNativeGatewayProfile(origin: string, code: string, activate = false) {
+  const profiles = nativeGatewayProfiles()
+  if (!profiles) throw new Error("The native gateway bridge is unavailable")
+  // Activation emits synchronously. Install the stable managed transport first
+  // so the provider remount cannot observe tauri://localhost in the gap.
+  installGatewayTransport(profiles.transport)
+  const profile = await profiles.pair(origin, code, { activate })
+  return profile
+}
+
+export async function pairAndInstallNativeGateway(origin: string, code: string): Promise<string> {
+  return (await pairNativeGatewayProfile(origin, code, true)).origin
 }
