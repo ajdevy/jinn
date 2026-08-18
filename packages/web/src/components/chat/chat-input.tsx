@@ -90,7 +90,7 @@ interface ChatInputProps {
   sessionId?: string | null
   disabled: boolean
   loading: boolean
-  onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean, speech?: boolean) => void | Promise<void>
+  onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean, speech?: boolean) => boolean | void | Promise<boolean | void>
   onInterrupt?: () => void
   onNewSession: () => void
   onStatusRequest: () => void
@@ -491,8 +491,8 @@ export function ChatInput({
     }
     try {
       const sending = onSend(trimmed, mediaToSend, false, speech)
-      if (sending) await sending
-      return true
+      if (typeof sending === 'boolean') return sending
+      return sending ? (await sending) !== false : true
     } finally {
       submittingRef.current = false
     }

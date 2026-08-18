@@ -11,6 +11,7 @@ let featuresState = {
 
 const apiMocks = vi.hoisted(() => ({
   updateSession: vi.fn(() => Promise.resolve({})),
+  sendMessage: vi.fn(() => Promise.resolve({})),
 }))
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
@@ -56,15 +57,22 @@ const liveSessionDefaults: LiveSessionMockState = {
 }
 
 let liveSessionState: LiveSessionMockState
+let composerOnSend: ((message: string) => Promise<boolean>) | null
+let messagesOnRetry: ((message: string) => void) | null
 
 vi.mock('@/hooks/use-live-session', () => ({
   useLiveSession: () => liveSessionState,
 }))
 
 vi.mock('@/components/chat/chat-input', () => ({
-  ChatInput: ({ selectorSlot, statusSlot }: { selectorSlot?: React.ReactNode; statusSlot?: React.ReactNode }) => (
-    <div data-testid="chat-input">{selectorSlot}{statusSlot}</div>
-  ),
+  ChatInput: ({ selectorSlot, statusSlot, onSend }: {
+    selectorSlot?: React.ReactNode
+    statusSlot?: React.ReactNode
+    onSend: (message: string) => Promise<boolean>
+  }) => {
+    composerOnSend = onSend
+    return <div data-testid="chat-input">{selectorSlot}{statusSlot}</div>
+  },
 }))
 
 vi.mock('@/components/chat/model-selector-row', () => ({
@@ -79,7 +87,10 @@ vi.mock('@/components/chat/model-selector-row', () => ({
 }))
 
 vi.mock('@/components/chat/chat-messages', () => ({
-  ChatMessages: ({ footer }: { footer?: React.ReactNode }) => <div data-testid="messages">{footer}</div>,
+  ChatMessages: ({ footer, onRetry }: { footer?: React.ReactNode; onRetry?: (message: string) => void }) => {
+    messagesOnRetry = onRetry ?? null
+    return <div data-testid="messages">{footer}</div>
+  },
 }))
 
 vi.mock('@/components/chat/chat-employee-picker', () => ({
@@ -126,7 +137,26 @@ describe('ChatPane', () => {
       staleChat: { enabled: true, tokenThreshold: 300_000, staleAfterMinutes: 60 },
     }
     apiMocks.updateSession.mockClear()
+    apiMocks.sendMessage.mockReset()
+    apiMocks.sendMessage.mockResolvedValue({})
+    composerOnSend = null
+    messagesOnRetry = null
     localStorage.clear()
+  })
+
+  it('returns failed delivery while retaining the optimistic bubble and retry path', async () => {
+    apiMocks.sendMessage.mockRejectedValueOnce(new Error('transport aborted')).mockResolvedValueOnce({})
+    renderPane()
+    const first = await composerOnSend?.('Retry this message.')
+    expect(first).toBe(false)
+    expect(liveSessionState.beginSend).toHaveBeenCalledTimes(1)
+    expect(liveSessionState.failSend).toHaveBeenCalledWith('transport aborted')
+
+    messagesOnRetry?.('Retry this message.')
+
+    await vi.waitFor(() => expect(apiMocks.sendMessage).toHaveBeenCalledTimes(2))
+    expect(liveSessionState.beginSend).toHaveBeenCalledTimes(2)
+    expect(liveSessionState.failSend).toHaveBeenCalledTimes(1)
   })
 
   it('persists existing-chat engine switching on the same session', () => {

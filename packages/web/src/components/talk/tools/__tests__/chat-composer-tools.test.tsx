@@ -109,8 +109,8 @@ function selectChat(id = "visible-session"): void {
   })
 }
 
-function renderComposer() {
-  const onSend = vi.fn()
+function renderComposer(sendResult: boolean = true) {
+  const onSend = vi.fn(async (_message: string) => sendResult)
   render(
     <ChatInput
       sessionId="visible-session"
@@ -179,9 +179,7 @@ describe("Talk driving the visible chat composer", () => {
   it("sends the text that is visibly in the composer exactly once", async () => {
     const { input, onSend } = renderComposer()
     fireEvent.change(input, { target: { value: "Ship the visible draft." } })
-
     const result = await call("talk_send_draft")
-
     expect(result.ok).toBe(true)
     expect(onSend).toHaveBeenCalledTimes(1)
     expect(onSend.mock.calls[0]?.[0]).toBe("Ship the visible draft.")
@@ -194,9 +192,7 @@ describe("Talk driving the visible chat composer", () => {
 
   it("drafts and sends once without raising another confirmation", async () => {
     const { input, onSend } = renderComposer()
-
     const result = await call("talk_draft_and_send", "Ship the four variants.")
-
     expect(result.ok).toBe(true)
     expect(onSend).toHaveBeenCalledTimes(1)
     expect(onSend.mock.calls[0]?.[0]).toBe("Ship the four variants.")
@@ -204,6 +200,17 @@ describe("Talk driving the visible chat composer", () => {
     expect(currentSituation()).toBeNull()
     expect(mocks.sendMessage).not.toHaveBeenCalled()
   })
+
+  it.each([["talk_send_draft", undefined], ["talk_draft_and_send", "Ship only after delivery."]] as const)(
+    "reports %s as failed when the composer transport fails", async (name, message) => {
+      const { input, onSend } = renderComposer(false)
+      if (name === "talk_send_draft") fireEvent.change(input, { target: { value: "Ship only after delivery." } })
+      const result = await call(name, message)
+      expect(result.ok).toBe(false)
+      expect(onSend).toHaveBeenCalledTimes(1)
+      if (result.ok) throw new Error("expected a failed delivery receipt")
+      expect(result.error).toContain("not sent")
+    })
 
   it("runs a replayed browser-local call once through the real Talk driver", async () => {
     const { onSend } = renderComposer()

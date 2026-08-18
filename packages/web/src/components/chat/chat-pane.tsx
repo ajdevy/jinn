@@ -420,13 +420,13 @@ export function ChatPane({
           await api.sendMessage(sid, { message, interrupt: interrupt || undefined, attachments: attachmentIds, mode, speech: speech || undefined })
           onRefresh?.()
         }
+        return true
       } catch (err) {
         failSend(err instanceof Error ? err.message : 'Failed to send message')
+        return false
       }
     },
-    // viewMode MUST be in deps — without it, toggling chat↔CLI keeps the stale
-    // closure value and routes CLI sends to the headless engine, which is
-    // exactly what made "the xterm shows stale content" reproducible.
+    // viewMode prevents chat↔CLI toggles from routing through a stale closure.
     [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, engineRegistry, beginSend, failSend]
   )
 
