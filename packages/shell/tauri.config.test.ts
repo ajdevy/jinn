@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -8,8 +8,10 @@ const packageJson = JSON.parse(readFileSync(resolve(here, "package.json"), "utf8
   scripts: Record<string, string>
 }
 const tauriConfig = JSON.parse(readFileSync(resolve(here, "src-tauri/tauri.conf.json"), "utf8")) as {
+  identifier: string
   build: { frontendDist: string }
   app: { windows: Array<{ label: string; url?: string }>; security: { csp: string | null } }
+  plugins: { "deep-link": { desktop: { schemes: string[] }; mobile: Array<{ scheme: string[] }> } }
 }
 const mainCapability = JSON.parse(
   readFileSync(resolve(here, "src-tauri/capabilities/main.json"), "utf8"),
@@ -21,6 +23,7 @@ const probeCapability = JSON.parse(
 describe("bundled Tauri shell", () => {
   it("is the one cross-platform shell package and builds the web bundle first", () => {
     expect(packageJson.name).toBe("@jinn/shell")
+    expect(existsSync(resolve(here, "../shell-ios"))).toBe(false)
     expect(packageJson.scripts["desktop:build"]).toMatch(/^pnpm --filter @jinn\/web build .*cargo tauri build/)
     expect(packageJson.scripts["desktop:build"]).not.toContain("JINN_SHELL_SERVER_URL")
     expect(packageJson.scripts.test).toContain("cargo test")
@@ -29,14 +32,26 @@ describe("bundled Tauri shell", () => {
   it("loads local web assets in one main window under a strict CSP", () => {
     expect(tauriConfig.build.frontendDist).toBe("../dist/web")
     expect(tauriConfig.app.windows).toEqual([])
-    const main = readFileSync(resolve(here, "src-tauri/src/main.rs"), "utf8")
-    expect(main).toContain('WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::App("index.html".into()))')
-    expect(main).toContain(".on_navigation(")
-    expect(main).toContain(".on_new_window(")
+    const library = readFileSync(resolve(here, "src-tauri/src/lib.rs"), "utf8")
+    expect(library).toContain('WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::App("index.html".into()))')
+    expect(library).toContain(".on_navigation(")
+    expect(library).toContain(".on_new_window(")
     expect(tauriConfig.app.security.csp).toEqual(expect.any(String))
     expect(tauriConfig.app.security.csp).toContain("default-src 'self'")
     expect(tauriConfig.app.security.csp).toContain("connect-src ipc: http://ipc.localhost")
     expect(tauriConfig.app.security.csp).not.toMatch(/https?:\/\/(?!ipc\.localhost)/)
+  })
+
+  it("keeps initialized iOS and Android projects behind one mobile entry point", () => {
+    const manifest = readFileSync(resolve(here, "src-tauri/Cargo.toml"), "utf8")
+    const library = readFileSync(resolve(here, "src-tauri/src/lib.rs"), "utf8")
+    expect(manifest).toContain('crate-type = ["staticlib", "cdylib", "rlib"]')
+    expect(library).toContain("#[cfg_attr(mobile, tauri::mobile_entry_point)]")
+    expect(existsSync(resolve(here, "src-tauri/gen/apple/project.yml"))).toBe(true)
+    expect(existsSync(resolve(here, "src-tauri/gen/android/settings.gradle"))).toBe(true)
+    expect(tauriConfig.identifier).toBe("run.jinn.shell")
+    expect(tauriConfig.plugins["deep-link"].desktop.schemes).toContain("jinn")
+    expect(tauriConfig.plugins["deep-link"].mobile[0]?.scheme).toContain("jinn")
   })
 
   it("keeps main and probe capabilities local, separate, and narrow", () => {
@@ -49,7 +64,7 @@ describe("bundled Tauri shell", () => {
   })
 
   it("contains no generated remote-window configuration path", () => {
-    const sources = ["package.json", "src-tauri/tauri.conf.json", "src-tauri/src/main.rs"]
+    const sources = ["package.json", "src-tauri/tauri.conf.json", "src-tauri/src/lib.rs"]
       .map((path) => readFileSync(resolve(here, path), "utf8"))
       .join("\n")
     expect(sources).not.toContain("JINN_SHELL_SERVER_URL")

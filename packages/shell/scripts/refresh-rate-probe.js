@@ -12,7 +12,7 @@
  * publishes as `window.__jinnDisplayHz` (see src-tauri/src/display.rs), and says
  * `indeterminate` whenever the two cannot be told apart.
  *
- * This is not `shell-ios/scripts/frame-probe.js`. That one asks whether a
+ * This is not `scripts/frame-probe.js`. That one asks whether a
  * WebView scrolls worse than a PWA, against a fixed 60Hz baseline, on the chat
  * transcript. Here 60Hz is the assumption under test, there is nothing to
  * compare against, and no scrolling is involved — the subject is the frame

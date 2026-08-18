@@ -11,7 +11,9 @@
     "clean": "node scripts/clean.mjs",
     "prepare:frontend": "node scripts/prepare-frontend.mjs",
     "desktop:dev": "pnpm --filter @jinn/web build && pnpm run prepare:frontend && cargo tauri dev --config src-tauri/tauri.conf.json",
-    "desktop:build": "pnpm --filter @jinn/web build && pnpm run prepare:frontend && cargo tauri build --config src-tauri/tauri.conf.json --bundles app"
+    "desktop:build": "pnpm --filter @jinn/web build && pnpm run prepare:frontend && cargo tauri build --config src-tauri/tauri.conf.json --bundles app",
+    "ios:init": "cargo tauri ios init --ci --config src-tauri/tauri.conf.json",
+    "android:init": "cargo tauri android init --ci --config src-tauri/tauri.conf.json"
   },
   "dependencies": {
     "@jinn/web": "workspace:*"

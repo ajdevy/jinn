@@ -10,10 +10,8 @@ const PACKAGE_TREES = [
   "packages/jinn/src/**/*.ts",
   "packages/web/**/*.{ts,tsx}",
   "packages/gateway-events/src/**/*.ts",
-  // The shell packages' only TypeScript is the native config at each package
-  // root; `shell-ios/ios/` is a generated Xcode project and
-  // `shell/src-tauri/` is a Rust crate, so neither carries any.
-  "packages/shell-ios/*.ts",
+  // The shell package's TypeScript stays at its package root;
+  // `shell/src-tauri/` is a Rust crate and carries none.
   "packages/shell/*.ts",
 ]
 

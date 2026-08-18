@@ -1,4 +1,3 @@
-import { createLegacyCapacitorAdapter } from "./adapters/legacy-capacitor"
 import { createFallbackAdapter } from "./adapters/fallback"
 import { createLazyTauriAdapter } from "./adapters/lazy-tauri"
 import { createBrowserEnvironment, createWebAdapter } from "./adapters/web"
@@ -10,7 +9,6 @@ function createDefaultPlatform(): Platform {
     runtime: detectRuntime(),
     adapters: [
       createWebAdapter(createBrowserEnvironment()),
-      createLegacyCapacitorAdapter(),
       createLazyTauriAdapter(),
       createFallbackAdapter(),
     ],

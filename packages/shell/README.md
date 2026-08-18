@@ -5,9 +5,11 @@ web dashboard; it never navigates the main webview to a gateway URL.
 
 ## Security boundary
 
-Gateway credentials live in the operating system credential store, scoped to
-the exact canonical origin including its port. The bundled dashboard can call
-four application commands only: `pair`, `request`, `stream`, and `forget`.
+On Apple platforms, gateway credentials live in Keychain, scoped to the exact
+canonical origin including its port. Android credential persistence is not yet
+release-verified and must not be represented as secure storage support. The
+bundled dashboard can call four application commands only: `pair`, `request`,
+`stream`, and `forget`.
 Those commands accept root-relative gateway paths, reject credential-bearing
 headers and redirects, and return no cookie or token to JavaScript.
 
@@ -27,6 +29,8 @@ Prerequisites are pnpm, Rust, and Tauri CLI 2.
 ```sh
 pnpm --filter @jinn/shell test
 pnpm --filter @jinn/shell desktop:build
+pnpm --filter @jinn/shell ios:init
+pnpm --filter @jinn/shell android:init
 ```
 
 `desktop:build` first builds `@jinn/web`, atomically stages that output with the
@@ -35,6 +39,11 @@ under `src-tauri/target/release/bundle/macos/`.
 
 Signing, notarization, store distribution, and device deployment are release
 concerns and are not implied by a successful local unsigned build.
+
+The generated Apple and Android projects are committed under `src-tauri/gen/`.
+Initialization does not prove device execution: Apple device builds still need
+a development team, while Android requires a supported JDK/SDK/NDK toolchain
+and a real credential-store backend before release.
 
 ## Retained desktop behavior
 

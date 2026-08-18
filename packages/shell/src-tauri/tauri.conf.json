@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Jinn",
   "version": "0.1.0",
-  "identifier": "run.jinn.shell.desktop",
+  "identifier": "run.jinn.shell",
   "build": {
     "frontendDist": "../dist/web"
   },
@@ -22,7 +22,13 @@
     "deep-link": {
       "desktop": {
         "schemes": ["jinn"]
-      }
+      },
+      "mobile": [
+        {
+          "scheme": ["jinn"],
+          "appLink": false
+        }
+      ]
     }
   }
 }

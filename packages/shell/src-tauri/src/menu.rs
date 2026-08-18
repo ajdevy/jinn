@@ -1,8 +1,7 @@
 //! The macOS menu bar.
 //!
-//! Tauri's default menu carries no Reload. A shell whose document is a remote
-//! gateway needs one: when the gateway restarts, the window is left on a dead
-//! page and there is no address bar to retype.
+//! Tauri's default menu carries no Reload. The bundled dashboard needs one for
+//! ordinary recovery and service-worker troubleshooting.
 
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Runtime, WebviewWindow};

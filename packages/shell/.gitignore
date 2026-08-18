@@ -1,4 +1,10 @@
-# The Rust build tree and schemas `tauri-build` regenerates on every build.
+# Rust build output and generated schemas are disposable. The Apple and Android
+# projects under `gen/` are source: Tauri mobile builds require them in a clone.
 dist/
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/schemas/
+src-tauri/gen/**/build/
+src-tauri/gen/**/.gradle/
+src-tauri/gen/**/xcuserdata/
+src-tauri/gen/**/.DS_Store
+src-tauri/gen/android/local.properties

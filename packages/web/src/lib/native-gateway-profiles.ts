@@ -1,19 +1,19 @@
 import type { JinnNativeBridge } from "@/platform/native-bridge"
 import {
   GATEWAY_SOCKET_CLOSED,
-  type GatewayProfile,
   type GatewaySocketConnection,
   type GatewayTransport,
 } from "./gateway-transport"
 import { createNativeGatewayTransport, pairNativeGateway } from "./native-gateway-transport"
+import {
+  canonicalNativeGatewayOrigin,
+  loadNativeGatewayProfiles,
+  nativeGatewayProfileId,
+  persistNativeGatewayProfiles,
+  type NativeGatewayProfile,
+} from "./native-gateway-profile-storage"
 
-const STORAGE_KEY = "jinn.native.gateway-profiles.v1"
-const LEGACY_ACTIVE_ORIGIN_KEY = "jinn.native.active-origin"
-
-export interface NativeGatewayProfile extends GatewayProfile {
-  name: string
-  deviceId: string
-}
+export type { NativeGatewayProfile } from "./native-gateway-profile-storage"
 
 export type NativeGatewayStatus = "ready" | "switching" | "unreachable"
 
@@ -26,12 +26,6 @@ export interface NativeGatewayProfilesSnapshot {
   error?: string
 }
 
-interface PersistedProfiles {
-  version: 1
-  activeId?: string
-  profiles: NativeGatewayProfile[]
-}
-
 interface NativeGatewayProfilesOptions {
   bridge: JinnNativeBridge
   storage: Storage
@@ -42,47 +36,6 @@ export class StaleGatewayGenerationError extends DOMException {
   constructor() {
     super("The gateway changed before this response arrived", "AbortError")
   }
-}
-
-function canonicalOrigin(raw: string): string {
-  const url = new URL(raw)
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Invalid native gateway origin")
-  if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
-    throw new Error("Native gateway profiles require a bare origin")
-  }
-  return url.origin
-}
-
-function profileId(origin: string): string {
-  return `native:${origin}`
-}
-
-function parseStoredProfiles(storage: Storage): PersistedProfiles {
-  try {
-    const raw = storage.getItem(STORAGE_KEY)
-    if (raw) {
-      const value = JSON.parse(raw) as Partial<PersistedProfiles>
-      if (value.version === 1 && Array.isArray(value.profiles)) {
-        const profiles = value.profiles.filter((entry): entry is NativeGatewayProfile => (
-          typeof entry?.id === "string"
-          && typeof entry.origin === "string"
-          && typeof entry.name === "string"
-          && typeof entry.deviceId === "string"
-        ))
-        const activeId = profiles.some((profile) => profile.id === value.activeId) ? value.activeId : undefined
-        return { version: 1, activeId, profiles }
-      }
-    }
-    const legacyOrigin = storage.getItem(LEGACY_ACTIVE_ORIGIN_KEY)
-    if (legacyOrigin) {
-      const origin = canonicalOrigin(legacyOrigin)
-      const profile = { id: profileId(origin), origin, name: new URL(origin).host, deviceId: "" }
-      return { version: 1, activeId: profile.id, profiles: [profile] }
-    }
-  } catch {
-    // Invalid persisted state is treated as empty; pairing can repair it.
-  }
-  return { version: 1, profiles: [] }
 }
 
 function stale(manager: NativeGatewayProfiles, generation: number): boolean {
@@ -139,7 +92,7 @@ export class NativeGatewayProfiles {
   #snapshot: NativeGatewayProfilesSnapshot
 
   constructor(private readonly options: NativeGatewayProfilesOptions) {
-    const stored = parseStoredProfiles(options.storage)
+    const stored = loadNativeGatewayProfiles(options.storage)
     this.#snapshot = {
       profiles: stored.profiles,
       activeId: stored.activeId,
@@ -158,13 +111,13 @@ export class NativeGatewayProfiles {
   }
 
   async pair(rawOrigin: string, code: string, options: { activate?: boolean } = {}): Promise<NativeGatewayProfile> {
-    const origin = canonicalOrigin(rawOrigin)
+    const origin = canonicalNativeGatewayOrigin(rawOrigin)
     const receipt = await pairNativeGateway(origin, code, this.options.bridge)
     const transport = createNativeGatewayTransport(receipt.origin, this.options.bridge)
     const state = await this.#authState(transport)
     const name = await this.#gatewayName(transport, state.instance)
     const profile: NativeGatewayProfile = {
-      id: profileId(receipt.origin),
+      id: nativeGatewayProfileId(receipt.origin),
       origin: receipt.origin,
       name,
       deviceId: receipt.device.id,
@@ -310,12 +263,10 @@ export class NativeGatewayProfiles {
   }
 
   #persist(): void {
-    this.options.storage.setItem(STORAGE_KEY, JSON.stringify({
-      version: 1,
+    persistNativeGatewayProfiles(this.options.storage, {
       activeId: this.#snapshot.activeId,
       profiles: this.#snapshot.profiles,
-    } satisfies PersistedProfiles))
-    this.options.storage.removeItem(LEGACY_ACTIVE_ORIGIN_KEY)
+    })
   }
 
   #emit(): void {
