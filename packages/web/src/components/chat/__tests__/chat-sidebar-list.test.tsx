@@ -170,6 +170,17 @@ describe('automated sessions and the Team directory', () => {
     expect(screen.queryByText('Jinn Dev')).toBeNull()
   })
 
+  it('keeps workflow runs as first-class rows in the recency buckets', () => {
+    localStorage.setItem('jinn-sidebar-focus-mode', 'focused')
+    sidebarData.sessions = [
+      OWN,
+      { id: 'wf-1', title: 'Nightly digest run', source: 'workflow', sourceRef: 'wfrun:x', employee: 'jinn-dev', lastActivity: NOW },
+    ]
+
+    renderSidebar()
+    expect(screen.getByText('Nightly digest run')).toBeTruthy()
+  })
+
   it('expands an employee group to its sessions on click', () => {
     sidebarData.sessions = [
       OWN,

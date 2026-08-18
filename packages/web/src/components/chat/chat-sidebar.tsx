@@ -1155,7 +1155,10 @@ export function ChatSidebar({
         pinnedRows.push(toRow(s))
         continue
       }
-      if (!isFocusedSession(s)) {
+      // Workflow runs are first-class rows alongside the operator's own chats
+      // (few, meaningful, badged by the indigo WorkflowSessionChip) — only
+      // delegated/automated child sessions stay grouped in the Team directory.
+      if (!isFocusedSession(s) && s.source !== "workflow") {
         hiddenAutomated += 1
         continue
       }
