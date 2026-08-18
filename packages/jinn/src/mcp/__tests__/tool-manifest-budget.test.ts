@@ -113,9 +113,19 @@ const ATTESTED = {
   // pays exactly 7 on each wrapper. So the ceiling, all three totals, and the
   // tool count are what `main` pinned; only the payload moved, so only the SHAs
   // do.
-  rpc: { tokens: 5421, sha256: "13328a2fdefd8bdcc3a33e9c673d7373159a3ae8f2b86d480b9de5d79c1f568c" },
-  pi: { tokens: 5927, sha256: "fd1ff9483bc9db32c780f90b9b6f24bf9fdf1265b17b1b50bf8d0ec658de7157" },
-  openai: { tokens: 5626, sha256: "55779bdfedd3d7d9779c27c6217b405154c581bf56a2938ec0a3f306585720fc" },
+  // Reattested for `choice` on decide_workflow_approval (PLA-133): without it an
+  // approval gate that offers variants is undecidable from MCP at all, because
+  // approving one without naming a pick is refused rather than defaulted. The
+  // bare `{"type":"string"}` costs 7 and not one word of prose. Two restatements
+  // of an enum already in the schema bought 4 of that back, the same trade
+  // `cost_report.groupBy` made: "Approve or reject" on this very tool, whose
+  // `decision` enum is `["approve","reject"]`, and "with the original or current
+  // definition" on rerun_workflow_run, whose `definition` enum is
+  // `["original","current"]`. The remaining 3 fit under the unchanged ceiling —
+  // Pi sits two below it, so the next addition still has to pay its own way.
+  rpc: { tokens: 5424, sha256: "91d3619df025c1caae8310453fab4d18d546922cf1c1c784d535420d0297541d" },
+  pi: { tokens: 5930, sha256: "a626d94d3e049c62ef5c4fb8c747235aeddeaf5886f9aef1894bd8bec79e1d6c" },
+  openai: { tokens: 5629, sha256: "968b132e47eee9c3ef06b953d90a085e72d6262407f144913f2340e8a97b12b2" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

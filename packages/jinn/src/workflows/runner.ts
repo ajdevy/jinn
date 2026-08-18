@@ -772,6 +772,7 @@ export class WorkflowRunner {
     // Silence still means stop, and takes the authored route exactly as before.
     const note = input.reason?.trim();
     const feedback = input.decision === "reject" ? note ?? "" : "";
+    const gateOutput = { text: input.choice ?? "", fields: { port: status, ...(note ? { reason: note } : {}) }, ...(input.choice !== undefined ? { choice: input.choice } : {}) };
     const revising: WorkflowError | undefined = feedback && run.trigger.todoId && this.options.todoLifecycle
       ? { code: "workflow-revision-requested", nodeId: input.nodeId, retryable: false,
           message: `Workflow approval ${input.nodeId} was rejected with feedback; the Todo goes round again.` }
@@ -790,11 +791,10 @@ export class WorkflowRunner {
         // The gate was decided, not broken — `completed` on its `rejected` port.
         // The run is `cancelled`, not `failed`: a human stopped it on purpose, and
         // a failed run would reflect `blocked` onto the very Todo being re-armed.
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: "", fields: { port: status } }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("cancelled", { cancelRequestedAt: at, endedAt: at, error: revising });
       } else if (routed) {
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: input.choice ?? "", fields: { port: status },
-          ...(input.choice !== undefined ? { choice: input.choice } : {}) }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("running");
       } else {
         tx.setNodeStatus(input.nodeId, "failed", { error: missingRoute, endedAt: at });

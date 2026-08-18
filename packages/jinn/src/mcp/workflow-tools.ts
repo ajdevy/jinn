@@ -123,18 +123,19 @@ const specs: ToolSpec[] = [
     path: (args) => `${run(args)}/cancel`, body: ({ reason }) => ({ ...(reason === undefined ? {} : { reason }) }),
   },
   {
-    name: "rerun_workflow_run", description: "Rerun with the original or current definition; may spawn real sessions.", method: "POST",
+    name: "rerun_workflow_run", description: "Rerun a Workflow run; may spawn real sessions.", method: "POST",
     properties: { workflowId: string, runId: string, definition: { type: "string", enum: ["original", "current"] }, idempotencyKey: string },
     required: ["workflowId", "runId", "definition", "idempotencyKey"], path: (args) => `${run(args)}/rerun`,
     body: ({ definition, idempotencyKey }) => ({ definition, idempotencyKey }),
   },
   {
-    name: "decide_workflow_approval", description: "Approve or reject a pending Workflow approval.", method: "POST",
+    name: "decide_workflow_approval", description: "Decide a pending Workflow approval.", method: "POST",
     properties: { workflowId: string, runId: string, nodeId: string,
-      decision: { type: "string", enum: ["approve", "reject"] }, reason: string, expectedRevision: integer },
+      decision: { type: "string", enum: ["approve", "reject"] }, reason: string, choice: string, expectedRevision: integer },
     required: ["workflowId", "runId", "nodeId", "decision", "expectedRevision"],
     path: (args) => `${run(args)}/nodes/${path(value(args, "nodeId"))}/approval`,
-    body: ({ decision, reason, expectedRevision }) => ({ decision, ...(reason === undefined ? {} : { reason }), expectedRevision }),
+    body: ({ decision, reason, choice, expectedRevision }) => ({ decision, ...(reason === undefined ? {} : { reason }),
+      ...(choice === undefined ? {} : { choice }), expectedRevision }),
   },
   {
     name: "retry_workflow_node", description: "Retry an eligible failed Workflow Employee node; may spawn real sessions.", method: "POST",

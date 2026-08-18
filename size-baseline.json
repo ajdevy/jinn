@@ -339,7 +339,7 @@
       "lines": 374
     },
     "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": {
-      "lines": 695,
+      "lines": 631,
       "exempt": [
         "max-params"
       ]
@@ -487,7 +487,7 @@
       ]
     },
     "packages/jinn/src/gateway/workflow-todo-surface.ts": {
-      "lines": 335,
+      "lines": 308,
       "exempt": [
         "complexity"
       ]
@@ -901,7 +901,7 @@
       "lines": 324
     },
     "packages/jinn/src/work-items/approvals.ts": {
-      "lines": 442,
+      "lines": 360,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1874,
+      "lines": 1807,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1955,7 +1955,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 531,
+      "lines": 485,
       "exempt": [
         "complexity",
         "max-lines-per-function"

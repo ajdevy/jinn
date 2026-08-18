@@ -187,10 +187,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "approval" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;
-    const value = record(parsed, ["decision", "reason", "expectedRevision"]);
+    const value = record(parsed, ["decision", "reason", "choice", "expectedRevision"]);
     send(res, 200, await service.decideApproval({ workflowId, runId, nodeId: parts[6]!,
-      decision: value.decision as never, expectedRevision: value.expectedRevision as number,
-      decidedBy: approvalActor(req), ...(value.reason === undefined ? {} : { reason: value.reason as string }) })); return true;
+      decision: value.decision as never, expectedRevision: value.expectedRevision as number, decidedBy: approvalActor(req),
+      ...(value.reason === undefined ? {} : { reason: value.reason as string }),
+      ...(value.choice === undefined ? {} : { choice: value.choice as string }) })); return true;
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "retry" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;
