@@ -105,4 +105,21 @@ export interface TalkControlRuntimeOptions {
     args: Record<string, unknown>,
     execution: TalkControlExecution,
   ) => Promise<TalkControlVerification>;
+  receipts?: TalkControlReceiptStore;
+  now?: () => number;
+}
+
+export interface TalkControlReceipt {
+  talkSessionId: string;
+  providerCallId: string;
+  requestFingerprint: string;
+  result: TalkControlResult;
+  createdAt: number;
+}
+
+export interface TalkControlReceiptStore {
+  get(talkSessionId: string, providerCallId: string): TalkControlReceipt | null;
+  put(receipt: TalkControlReceipt):
+    | { status: "stored" | "replayed"; receipt: TalkControlReceipt }
+    | { status: "conflict"; receipt: TalkControlReceipt };
 }

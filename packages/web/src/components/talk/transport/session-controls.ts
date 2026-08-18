@@ -18,8 +18,11 @@ export interface LiveSession {
    *  one that opened without the brief would be an orb that forgot the company
    *  on a tab switch. */
   brief: string
+  topicMemory?: string
   manifest: TalkControlManifest
   browserInstanceId: string
+  /** Gateway state, distinct from the local absence of a provider attachment. */
+  parkedAtGateway: boolean
   stopHeartbeat: () => void
 }
 
@@ -44,6 +47,7 @@ export interface SessionControls {
   attach: (id: string, token: string, brief: string, manifest: TalkControlManifest, identity: TalkCredentialIdentity) => Promise<Attachment>
   forget: (live: LiveSession) => void
   setActive: (active: boolean) => void
+  setParked: (parked: boolean) => void
   setState: (state: OrbState) => void
   setError: (message: string | null) => void
   setSetup: (setup: TalkSetupNeeded | null) => void

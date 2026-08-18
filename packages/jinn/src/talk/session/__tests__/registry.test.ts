@@ -76,7 +76,7 @@ describe("TalkSessionRegistry lifecycle", () => {
 });
 
 describe("TalkSessionRegistry reaper", () => {
-  it("closes a session that stopped heartbeating and spares one that did not", () => {
+  it("parks a live session that stopped heartbeating and spares one that did not", () => {
     const clock = clockAt();
     const registry = new TalkSessionRegistry(clock.now);
     const abandoned = registry.open({ sessionId: "row-abandoned", model: "gpt-realtime-2.1", brief: "", tokenExpiresAt: 1_700_000_600 });
@@ -88,17 +88,18 @@ describe("TalkSessionRegistry reaper", () => {
     registry.heartbeat(alive.id);
 
     expect(registry.reap()).toEqual([abandoned.id]);
-    expect(registry.get(abandoned.id)).toBeUndefined();
+    expect(registry.get(abandoned.id)?.state).toBe("parked");
     expect(registry.get(alive.id)?.state).toBe("live");
   });
 
-  it("reaps a parked session too — a closed tab stops heartbeating either way", () => {
+  it("does not reap a parked session, however long it remains parked", () => {
     const clock = clockAt();
     const registry = new TalkSessionRegistry(clock.now);
     const session = openOne(registry);
     registry.park(session.id);
     clock.advance(TALK_SESSION_TTL_MS + 1);
-    expect(registry.reap()).toEqual([session.id]);
+    expect(registry.reap()).toEqual([]);
+    expect(registry.get(session.id)?.state).toBe("parked");
   });
 });
 

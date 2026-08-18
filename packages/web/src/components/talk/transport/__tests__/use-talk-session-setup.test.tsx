@@ -10,7 +10,7 @@ const authFetch = vi.fn()
 vi.mock("@/lib/auth", () => ({ authFetch: (...args: unknown[]) => authFetch(...args) }))
 
 const { useTalkSession } = await import("../use-talk-session")
-const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
+const { clearResumableTalkSession, useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
 const { FakeConnection, connect } = await import("./fake-connection")
 
 let handle: ReturnType<typeof useTalkSession>
@@ -37,6 +37,7 @@ beforeEach(() => {
   connect.mockClear()
   FakeConnection.opened = []
   setTalkSessionId(null)
+  clearResumableTalkSession()
 })
 
 afterEach(() => {

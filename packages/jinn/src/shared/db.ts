@@ -13,6 +13,7 @@ import { migrateExperimentsSchema } from '../experiments/migrate.js';
 import { migrateHeartbeatsSchema } from '../heartbeats/migrate.js';
 import { migratePluginsSchema } from '../plugins/migrate.js';
 import { migrateTalkApprovalSchema } from '../talk/approval/schema.js';
+import { migrateTalkSessionSchema } from '../talk/session/schema.js';
 import { migrateFilesSchema } from '../sessions/migrate-files.js';
 import { CREATE_TABLE, CREATE_MESSAGES_TABLE, CREATE_MESSAGES_INDEX, CREATE_META_TABLE, CREATE_MESSAGES_ORDER_INDEX, CREATE_MESSAGES_PARTIAL_INDEX, CREATE_SESSION_KEY_INDEX, CREATE_DELEGATION_IDEMPOTENCY_INDEX, CREATE_LAST_ACTIVITY_INDEX, CREATE_PARENT_INDEX, CREATE_WORKFLOW_RUN_INDEX, CREATE_STATUS_INDEX, CREATE_WORK_ITEM_SESSION_INDEX, CREATE_QUEUE_ITEMS_TABLE, CREATE_FILES_TABLE, CREATE_CHAT_PINS_TABLE, migrateMessagesSchema, migrateFtsSchema, migrateSessionsSchema, migrateQueueItemsSchema, migrateCallbackDeliveriesSchema, runImmediateMigrationWithRetry, runSqliteBusyRetry } from '../sessions/migrate.js';
 
@@ -236,6 +237,7 @@ export function initDb(): Database.Database {
     migrateExperimentsSchema(database);
     migrateHeartbeatsSchema(database);
     migratePluginsSchema(database);
+    migrateTalkSessionSchema(database);
     migrateTalkApprovalSchema(database);
     database.exec(CREATE_WORK_ITEM_SESSION_INDEX);
     dropActivityLedgerSchema(database);

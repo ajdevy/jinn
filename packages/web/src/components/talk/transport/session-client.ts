@@ -15,6 +15,7 @@ import type { VisualCaptureReceipt } from "../context/visual-capture"
 import { parseTalkControlManifest, type TalkControlManifest } from "./control-manifest"
 import type { TalkUiEffect } from "./ui-effects"
 import { browserInstanceId } from "../context/browser-instance"
+import type { TalkScreenContext } from "../context/page-snapshot"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -34,6 +35,7 @@ export interface OpenTalkSession {
    *  alone. */
   brief: string
   manifest: TalkControlManifest
+  topicMemory?: string
 }
 
 export interface TalkToken {
@@ -41,6 +43,16 @@ export interface TalkToken {
   expiresAt: number
   browserInstanceId: string
   credentialGeneration: number
+}
+
+export interface ResumableTalkSession {
+  id: string
+  browserInstanceId: string
+  credentialGeneration: number
+  state: "live" | "parked"
+  brief: string
+  manifest: TalkControlManifest
+  topicMemory?: string
 }
 
 function sessionPath(id: string, action?: string): string {
@@ -53,6 +65,9 @@ function sessionPath(id: string, action?: string): string {
  *  which is why it is a type and not a string to match against. */
 export class VoiceUnconfiguredError extends Error {}
 
+/** A durable candidate can legitimately disappear through expiry or start-over. */
+export class TalkSessionMissingError extends Error {}
+
 /** The gateway's own words for what went wrong, because it is the only party
  *  that knows whether voice is unconfigured, the provider refused, or the
  *  session is gone. A body with nothing to say falls back to the status. */
@@ -63,11 +78,15 @@ async function failure(response: Response): Promise<Error> {
     if (body.reason === "unconfigured") {
       return new VoiceUnconfiguredError(message ?? "Voice is not available.")
     }
-    if (message) return new Error(message)
+    if (message) {
+      if (response.status === 404) return new TalkSessionMissingError(message)
+      return new Error(message)
+    }
   } catch {
     /* a body that is not JSON says nothing the status does not */
   }
-  return new Error(`The gateway answered ${response.status} for ${response.url || "the talk session"}.`)
+  const message = `The gateway answered ${response.status} for ${response.url || "the talk session"}.`
+  return response.status === 404 ? new TalkSessionMissingError(message) : new Error(message)
 }
 
 async function talkFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -101,7 +120,45 @@ export async function openTalkSession(): Promise<OpenTalkSession> {
     model: opened.model ?? "",
     brief: opened.brief ?? "",
     manifest,
+    topicMemory: typeof opened.topicMemory === "string" ? opened.topicMemory : "",
   }
+}
+
+/** Inspect a candidate without minting a credential or touching the microphone. */
+export async function getTalkSession(id: string): Promise<ResumableTalkSession> {
+  const held = await talkFetch<Partial<ResumableTalkSession>>(sessionPath(id), { method: "GET" })
+  const manifest = parseTalkControlManifest(held.manifest)
+  if (
+    held.id !== id
+    || (held.state !== "live" && held.state !== "parked")
+    || typeof held.browserInstanceId !== "string"
+    || !Number.isInteger(held.credentialGeneration)
+    || !manifest
+  ) {
+    throw new Error("The gateway returned an invalid resumable Talk session.")
+  }
+  return {
+    id,
+    browserInstanceId: held.browserInstanceId,
+    credentialGeneration: held.credentialGeneration!,
+    state: held.state,
+    brief: held.brief ?? "",
+    manifest,
+    topicMemory: typeof held.topicMemory === "string" ? held.topicMemory : "",
+  }
+}
+
+export function postTalkScreenContext(
+  id: string,
+  screen: TalkScreenContext,
+  browserId: string,
+  credentialGeneration: number,
+): Promise<void> {
+  return talkFetch(sessionPath(id, "context"), jsonBody({
+    browserInstanceId: browserId,
+    credentialGeneration,
+    screen,
+  }))
 }
 
 export interface TalkControlCall {
@@ -131,6 +188,11 @@ export interface TalkTranscriptEvidence {
   transcript: string
 }
 
+export interface TalkTurnProviderEvidence {
+  providerResponseId?: string
+  providerItemId?: string
+}
+
 export function postTalkTranscript(id: string, evidence: TalkTranscriptEvidence): Promise<void> {
   return talkFetch(sessionPath(id, "transcript"), jsonBody(evidence))
 }
@@ -146,7 +208,7 @@ export async function heartbeatTalkSession(id: string): Promise<void> {
 }
 
 export async function parkTalkSession(id: string): Promise<void> {
-  await talkFetch(sessionPath(id, "park"))
+  await talkFetch(sessionPath(id, "park"), { keepalive: true })
 }
 
 /** Resume returns a fresh credential, because the one the session was parked
@@ -162,10 +224,12 @@ export async function postTalkTurn(
   usage: TalkUsage,
   transcript: string,
   visualReceipts: readonly VisualCaptureReceipt[] = [],
+  providerEvidence: TalkTurnProviderEvidence = {},
 ): Promise<void> {
   await talkFetch(sessionPath(id, "turn"), jsonBody({
     usage,
     transcript,
+    ...providerEvidence,
     ...(visualReceipts.length ? { visualReceipts } : {}),
   }))
 }

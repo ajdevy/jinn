@@ -52,6 +52,14 @@ const GATEWAY_OPERATIONS: readonly TalkControlOperation[] = [
   gateway("talk_start_workflow_run", "Start one enabled manual Workflow run.", params({ id: string("The workflow id."), input: string("Optional JSON object input.") }, ["id"]), "workflows", { mutability: "write", verification: "workflow-run-reread" }),
   gateway("read_workflow_runs", "Read recent runs of one Workflow.", params({ id: string("The workflow id."), limit: integer("Maximum runs to return.") }, ["id"]), "workflows", { mutability: "read", verification: "workflow-runs-reread" }),
   gateway("read_workflow_run", "Read one exact Workflow run.", params({ id: string("The workflow id."), runId: string("The run id.") }, ["id", "runId"]), "workflows", { mutability: "read", verification: "workflow-run-reread" }),
+  gateway("talk_recall_topic", "Resolve a vague reference to an earlier Talk topic. Returns candidates instead of guessing when ambiguous.", params({ reference: string("The operator's reference, such as 'the first one' or 'the release workflow'.") }, ["reference"]), "memory", { mutability: "read", verification: "topic-resolution-reread" }),
+  gateway("talk_remember_topic", "Save an explicit goal, decision, or unresolved question on the current Talk topic.", params({
+    topicId: string("Optional exact topic id; omit to use the current topic."),
+    goal: string("The durable goal."),
+    decision: string("One durable decision."),
+    unresolvedQuestion: string("One open question."),
+    resolvedQuestion: string("An exact open question that is now resolved."),
+  }), "memory", { mutability: "write", verification: "topic-commitment-reread" }),
 ];
 
 const MANIFEST: TalkControlManifest = {

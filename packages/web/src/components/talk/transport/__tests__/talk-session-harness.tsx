@@ -11,12 +11,16 @@ export const authFetch: Mock = vi.fn()
 
 const { useTalkSession } = await import("../use-talk-session")
 const { useTalkSessionId, setTalkSessionId } = await import("@/components/talk/talk-session-store")
+const { clearResumableTalkSession } = await import("@/components/talk/talk-session-store")
 const { FakeConnection, connect } = await import("./fake-connection")
 const { resetPageContext } = await import("@/components/talk/context/page-context-store")
 const { browserControlFixture } = await import("./control-fixture")
+const { browserInstanceId } = await import("@/components/talk/context/browser-instance")
 
 export const OPENED = {
   id: "talk-1",
+  browserInstanceId: browserInstanceId(),
+  credentialGeneration: 1,
   token: "secret-1",
   expiresAt: 1_700_000_600,
   model: "gpt-realtime-2.1",
@@ -46,7 +50,12 @@ export function openSucceeds() {
   authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
     if (url === "/api/talk/config") return json(CONFIGURED)
     if (url === "/api/talk/sessions" && init.method === "POST") return json(OPENED, 201)
-    if (url.endsWith("/resume")) return json({ token: "secret-2", expiresAt: 1_700_001_200 })
+    if (url.endsWith("/resume")) return json({
+      token: "secret-2",
+      expiresAt: 1_700_001_200,
+      browserInstanceId: OPENED.browserInstanceId,
+      credentialGeneration: 2,
+    })
     return json({ ok: true })
   })
 }
@@ -61,5 +70,6 @@ export function resetHarness() {
   connect.mockClear()
   FakeConnection.opened = []
   setTalkSessionId(null)
+  clearResumableTalkSession()
   resetPageContext()
 }

@@ -1,9 +1,9 @@
 /**
  * The talk session's lifecycle, as React sees it.
  *
- * Nothing here runs on mount. Opening a session mints a paid provider
- * credential and asks for the microphone, so it happens on the operator's
- * gesture and on nothing else — not a mount, not a route change, not a retry.
+ * Mount may inspect a stored session with one GET, but opening or resuming
+ * mints a paid provider credential and asks for the microphone, so those happen
+ * on an operator gesture and nothing else — not mount, navigation, or visibility.
  *
  * The session itself lives in a ref rather than in state: it is an open
  * connection with a heartbeat behind it, and re-rendering must not be able to
@@ -11,24 +11,34 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import type { OrbState } from "../orb-motion"
-import { setTalkSessionId } from "../talk-session-store"
-import { detach, useAttach } from "./attachment"
+import {
+  clearResumableTalkSession,
+  readResumableTalkSession,
+  rememberResumableTalkSession,
+  setTalkSessionId,
+} from "../talk-session-store"
+import { detach, useAttach, type Attachment } from "./attachment"
 import { fetchTalkCapability } from "@/lib/talk-capability"
 import { useParkWhileHidden } from "./park-while-hidden"
 import {
   VoiceUnconfiguredError,
   closeTalkSession,
   openTalkSession,
+  parkTalkSession,
   startTalkHeartbeat,
+  type OpenTalkSession,
 } from "./session-client"
 import { reason, type LiveSession, type SessionControls, type TalkSetupNeeded } from "./session-controls"
+import { resumeHeldSession, startOverTalkRuntime, useDiscoverResumable } from "./session-recovery"
 import { connectRealtime, type ConnectRealtime } from "./webrtc-connection"
 
 export type { TalkSetupNeeded }
 
 export interface TalkSessionHandle {
-  /** Whether a session is open, which is what the orb's control reflects. */
+  /** Whether the realtime provider and microphone are currently attached. */
   active: boolean
+  /** A durable conversation is ready, but no credential or microphone is live. */
+  parked: boolean
   state: OrbState
   levelRef: RefObject<number>
   /** The last failure, in the words of whoever refused. Null once it is past. */
@@ -37,13 +47,16 @@ export interface TalkSessionHandle {
    *  configured — a gap with something to do about it, not a message. */
   setup: TalkSetupNeeded | null
   toggle: () => void
+  /** End only the old realtime runtime, then begin a separate Talk chat. */
+  startOver: () => void
 }
 
-/** Tear the session down locally, whatever the gateway makes of the DELETE. */
+/** Tear the realtime session down locally, whether it is parked or closed. */
 function useForget(
   liveRef: RefObject<LiveSession | null>,
   generationRef: RefObject<number>,
   setActive: (active: boolean) => void,
+  setParked: (parked: boolean) => void,
   setState: (state: OrbState) => void,
 ) {
   return useCallback(
@@ -54,9 +67,10 @@ function useForget(
       liveRef.current = null
       setTalkSessionId(null)
       setActive(false)
+      setParked(false)
       setState("idle")
     },
-    [liveRef, generationRef, setActive, setState],
+    [liveRef, generationRef, setActive, setParked, setState],
   )
 }
 
@@ -66,14 +80,42 @@ function useForget(
  * The two halves fail differently and both have to leave nothing behind: a
  * refused open never names a session, and a session that opened but never
  * connected is closed here rather than left for the reaper ninety seconds later.
- * A page that left while this was in flight is the same case — the session is
- * named by then, so it is closed on the way out rather than never mentioned.
+ * A page that left while this was in flight keeps the normal chat and parks the
+ * Talk runtime, so a reload can offer the same conversation again.
  *
  * It starts by asking whether voice is set up at all, because the alternative is
  * charging the operator for the answer. The gateway can still refuse the mint
  * for the same reason — the config can change between the two calls — and that
  * refusal is routed to the same place rather than shown as a message.
  */
+function installOpenedSession(controls: SessionControls, session: OpenTalkSession, attachment: Attachment): void {
+  controls.liveRef.current = {
+    id: session.id,
+    attachment,
+    brief: session.brief,
+    topicMemory: session.topicMemory,
+    manifest: session.manifest,
+    browserInstanceId: session.browserInstanceId,
+    parkedAtGateway: false,
+    stopHeartbeat: startTalkHeartbeat(session.id),
+  }
+  controls.setActive(true)
+  controls.setParked(false)
+  controls.setState("listening")
+}
+
+function reportOpenFailure(controls: SessionControls, failure: unknown, providers: string[], opened: string | null): void {
+  if (failure instanceof VoiceUnconfiguredError) controls.setSetup({ providers })
+  else controls.setError(reason(failure))
+  controls.setState("idle")
+  controls.setActive(false)
+  if (opened) {
+    clearResumableTalkSession(opened)
+    void closeTalkSession(opened).catch(() => {})
+  }
+  setTalkSessionId(null)
+}
+
 async function openSession(controls: SessionControls): Promise<void> {
   if (controls.liveRef.current || controls.openingRef.current) return
   controls.openingRef.current = true
@@ -94,32 +136,20 @@ async function openSession(controls: SessionControls): Promise<void> {
     }
     const session = await openTalkSession()
     opened = session.id
+    rememberResumableTalkSession(opened)
     setTalkSessionId(opened)
-    const identity = { browserInstanceId: session.browserInstanceId, credentialGeneration: session.credentialGeneration }
+    const identity = { browserInstanceId: session.browserInstanceId, credentialGeneration: session.credentialGeneration,
+      topicMemory: session.topicMemory }
     const attachment = await controls.attach(opened, session.token, session.brief, session.manifest, identity)
     if (generation !== controls.generationRef.current) {
       detach(attachment)
       setTalkSessionId(null)
-      void closeTalkSession(opened).catch(() => {})
+      void parkTalkSession(opened).catch(() => {})
       return
     }
-    controls.liveRef.current = {
-      id: opened,
-      attachment,
-      brief: session.brief,
-      manifest: session.manifest,
-      browserInstanceId: session.browserInstanceId,
-      stopHeartbeat: startTalkHeartbeat(opened),
-    }
-    controls.setActive(true)
-    controls.setState("listening")
+    installOpenedSession(controls, session, attachment)
   } catch (failure) {
-    if (failure instanceof VoiceUnconfiguredError) controls.setSetup({ providers })
-    else controls.setError(reason(failure))
-    controls.setState("idle")
-    controls.setActive(false)
-    if (opened) void closeTalkSession(opened).catch(() => {})
-    setTalkSessionId(null)
+    reportOpenFailure(controls, failure, providers, opened)
   } finally {
     controls.openingRef.current = false
   }
@@ -128,6 +158,7 @@ async function openSession(controls: SessionControls): Promise<void> {
 async function closeSession(controls: SessionControls): Promise<void> {
   const live = controls.liveRef.current
   if (!live) return
+  clearResumableTalkSession(live.id)
   controls.forget(live)
   try {
     await closeTalkSession(live.id)
@@ -137,9 +168,8 @@ async function closeSession(controls: SessionControls): Promise<void> {
 }
 
 /**
- * A closing tab stops heartbeating and would be reaped, but ninety seconds of a
- * paid credential outliving its page is ninety seconds too many. Unmounting the
- * surface is the same thing by a different route.
+ * A closing page hands the realtime runtime back but retains its normal chat.
+ * The candidate is scoped to this browser tab and can only resume on a gesture.
  */
 function useCloseOnLeaving(
   liveRef: RefObject<LiveSession | null>,
@@ -149,12 +179,13 @@ function useCloseOnLeaving(
   useEffect(() => {
     const onLeaving = () => {
       // Bumped even with nothing live: an open still in flight has a session
-      // named on the gateway, and `openSession` closes it once it sees this.
+      // named on the gateway, and `openSession` parks it once it sees this.
       generationRef.current += 1
       const live = liveRef.current
       if (!live) return
+      rememberResumableTalkSession(live.id)
       forget(live)
-      void closeTalkSession(live.id).catch(() => {})
+      void parkTalkSession(live.id).catch(() => {})
     }
     window.addEventListener("pagehide", onLeaving)
     window.addEventListener("beforeunload", onLeaving)
@@ -171,6 +202,7 @@ function useCloseOnLeaving(
 
 export function useTalkSession(connect: ConnectRealtime = connectRealtime): TalkSessionHandle {
   const [active, setActive] = useState(false)
+  const [parked, setParked] = useState(false)
   const [state, setState] = useState<OrbState>("idle")
   const [error, setError] = useState<string | null>(null)
   const [setup, setSetup] = useState<TalkSetupNeeded | null>(null)
@@ -179,20 +211,29 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   const openingRef = useRef(false)
   const generationRef = useRef(0)
   const attach = useAttach(connect, levelRef, setState, setError)
-  const forget = useForget(liveRef, generationRef, setActive, setState)
+  const forget = useForget(liveRef, generationRef, setActive, setParked, setState)
 
   const controls = useMemo<SessionControls>(
-    () => ({ liveRef, openingRef, generationRef, attach, forget, setActive, setState, setError, setSetup }),
+    () => ({ liveRef, openingRef, generationRef, attach, forget, setActive, setParked, setState, setError, setSetup }),
     [attach, forget],
   )
 
+  useDiscoverResumable(controls)
+
   const toggle = useCallback(() => {
-    if (liveRef.current) void closeSession(controls)
+    if (liveRef.current?.attachment) void closeSession(controls)
+    else if (liveRef.current || readResumableTalkSession()) {
+      void resumeHeldSession(controls, () => openSession(controls))
+    }
     else void openSession(controls)
+  }, [controls])
+
+  const startOver = useCallback(() => {
+    void startOverTalkRuntime(controls, () => openSession(controls))
   }, [controls])
 
   useParkWhileHidden(controls)
   useCloseOnLeaving(liveRef, generationRef, forget)
 
-  return { active, state, levelRef, error, setup, toggle }
+  return { active, parked, state, levelRef, error, setup, toggle, startOver }
 }

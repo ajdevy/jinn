@@ -3,10 +3,8 @@
  * talk-session id.
  *
  * Nothing here is bound to a socket. A session survives a page navigation
- * because the client keeps its id and re-attaches; it dies with the tab because
- * a closed tab stops heartbeating and {@link TalkSessionRegistry.reap} collects
- * it. Sessions do not survive a gateway restart, which is the same death by a
- * blunter instrument.
+ * because the client keeps its id and re-attaches. A missed heartbeat parks the
+ * provider connection without destroying the recoverable Talk history.
  */
 import { randomUUID } from "node:crypto";
 import type { RealtimeTool } from "../../shared/voice.js";
@@ -18,7 +16,14 @@ import {
   truncateTurns,
 } from "./context.js";
 import { alwaysOnTools, toolsForIntents } from "./tools.js";
-import type { TalkActionRecord, TalkSession, TalkTurnRecord, VisualCaptureReceipt } from "./types.js";
+import type {
+  TalkActionRecord,
+  TalkSession,
+  TalkSessionReadOptions,
+  TalkSessionStore,
+  TalkTurnRecord,
+  VisualCaptureReceipt,
+} from "./types.js";
 
 /** Three missed 30-second heartbeats. */
 export const TALK_SESSION_TTL_MS = 90_000;
@@ -58,12 +63,36 @@ export interface TalkTurnResult {
   handoffSuggested: boolean;
 }
 
-export class TalkSessionRegistry {
+function copySession(session: TalkSession): TalkSession {
+  return structuredClone(session);
+}
+
+class MemoryTalkSessionStore implements TalkSessionStore {
   private readonly sessions = new Map<string, TalkSession>();
+
+  get(id: string, options: TalkSessionReadOptions = {}): TalkSession | undefined {
+    const session = this.sessions.get(id);
+    return session && (options.includeClosed || session.state !== "closed") ? copySession(session) : undefined;
+  }
+
+  list(options: TalkSessionReadOptions = {}): TalkSession[] {
+    return [...this.sessions.values()]
+      .filter((session) => options.includeClosed || session.state !== "closed")
+      .map(copySession);
+  }
+
+  save(session: TalkSession): void {
+    this.sessions.set(session.id, copySession(session));
+  }
+}
+
+export class TalkSessionRegistry {
+  private readonly store: TalkSessionStore;
   private readonly now: () => number;
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, store: TalkSessionStore = new MemoryTalkSessionStore()) {
     this.now = now;
+    this.store = store;
   }
 
   open(options: OpenTalkSessionOptions): TalkSession {
@@ -86,21 +115,22 @@ export class TalkSessionRegistry {
       actions: [],
       visualReceiptKeys: [],
     };
-    this.sessions.set(session.id, session);
+    this.store.save(session);
     return session;
   }
 
   get(id: string): TalkSession | undefined {
-    return this.sessions.get(id);
+    return this.store.get(id);
   }
 
   park(id: string): TalkSession {
     const session = this.require(id);
     if (session.state === "parked") {
-      throw new TalkSessionError(409, "This talk session is already parked.");
+      throw new TalkSessionError(409, "This talk session is already parked — resume it before parking again.");
     }
     session.state = "parked";
     session.lastSeenAt = this.now();
+    this.store.save(session);
     return session;
   }
 
@@ -111,6 +141,7 @@ export class TalkSessionRegistry {
     }
     session.state = "live";
     session.lastSeenAt = this.now();
+    this.store.save(session);
     return session;
   }
 
@@ -120,11 +151,13 @@ export class TalkSessionRegistry {
     const session = this.require(id);
     session.tokenExpiresAt = expiresAt;
     session.credentialGeneration += 1;
+    this.store.save(session);
   }
 
   heartbeat(id: string): TalkSession {
     const session = this.require(id);
     session.lastSeenAt = this.now();
+    this.store.save(session);
     return session;
   }
 
@@ -155,6 +188,7 @@ export class TalkSessionRegistry {
     session.turns = truncated.turns;
     session.truncatedTurns += truncated.dropped;
     session.lastSeenAt = turn.at;
+    this.store.save(session);
     return {
       contextTokens: contextTokens(session.turns),
       truncatedTurns: session.truncatedTurns,
@@ -173,6 +207,7 @@ export class TalkSessionRegistry {
     if (session.actions.length > TALK_ACTION_LOG_LIMIT) {
       session.actions.splice(0, session.actions.length - TALK_ACTION_LOG_LIMIT);
     }
+    this.store.save(session);
     return action;
   }
 
@@ -184,27 +219,35 @@ export class TalkSessionRegistry {
     for (const intent of intents) {
       if (!session.expandedIntents.includes(intent)) session.expandedIntents.push(intent);
     }
+    this.store.save(session);
     return added;
   }
 
-  /** Idempotent: closing a session that is already gone is not an error. */
+  /** Idempotent: terminal rows remain stored for normal chat history and audit,
+   * while the public registry no longer exposes them as resumable. */
   close(id: string): void {
-    this.sessions.delete(id);
+    const session = this.store.get(id);
+    if (!session) return;
+    session.state = "closed";
+    session.lastSeenAt = this.now();
+    this.store.save(session);
   }
 
-  /** Close every session whose last heartbeat predates the TTL. Returns the ids
-   *  closed so the caller can log what it collected. */
+  /** Park every live session whose last heartbeat predates the TTL. Returns the
+   *  ids parked so the caller can release their provider connections. */
   reap(): string[] {
     const cutoff = this.now() - TALK_SESSION_TTL_MS;
-    const expired = [...this.sessions.values()]
-      .filter((session) => session.lastSeenAt < cutoff)
-      .map((session) => session.id);
-    for (const id of expired) this.sessions.delete(id);
-    return expired;
+    const expired = this.store.list()
+      .filter((session) => session.state === "live" && session.lastSeenAt < cutoff);
+    for (const session of expired) {
+      session.state = "parked";
+      this.store.save(session);
+    }
+    return expired.map((session) => session.id);
   }
 
   private require(id: string): TalkSession {
-    const session = this.sessions.get(id);
+    const session = this.store.get(id);
     if (!session) {
       throw new TalkSessionError(404, `Talk session ${id} does not exist — it was closed or never opened.`);
     }

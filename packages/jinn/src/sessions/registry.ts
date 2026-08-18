@@ -1292,17 +1292,17 @@ export function listSessionsForGroup(
   return rows.map(rowToSession);
 }
 
-/** Search across ALL sessions by title / employee / id (newest first, bounded). */
+/** Search across ALL sessions by identity, title, or settled message text. */
 export function searchSessions(query: string, limit = 100): Session[] {
   const db = initDb();
   const like = `%${query.replace(/[%_]/g, (m) => `\\${m}`)}%`;
   const rows = db
     .prepare(
       `SELECT * FROM sessions
-       WHERE title LIKE ? ESCAPE '\\' OR employee LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\'
+       WHERE title LIKE ? ESCAPE '\\' OR employee LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.id AND messages.content LIKE ? ESCAPE '\\')
        ORDER BY last_activity DESC LIMIT ?`,
     )
-    .all(like, like, like, limit) as Record<string, unknown>[];
+    .all(like, like, like, like, limit) as Record<string, unknown>[];
   return rows.map(rowToSession);
 }
 

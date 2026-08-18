@@ -3,6 +3,8 @@ import type { TalkControlRuntime } from "../talk/control/runtime.js";
 import { operationByName } from "../talk/control/manifest.js";
 import type { TalkControlManifest } from "../talk/control/types.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
+import { insertTalkMessage } from "../sessions/talk-message-store.js";
+import { updateSession } from "../sessions/registry.js";
 import { readJsonBody } from "./http-helpers.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
 
@@ -80,6 +82,29 @@ function auditVerifiedControl(
   });
 }
 
+function recordVerifiedControl(
+  sessionId: string,
+  body: ControlBody,
+  result: Awaited<ReturnType<TalkControlRuntime["dispatch"]>>,
+): void {
+  if (!result.ok) return;
+  const message = insertTalkMessage({
+    sessionId,
+    role: "assistant",
+    content: `Completed ${result.operation}.`,
+    identity: `control:${body.providerCallId}`,
+    toolCall: result.operation,
+    toolId: body.providerCallId,
+    meta: { talk: {
+      kind: "control-receipt",
+      receiptId: result.receiptId,
+      verified: true,
+      operation: result.operation,
+    } },
+  });
+  if (message.created) updateSession(sessionId, { lastActivity: new Date().toISOString() });
+}
+
 export async function handleTalkControl(
   req: IncomingMessage,
   res: ServerResponse,
@@ -100,5 +125,6 @@ export async function handleTalkControl(
   }
   const result = await options.runtime.dispatch({ talkSessionId: id, ...body, caller: options.caller });
   auditVerifiedControl(id, body, result, options);
+  if (session) recordVerifiedControl(session.sessionId, body, result);
   options.send(res, 200, result);
 }

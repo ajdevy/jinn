@@ -160,6 +160,27 @@ describe("what a turn costs", () => {
     expect(JSON.parse(String(init.body)).transcript).toBe("opening ABC-1")
   })
 
+  it("posts the provider response identity with the durable assistant turn", async () => {
+    const { driver: talk } = driver()
+
+    talk.receive(JSON.stringify({ type: "response.output_audio_transcript.done", transcript: "opening ABC-1" }))
+    talk.receive(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-1",
+        output: [{ id: "assistant-item-1", type: "message" }],
+        usage: {},
+      },
+    }))
+
+    await vi.waitFor(() => expect(turnBodies()).toHaveLength(1))
+    const [, init] = authFetch.mock.calls.find(([url]) => String(url).endsWith("/turn")) as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      providerResponseId: "response-1",
+      providerItemId: "assistant-item-1",
+    })
+  })
+
   it("does not repeat the last thing said on the next turn", async () => {
     const { driver: talk } = driver()
 

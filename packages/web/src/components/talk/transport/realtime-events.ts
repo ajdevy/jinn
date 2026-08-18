@@ -15,7 +15,7 @@ export type RealtimeFrame =
    *  its own. Until it is done, the conversation holds no room for another. */
   | { type: "turn_started" }
   /** The assistant turn finished. `usage` is the session total after it. */
-  | { type: "turn_done"; usage: TalkUsage }
+  | { type: "turn_done"; usage: TalkUsage; responseId?: string; itemId?: string }
   | { type: "transcript"; role: "assistant" | "user"; text: string; final: boolean; eventId?: string; itemId?: string }
   | { type: "item_created"; eventId: string; itemId: string; previousItemId?: string }
   /** The provider's voice-activity detector heard the operator start talking. */
@@ -76,6 +76,15 @@ type FrameReader = (event: Record<string, unknown>) => RealtimeFrame | null
 
 function identity(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
+}
+
+function responseIdentity(raw: unknown): { responseId?: string; itemId?: string } {
+  const response = raw && typeof raw === "object" ? raw as { id?: unknown; output?: unknown } : undefined
+  const output = Array.isArray(response?.output) ? response.output : []
+  const message = output.find((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "message")
+  const responseId = identity(response?.id)
+  const itemId = identity((message as { id?: unknown } | undefined)?.id)
+  return { ...(responseId ? { responseId } : {}), ...(itemId ? { itemId } : {}) }
 }
 
 /** The provider's event names, mapped to what the orb does about them. A table
@@ -154,9 +163,9 @@ export function createFrameReader(): (data: string) => RealtimeFrame | null {
     const event = parseEvent(data)
     if (!event || typeof event.type !== "string") return null
     if (event.type === "response.done") {
-      const response = (event.response as { usage?: unknown } | undefined)?.usage
-      total = addTalkUsage(total, readResponseUsage(response))
-      return { type: "turn_done", usage: total }
+      const response = event.response as { id?: unknown; usage?: unknown; output?: unknown } | undefined
+      total = addTalkUsage(total, readResponseUsage(response?.usage))
+      return { type: "turn_done", usage: total, ...responseIdentity(response) }
     }
     const read = READERS[event.type]
     return read ? read(event) : null

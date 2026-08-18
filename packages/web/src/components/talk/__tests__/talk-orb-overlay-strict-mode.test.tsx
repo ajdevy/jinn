@@ -39,7 +39,7 @@ vi.mock("../transport/webrtc-connection", async () => ({
 }))
 
 const { TalkOrbOverlay } = await import("../talk-orb-overlay")
-const { setTalkSessionId } = await import("../talk-session-store")
+const { clearResumableTalkSession, setTalkSessionId } = await import("../talk-session-store")
 const { FakeConnection, connect } = await import("../transport/__tests__/fake-connection")
 const { browserControlFixture } = await import("../transport/__tests__/control-fixture")
 
@@ -92,6 +92,7 @@ beforeEach(() => {
   connect.mockClear()
   FakeConnection.opened = []
   act(() => setTalkSessionId(null))
+  clearResumableTalkSession()
 })
 
 describe("TalkOrbOverlay under StrictMode", () => {

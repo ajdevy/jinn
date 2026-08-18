@@ -89,3 +89,15 @@ export interface TalkSession {
   /** Receipt identities already accepted, bounded with the action audit. */
   visualReceiptKeys: string[];
 }
+
+export interface TalkSessionReadOptions {
+  includeClosed?: boolean;
+}
+
+/** Storage boundary kept deliberately smaller than SQLite so tests and callers
+ * can retain the existing in-memory registry construction. */
+export interface TalkSessionStore {
+  get(id: string, options?: TalkSessionReadOptions): TalkSession | undefined;
+  list(options?: TalkSessionReadOptions): TalkSession[];
+  save(session: TalkSession): void;
+}

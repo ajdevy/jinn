@@ -118,7 +118,27 @@ export class TalkControlRuntime {
       return existing.promise.then(replayed);
     }
 
-    const promise = this.execute(input, checked.operation, checked.args);
+    const stored = this.options.receipts?.get(input.talkSessionId, input.providerCallId);
+    if (stored) {
+      return Promise.resolve(stored.requestFingerprint === digest
+        ? replayed(stored.result)
+        : failure("provider-call-conflict", "This provider call id was already used for different input."));
+    }
+
+    const promise = this.execute(input, checked.operation, checked.args).then((result) => {
+      if (!this.options.receipts) return result;
+      const receipt = this.options.receipts.put({
+        talkSessionId: input.talkSessionId,
+        providerCallId: input.providerCallId,
+        requestFingerprint: digest,
+        result,
+        createdAt: (this.options.now ?? Date.now)(),
+      });
+      if (receipt.status === "conflict") {
+        return failure("provider-call-conflict", "This provider call id was already used for different input.");
+      }
+      return receipt.status === "replayed" ? replayed(receipt.receipt.result) : result;
+    });
     this.calls.set(key, { fingerprint: digest, promise });
     return promise;
   }

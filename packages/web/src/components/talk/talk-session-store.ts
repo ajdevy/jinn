@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { browserInstanceId } from "./context/browser-instance"
 
 /**
  * Which talk session is open, for the surfaces that have to name one.
@@ -13,6 +14,31 @@ import { useSyncExternalStore } from "react"
 
 let sessionId: string | null = null
 const listeners = new Set<() => void>()
+const RESUMABLE_KEY_PREFIX = "jinn-talk-resumable:"
+
+function resumableKey(): string {
+  return `${RESUMABLE_KEY_PREFIX}${browserInstanceId()}`
+}
+
+/** Remember a conversation that can be resumed after this page is gone. */
+export function rememberResumableTalkSession(id: string): void {
+  if (typeof sessionStorage === "undefined") return
+  sessionStorage.setItem(resumableKey(), id)
+}
+
+/** The candidate belongs to this browser tab's stable identity, never another. */
+export function readResumableTalkSession(): string | null {
+  if (typeof sessionStorage === "undefined") return null
+  return sessionStorage.getItem(resumableKey())
+}
+
+/** Avoid clearing a newer candidate when an older async teardown finishes late. */
+export function clearResumableTalkSession(expectedId?: string): void {
+  if (typeof sessionStorage === "undefined") return
+  const key = resumableKey()
+  if (expectedId && sessionStorage.getItem(key) !== expectedId) return
+  sessionStorage.removeItem(key)
+}
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener)

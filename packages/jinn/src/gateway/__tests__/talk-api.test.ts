@@ -197,7 +197,7 @@ describe("park and resume", () => {
     expect(minting.calls.length).toBeGreaterThan(2); // it did try again after waiting
   });
 
-  it("rejects park on a parked session and resume on a live one with 409", async () => {
+  it("parks idempotently but rejects resume on a live session with 409", async () => {
     const id = (await open()).id as string;
 
     const resumeWhileLive = await call(config, "POST", `/api/talk/sessions/${id}/resume`);
@@ -205,8 +205,8 @@ describe("park and resume", () => {
 
     await call(config, "POST", `/api/talk/sessions/${id}/park`);
     const parkAgain = await call(config, "POST", `/api/talk/sessions/${id}/park`);
-    expect(parkAgain.status).toBe(409);
-    expect(String(parkAgain.body.error)).toMatch(/already parked/i);
+    expect(parkAgain.status).toBe(200);
+    expect(parkAgain.body.state).toBe("parked");
   });
 
   it("answers 404 rather than 500 for an unknown id", async () => {

@@ -5,8 +5,9 @@
  * session it collects is one the operator cannot come back to.
  */
 import { useEffect } from "react"
+import { rememberResumableTalkSession } from "../talk-session-store"
 import { detach } from "./attachment"
-import { parkTalkSession, resumeTalkSession } from "./session-client"
+import { parkTalkSession } from "./session-client"
 import { reason, type LiveSession, type SessionControls } from "./session-controls"
 
 export function useParkWhileHidden(controls: SessionControls): void {
@@ -15,41 +16,22 @@ export function useParkWhileHidden(controls: SessionControls): void {
       if (!live.attachment) return
       detach(live.attachment)
       live.attachment = null
+      live.parkedAtGateway = false
+      rememberResumableTalkSession(live.id)
+      controls.setActive(false)
+      controls.setParked(true)
       controls.setState("idle")
-      void parkTalkSession(live.id).catch((failure) => controls.setError(reason(failure)))
-    }
-
-    const resume = (live: LiveSession) => {
-      if (live.attachment) return
-      const generation = controls.generationRef.current
-      void resumeTalkSession(live.id)
-        .then(async (resumed) => {
-          const attachment = await controls.attach(live.id, resumed.token, live.brief, live.manifest, {
-            browserInstanceId: live.browserInstanceId,
-            credentialGeneration: resumed.credentialGeneration,
-          })
-          if (generation !== controls.generationRef.current) {
-            // Closed while this was connecting. The microphone does not come
-            // back on for a session that has already been deleted.
-            detach(attachment)
-            return
-          }
-          live.attachment = attachment
-          controls.setState("listening")
-        })
-        .catch((failure) => {
-          // The session is gone — reaped, or closed under us. Say so and stand
-          // down rather than animating an orb attached to nothing.
-          controls.setError(reason(failure))
-          controls.forget(live)
-        })
+      void parkTalkSession(live.id)
+        .then(() => { live.parkedAtGateway = true })
+        .catch((failure) => controls.setError(reason(failure)))
     }
 
     const onVisibility = () => {
       const live = controls.liveRef.current
       if (!live) return
       if (document.hidden) park(live)
-      else resume(live)
+      // Becoming visible is observational only. A fresh operator gesture is
+      // required before a credential, microphone, or provider connection returns.
     }
     document.addEventListener("visibilitychange", onVisibility)
     return () => document.removeEventListener("visibilitychange", onVisibility)

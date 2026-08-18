@@ -23,7 +23,11 @@ import {
 } from "../../work-items/store.js";
 import type { JsonValue } from "../../workflows/model.js";
 import { TalkControlRuntime } from "./runtime.js";
+import { initDb } from "../../shared/db.js";
+import { TalkTopicLifecycle } from "../topics/lifecycle.js";
+import { TalkTopicRepository } from "../topics/repository.js";
 import type {
+  TalkControlReceiptStore,
   TalkControlAdapterContext,
   TalkControlExecution,
   TalkControlManifest,
@@ -35,6 +39,7 @@ import { executeVoiceApproval } from "./voice-approval-adapter.js";
 export interface TalkControlHost {
   context: ApiContext;
   sourceSessionId: string;
+  receipts?: TalkControlReceiptStore;
 }
 
 function requiredText(args: Record<string, unknown>, key: string): string {
@@ -215,6 +220,37 @@ const readWorkflowRun: DomainHandler = (host, args) => {
   return { data: { workflowId: id, run }, uiEffect: null };
 };
 
+const recallTopic: DomainHandler = (_host, args, call) => {
+  const result = new TalkTopicLifecycle(new TalkTopicRepository(initDb())).resolve(
+    call.talkSessionId,
+    requiredText(args, "reference"),
+  );
+  if (result.status === "none") return { data: result, uiEffect: null };
+  if (result.status === "ambiguous") {
+    return { data: { ...result, candidates: result.candidates.map(({ id, label, kind }) => ({ id, label, kind })) }, uiEffect: null };
+  }
+  const route = result.topic.retrievalAnchors.find((anchor) => anchor.startsWith("route:"))?.slice(6);
+  return {
+    data: { status: result.status, reason: result.reason, confidence: result.confidence, topic: result.topic },
+    uiEffect: route ? { navigate: route } : null,
+  };
+};
+
+const rememberTopic: DomainHandler = (_host, args, call) => {
+  const fields = ["goal", "decision", "unresolvedQuestion", "resolvedQuestion"] as const;
+  if (!fields.some((field) => typeof args[field] === "string" && args[field].trim())) {
+    throw new Error("A goal, decision, unresolved question, or resolved question is required");
+  }
+  const topic = new TalkTopicLifecycle(new TalkTopicRepository(initDb())).remember(call.talkSessionId, {
+    ...(typeof args.topicId === "string" ? { topicId: args.topicId } : {}),
+    ...(typeof args.goal === "string" ? { goal: args.goal } : {}),
+    ...(typeof args.decision === "string" ? { decision: args.decision } : {}),
+    ...(typeof args.unresolvedQuestion === "string" ? { unresolvedQuestion: args.unresolvedQuestion } : {}),
+    ...(typeof args.resolvedQuestion === "string" ? { resolvedQuestion: args.resolvedQuestion } : {}),
+  });
+  return { data: { topic }, uiEffect: null };
+};
+
 const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   read_todo: readTodo,
   talk_edit_todo: editTodo,
@@ -228,6 +264,8 @@ const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   talk_start_workflow_run: startWorkflow,
   read_workflow_runs: readWorkflowRuns,
   read_workflow_run: readWorkflowRun,
+  talk_recall_topic: recallTopic,
+  talk_remember_topic: rememberTopic,
 };
 
 async function execute(host: TalkControlHost, operation: TalkControlOperation, args: Record<string, unknown>, call: TalkControlAdapterContext): Promise<TalkControlExecution> {
@@ -241,5 +279,6 @@ export function createTalkDomainRuntime(manifest: TalkControlManifest, host: Tal
     manifest,
     execute: (operation, args, call) => execute(host, operation, args, call),
     verify: (operation, args, execution) => verifyTalkDomainOperation(operation, args, execution, host.context),
+    ...(host.receipts ? { receipts: host.receipts } : {}),
   });
 }

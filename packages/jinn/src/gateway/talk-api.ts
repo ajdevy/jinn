@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { logger } from "../shared/logger.js";
+import { initDb } from "../shared/db.js";
 import type { JinnConfig, Session } from "../shared/types.js";
 import { createSession } from "../sessions/registry.js";
 import { buildTalkControlManifest } from "../talk/control/manifest.js";
@@ -20,6 +21,7 @@ import { scanOrg } from "./org.js";
 import { buildStandingBrief } from "../talk/session/brief.js";
 import { UNPINNED_MODEL } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
+import { TalkSessionRepository, TalkToolReceiptRepository } from "../talk/session/repository.js";
 import { alwaysOnTools, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { json, type ParsedRoute } from "./route-helpers.js";
@@ -29,6 +31,7 @@ import { talkSessionStatus } from "./talk-session-status.js";
 import { handleTalkConfigApi } from "./talk-config-api.js";
 import { handleTalkTtsApi } from "./talk-tts-api.js";
 import { handleTalkTranscript } from "./talk-transcript-api.js";
+import { handleTalkTopicContext } from "./talk-topic-api.js";
 import { mintTalkToken } from "./talk-token-api.js";
 import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 import type { ApiContext } from "./api.js";
@@ -43,7 +46,9 @@ export interface TalkApiOptions {
   runHandoff?: (session: Session, prompt: string) => void;
 }
 
-const talkSessions = new TalkSessionRegistry();
+const talkDatabase = initDb();
+const talkSessions = new TalkSessionRegistry(Date.now, new TalkSessionRepository(talkDatabase));
+const controlReceipts = new TalkToolReceiptRepository(talkDatabase);
 const controlRuntimes = new Map<string, TalkControlRuntime>();
 const controlManifest = buildTalkControlManifest();
 const REAP_INTERVAL_MS = 30_000;
@@ -53,7 +58,7 @@ const REAP_INTERVAL_MS = 30_000;
 setInterval(() => {
   for (const id of talkSessions.reap()) {
     controlRuntimes.delete(id);
-    logger.info(`Talk session ${id} closed: no heartbeat for ${TALK_SESSION_TTL_MS}ms`);
+    logger.info(`Talk session ${id} parked: no heartbeat for ${TALK_SESSION_TTL_MS}ms`);
   }
 }, REAP_INTERVAL_MS).unref();
 
@@ -75,6 +80,18 @@ function fail(res: ServerResponse, error: unknown): void {
  *  model the gateway cannot name is a model it cannot price. */
 function pinnedModel(config: JinnConfig): string {
   return config.realtime?.model?.trim() || UNPINNED_MODEL;
+}
+
+function runtimeFor(session: TalkSession, options: TalkApiOptions): TalkControlRuntime {
+  const existing = controlRuntimes.get(session.id);
+  if (existing) return existing;
+  const runtime = createTalkDomainRuntime(controlManifest, {
+    context: options.context,
+    sourceSessionId: session.sessionId,
+    receipts: controlReceipts,
+  });
+  controlRuntimes.set(session.id, runtime);
+  return runtime;
 }
 
 async function requestedBrowserId(req: IncomingMessage, res: ServerResponse): Promise<string | null | undefined> {
@@ -111,10 +128,7 @@ async function openRoute(req: IncomingMessage, res: ServerResponse, options: Tal
     tokenExpiresAt: token.expiresAt,
     ...(typeof requestedBrowser === "string" ? { browserInstanceId: requestedBrowser } : {}),
   });
-  controlRuntimes.set(session.id, createTalkDomainRuntime(controlManifest, {
-    context: options.context,
-    sourceSessionId: row.id,
-  }));
+  runtimeFor(session, options);
   send(res, 201, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
   return true;
 }
@@ -126,7 +140,8 @@ async function reissueToken(res: ServerResponse, config: JinnConfig, session: Ta
   const token = await mintTalkToken(res, config, tools, session.tokenExpiresAt);
   if (!token) return;
   talkSessions.recordToken(session.id, token.expiresAt);
-  send(res, 200, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
+  const current = talkSessions.get(session.id)!;
+  send(res, 200, { ...talkSessionStatus(current, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
 }
 
 async function recordSessionEvidence(
@@ -141,6 +156,10 @@ async function recordSessionEvidence(
   }
   if (action === "transcript") {
     await handleTalkTranscript(req, res, talkSessions.heartbeat(id), { send });
+    return true;
+  }
+  if (action === "context") {
+    await handleTalkTopicContext(req, res, talkSessions.heartbeat(id), { send });
     return true;
   }
   return false;
@@ -164,6 +183,14 @@ function sessionResource(res: ServerResponse, id: string, method: string): boole
   return true;
 }
 
+/** Page lifecycle delivery is best-effort and may replay while an earlier
+ * keepalive request settles. The HTTP edge is idempotent; the registry keeps
+ * its strict transition contract for all other callers. */
+function parkTransportSession(id: string): TalkSession {
+  const current = talkSessions.get(id);
+  return current?.state === "parked" ? current : talkSessions.park(id);
+}
+
 /** `/api/talk/sessions/:id/<action>`. Every branch resolves the session through
  *  the registry, which raises a typed 404 of its own when the id is unknown. */
 async function sessionAction(
@@ -176,11 +203,14 @@ async function sessionAction(
   if (await recordSessionEvidence(req, res, id, action)) return true;
   switch (action) {
     case "park":
-      send(res, 200, talkSessionStatus(talkSessions.park(id), controlManifest));
+      send(res, 200, talkSessionStatus(parkTransportSession(id), controlManifest));
       return true;
-    case "resume":
-      await reissueToken(res, options.getConfig(), talkSessions.resume(id));
+    case "resume": {
+      const session = talkSessions.resume(id);
+      runtimeFor(session, options);
+      await reissueToken(res, options.getConfig(), session);
       return true;
+    }
     case "token":
       await reissueToken(res, options.getConfig(), talkSessions.heartbeat(id));
       return true;
@@ -198,7 +228,7 @@ async function sessionAction(
         caller: options.caller,
         manifest: controlManifest,
         registry: talkSessions,
-        runtime: controlRuntimes.get(id),
+        runtime: runtimeFor(talkSessions.heartbeat(id), options),
         send,
       });
       return true;

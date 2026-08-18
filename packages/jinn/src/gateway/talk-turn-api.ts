@@ -11,13 +11,14 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { JinnConfig, Session } from "../shared/types.js";
 import type { RealtimeUsage } from "../shared/voice.js";
-import { createSession, getSessionSpend, insertMessage, recordTurnAccounting } from "../sessions/registry.js";
+import { createSession, insertMessage } from "../sessions/registry.js";
 import { priceTurn } from "../talk/session/pricing.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { TALK_TOOL_INTENTS, estimateToolTokens, isKnownIntent, toolsByName } from "../talk/session/tools.js";
 import type { TalkActionRecord, TalkSession, VisualCaptureReceipt } from "../talk/session/types.js";
 import { readJsonBody } from "./http-helpers.js";
 import { json } from "./route-helpers.js";
+import { persistTalkTurn } from "./talk-turn-recording.js";
 
 type JsonRequest = Parameters<typeof readJsonBody>[0];
 
@@ -87,6 +88,21 @@ function visualReceipts(value: unknown): VisualCaptureReceipt[] | null {
   return receipts.includes(null) ? null : receipts as VisualCaptureReceipt[]
 }
 
+function providerIdentityProblem(body: { providerResponseId?: unknown; providerItemId?: unknown }): string | null {
+  if (body.providerResponseId !== undefined && !boundedLabel(body.providerResponseId, 200)) return "providerResponseId";
+  if (body.providerItemId !== undefined && !boundedLabel(body.providerItemId, 200)) return "providerItemId";
+  return null;
+}
+
+function providerIdentities(body: { providerResponseId?: unknown; providerItemId?: unknown }): {
+  providerResponseId?: string; providerItemId?: string;
+} {
+  const result: { providerResponseId?: string; providerItemId?: string } = {};
+  if (typeof body.providerResponseId === "string") result.providerResponseId = body.providerResponseId;
+  if (typeof body.providerItemId === "string") result.providerItemId = body.providerItemId;
+  return result;
+}
+
 /**
  * `usage` is this turn's delta, not a session-to-date total: the provider's
  * `turn_done` event reports the running total, so the client subtracts before
@@ -101,7 +117,7 @@ export async function recordTurn(
 ): Promise<void> {
   const parsed = await readJsonBody(req as JsonRequest, res);
   if (!parsed.ok) return;
-  const body = (parsed.body ?? {}) as { usage?: unknown; transcript?: unknown; visualReceipts?: unknown };
+  const body = (parsed.body ?? {}) as { usage?: unknown; transcript?: unknown; visualReceipts?: unknown; providerResponseId?: unknown; providerItemId?: unknown };
   const usage = numericUsage(body.usage);
   const receipts = visualReceipts(body.visualReceipts);
   if (!usage) {
@@ -116,14 +132,25 @@ export async function recordTurn(
     send(res, 400, { error: "visualReceipts must contain only bounded public capture metadata." });
     return;
   }
+  const identityProblem = providerIdentityProblem(body);
+  if (identityProblem) {
+    send(res, 400, { error: `${identityProblem} must be a bounded string when present.` });
+    return;
+  }
   const priced = priceTurn(session.model, usage);
-  recordTurnAccounting(session.sessionId, { cost: priced.costUsd, numTurns: 1 });
-  const turn = registry.appendTurn(session.id, body.transcript ?? "", undefined, receipts);
+  const turn = persistTalkTurn({
+    session,
+    registry,
+    usage,
+    transcript: body.transcript ?? "",
+    visualReceipts: receipts,
+    ...providerIdentities(body),
+    costUsd: priced.costUsd,
+  });
   send(res, 200, {
     ...turn,
     costUsd: priced.costUsd,
     pricingKnown: priced.pricingKnown,
-    spendUsd: getSessionSpend([session.sessionId]),
   });
 }
 

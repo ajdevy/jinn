@@ -163,6 +163,17 @@ describe("createFrameReader", () => {
     expect(frame({ type: "response.done", response: {} })).toMatchObject({ type: "turn_done" })
   })
 
+  it("preserves the provider response and output item identities at turn completion", () => {
+    expect(frame({
+      type: "response.done",
+      response: { id: "response-1", output: [{ id: "assistant-item-1", type: "message" }] },
+    })).toMatchObject({
+      type: "turn_done",
+      responseId: "response-1",
+      itemId: "assistant-item-1",
+    })
+  })
+
   it("reads the two ends of a spoken turn", () => {
     expect(frame({ type: "input_audio_buffer.speech_started" })).toEqual({ type: "speech_started" })
     expect(frame({ type: "input_audio_buffer.speech_stopped" })).toEqual({ type: "speech_stopped" })

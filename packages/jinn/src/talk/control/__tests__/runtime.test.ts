@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildTalkControlManifest } from "../manifest.js";
 import { TalkControlRuntime } from "../runtime.js";
+import type { TalkControlReceipt, TalkControlReceiptStore } from "../types.js";
 
 function call(overrides: Record<string, unknown> = {}) {
   return {
@@ -15,6 +16,30 @@ function call(overrides: Record<string, unknown> = {}) {
 }
 
 describe("TalkControlRuntime", () => {
+  it("replays a durable verified receipt after the runtime is rebuilt", async () => {
+    const held = new Map<string, TalkControlReceipt>();
+    const receipts: TalkControlReceiptStore = {
+      get: (sessionId, callId) => held.get(`${sessionId}:${callId}`) ?? null,
+      put: (receipt) => {
+        const key = `${receipt.talkSessionId}:${receipt.providerCallId}`;
+        const existing = held.get(key);
+        if (existing) return {
+          status: existing.requestFingerprint === receipt.requestFingerprint ? "replayed" as const : "conflict" as const,
+          receipt: existing,
+        };
+        held.set(key, receipt);
+        return { status: "stored" as const, receipt };
+      },
+    };
+    const execute = vi.fn(async () => ({ data: { commentId: "wic_1" }, uiEffect: null }));
+    const options = { manifest: buildTalkControlManifest(), execute, verify: async () => ({ ok: true, evidence: {} }), receipts };
+    const first = await new TalkControlRuntime(options).dispatch(call());
+    const afterRestart = await new TalkControlRuntime(options).dispatch(call());
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(afterRestart).toEqual({ ...first, replayed: true });
+  });
+
   it("makes concurrent provider replays await one verified receipt", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });

@@ -7,6 +7,7 @@ import {
   CONFIGURED,
   handle,
   json,
+  OPENED,
   openSucceeds,
   Probe,
   resetHarness,
@@ -19,6 +20,10 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 
 const { HEARTBEAT_INTERVAL_MS } = await import("../session-client")
 const { FakeConnection, connect, holdNextConnect } = await import("./fake-connection")
+const {
+  readResumableTalkSession,
+  rememberResumableTalkSession,
+} = await import("@/components/talk/talk-session-store")
 
 beforeEach(resetHarness)
 
@@ -37,6 +42,78 @@ describe("mounting", () => {
     expect(getByTestId("open-session").textContent).toBe("none")
     expect(handle.active).toBe(false)
   })
+
+  it("discovers and advertises a parked candidate without minting, connecting, or asking for capability", async () => {
+    rememberResumableTalkSession("talk-1")
+    authFetch.mockResolvedValue(json({
+      ...OPENED,
+      state: "parked",
+      token: undefined,
+      brief: "remember this decision",
+    }))
+
+    const { getByTestId } = render(<Probe />)
+
+    await waitFor(() => expect(getByTestId("open-session").textContent).toBe("talk-1"))
+    expect(authFetch).toHaveBeenCalledTimes(1)
+    expect(authFetch.mock.calls[0]![0]).toBe("/api/talk/sessions/talk-1")
+    expect((authFetch.mock.calls[0]![1] as RequestInit).method).toBe("GET")
+    expect(calls("/api/talk/config")).toHaveLength(0)
+    expect(calls("/resume")).toHaveLength(0)
+    expect(connect).not.toHaveBeenCalled()
+    expect(handle.active).toBe(false)
+    expect(handle.parked).toBe(true)
+  })
+})
+
+describe("cold recovery", () => {
+  function parkedStatus() {
+    return json({ ...OPENED, state: "parked", token: undefined, brief: "remember this decision" })
+  }
+
+  it("resumes the old session only after a fresh orb press", async () => {
+    rememberResumableTalkSession("talk-1")
+    authFetch.mockImplementation(async (url: string) => {
+      if (url === "/api/talk/sessions/talk-1") return parkedStatus()
+      if (url.endsWith("/resume")) return json({
+        token: "secret-2",
+        expiresAt: 1_700_001_200,
+        browserInstanceId: OPENED.browserInstanceId,
+        credentialGeneration: 2,
+      })
+      return json({ ok: true })
+    })
+    render(<Probe />)
+    await waitFor(() => expect(handle.parked).toBe(true))
+
+    await act(async () => handle.toggle())
+
+    await waitFor(() => expect(handle.active).toBe(true))
+    expect(calls("/park")).toHaveLength(0)
+    expect(calls("/resume")).toHaveLength(1)
+    expect(calls("/api/talk/config")).toHaveLength(0)
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect(FakeConnection.opened[0]!.token).toBe("secret-2")
+  })
+
+  it("clears a missing candidate and opens a new session on the next press", async () => {
+    rememberResumableTalkSession("talk-stale")
+    authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (url === "/api/talk/sessions/talk-stale") return json({ error: "gone" }, 404)
+      if (url === "/api/talk/config") return json(CONFIGURED)
+      if (url === "/api/talk/sessions" && init.method === "POST") return json(OPENED, 201)
+      return json({ ok: true })
+    })
+    render(<Probe />)
+    await waitFor(() => expect(readResumableTalkSession()).toBeNull())
+
+    await act(async () => handle.toggle())
+
+    await waitFor(() => expect(handle.active).toBe(true))
+    expect(calls("/api/talk/config")).toHaveLength(1)
+    expect(calls("/api/talk/sessions")).toHaveLength(1)
+    expect(readResumableTalkSession()).toBe("talk-1")
+  })
 })
 
 describe("activating and deactivating", () => {
@@ -50,6 +127,7 @@ describe("activating and deactivating", () => {
     expect(getByTestId("open-session").textContent).toBe("talk-1")
     expect(connect).toHaveBeenCalledTimes(1)
     expect(connect.mock.calls[0]![0].token).toBe("secret-1")
+    expect(readResumableTalkSession()).toBe("talk-1")
   })
 
   it("does not open a second session while the first is still opening", async () => {
@@ -76,6 +154,31 @@ describe("activating and deactivating", () => {
     const closed = authFetch.mock.calls.find(([, init]) => (init as RequestInit)?.method === "DELETE")
     expect(closed![0]).toBe("/api/talk/sessions/talk-1")
     expect(getByTestId("open-session").textContent).toBe("none")
+    expect(FakeConnection.opened[0]!.closes).toBe(1)
+    expect(readResumableTalkSession()).toBeNull()
+  })
+
+  it("starts over through a fresh Talk runtime while leaving the old normal chat alone", async () => {
+    let opens = 0
+    authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (url === "/api/talk/config") return json(CONFIGURED)
+      if (url === "/api/talk/sessions" && init.method === "POST") {
+        opens += 1
+        return json({ ...OPENED, id: `talk-${opens}`, token: `secret-${opens}` }, 201)
+      }
+      return json({ ok: true })
+    })
+    render(<Probe />)
+    await activate()
+
+    await act(async () => handle.startOver())
+
+    await waitFor(() => expect(handle.active).toBe(true))
+    expect(authFetch.mock.calls.filter(([, init]) => (init as RequestInit)?.method === "DELETE")[0]![0])
+      .toBe("/api/talk/sessions/talk-1")
+    expect(authFetch.mock.calls.some(([url]) => String(url).startsWith("/api/sessions/"))).toBe(false)
+    expect(calls("/api/talk/sessions")).toHaveLength(2)
+    expect(readResumableTalkSession()).toBe("talk-2")
     expect(FakeConnection.opened[0]!.closes).toBe(1)
   })
 
@@ -151,7 +254,7 @@ describe("the heartbeat", () => {
 })
 
 describe("the page going away", () => {
-  it("closes the session when the page goes away", async () => {
+  it("detaches and parks the session when the page goes away without deleting history", async () => {
     openSucceeds()
     render(<Probe />)
     await activate()
@@ -160,13 +263,13 @@ describe("the page going away", () => {
       window.dispatchEvent(new Event("pagehide"))
     })
 
-    await waitFor(() =>
-      expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true),
-    )
+    await waitFor(() => expect(calls("/park")).toHaveLength(1))
+    expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(false)
     expect(FakeConnection.opened[0]!.closes).toBe(1)
+    expect(readResumableTalkSession()).toBe("talk-1")
   })
 
-  it("closes a session whose page left while it was still connecting", async () => {
+  it("parks a session whose page left while it was still connecting", async () => {
     openSucceeds()
     const finishConnecting = holdNextConnect()
     const { getByTestId } = render(<Probe />)
@@ -176,12 +279,12 @@ describe("the page going away", () => {
     await act(async () => window.dispatchEvent(new Event("pagehide")))
     await act(async () => finishConnecting())
 
-    await waitFor(() =>
-      expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(true),
-    )
+    await waitFor(() => expect(calls("/park")).toHaveLength(1))
+    expect(authFetch.mock.calls.some(([, init]) => (init as RequestInit)?.method === "DELETE")).toBe(false)
     expect(FakeConnection.opened[0]!.closes).toBe(1)
     expect(calls("/heartbeat")).toHaveLength(0)
     expect(handle.active).toBe(false)
     expect(getByTestId("open-session").textContent).toBe("none")
+    expect(readResumableTalkSession()).toBe("talk-1")
   })
 })

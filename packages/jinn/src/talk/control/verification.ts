@@ -3,6 +3,8 @@ import type { WorkflowService } from "../../workflows/service.js";
 import { listComments } from "../../work-items/comments.js";
 import { getWorkItem } from "../../work-items/store.js";
 import { currentApproval } from "../../work-items/approval-rows.js";
+import { initDb } from "../../shared/db.js";
+import { TalkTopicRepository } from "../topics/repository.js";
 import type { TalkControlExecution, TalkControlOperation, TalkControlVerification } from "./types.js";
 
 interface VerificationHost {
@@ -99,6 +101,17 @@ const verifyWorkflowRuns: VerifyHandler = (args, _execution, host) => {
   return { ok: !!page, evidence: { workflowId: id, count: page?.items.length ?? 0 } };
 };
 
+const verifyTopicResolution: VerifyHandler = (_args, execution) => ({
+  ok: ["resolved", "ambiguous", "none"].includes(String(execution.data.status)),
+  evidence: { status: execution.data.status, topicId: (execution.data.topic as { id?: unknown } | undefined)?.id },
+});
+
+const verifyTopicCommitment: VerifyHandler = (_args, execution) => {
+  const topicId = String((execution.data.topic as { id?: unknown } | undefined)?.id ?? "");
+  const topic = new TalkTopicRepository(initDb()).get(topicId);
+  return { ok: !!topic, evidence: topic ? { topicId: topic.id, revision: topic.revision } : {} };
+};
+
 const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   read_todo: verifyTodo,
   talk_edit_todo: verifyEdit,
@@ -112,6 +125,8 @@ const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   talk_start_workflow_run: verifyWorkflowRun,
   read_workflow_run: verifyWorkflowRun,
   read_workflow_runs: verifyWorkflowRuns,
+  talk_recall_topic: verifyTopicResolution,
+  talk_remember_topic: verifyTopicCommitment,
 };
 
 export async function verifyTalkDomainOperation(

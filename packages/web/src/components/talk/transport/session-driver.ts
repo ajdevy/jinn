@@ -14,12 +14,13 @@ import { visibleObjects } from "../context/visible-objects"
 import type { OrbState } from "../orb-motion"
 import { persistOperatorTranscript, type OperatorTranscriptEvidence } from "./operator-transcript-evidence"
 import { createFrameReader, type RealtimeFrame } from "./realtime-events"
-import { postTalkTurn } from "./session-client"
+import { postTalkScreenContext } from "./session-client"
 import { emptyTalkUsage, usageDelta, type TalkUsage } from "./usage-delta"
 import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
 import { functionTools, type TalkControlManifest } from "./control-manifest"
 import type { TalkUiEffect } from "./ui-effects"
 import { executeTalkTool } from "./tool-call-executor"
+import { recordSettledTurn } from "./turn-recorder"
 
 /**
  * How long the page has to settle before the orb is told about it. Typing in the
@@ -27,7 +28,6 @@ import { executeTalkTool } from "./tool-call-executor"
  * keystroke would be a `session.update` per keystroke.
  */
 export const PAGE_CONTEXT_DEBOUNCE_MS = 400
-
 export interface TalkDriverOptions {
   sessionId: string
   browserInstanceId?: string
@@ -36,6 +36,7 @@ export interface TalkDriverOptions {
    *  — the company, its conventions, and who works here. Absent on a session
    *  opened against a gateway that does not send one. */
   brief?: string
+  topicMemory?: string
   manifest: TalkControlManifest
   /** Send one client event over the `oai-events` data channel. */
   send: (event: Record<string, unknown>) => void
@@ -55,7 +56,6 @@ export interface TalkDriver {
    *  driver that outlived its channel would keep pushing context at nothing. */
   stop: () => void
 }
-
 /**
  * The provider receives the gateway-issued manifest projected into ordinary
  * function declarations. Target metadata stays in the driver and decides
@@ -92,7 +92,6 @@ interface DriverState {
   visualReceipts: VisualCaptureReceipt[]
   visualCapture: ReturnType<typeof createVisualCapture>
 }
-
 /**
  * Declare the session: the tool catalog, what this instance is, and where the
  * operator is.
@@ -110,12 +109,17 @@ function sendSessionConfig(driver: DriverState): void {
   const page = getPageContext()
   const context = renderPageContext(page, visibleObjects(page), describeInstance())
   const brief = driver.options.brief
+  const memory = driver.options.topicMemory ? `Talk topic memory: ${driver.options.topicMemory}` : ""
+  if (driver.options.browserInstanceId && driver.options.credentialGeneration) {
+    void postTalkScreenContext(driver.options.sessionId, page, driver.options.browserInstanceId,
+      driver.options.credentialGeneration).catch(() => {})
+  }
   driver.options.send({
     type: "session.update",
     session: {
       type: "realtime",
       tools: functionTools(driver.options.manifest),
-      instructions: brief ? `${brief}\n\n${context}` : context,
+      instructions: [brief, memory, context].filter(Boolean).join("\n\n"),
     },
   })
 }
@@ -136,7 +140,6 @@ function show(driver: DriverState, next: OrbState): void {
   driver.state = next
   driver.options.onState(next)
 }
-
 /**
  * Ask the assistant to speak, once the tool outputs are on the conversation.
  *
@@ -194,17 +197,16 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
 }
 
 /** Price the turn and clear what was said, so the next turn cannot re-post it. */
-function finishTurn(driver: DriverState, total: TalkUsage): void {
+function finishTurn(driver: DriverState, frame: Extract<RealtimeFrame, { type: "turn_done" }>): void {
+  const total = frame.usage
   const delta = usageDelta(driver.billed, total)
   driver.billed = total
   const transcript = driver.said
   const visualReceipts = driver.visualReceipts.splice(0)
   driver.said = ""
   show(driver, "listening")
-  void postTalkTurn(driver.options.sessionId, delta, transcript, visualReceipts).catch(() => {
-    // Accounting must not interrupt a conversation. An unposted turn
-    // under-reports spend; a thrown one would drop the rest of the exchange.
-  })
+  recordSettledTurn({ sessionId: driver.options.sessionId, usage: delta, transcript, visualReceipts, frame,
+    after: driver.lastUserEvidence?.persisted })
 }
 
 /**
@@ -214,9 +216,9 @@ function finishTurn(driver: DriverState, total: TalkUsage): void {
  * answer, so it is the one that asks — asking here as well would put a second
  * `response.create` on the same utterance, which is the duplicate reply.
  */
-function endResponse(driver: DriverState, total: TalkUsage): void {
+function endResponse(driver: DriverState, frame: Extract<RealtimeFrame, { type: "turn_done" }>): void {
   driver.responding = false
-  finishTurn(driver, total)
+  finishTurn(driver, frame)
   if (driver.owed && driver.outstanding === 0) requestResponse(driver)
 }
 
@@ -242,7 +244,7 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
       driver.owed = false
       return
     case "turn_done":
-      endResponse(driver, frame.usage)
+      endResponse(driver, frame)
       return
     case "transcript":
       handleTranscript(driver, frame)

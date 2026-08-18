@@ -8,8 +8,10 @@ vi.mock("@/lib/auth", () => ({
 
 const {
   HEARTBEAT_INTERVAL_MS,
+  TalkSessionMissingError,
   VoiceUnconfiguredError,
   closeTalkSession,
+  getTalkSession,
   openTalkSession,
   parkTalkSession,
   postTalkControlCall,
@@ -93,6 +95,30 @@ describe("opening a session", () => {
 })
 
 describe("the rest of the lifecycle", () => {
+  it("discovers a resumable session with a read that cannot mint a credential", async () => {
+    authFetch.mockResolvedValue(json({
+      id: "talk-1",
+      state: "parked",
+      browserInstanceId: "browser-1",
+      credentialGeneration: 4,
+      brief: "standing brief",
+      manifest: MANIFEST,
+    }))
+
+    const session = await getTalkSession("talk-1")
+
+    expect(session).toMatchObject({ id: "talk-1", state: "parked", credentialGeneration: 4 })
+    const [url, init] = authFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("/api/talk/sessions/talk-1")
+    expect(init.method).toBe("GET")
+  })
+
+  it("names a missing resumable candidate so the caller can fall back safely", async () => {
+    authFetch.mockResolvedValue(json({ error: "Talk session talk-1 does not exist" }, 404))
+
+    await expect(getTalkSession("talk-1")).rejects.toThrow(TalkSessionMissingError)
+  })
+
   it("posts one provider call to the session's universal control route", async () => {
     authFetch.mockResolvedValue(json({ ok: true, verified: true, operation: "read_todo", data: {}, evidence: {}, uiEffect: null }))
 
@@ -133,6 +159,7 @@ describe("the rest of the lifecycle", () => {
     const resumed = await resumeTalkSession("talk-1")
 
     expect(authFetch.mock.calls[0]![0]).toBe("/api/talk/sessions/talk-1/park")
+    expect((authFetch.mock.calls[0]![1] as RequestInit).keepalive).toBe(true)
     expect(authFetch.mock.calls[1]![0]).toBe("/api/talk/sessions/talk-1/resume")
     expect(resumed).toEqual({ token: "second-secret", expiresAt: 1_700_001_200 })
   })
@@ -167,6 +194,22 @@ describe("the rest of the lifecycle", () => {
 
     const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toMatchObject({ visualReceipts: [receipt] })
+  })
+
+  it("posts provider response evidence for durable assistant-message dedupe", async () => {
+    authFetch.mockResolvedValue(json({ spendUsd: 0.02 }))
+
+    await postTalkTurn("talk-1", emptyTalkUsage(), "Done.", [], {
+      providerResponseId: "response-1",
+      providerItemId: "assistant-item-1",
+    })
+
+    const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      transcript: "Done.",
+      providerResponseId: "response-1",
+      providerItemId: "assistant-item-1",
+    })
   })
 
   it("escapes an id rather than letting it shape the path", async () => {

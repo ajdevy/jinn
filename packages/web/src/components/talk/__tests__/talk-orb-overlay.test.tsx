@@ -2,7 +2,7 @@ import { act, render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DEFAULTS, type JinnSettings } from "@/lib/settings"
 import { TalkOrbOverlay } from "../talk-orb-overlay"
-import { setTalkSessionId } from "../talk-session-store"
+import { clearResumableTalkSession, setTalkSessionId } from "../talk-session-store"
 
 /** Counts module evaluations, so "the chunk is not fetched" is an assertion
  *  rather than a hope: the factory only runs when the lazy import resolves. */
@@ -33,6 +33,7 @@ afterEach(() => {
   orb.loads = 0
   bindTalkActionLog.mockClear()
   act(() => setTalkSessionId(null))
+  clearResumableTalkSession()
 })
 
 describe("TalkOrbOverlay", () => {

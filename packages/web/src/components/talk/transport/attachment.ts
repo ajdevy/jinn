@@ -20,6 +20,7 @@ export interface Attachment {
 export interface TalkCredentialIdentity {
   browserInstanceId: string
   credentialGeneration: number
+  topicMemory?: string
 }
 
 /** Drop both halves. Called wherever the connection goes: close, park, page
@@ -57,6 +58,7 @@ export function useAttach(
         browserInstanceId: identity.browserInstanceId,
         credentialGeneration: identity.credentialGeneration,
         brief,
+        topicMemory: identity.topicMemory,
         manifest,
         send: (event) => connection?.send(event),
         onState: setState,
