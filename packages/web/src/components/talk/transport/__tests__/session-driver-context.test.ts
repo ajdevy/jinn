@@ -115,7 +115,8 @@ describe("following the operator around the app", () => {
     vi.advanceTimersByTime(PAGE_CONTEXT_DEBOUNCE_MS)
 
     expect(updates(connection)).toHaveLength(2)
-    expect(instructionsOf(updates(connection)[1]!)).toContain("sess-4821")
+    expect(instructionsOf(updates(connection)[1]!)).toContain("Selected: chat current")
+    expect(instructionsOf(updates(connection)[1]!)).not.toContain("sess-4821")
   })
 
   it("says nothing when the location is republished unchanged", () => {
