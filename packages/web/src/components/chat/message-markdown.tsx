@@ -237,7 +237,12 @@ function TableBlock({ headerLine, rows, keyProp }: { headerLine: string; rows: s
   )
 }
 
-export function formatMessage(content: string): React.ReactNode {
+/** `tightLines` renders USER bubbles: a single Enter is a line break (no
+ *  per-line margin — line-height alone separates lines, as in iMessage and
+ *  Claude), and a blank line is the paragraph gap. Assistant markdown keeps the
+ *  default rhythm: 8px paragraph margin + 6px blank-line spacer. */
+export function formatMessage(content: string, opts?: { tightLines?: boolean }): React.ReactNode {
+  const tight = opts?.tightLines === true
   if (!content) return null
   const lines = content.split('\n')
   const result: React.ReactNode[] = []
@@ -294,7 +299,7 @@ export function formatMessage(content: string): React.ReactNode {
       continue
     }
 
-    if (line.trim() === '') { result.push(<div key={`space-${i}`} className="h-1.5" />); continue }
+    if (line.trim() === '') { result.push(<div key={`space-${i}`} className={tight ? "h-2" : "h-1.5"} />); continue }
     if (line.match(/^[-*] /)) {
       result.push(
         <div key={i} className="flex gap-[var(--space-2)] mb-1">
@@ -338,7 +343,9 @@ export function formatMessage(content: string): React.ReactNode {
       )
       continue
     }
-    result.push(<div key={i} className="mb-[var(--space-2)] last:mb-0">{inlineFormat(line)}</div>)
+    result.push(
+      <div key={i} className={tight ? undefined : "mb-[var(--space-2)] last:mb-0"}>{inlineFormat(line)}</div>
+    )
   }
 
   // Close unclosed code block

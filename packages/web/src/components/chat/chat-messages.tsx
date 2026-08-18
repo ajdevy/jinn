@@ -822,8 +822,13 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
   })
   if (isBlockFallbackText) textContent = ''
 
-  // Memoize the expensive formatting — re-runs only when textContent changes
-  const formattedContent = useMemo(() => formatMessage(textContent), [textContent])
+  // Memoize the expensive formatting — re-runs only when textContent changes.
+  // User bubbles render tight lines (a single Enter is a line break, not a
+  // paragraph); assistant markdown keeps its paragraph rhythm.
+  const formattedContent = useMemo(
+    () => formatMessage(textContent, isUser ? { tightLines: true } : undefined),
+    [textContent, isUser],
+  )
 
   // Memoize timestamp formatting — avoids Date allocations on every parent re-render
   const formattedTimestamp = useMemo(() => formatTimestamp(msg.timestamp), [msg.timestamp])
