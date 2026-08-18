@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { DialogField, ExperimentDialog, OptionPills } from "./experiment-dialog"
+import { OptionPills } from "@/components/ui/option-pills"
+import { DialogField, ExperimentDialog } from "./experiment-dialog"
 import { useRecordReading } from "./use-experiments"
 import type { ExperimentMetric } from "./types"
 

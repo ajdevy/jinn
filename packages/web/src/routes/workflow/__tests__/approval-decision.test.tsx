@@ -155,6 +155,25 @@ describe("approval decision", () => {
     ))
   })
 
+  it("carries neither the pick nor the reason from one gate to the next", async () => {
+    const inspector = await openGate("Publish gate")
+
+    await userEvent.click(inspector.getByRole("radio", { name: "Ship it" }))
+    await userEvent.type(inspector.getByRole("textbox", { name: "Reason" }), "Reason from the publish gate")
+
+    fireEvent.click(await screen.findByText("Legal gate"))
+    const next = within(await screen.findByTestId("run-inspector"))
+
+    expect(next.getByRole("textbox", { name: "Reason" })).toHaveProperty("value", "")
+    // An exact "Approve" is the assertion: a label reading "Approve · Ship it"
+    // is a choice this gate never offered, waiting to be sent to the route.
+    await userEvent.click(next.getByRole("button", { name: "Approve" }))
+
+    await waitFor(() => expect(decideWorkflowApproval).toHaveBeenCalledWith(
+      "morning-digest", "run-1", "plain", { decision: "approve", expectedRevision: 7 },
+    ))
+  })
+
   it("shows no picker, and approves straight away, when the gate declares no options", async () => {
     const inspector = await openGate("Legal gate")
 

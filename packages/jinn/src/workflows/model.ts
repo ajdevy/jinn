@@ -215,10 +215,10 @@ const approvalNodeSchema = z.strictObject({
     // approve a pipeline the COO started — fine for ordinary gates, a
     // governance hole for one that authorizes something irreversible.
     operatorOnly: z.boolean().optional(),
-    // Variant-picking: the labels are mirrored onto the bound Todo's approval
-    // and the pick is read back as `{{ node.<id>.choice }}`. Deliberately fixed
-    // labels, not bindings — a gate the operator reads must not shift under it.
-    options: z.array(z.string().min(1).max(80)).min(2).max(8)
+    // Variant-picking: the labels mirror onto the bound Todo's approval and the
+    // pick reads back as `{{ node.<id>.choice }}`. Fixed labels, not bindings, and
+    // trimmed as the mirror trims — two spellings is a gate neither door can decide.
+    options: z.array(z.string().trim().min(1).max(80)).min(2).max(8)
       .refine((values) => new Set(values).size === values.length, 'Approval options must be unique').optional(),
   }).refine((config) => !(config.operatorOnly && config.approver !== undefined),
     'An operator-only approval cannot also name an approver.'),

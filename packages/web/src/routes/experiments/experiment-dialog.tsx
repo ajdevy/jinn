@@ -108,37 +108,3 @@ export function DialogField({ label, children }: { label: string; children: Reac
     </div>
   )
 }
-
-/** A one-of-N choice, sized for a handful of options and for a thumb. */
-export function OptionPills({
-  label,
-  options,
-  selected,
-  onSelect,
-}: {
-  label: string
-  options: { value: string; label: string }[]
-  selected: string
-  onSelect: (value: string) => void
-}) {
-  return (
-    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={option.value === selected}
-          onClick={() => onSelect(option.value)}
-          className={`focus-ring min-h-9 rounded-full px-3 text-[length:var(--text-footnote)] font-[var(--weight-medium)] outline-none transition-colors ${
-            option.value === selected
-              ? "bg-[var(--accent-fill)] text-[var(--accent)]"
-              : "bg-[var(--fill-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)]"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}

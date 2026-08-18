@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { OptionPills } from "@/components/ui/option-pills"
 import type { WorkflowRunDetailV2Wire } from "@/lib/api"
 import type { WorkflowNodeWire } from "./editor/ports"
 import { Note, Section, formatStarted } from "./run-support"
@@ -20,50 +21,8 @@ function approvalOptions(node: WorkflowNodeWire): string[] {
   return options.filter((option): option is string => typeof option === "string" && option.trim().length > 0)
 }
 
-const CHIP =
-  "focus-ring inline-flex min-h-11 items-center rounded-full px-3 text-[length:var(--text-caption1)] font-[var(--weight-medium)] outline-none transition-colors disabled:opacity-50 sm:min-h-9"
-
-const CHIP_PICKED = {
-  background: "color-mix(in srgb, var(--accent) 16%, transparent)",
-  color: "var(--accent)",
-  boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent)",
-}
-
-const CHIP_REST = { background: "var(--fill-tertiary)", color: "var(--text-secondary)" }
-
 const SUBMIT =
-  "focus-ring min-h-11 flex-1 rounded-full text-[length:var(--text-caption1)] font-[var(--weight-semibold)] outline-none transition-opacity hover:opacity-90 disabled:opacity-50 sm:min-h-9"
-
-/** The variants, as a radiogroup. Picking is separate from committing, so a
- *  mis-tap on a phone can never ship the wrong variant. */
-function OptionPicker({ options, choice, disabled, onPick }: {
-  options: string[]
-  choice: string | null
-  disabled: boolean
-  onPick: (choice: string | null) => void
-}) {
-  return (
-    <div role="radiogroup" aria-label="Choose an option" className="mt-2 flex flex-wrap gap-1.5">
-      {options.map((option) => {
-        const picked = choice === option
-        return (
-          <button
-            key={option}
-            type="button"
-            role="radio"
-            aria-checked={picked}
-            disabled={disabled}
-            onClick={() => onPick(picked ? null : option)}
-            className={CHIP}
-            style={picked ? CHIP_PICKED : CHIP_REST}
-          >
-            {option}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
+  "focus-ring min-h-11 min-w-0 flex-1 truncate rounded-full px-3 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] outline-none transition-opacity hover:opacity-90 disabled:opacity-50 sm:min-h-9"
 
 function DecidedNote({ approval }: { approval: WorkflowApprovalWire }) {
   return (
@@ -132,7 +91,14 @@ function PendingDecision({ options, approval, onDecide, deciding }: {
         {approval.approverRef ? ` · ${approval.approverRef}` : ""}
       </p>
       {options.length > 0 && (
-        <OptionPicker options={options} choice={choice} disabled={deciding} onPick={setChoice} />
+        <OptionPills
+          className="mt-2"
+          label="Choose an option"
+          options={options.map((option) => ({ value: option, label: option }))}
+          selected={choice ?? ""}
+          disabled={deciding}
+          onSelect={(picked) => setChoice(picked === choice ? null : picked)}
+        />
       )}
       <textarea
         value={reason}
@@ -164,6 +130,10 @@ export function ApprovalDecision({ node, approval, onDecide, deciding }: {
       {approval.status === "pending"
         ? (
           <PendingDecision
+            // A pick and a reason belong to the gate they were typed on. The
+            // inspector swaps one pending gate for another in place, so without
+            // a key the next gate inherits a choice it never offered.
+            key={approval.nodeId}
             options={approvalOptions(node)}
             approval={approval}
             onDecide={onDecide}

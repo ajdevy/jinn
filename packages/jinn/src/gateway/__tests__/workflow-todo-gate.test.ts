@@ -171,8 +171,15 @@ describe("deciding a bound run's gate from the Workflow side", () => {
     return { id, from: { nodeId: from, port }, to: { nodeId: to, port: "input" as const } };
   }
 
-  it("settles the mirrored Todo row and advances the run", async () => {
-    const database = openWorkflowDatabase(path.join(tmp, `workflows-${seq}.db`));
+  // Padded labels are legal in a definition and the Todo mirror trims what it
+  // stores, so a gate whose labels are not normalized at the source offers one
+  // spelling on the run and another on the Todo — and the row stays pending on a
+  // run that already completed.
+  it.each([
+    { labels: "plain", offered: ["variant-a", "variant-b"] },
+    { labels: "padded", offered: [" variant-a ", " variant-b "] },
+  ])("settles the mirrored Todo row and advances the run ($labels labels)", async ({ labels, offered }) => {
+    const database = openWorkflowDatabase(path.join(tmp, `workflows-${labels}.db`));
     const repository = new WorkflowRepository(database);
     const service = new WorkflowService({
       repository, executor: idleExecutor(),
@@ -182,13 +189,13 @@ describe("deciding a bound run's gate from the Workflow side", () => {
       }),
       todoLifecycle: surface.workflowTodoLifecycle,
     });
-    const created = repository.createDefinition({ id: "ship-variant", title: "Ship variant" });
+    const created = repository.createDefinition({ id: `ship-variant-${labels}`, title: "Ship variant" });
     const definition: WorkflowDefinition = repository.saveDefinition({
       ...created, inputs: [],
       nodes: [
         { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
         { id: "variant", type: "approval", name: "Variant",
-          config: { description: "Which variant ships?", options: ["variant-a", "variant-b"] } } as WorkflowNode,
+          config: { description: "Which variant ships?", options: offered } } as WorkflowNode,
         { id: "shipped", type: "end", name: "Shipped", config: { result: "success" } },
         { id: "dropped", type: "end", name: "Dropped", config: { result: "success" } },
       ],
@@ -204,6 +211,7 @@ describe("deciding a bound run's gate from the Workflow side", () => {
     const run = await service.startManual({ workflowId: definition.id, input: {}, todoId });
     expect(run.status).toBe("waiting");
     expect(approvals.currentApproval(todoId)!.state).toBe("pending");
+    expect(approvals.currentApproval(todoId)!.options).toEqual(["variant-a", "variant-b"]);
 
     const decided = await service.decideApproval({ workflowId: definition.id, runId: run.id, nodeId: "variant",
       decision: "approve", decidedBy: "operator", choice: "variant-b", reason: "Fewer moving parts.",
