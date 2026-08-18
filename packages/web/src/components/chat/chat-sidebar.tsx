@@ -359,7 +359,7 @@ const SessionRow = React.memo(function SessionRow({
               maxLength={200}
               defaultValue={displayTitle}
               className={cn(
-                "min-w-0 flex-1 truncate border-none bg-transparent text-caption1 outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
+                "min-w-0 flex-1 truncate border-none bg-transparent text-subheadline outline-none ring-1 ring-[var(--text-quaternary)] rounded px-0.5",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
               onFocus={(e) => e.target.select()}
@@ -387,7 +387,7 @@ const SessionRow = React.memo(function SessionRow({
           ) : (
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-caption1",
+                "min-w-0 flex-1 truncate text-subheadline",
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]"
               )}
             >
@@ -543,7 +543,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
                 autoFocus
                 maxLength={200}
                 defaultValue={displayTitle}
-                className="min-w-0 flex-1 truncate rounded border-none bg-transparent px-0.5 text-footnote text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
+                className="min-w-0 flex-1 truncate rounded border-none bg-transparent px-0.5 text-subheadline text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
                 onFocus={(e) => e.target.select()}
                 onClick={(e) => { e.stopPropagation(); e.preventDefault() }}
                 onKeyDown={(e) => {
@@ -560,7 +560,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
             ) : (
               <span
                 className={cn(
-                  "min-w-0 flex-1 truncate text-footnote",
+                  "min-w-0 flex-1 truncate text-subheadline",
                   isUnread || isActive
                     ? "font-semibold text-foreground"
                     : "text-[var(--text-secondary)]"
@@ -743,7 +743,7 @@ const EmployeeRow = React.memo(function EmployeeRow({
               <div className="flex items-baseline gap-2 pr-9 lg:pr-0">
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate text-footnote text-foreground",
+                    "min-w-0 flex-1 truncate text-subheadline text-foreground",
                     hasUnread || isActive ? "font-semibold" : "font-medium"
                   )}
                 >
@@ -1757,7 +1757,7 @@ export function ChatSidebar({
                 <span className="relative flex size-[22px] shrink-0 items-center justify-center">
                   <EmployeeAvatar name={emp.name} size={22} />
                 </span>
-                <span className="min-w-0 flex-1 truncate text-footnote text-[var(--text-secondary)]">
+                <span className="min-w-0 flex-1 truncate text-subheadline text-[var(--text-secondary)]">
                   {emp.displayName || titleCase(emp.name)}
                 </span>
                 <Plus className="size-3.5 shrink-0 text-[var(--text-quaternary)] transition-colors group-hover/contact:text-[var(--accent)]" />
