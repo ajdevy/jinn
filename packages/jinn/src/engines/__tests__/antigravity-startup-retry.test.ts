@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { setImmediate as realSetImmediate } from "node:timers";
+import { setImmediate as realSetImmediate, setTimeout as realSetTimeout } from "node:timers";
 
 interface FakePty {
   pid: number;
@@ -98,10 +98,25 @@ function createAnswer(convId: string, answer: string): void {
   })}\n`);
 }
 
+// The engine reaches its answer through the transcript tailer's three sequential
+// libuv reads (stat, then open, then read). Those complete on the threadpool and
+// land in the loop's poll phase, so a step that yields a bare `setImmediate` buys
+// a loop turn but no wall clock at all — the whole stepping budget can elapse in
+// well under a millisecond, long before the first read returns. Alone that still
+// passed; in a full run, with every other suite's fork contending for the same
+// threadpool, it did not. A real millisecond per step is what makes this
+// deterministic instead of load-dependent. `Date` and `hrtime` are faked here,
+// but node:timers' setTimeout is not, so it is the one real clock available.
 async function advance(ms: number): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
   await new Promise<void>((resolve) => realSetImmediate(resolve));
+  await new Promise<void>((resolve) => realSetTimeout(resolve, 1));
 }
+
+// Small enough that a virtual budget also buys a generous real-I/O budget: the
+// engine settles 1.5s of virtual time in, so 25ms steps leave the reads roughly
+// twenty times the wall clock they need before the budget runs out.
+const SETTLE_STEP_MS = 25;
 
 async function settleWithTimers<T>(promise: Promise<T>, maxVirtualMs: number): Promise<T> {
   let settled = false;
@@ -109,8 +124,8 @@ async function settleWithTimers<T>(promise: Promise<T>, maxVirtualMs: number): P
     () => { settled = true; },
     () => { settled = true; },
   );
-  for (let elapsed = 0; !settled && elapsed < maxVirtualMs; elapsed += 100) {
-    await advance(100);
+  for (let elapsed = 0; !settled && elapsed < maxVirtualMs; elapsed += SETTLE_STEP_MS) {
+    await advance(SETTLE_STEP_MS);
   }
   if (!settled) throw new Error(`Promise did not settle within ${maxVirtualMs}ms of virtual time`);
   return promise;
