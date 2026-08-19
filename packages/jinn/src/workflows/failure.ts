@@ -1,5 +1,5 @@
 import type { WorkflowError } from "./runtime.js";
-import { classifyEngineFailureText, hasEngineFailureClass } from "../shared/engine-failure.js";
+import { classifyEngineFailureText, hasEngineFailureClass, type EngineFailureClass } from "../shared/engine-failure.js";
 
 /**
  * How a workflow decides whether a failed attempt is worth re-dispatching.
@@ -34,6 +34,27 @@ import { classifyEngineFailureText, hasEngineFailureClass } from "../shared/engi
  */
 export function isTransportFailure(message: string): boolean {
   return hasEngineFailureClass(classifyEngineFailureText(message), "provider-outage", "network");
+}
+
+/**
+ * Why another engine could serve the turn this one refused, phrased for the run
+ * detail — or `undefined` when swapping engines would change nothing.
+ *
+ * These are the classes that describe the PROVIDER rather than the work: an
+ * allowance, a throttle, a fault, a socket. `auth-terminal` and `terminal` are
+ * absent on purpose — a missing credential and an unrecognised verdict follow
+ * the request wherever it is sent.
+ */
+const AVAILABILITY_REASONS: readonly (readonly [EngineFailureClass, string])[] = [
+  ["quota", "out of quota"],
+  ["rate-limit", "rate-limited"],
+  ["provider-outage", "unavailable"],
+  ["network", "unreachable"],
+];
+
+export function availabilityReason(message: string): string | undefined {
+  const { classes } = classifyEngineFailureText(message);
+  return AVAILABILITY_REASONS.find(([failureClass]) => classes.has(failureClass))?.[1];
 }
 
 /**

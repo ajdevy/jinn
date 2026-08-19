@@ -520,7 +520,7 @@ export interface WorkflowAttemptV2Wire {
     employeeId: string
     engine: string
     model?: string
-    effort?: "low" | "medium" | "high" | "xhigh"
+    effort?: "low" | "medium" | "high" | "xhigh"; substitutedFrom?: { engine: string; reason: string }
   }
   /** The final composed prompt handed to the session (interpolated + contract
    *  block). Only `?view=full` carries it. */
