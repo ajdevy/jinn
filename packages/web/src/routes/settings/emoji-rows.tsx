@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
@@ -24,16 +24,21 @@ export function OperatorEmojiRow() {
   const { settings, setOperatorEmoji } = useSettings()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const latestSave = useRef(0)
   const current = settings.operatorEmoji ?? OPERATOR_DEFAULT_EMOJI
 
   const choose = (emoji: string) => {
     const previous = settings.operatorEmoji
+    const save = ++latestSave.current
     setOperatorEmoji(emoji)
     setSaveError(null)
     setPickerOpen(false)
     // The gateway owns this setting, so a rejected write has to take the local
     // one back with it — otherwise the swatch shows a pick no browser will see.
+    // Only the newest write may do that: an older one losing a race would undo
+    // a pick the operator has since made and the gateway has since accepted.
     api.completeOnboarding({ operatorEmoji: emoji }).catch((err: unknown) => {
+      if (save !== latestSave.current) return
       setOperatorEmoji(previous)
       setSaveError(err instanceof Error ? err.message : String(err))
     })
