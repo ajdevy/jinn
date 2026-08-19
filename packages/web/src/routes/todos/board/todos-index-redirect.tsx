@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from "react-router-dom"
+import { Navigate, redirect, useLocation, type LoaderFunctionArgs } from "react-router-dom"
 import { DEFAULT_BOARD_PATH } from "./board-route"
 
 /** Where a legacy /todos URL lands now that the board is the front door.
@@ -19,7 +19,20 @@ export function legacyTodosRedirectTarget(search: string): string {
   return `${DEFAULT_BOARD_PATH}${suffix}`
 }
 
-/** Route element for the /todos index: redirect into the board surface. */
+/** Router-level redirect for /todos (and legacy /kanban): resolved during the
+ *  navigation, BEFORE anything commits. An element-level <Navigate> renders
+ *  null for a full commit, which unmounts the old page into an EMPTY root for
+ *  a painted frame — on mobile the tab bar and page visibly flashed out on
+ *  every chat → todos tap (and a view transition animates to that empty frame,
+ *  stretching the flash to its full duration). A loader redirect produces one
+ *  commit: old page → board. */
+export function todosIndexLoader({ request }: LoaderFunctionArgs) {
+  return redirect(legacyTodosRedirectTarget(new URL(request.url).search))
+}
+
+/** Route element for the /todos index: redirect into the board surface.
+ *  Unreachable while todosIndexLoader is wired (the loader always redirects);
+ *  kept as the belt-and-braces fallback. */
 export function TodosIndexRedirect() {
   const location = useLocation()
   return <Navigate to={legacyTodosRedirectTarget(location.search)} replace />

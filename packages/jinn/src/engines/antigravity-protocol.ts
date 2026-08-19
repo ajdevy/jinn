@@ -8,8 +8,9 @@ import { logger } from "../shared/logger.js";
  * Pure protocol helpers for the Antigravity (`agy`) engine — no PTY, no I/O
  * orchestration, so they're unit-testable in isolation.
  *
- * `agy` has no headless/`--print` mode and no hook system. The only machine-
- * readable surface is the per-conversation transcript it writes to disk:
+ * This module serves the interactive PTY adapter. Queued work turns use agy's
+ * stream-JSON print protocol; PTY-native turns still rely on the conversation
+ * transcript written to disk:
  *   ~/.gemini/antigravity-cli/brain/<convId>/.system_generated/logs/transcript.jsonl
  *
  * Each line is a JSON object: { step_index, source, type, status, content }.

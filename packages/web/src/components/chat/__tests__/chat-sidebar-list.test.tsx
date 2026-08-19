@@ -170,6 +170,23 @@ describe('automated sessions and the Team directory', () => {
     expect(screen.queryByText('Jinn Dev')).toBeNull()
   })
 
+  const WF_RUN = { id: 'wf-1', title: 'Nightly digest run', source: 'workflow', sourceRef: 'wfrun:x', employee: 'jinn-dev', lastActivity: NOW }
+
+  it('surfaces workflow runs as first-class rows in All mode', () => {
+    sidebarData.sessions = [OWN, WF_RUN]
+
+    renderSidebar()
+    expect(screen.getByText('Nightly digest run')).toBeTruthy()
+  })
+
+  it('keeps workflow runs out of Focused mode, like every automated session', () => {
+    localStorage.setItem('jinn-sidebar-focus-mode', 'focused')
+    sidebarData.sessions = [OWN, WF_RUN]
+
+    renderSidebar()
+    expect(screen.queryByText('Nightly digest run')).toBeNull()
+  })
+
   it('expands an employee group to its sessions on click', () => {
     sidebarData.sessions = [
       OWN,

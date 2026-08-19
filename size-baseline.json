@@ -171,7 +171,7 @@
       ]
     },
     "packages/jinn/src/engines/antigravity.ts": {
-      "lines": 593,
+      "lines": 592,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1807,
+      "lines": 1874,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1572,7 +1572,7 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 356,
+      "lines": 355,
       "exempt": [
         "complexity",
         "max-lines-per-function"

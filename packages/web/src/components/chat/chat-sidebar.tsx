@@ -1115,10 +1115,10 @@ export function ChatSidebar({
     }
 
     // ---- Default mode. The recency buckets (Today / Yesterday / Older) hold
-    // ONLY the operator's own top-level chats (isFocusedSession) in BOTH focus
-    // modes — automated/delegated sessions never flood the switcher. "All"
-    // instead reveals the per-employee Team directory (every employee's full
-    // session history, grouped and expandable, with authoritative counts).
+    // the operator's own top-level chats (isFocusedSession) — delegated and
+    // automated sessions never flood the switcher. "All" additionally surfaces
+    // workflow runs as flat rows and reveals the per-employee Team directory
+    // (every employee's full session history, grouped, with true counts).
     // Cron sessions are excluded entirely: Scheduled lives on the Cron page,
     // reachable through the quiet link-row at the end of the list.
     const now = new Date()
@@ -1155,7 +1155,10 @@ export function ChatSidebar({
         pinnedRows.push(toRow(s))
         continue
       }
-      if (!isFocusedSession(s)) {
+      // Workflow runs are first-class rows in ALL mode (badged by the indigo
+      // WorkflowSessionChip); Focused stays strictly the operator's own chats.
+      // Delegated/automated child sessions stay grouped in the Team directory.
+      if (!isFocusedSession(s) && !(focusMode === "all" && s.source === "workflow")) {
         hiddenAutomated += 1
         continue
       }
@@ -1230,7 +1233,7 @@ export function ChatSidebar({
       unpinnedFlat,
       cronTotal,
     }
-  }, [sessions, search, searchResults, employeeData, portalSlug, portalName, pinnedSessions, counts])
+  }, [sessions, search, searchResults, employeeData, portalSlug, portalName, pinnedSessions, counts, focusMode])
 
   // Contactable employees: the full org roster MERGED with the employees that
   // already have sessions, then sliced down to the roster-only tail (employees
