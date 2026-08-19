@@ -1,4 +1,5 @@
 import { initDb } from '../shared/db.js';
+import { classifyEngineFailureText } from '../shared/engine-failure.js';
 import { isRateLimitMessage } from '../shared/rateLimit.js';
 import { HUMAN_ACTOR, listWorkItemEvents } from './event-log.js';
 import { parseTodoId } from './id.js';
@@ -39,10 +40,6 @@ export const RESPAWN_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
  *  legitimate retries; shorter would not outlast a storm. */
 export const RESPAWN_RECENT_WINDOW_MS = 60 * 60_000;
 
-/** Errors no retry can fix, because the credentials themselves are the problem. */
-const AUTH_ERROR_RE =
-  /unauthori[sz]|unauthenticated|forbidden|\b401\b|\b403\b|invalid[ _-]?(api[ _-]?)?key|invalid[ _-]?token|expired[ _-]?(token|credential|session)|credential|authenticat|not logged in|please log in|oauth/i;
-
 /** A pull request a previous attempt already opened. */
 const PR_URL_RE = /https?:\/\/[^\s)]+\/(?:pull|merge_requests)\/\d+/i;
 
@@ -79,9 +76,10 @@ type SettledRun = TodoRun & { endedAt: string };
  * Whether an automated re-dispatch of this Todo should proceed.
  *
  * `rate_limit_cooldown` is evaluated FIRST and that ordering is load-bearing:
- * quota vocabulary ("usage limit", "exceeded limit") sits inside error text wide
- * enough for the auth matcher to claim, and losing that race parks the Todo
- * behind a guard only a human can clear — while the quota window clears itself.
+ * one error text carries several classes, and quota vocabulary ("usage limit",
+ * "exceeded limit") routinely arrives alongside the credential vocabulary that
+ * makes it `auth-terminal` too. Losing that race parks the Todo behind a guard
+ * only a human can clear — while the quota window clears itself.
  */
 export function checkRespawnGuard(workItemId: string, now: Date = new Date()): RespawnGuardVerdict {
   const id = parseTodoId(workItemId);
@@ -131,7 +129,8 @@ function rateLimitCooldown(run: SettledRun | undefined, now: Date): RespawnGuard
 /** Retrying cannot mint credentials, so an auth-shaped failure waits for a human
  *  rather than for a clock. */
 function blockerAuth(run: SettledRun | undefined): RespawnGuardHold | undefined {
-  if (!run || !isFailure(run) || run.error === null || !AUTH_ERROR_RE.test(run.error)) return undefined;
+  if (!run || !isFailure(run) || run.error === null) return undefined;
+  if (!classifyEngineFailureText(run.error).classes.has('auth-terminal')) return undefined;
   return held('blocker_auth', `run ${run.id} failed on credentials, which a retry cannot fix: ${firstLine(run.error)}`);
 }
 

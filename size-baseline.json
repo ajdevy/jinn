@@ -154,7 +154,7 @@
       "lines": 422
     },
     "packages/jinn/src/engines/__tests__/codex.test.ts": {
-      "lines": 865
+      "lines": 811
     },
     "packages/jinn/src/engines/__tests__/grok.test.ts": {
       "lines": 779
@@ -197,7 +197,7 @@
       ]
     },
     "packages/jinn/src/engines/codex.ts": {
-      "lines": 1094,
+      "lines": 1065,
       "exempt": [
         "complexity",
         "max-depth",
