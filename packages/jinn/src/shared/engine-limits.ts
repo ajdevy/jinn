@@ -64,7 +64,7 @@ function baseSnapshot(config: JinnConfig, engine: string): EngineLimitEngineSnap
   };
 }
 
-function windowFromClaude(name: string, value: unknown, durationMins: number): EngineLimitWindow | undefined {
+export function windowFromClaude(name: string, value: unknown, durationMins: number): EngineLimitWindow | undefined {
   if (!isRecord(value)) return undefined;
   const resetsAt = num(value.resets_at);
   return {
@@ -76,7 +76,7 @@ function windowFromClaude(name: string, value: unknown, durationMins: number): E
   };
 }
 
-function claudeSnapshotFile(dir: string): string | null {
+export function claudeSnapshotFile(dir: string): string | null {
   try {
     const files = fs.readdirSync(dir)
       .filter((name) => name.endsWith(".json"))
@@ -169,7 +169,7 @@ export function windowsFromClaudeUsage(usage: JsonRecord): EngineLimitWindow[] {
   return windows;
 }
 
-async function fetchClaudeOAuthUsage(): Promise<JsonRecord | undefined> {
+export async function fetchClaudeOAuthUsage(): Promise<JsonRecord | undefined> {
   if (process.env.JINN_CLAUDE_USAGE_API === "off") return undefined;
   const token = await readClaudeOAuthToken();
   if (!token) return undefined;
@@ -461,7 +461,7 @@ function planWindow(name: string, windowDurationMins: number): EngineLimitWindow
 // Codex writes the same rate-limit snapshot into every `token_count` event of its
 // session rollout JSONL (snake_case), so we can read it from disk exactly like the
 // Claude statusline snapshot — no app-server spawn, no JSON-RPC race.
-function windowFromCodexRollout(name: string, value: unknown): EngineLimitWindow | undefined {
+export function windowFromCodexRollout(name: string, value: unknown): EngineLimitWindow | undefined {
   if (!isRecord(value)) return undefined;
   const durationMins = num(value.window_minutes);
   const resetsAt = num(value.resets_at);

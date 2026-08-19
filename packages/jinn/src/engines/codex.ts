@@ -9,8 +9,12 @@ import { CODEX_HOMES_DIR } from "../shared/paths.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
 import { costOfUsage, type ModelUsage } from "../shared/model-pricing.js";
 import { buildPromptWithPlatformContext } from "./platform-context.js";
+import {
+  CODEX_SESSIONS_DIR,
+  codexRateLimitFor,
+  forEachCodexTokenCount,
+} from "./codex-transcript.js";
 
-const CODEX_SESSIONS_DIR = path.join(os.homedir(), ".codex", "sessions");
 
 // Hard backstop so a genuinely stuck turn (no terminal event ever) can't hang
 // forever. This is not a normal turn limit; long-running work can span days.
@@ -466,6 +470,7 @@ export function codexChildEnv(
   return env;
 }
 
+
 /**
  * Most-recent-turn input-context size from a codex per-turn usage object.
  * codex's `cached_input_tokens` is a SUBSET of `input_tokens` (OpenAI semantics),
@@ -521,55 +526,16 @@ export function codexUsageDelta(start: CodexTokenUsage, end: CodexTokenUsage): M
   };
 }
 
-function walkJsonl(dir: string, out: string[] = []): string[] {
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-  for (const entry of entries) {
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkJsonl(p, out);
-    else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(p);
-  }
-  return out;
-}
 
-function codexSessionIdFromTranscript(filePath: string): string | undefined {
-  try {
-    const first = fs.readFileSync(filePath, "utf-8").split("\n", 1)[0];
-    const msg = JSON.parse(first);
-    const id = msg?.payload?.id;
-    return typeof id === "string" && id ? id : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
-function latestCodexTranscript(sessionId: string, root: string): string | undefined {
-  return walkJsonl(root)
-    .map((file) => {
-      try { return { file, mtimeMs: fs.statSync(file).mtimeMs }; }
-      catch { return undefined; }
-    })
-    .filter((entry): entry is { file: string; mtimeMs: number } => !!entry)
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .find(({ file }) => codexSessionIdFromTranscript(file) === sessionId)?.file;
-}
+
 
 export function lastCodexTranscriptContextTokens(sessionId: string, root = CODEX_SESSIONS_DIR): number | undefined {
-  const file = latestCodexTranscript(sessionId, root);
-  if (!file) return undefined;
   let last: number | undefined;
-  try {
-    for (const line of fs.readFileSync(file, "utf-8").split("\n")) {
-      if (!line.trim()) continue;
-      let msg: any;
-      try { msg = JSON.parse(line); } catch { continue; }
-      if (msg?.type !== "event_msg" || msg?.payload?.type !== "token_count") continue;
-      const ctx = extractCodexContextTokens(msg.payload.info?.last_token_usage);
-      if (ctx) last = ctx;
-    }
-  } catch {
-    return undefined;
-  }
+  forEachCodexTokenCount(sessionId, root, (payload) => {
+    const ctx = extractCodexContextTokens(payload.info?.last_token_usage);
+    if (ctx) last = ctx;
+  });
   return last;
 }
 
@@ -715,13 +681,15 @@ export class CodexEngine implements InterruptibleEngine {
 
         logger.info(`Codex turn settled on terminal event (thread: ${threadId || "none"}, turns: ${numTurns})`);
         const cost = turnCost();
+        const settledError = resultText.trim() ? undefined : (turnError ?? undefined);
         resolve({
           sessionId: resolvedThreadId,
           result: resultText,
-          error: resultText.trim() ? undefined : (turnError ?? undefined),
+          error: settledError,
           numTurns: numTurns || undefined,
           ...(typeof lastContextTokens === "number" ? { contextTokens: lastContextTokens } : {}),
           ...(cost === undefined ? {} : { cost }),
+          ...codexRateLimitFor(settledError, resolvedThreadId, transcriptSessionsDir),
         });
       };
 
@@ -875,13 +843,15 @@ export class CodexEngine implements InterruptibleEngine {
           // surface a transient/benign error item (e.g. the `web_search_request`
           // deprecation notice that codex emits before the answer) as a failure.
           const cost = turnCost();
+          const settledError = resultText.trim() ? undefined : (turnError ?? undefined);
           resolve({
             sessionId: resolvedThreadId,
             result: resultText,
-            error: resultText.trim() ? undefined : (turnError ?? undefined),
+            error: settledError,
             numTurns: numTurns || undefined,
             ...(typeof lastContextTokens === "number" ? { contextTokens: lastContextTokens } : {}),
             ...(cost === undefined ? {} : { cost }),
+            ...codexRateLimitFor(settledError, resolvedThreadId, transcriptSessionsDir),
           });
           return;
         }
@@ -901,6 +871,7 @@ export class CodexEngine implements InterruptibleEngine {
           result: resultText,
           error: errMsg,
           ...(typeof lastContextTokens === "number" ? { contextTokens: lastContextTokens } : {}),
+          ...codexRateLimitFor(errMsg, resolvedThreadId, transcriptSessionsDir),
         });
       });
 
