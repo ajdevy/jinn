@@ -28,7 +28,7 @@ vi.mock("../../cron/scheduler.js", () => ({ reloadScheduler: vi.fn() }));
 const runCronJob = vi.fn(async () => {});
 vi.mock("../../cron/runner.js", () => ({ runCronJob: (...args: unknown[]) => runCronJob(...(args as [])) }));
 
-import { JOBS, seedHome } from "./domain-router-home.js";
+import { JOBS, RUN_SESSION_ID, seedHome } from "./domain-router-home.js";
 import { call } from "./domain-router-harness.js";
 
 beforeEach(() => {
@@ -49,7 +49,7 @@ describe("cron routes still answer identically through handleCronApi", () => {
         employee: "ops",
         engine: null,
         timezone: null,
-        lastRun: { timestamp: "2026-08-01T03:00:00.000Z", status: "success" },
+        lastRun: { timestamp: "2026-08-01T03:00:00.000Z", sessionId: RUN_SESSION_ID, status: "success" },
       },
     ]);
   });
@@ -57,7 +57,7 @@ describe("cron routes still answer identically through handleCronApi", () => {
   it("GET /api/cron/:id/runs returns the summarized run tail", async () => {
     const r = await call("GET", "/api/cron/nightly/runs?limit=10");
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([{ timestamp: "2026-08-01T03:00:00.000Z", status: "success" }]);
+    expect(r.body).toEqual([{ timestamp: "2026-08-01T03:00:00.000Z", sessionId: RUN_SESSION_ID, status: "success" }]);
   });
 
   it("POST /api/cron creates a job (201) and rejects a duplicate id (400)", async () => {
