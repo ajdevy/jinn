@@ -1,7 +1,9 @@
 import type { Employee, ModelRegistry } from "../shared/types.js";
 import { interpolateWorkflowPrompt, resolveBinding, type WorkflowBindingContext } from "./bindings.js";
 import { continuationPrompt, resolveEmployeeContinuation } from "./employee-continuation.js";
-import { selectSubstituteEngine, type EngineChainSource, type EngineSubstitution } from "./engine-chain.js";
+import { readEngineHealth, recordEngineUnavailable } from "../shared/engine-health.js";
+import { engineAvailabilityFailure, selectSubstituteEngine, type EngineChainSource, type EngineSubstitution,
+  type SubstituteDeps } from "./engine-chain.js";
 import type { EmployeeNode } from "./model.js";
 import type { WorkflowRepository } from "./repository.js";
 import type { ResolvedEmployeeConfig, WorkflowError, WorkflowRunDetail } from "./runtime.js";
@@ -110,6 +112,25 @@ function resolveEffort(
   return effort;
 }
 
+/** The walk's dependencies with the live health reading filled in. The store is
+ *  gateway-side and global, so unlike the chain source there is nothing upstream
+ *  has to supply — and both callers of the walk read it the same way. */
+function substituteDeps(options: DispatchResolutionDeps): SubstituteDeps {
+  return { ...options, engineHealth: readEngineHealth };
+}
+
+/** What the failure that settled an attempt says about the engine that actually
+ *  ran it — the stand-in on a substituted attempt, not the engine it stood in
+ *  for. Recorded here rather than inside the walk because `hasSubstitute` asks
+ *  that walk repeatedly at the retry boundary, and one failure is one
+ *  observation. */
+function recordAttemptHealth(attempt: WorkflowRunDetail["attempts"][number] | undefined): void {
+  if (!attempt) return;
+  const availability = engineAvailabilityFailure(attempt.error);
+  if (!availability) return;
+  recordEngineUnavailable(attempt.resolvedConfig.engine, availability.reason, availability.resetsAt);
+}
+
 /**
  * What this attempt actually runs on, and whether that is something other than
  * the employee's own defaults.
@@ -129,7 +150,8 @@ function dispatchTarget(
 ): { engine: string; model: string; modelInfo: ModelInfo; pinned: boolean; substitutedFrom?: EngineSubstitution } {
   const base = resolveTarget(pinned, employee, options.models);
   const failed = run.attempts.filter((attempt) => attempt.nodeId === node.id).at(-1);
-  const substitutedFrom = selectSubstituteEngine(run, node.id, base.engine, failed?.error, options);
+  recordAttemptHealth(failed);
+  const substitutedFrom = selectSubstituteEngine(run, node.id, base.engine, failed?.error, substituteDeps(options));
   const own = Boolean(pinned.engine || pinned.model);
   if (!substitutedFrom) return { ...base, pinned: own };
   const stood = resolveTarget({ engine: substitutedFrom.engine, model: undefined }, employee, options.models);
@@ -153,7 +175,7 @@ export function hasSubstitute(
   failure: WorkflowError,
   options: DispatchResolutionDeps,
 ): boolean {
-  return selectSubstituteEngine(run, attempt.nodeId, substitutionBase(attempt), failure, options) !== undefined;
+  return selectSubstituteEngine(run, attempt.nodeId, substitutionBase(attempt), failure, substituteDeps(options)) !== undefined;
 }
 
 export function resolveDispatch(

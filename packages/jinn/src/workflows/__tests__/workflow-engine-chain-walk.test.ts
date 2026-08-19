@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Employee, ModelRegistry, WorkflowAttemptCommand, WorkflowAttemptCompletion,
   WorkflowAttemptCompletionListener } from "../../shared/types.js";
 import type { JsonValue, WorkflowDefinition } from "../model.js";
@@ -10,6 +10,15 @@ import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
+
+// The health store is gateway-wide; a suite that let it write would both leak
+// records into whatever runs next and read whatever ran before.
+const recordEngineUnavailableMock = vi.fn();
+vi.mock("../../shared/engine-health.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../shared/engine-health.js")>()),
+  readEngineHealth: () => ({}),
+  recordEngineUnavailable: (...args: unknown[]) => recordEngineUnavailableMock(...args),
+}));
 
 /**
  * PLA-149: an engine that has no allowance left never answered the question, so
@@ -98,6 +107,7 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-workflow-chain-walk-"));
   chains = { codex: ["claude"] };
   override = undefined;
+  recordEngineUnavailableMock.mockClear();
   database = openWorkflowDatabase(path.join(root, "workflows.db"));
   repository = new WorkflowRepository(database);
   executor = new FakeExecutor();
@@ -212,6 +222,12 @@ describe("an Employee node whose engine runs out of allowance", () => {
 
     expect(executor.enginesFor("work")).toEqual(["codex", "claude"]);
     expect(service.getRun(workflowId, runId)!.status).toBe("failed");
+  });
+
+  it("records the engine that could not serve, so the next walk can prefer around it", async () => {
+    await quotaFailedRun("records-health");
+
+    expect(recordEngineUnavailableMock).toHaveBeenCalledWith("codex", "out of quota", undefined);
   });
 });
 

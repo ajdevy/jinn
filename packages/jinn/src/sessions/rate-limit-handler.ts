@@ -4,7 +4,7 @@
  * Both the connector path (sessions/manager.ts → runSession) and the web path
  * (gateway/api.ts → runWebSession) need to:
  *   1. Detect an engine usage-limit response.
- *   2. Hand the turn to the first usable engine in the limited engine's fallback chain.
+ *   2. Hand the turn to the first engine in the limited one's chain that can serve one.
  *   3. Otherwise enter a "waiting" loop: sleep until the reset window, retry on the same engine,
  *      keep the session's lastActivity heartbeat fresh, and loop again if still limited.
  *   4. Bail out when the deadline passes without recovery.
@@ -30,7 +30,7 @@ import { resolveEffort } from "../shared/effort.js";
 import { effortLevelsForModel, engineAvailable, type EngineName } from "../shared/models.js";
 import { computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
 import { recordClaudeRateLimit } from "../shared/usageAwareness.js";
-import { resolveFallbackEngine } from "../shared/engine-fallback.js";
+import { readEngineHealth, recordEngineUnavailable, resolveHealthyFallbackEngine } from "../shared/engine-health.js";
 import { resolveEngineRunMcp } from "./engine-run-mcp.js";
 import { getSession, getMessages, updateSessionForAttempt, getEngineSessionRef, nextEngineSessionFields } from "./registry.js";
 import { runtimeSessionSource } from "./context.js";
@@ -164,12 +164,13 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
 
   const engineLabel = rateLimitEngineLabel(session.engine);
 
-  // Only Claude has a global usage-awareness store to record limits against.
+  // Both chain walkers read the generic record; Claude's store answers a different question.
+  recordEngineUnavailable(session.engine, `${engineLabel} usage limit`, rateLimit.resetsAt);
   if (session.engine === "claude") recordClaudeRateLimit(rateLimit.resetsAt);
 
   // ── Branch A: hand the turn to this engine's chain ─────────────────────────
   const isUsable = (candidate: EngineName) => engines.has(candidate) && engineAvailable(config, candidate);
-  const substituteName = resolveFallbackEngine(config, session.engine, isUsable);
+  const substituteName = resolveHealthyFallbackEngine(config, session.engine, isUsable, readEngineHealth());
   const substituteEngine = substituteName ? engines.get(substituteName) : undefined;
   if (substituteName && substituteEngine) {
     const { resumeAt } = computeNextRetryDelayMs(rateLimit.resetsAt);
@@ -347,9 +348,8 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       const retryRateLimit = !retryInterrupted ? detectRateLimit(retryResult) : { limited: false as const };
 
       if (retryRateLimit.limited) {
-        if (session.engine === "claude") {
-          recordClaudeRateLimit(retryRateLimit.resetsAt);
-        }
+        recordEngineUnavailable(session.engine, `${engineLabel} usage limit`, retryRateLimit.resetsAt);
+        if (session.engine === "claude") recordClaudeRateLimit(retryRateLimit.resetsAt);
         logger.info(`Session ${session.id} still rate limited (attempt ${attempt})`);
 
         const next = computeNextRetryDelayMs(retryRateLimit.resetsAt);
