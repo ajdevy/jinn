@@ -171,7 +171,7 @@
       ]
     },
     "packages/jinn/src/engines/antigravity.ts": {
-      "lines": 593,
+      "lines": 592,
       "exempt": [
         "complexity",
         "max-lines-per-function"
