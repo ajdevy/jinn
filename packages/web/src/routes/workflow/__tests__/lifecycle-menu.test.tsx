@@ -68,12 +68,11 @@ const editorDefinition = {
   ui: { positions: { trigger: { x: 0, y: 0 } } },
 }
 
-function renderList(path = "/workflow") {
+function renderList(path = "/workflow", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const router = createMemoryRouter([
     { path: "/workflow", element: <WorkflowListPage /> },
     { path: "/workflow/:id", element: <p>editor</p> },
   ], { initialEntries: [path] })
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
@@ -102,10 +101,14 @@ async function openRowMenu() {
   await userEvent.click(await screen.findByLabelText("Workflow actions for Morning Digest"))
 }
 
+/** The editor mounts a whole canvas before its header settles, so the waits here
+ *  get the same allowance the canvas suite gives its own. */
+const SLOW_MOUNT = { timeout: 6000 }
+
 async function archive() {
-  await userEvent.click(await screen.findByLabelText("Workflow actions for Morning Digest"))
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Archive workflow" }))
-  await userEvent.click(await screen.findByRole("button", { name: "Archive" }))
+  await userEvent.click(await screen.findByLabelText("Workflow actions for Morning Digest", {}, SLOW_MOUNT))
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Archive workflow" }, SLOW_MOUNT))
+  await userEvent.click(await screen.findByRole("button", { name: "Archive" }, SLOW_MOUNT))
 }
 
 const staleArchive = () => new ApiError(409,
@@ -215,12 +218,19 @@ describe("workflow list lifecycle menu", () => {
 
   it("closes the archive confirmation when the write is refused", async () => {
     setWorkflowRetired.mockRejectedValue(staleArchive())
-    renderList()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(queryKeys.workflows.definition(summary.id), definition)
+    renderList("/workflow", client)
 
     await archive()
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect((await screen.findByRole("status")).textContent).toContain("changed elsewhere")
+    // Both halves of the namespace go stale on a refusal, not just the list. The
+    // list is on screen so it refetches on the spot; the definition has no reader
+    // here, so invalidation is all there is to see until something opens it.
+    await waitFor(() => expect(listWorkflowDefinitions.mock.calls.length).toBeGreaterThan(1))
+    expect(client.getQueryState(queryKeys.workflows.definition(summary.id))?.isInvalidated).toBe(true)
   })
 
   it("sizes both dialogs' actions to the mobile tap target", async () => {
@@ -249,23 +259,24 @@ describe("workflow editor lifecycle menu", () => {
   it("recovers the header from a refused archive instead of holding the stale revision", async () => {
     setWorkflowRetired.mockRejectedValueOnce(staleArchive())
     const client = renderEditor()
-    expect(await screen.findByRole("switch", { name: /disable workflow/i })).toBeTruthy()
+    expect(await screen.findByRole("switch", { name: /disable workflow/i }, SLOW_MOUNT)).toBeTruthy()
     // Someone else disabled it, so the revision the header is holding is behind.
     getWorkflowDefinition.mockResolvedValue({ ...structuredClone(editorDefinition), revision: 7, enabled: false })
 
     await archive()
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
-    await waitFor(() => expect(getWorkflowDefinition.mock.calls.length).toBeGreaterThan(1))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), SLOW_MOUNT)
+    await waitFor(() => expect(getWorkflowDefinition.mock.calls.length).toBeGreaterThan(1), SLOW_MOUNT)
     expect(client.getQueryState(queryKeys.workflows.list(false))?.isInvalidated).toBe(true)
-    expect(await screen.findByRole("switch", { name: /enable workflow/i })).toBeTruthy()
+    expect(await screen.findByRole("switch", { name: /enable workflow/i }, SLOW_MOUNT)).toBeTruthy()
     expect(screen.getByRole("button", { name: /changed elsewhere/i })).toBeTruthy()
+    expect(within(screen.getByRole("status")).getByRole("button", { name: /changed elsewhere/i })).toBeTruthy()
 
     setWorkflowRetired.mockResolvedValue({
       ...structuredClone(editorDefinition), revision: 8, enabled: false, retiredAt: "2026-08-18T10:00:00.000Z",
     })
     await archive()
 
-    await waitFor(() => expect(setWorkflowRetired).toHaveBeenLastCalledWith("morning-digest", true, 7))
-  })
+    await waitFor(() => expect(setWorkflowRetired).toHaveBeenLastCalledWith("morning-digest", true, 7), SLOW_MOUNT)
+  }, 20000)
 })
