@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
-import { applyLegacyFallbackMigration } from "../engine-fallback.js";
-import { ENGINE_NAMES } from "../models.js";
+import { applyLegacyFallbackMigration, resolveFallbackEngine } from "../engine-fallback.js";
+import { ENGINE_NAMES, type EngineName } from "../models.js";
 import type { JinnConfig } from "../types.js";
 
 /** A loaded config, as `loadConfig` hands it to the migration. */
@@ -111,5 +111,49 @@ describe("engines.<name>.fallback round-trip", () => {
 
     saveConfigAtomic(loaded);
     expect(loadConfig().engines.claude.fallback).toEqual(["codex", "grok"]);
+  });
+});
+
+describe("resolveFallbackEngine", () => {
+  /** A config carrying nothing but the chains under test. */
+  function chains(map: Partial<Record<EngineName, EngineName[]>>): JinnConfig {
+    const engines = Object.fromEntries(
+      Object.entries(map).map(([name, fallback]) => [name, { bin: name, model: "m", fallback }]),
+    );
+    return { engines } as unknown as JinnConfig;
+  }
+
+  const usable = () => true;
+
+  it("returns the first usable engine in the chain", () => {
+    expect(resolveFallbackEngine(chains({ claude: ["codex", "grok"] }), "claude", usable)).toBe("codex");
+  });
+
+  it("skips members the caller cannot use", () => {
+    const config = chains({ claude: ["codex", "grok"] });
+    expect(resolveFallbackEngine(config, "claude", (engine) => engine === "grok")).toBe("grok");
+  });
+
+  it("walks a skipped engine's own chain", () => {
+    const config = chains({ claude: ["codex"], codex: ["grok"] });
+    expect(resolveFallbackEngine(config, "claude", (engine) => engine === "grok")).toBe("grok");
+  });
+
+  it("terminates on a cycle, and never offers the engine it started from", () => {
+    const config = chains({ claude: ["codex"], codex: ["claude"] });
+    const asked: string[] = [];
+
+    const resolved = resolveFallbackEngine(config, "claude", (engine) => {
+      asked.push(engine);
+      return false;
+    });
+
+    expect(resolved).toBeNull();
+    expect(asked).toEqual(["codex"]);
+  });
+
+  it("resolves nothing for an absent or an empty chain", () => {
+    expect(resolveFallbackEngine(chains({}), "claude", usable)).toBeNull();
+    expect(resolveFallbackEngine(chains({ claude: [] }), "claude", usable)).toBeNull();
   });
 });
