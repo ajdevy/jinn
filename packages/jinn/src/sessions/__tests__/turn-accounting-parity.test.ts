@@ -12,6 +12,7 @@ import {
   scriptedEngine,
   testConfig,
 } from "./helpers/turn-parity-harness.js";
+import { applyLegacyFallbackMigration } from "../../shared/engine-fallback.js";
 import type { JinnConfig } from "../../shared/types.js";
 
 /**
@@ -106,6 +107,7 @@ describe("both runners account for every terminal class identically", () => {
     // The fallback engine answers but reports neither cost nor numTurns — the
     // exact shape the connector runner's `if (cost || numTurns)` guard dropped.
     const config = testConfig({ sessions: { rateLimitStrategy: "fallback" } } as Partial<JinnConfig>);
+    applyLegacyFallbackMigration(config, () => {});
     const limited = [rateLimitedResult(-60)];
     const recovered = [engineResult({ result: "fallback answer", sessionId: "native-fb" })];
 
