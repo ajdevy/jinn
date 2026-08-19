@@ -38,6 +38,16 @@ vi.mock("../registry.js", () => ({
 }));
 
 vi.mock("../../shared/usageAwareness.js", () => ({ recordClaudeRateLimit: vi.fn() }));
+
+// The reading is fed per case; the resolver that consumes it stays real, because
+// the order it walks a chain in is what these cases are about.
+let healthReading: Record<string, { state: string; until?: string }> = {};
+const recordEngineUnavailableMock = vi.fn();
+vi.mock("../../shared/engine-health.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../shared/engine-health.js")>()),
+  readEngineHealth: () => healthReading,
+  recordEngineUnavailable: (...args: unknown[]) => recordEngineUnavailableMock(...args),
+}));
 vi.mock("../../shared/effort.js", () => ({ resolveEffort: vi.fn(() => "medium") }));
 vi.mock("../../shared/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -97,6 +107,7 @@ function overrideRecord(): Record<string, unknown> | undefined {
 describe("handleRateLimit — chain fallback for any engine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    healthReading = {};
     engineAvailableMock.mockReturnValue(true);
     vi.mocked(computeNextRetryDelayMs).mockReturnValue({ delayMs: 0, resumeAt: undefined });
     resolveEngineRunMcpMock.mockReturnValue({});
@@ -187,6 +198,7 @@ describe("handleRateLimit — chain fallback for any engine", () => {
 describe("handleRateLimit — chains with nothing usable in them", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    healthReading = {};
     engineAvailableMock.mockReturnValue(true);
     vi.mocked(computeNextRetryDelayMs).mockReturnValue({ delayMs: 0, resumeAt: undefined });
   });
@@ -221,5 +233,64 @@ describe("handleRateLimit — chains with nothing usable in them", () => {
 
     expect((await handleRateLimit(opts)).kind).toBe("timeout");
     expect(claudeRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleRateLimit — a chain member that is out of allowance", () => {
+  const REOPENS = new Date(Date.now() + 60 * 60_000).toISOString();
+  const exhausted = (...engines: string[]) =>
+    Object.fromEntries(engines.map((engine) => [engine, { state: "exhausted", until: REOPENS }]));
+  const answered = (result: string) => vi.fn(async () => ({ result }) as EngineResult);
+  const asEngine = (run: ReturnType<typeof vi.fn>) => ({ run }) as unknown as RateLimitHandlerOpts["engine"];
+
+  /** A codex session whose chain names claude first, then grok. */
+  function chainOpts(claude: ReturnType<typeof vi.fn>, grok: ReturnType<typeof vi.fn>): RateLimitHandlerOpts {
+    const opts = makeOpts(claude, { codex: { bin: "codex", model: "gpt-5.6-sol", fallback: ["claude", "grok"] } });
+    opts.engines = new Map([["claude", asEngine(claude)], ["grok", asEngine(grok)]]);
+    return opts;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    healthReading = {};
+    engineAvailableMock.mockReturnValue(true);
+    vi.mocked(computeNextRetryDelayMs).mockReturnValue({ delayMs: 0, resumeAt: undefined });
+  });
+
+  it("records the limited engine against the reset it stated", async () => {
+    const opts = makeOpts(answered("from-claude"));
+    opts.rateLimit = { resetsAt: RESETS_AT.getTime() / 1000 };
+    await handleRateLimit(opts);
+    expect(recordEngineUnavailableMock).toHaveBeenCalledWith("codex", "Codex usage limit", RESETS_AT.getTime() / 1000);
+  });
+
+  it("records a limit that stated no reset, leaving nothing to wait for", async () => {
+    await handleRateLimit(makeOpts(answered("from-claude")));
+    expect(recordEngineUnavailableMock).toHaveBeenCalledWith("codex", "Codex usage limit", undefined);
+  });
+
+  it("skips a member whose window has not reopened and takes the next one", async () => {
+    healthReading = exhausted("claude");
+    const claude = answered("from-claude");
+    const outcome = await handleRateLimit(chainOpts(claude, answered("from-grok")));
+    expect(outcome).toMatchObject({ kind: "fallback", result: { result: "from-grok" } });
+    expect(claude).not.toHaveBeenCalled();
+  });
+
+  it("takes the first member back once its window has passed", async () => {
+    // What readEngineHealth reports for a record whose `until` is behind us.
+    healthReading = { claude: { state: "ok" } };
+    const grok = answered("from-grok");
+    const outcome = await handleRateLimit(chainOpts(answered("from-claude"), grok));
+    expect(outcome).toMatchObject({ kind: "fallback", result: { result: "from-claude" } });
+    expect(grok).not.toHaveBeenCalled();
+  });
+
+  it("still hands the turn over when every member is exhausted", async () => {
+    healthReading = exhausted("claude", "grok");
+    const grok = answered("from-grok");
+    const outcome = await handleRateLimit(chainOpts(answered("from-claude"), grok));
+    expect(outcome).toMatchObject({ kind: "fallback", result: { result: "from-claude" } });
+    expect(grok).not.toHaveBeenCalled();
   });
 });

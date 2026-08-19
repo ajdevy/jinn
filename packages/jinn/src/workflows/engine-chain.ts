@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { classifyEngineFailureText } from "../shared/engine-failure.js";
+// Type-only, and it has to stay that way: the health store resolves the instance
+// home on import, and this module is reached from every read of a definition.
+import type { EngineHealthReading } from "../shared/engine-health.js";
 import type { ModelRegistry } from "../shared/types.js";
 import { availabilityReason } from "./failure.js";
 import type { WorkflowDefinition } from "./model.js";
@@ -55,6 +59,29 @@ export interface EngineSubstitution {
 export interface SubstituteDeps {
   models: () => ModelRegistry;
   engineFallback?: EngineChainSource;
+  /** Which engines are out of allowance right now, read fresh like `models` so a
+   *  record written mid-run lands on the next attempt. Absent = nothing is known
+   *  and every installed member is equally preferred. */
+  engineHealth?: () => EngineHealthReading;
+}
+
+/**
+ * What a failure says about the ENGINE, or `undefined` when it says nothing —
+ * because it is not the engine's own account of the turn, or because it names
+ * something no other provider gets past.
+ *
+ * Exported because the substitution walk and the health record read the same
+ * signal, and a run that swapped engines while the record still called the old
+ * one healthy would be two answers to one question.
+ */
+export function engineAvailabilityFailure(
+  failure: WorkflowError | undefined,
+): { reason: string; resetsAt?: number } | undefined {
+  if (failure?.code !== SUBSTITUTABLE_FAILURE_CODE) return undefined;
+  const reason = availabilityReason(failure.message);
+  if (reason === undefined) return undefined;
+  const { resetsAt } = classifyEngineFailureText(failure.message);
+  return { reason, ...(resetsAt === undefined ? {} : { resetsAt }) };
 }
 
 /**
@@ -106,19 +133,38 @@ export function selectSubstituteEngine(
   failure: WorkflowError | undefined,
   deps: SubstituteDeps,
 ): EngineSubstitution | undefined {
-  const reason = failure?.code === SUBSTITUTABLE_FAILURE_CODE ? availabilityReason(failure.message) : undefined;
-  if (reason === undefined) return undefined;
+  const availability = engineAvailabilityFailure(failure);
+  if (availability === undefined) return undefined;
   const attempted = new Set(run.attempts.filter((attempt) => attempt.nodeId === nodeId)
     .map((attempt) => attempt.resolvedConfig.engine));
   // Nothing to cover for until the resolved engine is the one that just failed:
   // a Todo override naming an engine this node has not tried is itself the answer.
   if (!attempted.has(baseEngine)) return undefined;
-  const registry = deps.models();
   const chain = engineChain(baseEngine, employeeFallback(run.definition, nodeId),
     (engine) => deps.engineFallback?.chainFor(engine) ?? []);
+  const engine = preferredCandidates(chain, attempted, deps.models(), deps.engineHealth?.() ?? {})[0];
+  return engine === undefined ? undefined : { engine, from: baseEngine, reason: availability.reason };
+}
+
+/**
+ * The members this node could still be dispatched to, healthy ones first.
+ *
+ * A member that is out of allowance is held back rather than dropped: health
+ * orders this walk and never shortens it, because a reading nothing verified
+ * must not be able to freeze a run that had somewhere to go. `degraded` is not
+ * read at all — an engine that named no reopening is not out of anything.
+ */
+function preferredCandidates(
+  chain: readonly string[],
+  attempted: ReadonlySet<string>,
+  registry: ModelRegistry,
+  health: EngineHealthReading,
+): string[] {
+  const healthy: string[] = [];
+  const exhausted: string[] = [];
   for (const candidate of chain) {
     if (attempted.has(candidate) || !registry[candidate]?.available) continue;
-    return { engine: candidate, from: baseEngine, reason };
+    (health[candidate]?.state === "exhausted" ? exhausted : healthy).push(candidate);
   }
-  return undefined;
+  return [...healthy, ...exhausted];
 }

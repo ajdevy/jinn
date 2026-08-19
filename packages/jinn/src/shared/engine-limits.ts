@@ -12,6 +12,7 @@ import type {
   JinnConfig,
 } from "./types.js";
 import { CLAUDE_LIMITS_DIR } from "./paths.js";
+import { recordExhaustedWindows } from "./engine-health.js";
 import { getModelRegistry } from "./models.js";
 import { readClaudeOAuthToken } from "./claude-models.js";
 import { resolveBin } from "./resolve-bin.js";
@@ -649,9 +650,8 @@ export async function collectEngineLimits(
       engines[name] = collectUnsupported(config, name, "No limit collector is registered for this engine.");
     }
 
-    if (!LIVE_LIMIT_ENGINES.has(name) && engines[name].status === "live") {
-      engines[name].status = "snapshot";
-    }
+    if (!LIVE_LIMIT_ENGINES.has(name) && engines[name].status === "live") engines[name].status = "snapshot";
+    recordExhaustedWindows(name, engines[name].windows);
   }
 
   return { generatedAt, default: config.engines.default, engines };
