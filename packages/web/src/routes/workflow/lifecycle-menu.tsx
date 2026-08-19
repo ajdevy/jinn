@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Archive, ArchiveRestore, Copy, EllipsisVertical, MoreHorizontal, Pause, Play } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -14,7 +14,7 @@ import {
   SESSION_MENU_ITEM_CLASS,
   SESSION_MENU_SEPARATOR_CLASS,
 } from "@/components/chat/session-row-menu"
-import { api, type WorkflowDefinitionV2Wire } from "@/lib/api"
+import { ApiError, api, type WorkflowDefinitionV2Wire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { DIALOG_ACTION_CLASS, DIALOG_CANCEL_CLASS, WorkflowNameDialog } from "./name-dialog"
 
@@ -113,17 +113,32 @@ function useLifecycleWrites(workflow: LifecycleWorkflow, settled: () => void,
     void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
   }
 
+  // A conflict burns the revision this menu was handed, and the prop carrying it
+  // only catches up once the invalidated queries come back. Until it does, the
+  // next write reads the revision from the server rather than racing that
+  // refetch and repeating the refusal it just got.
+  const refused = useRef<number | null>(null)
+  const revisionToSend = async () => {
+    if (refused.current !== workflow.revision) return workflow.revision
+    const fresh = await api.getWorkflowDefinitionV2(workflow.id)
+    queryClient.setQueryData(queryKeys.workflows.definition(fresh.id), fresh)
+    return fresh.revision
+  }
+
   const lifecycle = useMutation({
-    mutationFn: (action: LifecycleAction) =>
-      action === "archive" || action === "unarchive"
-        ? api.setWorkflowRetiredV2(workflow.id, action === "archive", workflow.revision)
-        : api.setWorkflowEnabledV2(workflow.id, action === "enable", workflow.revision),
-    onSuccess: (saved) => { cache(saved); onChanged?.(saved) },
+    mutationFn: async (action: LifecycleAction) => {
+      const revision = await revisionToSend()
+      return action === "archive" || action === "unarchive"
+        ? api.setWorkflowRetiredV2(workflow.id, action === "archive", revision)
+        : api.setWorkflowEnabledV2(workflow.id, action === "enable", revision)
+    },
+    onSuccess: (saved) => { refused.current = null; cache(saved); onChanged?.(saved) },
     onError: (error) => {
       // A refused write leaves nothing for the confirmation to confirm, and the
       // revision behind it is the one thing now known to be out of date. Dropping
       // the whole `workflows` namespace refetches the list and the open definition
       // alike, so the caller recovers instead of retrying the same stale request.
+      if (error instanceof ApiError && error.status === 409) refused.current = workflow.revision
       settled()
       void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
       onFailure(error)

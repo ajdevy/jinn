@@ -233,6 +233,23 @@ describe("workflow list lifecycle menu", () => {
     expect(client.getQueryState(queryKeys.workflows.definition(summary.id))?.isInvalidated).toBe(true)
   })
 
+  it("reads the revision from the server when the row's refresh has not caught up", async () => {
+    setWorkflowRetired.mockRejectedValueOnce(staleArchive())
+    setWorkflowRetired.mockResolvedValue({ ...definition, revision: 6, retiredAt: "2026-08-18T10:00:00.000Z" })
+    // The refetch the refusal triggers is still in flight, so the row keeps handing
+    // down revision 3 while the server has already moved to 5.
+    getWorkflowDefinition.mockResolvedValue({ ...definition, revision: 5 })
+    renderList()
+
+    await archive()
+    await waitFor(() => expect(setWorkflowRetired).toHaveBeenCalledWith("morning-digest", true, 3))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+
+    await archive()
+
+    await waitFor(() => expect(setWorkflowRetired).toHaveBeenLastCalledWith("morning-digest", true, 5))
+  })
+
   it("sizes both dialogs' actions to the mobile tap target", async () => {
     renderList()
     await openRowMenu()
