@@ -11,7 +11,7 @@ import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
   getModelRegistry,
   invalidateModelRegistry,
-  type PtyViewEngineName,
+  type EngineName, type PtyViewEngineName,
   refreshAntigravityModels,
   refreshClaudeModels,
   refreshCodexModels,
@@ -792,7 +792,7 @@ export async function startGateway(
     todoApprovals: workflowTodoApprovals(({ todoId, request, ref, options, approver }) => {
       requestApproval(todoId, { request, ref, ...(options ? { options } : {}), ...(approver ? { target: approver } : {}), actor: "workflow" });
     }),
-    todoSessions: workflowTodoSessions(), todoDispatch: workflowTodoDispatch(),
+    todoSessions: workflowTodoSessions(), todoDispatch: workflowTodoDispatch(), engineFallback: { chainFor: (engine: string) => currentConfig.engines[engine as EngineName]?.fallback ?? [] },
     // A parked Wait node listens for the operator's reply on the bound Todo.
     todoComments: { firstOperatorCommentAfter },
     sessionSpend: getSessionSpend, activeEngineSessions: () => sessionsHoldingEngineCapacity(listSessions(), apiContext).length,

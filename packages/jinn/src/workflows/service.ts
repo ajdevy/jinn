@@ -90,7 +90,7 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 export interface WorkflowTodoCommentFeed {
   firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
 }
-export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions"> {
+export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;

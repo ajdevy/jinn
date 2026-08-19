@@ -5,7 +5,7 @@ import { TODO_ID_PATTERN } from "../work-items/id.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import { continuationPrompt } from "./employee-continuation.js";
-import { bindingContext, resolveDispatch, resolveString } from "./node-dispatch.js";
+import { bindingContext, hasSubstitute, resolveDispatch, resolveString, type DispatchResolutionDeps } from "./node-dispatch.js";
 import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
 import type {
   ConditionNode,
@@ -40,7 +40,7 @@ import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMi
   WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
 import { topologicalOrder, validateExecutableWorkflow } from "./validation.js";
 
-export interface WorkflowRunnerOptions {
+export interface WorkflowRunnerOptions extends Pick<DispatchResolutionDeps, "engineFallback"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;
@@ -829,11 +829,11 @@ export class WorkflowRunner {
 
   private settleFailure(run: WorkflowRunDetail, attempt: typeof run.attempts[number], error: WorkflowError,
     status: "failed" | "timed-out" | "cancelled", endedAt: string, processedTurn?: number, handoff?: unknown): boolean {
-    // `error.retryable` is what decides this, not the attempt counter alone. A
-    // node's retry budget exists for attempts that never landed; spending it on
-    // an employee that ran and reported failure pays twice for a verdict that was
-    // already reached, and can override a phase that deliberately refused.
-    const retry = error.retryable && attempt.attempt < attempt.resolvedConfig.retry.attempts;
+    // `error.retryable` is what decides this, not the attempt counter alone. A node's retry budget exists for
+    // attempts that never landed; spending it on an employee that ran and reported failure pays twice for a verdict
+    // that was already reached, and can override a phase that deliberately refused. A substitution spends none of it:
+    // the budget governs asking the SAME engine again, and an engine with no allowance left never answered at all.
+    const retry = (error.retryable && attempt.attempt < attempt.resolvedConfig.retry.attempts) || hasSubstitute(run, attempt, error, this.options);
     const routed = !retry && run.definition.edges.some((edge) => edge.from.nodeId === attempt.nodeId && edge.from.port === "error");
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       if (processedTurn !== undefined) {
