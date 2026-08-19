@@ -29,7 +29,7 @@ import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { enforcePtyIdleCap, PtyLifecycleManager, type PtyLifecycleOpts } from "../engines/pty-lifecycle.js";
 import { CodexEngine, startCodexSessionHomeSweeps } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
-import { AntigravityEngine } from "../engines/antigravity.js";
+import { createAntigravityEnginePair } from "../engines/antigravity-runtime.js";
 import { PiEngine } from "../engines/pi.js";
 import { GrokEngine } from "../engines/grok.js";
 import { GrokInteractiveEngine } from "../engines/grok-interactive.js";
@@ -664,14 +664,13 @@ export async function startGateway(
   });
   const codexInteractiveEngine = new CodexInteractiveEngine(codexLifecycle);
 
-  // Antigravity (`agy`) — PTY-interactive engine. One instance both runs turns
-  // and backs the xterm view (agy has no headless mode), so it needs its own
-  // PTY lifecycle manager.
+  // Antigravity mirrors Codex/Grok: supported stream-JSON print mode owns queued
+  // work turns, while a separate PTY instance backs the dashboard terminal.
   antigravityLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
   });
-  const antigravityEngine = new AntigravityEngine(antigravityLifecycle);
+  const { work: antigravityEngine, pty: antigravityInteractiveEngine } = createAntigravityEnginePair(antigravityLifecycle);
   grokLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
@@ -683,7 +682,7 @@ export async function startGateway(
   });
   const hermesInteractiveEngine = new HermesInteractiveEngine(hermesLifecycle);
   const piEngine = new PiEngine();
-  logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
+  logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (headless + interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
 
   const codexEngine = new CodexEngine();
   const grokEngine = new GrokEngine();
@@ -705,7 +704,7 @@ export async function startGateway(
   const ptyViewEngines: Record<PtyViewEngineName, Engine & PtyViewEngine> = {
     claude: interactiveClaudeEngine,
     codex: codexInteractiveEngine,
-    antigravity: antigravityEngine,
+    antigravity: antigravityInteractiveEngine,
     grok: grokInteractiveEngine,
     hermes: hermesInteractiveEngine,
   };
@@ -1291,6 +1290,7 @@ export async function startGateway(
     codexEngine.killAll();
     codexInteractiveEngine.killAll();
     antigravityEngine.killAll();
+    antigravityInteractiveEngine.killAll();
     grokEngine.killAll();
     grokInteractiveEngine.killAll();
     hermesEngine.killAll();

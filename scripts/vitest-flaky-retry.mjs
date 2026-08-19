@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { acquireTestSlot } from "./test-slot-gate.mjs";
 
 /**
  * Wraps `vitest run` so a test file that fails in CI is rerun once, and a file
@@ -284,15 +285,24 @@ function main() {
   const packageDir = process.cwd();
   const vitestBin = resolveVitestBin(packageDir);
 
-  if (!process.env.CI) {
-    return runVitest(vitestBin, buildVitestArgs({ passthrough }), packageDir);
-  }
-
-  const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-flaky-"));
+  // Machine-wide cap on concurrent suites (build worktrees, agents, humans):
+  // held across the retry too, so one run counts as one slot. See
+  // test-slot-gate.mjs; CI containers are one-suite-per-runner so it never
+  // blocks there.
+  const releaseSlot = acquireTestSlot({ log: (message) => console.log(`${LABEL}: ${message}`) });
   try {
-    return runWithRetry(vitestBin, passthrough, packageDir, reportDir);
+    if (!process.env.CI) {
+      return runVitest(vitestBin, buildVitestArgs({ passthrough }), packageDir);
+    }
+
+    const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-flaky-"));
+    try {
+      return runWithRetry(vitestBin, passthrough, packageDir, reportDir);
+    } finally {
+      fs.rmSync(reportDir, { recursive: true, force: true });
+    }
   } finally {
-    fs.rmSync(reportDir, { recursive: true, force: true });
+    releaseSlot();
   }
 }
 
