@@ -13,7 +13,7 @@ function configWith(
   claude: Partial<JinnConfig["engines"]["claude"]> = {},
 ): JinnConfig {
   return {
-    gateway: { port: 7777, host: "127.0.0.1" },
+    gateway: { port: 7779, host: "127.0.0.1" },
     engines: {
       default: "claude",
       claude: { bin: "claude", model: "opus", ...claude },
