@@ -270,9 +270,9 @@ export function readRunsByCaller(
 ): WorkflowChildRunSummary[] {
   let rows: RunRow[];
   try {
-    rows = db.prepare(`SELECT * FROM workflow_runs
-      WHERE json_extract(trigger_json, '$.payload.caller.runId') = ?
-        AND json_extract(trigger_json, '$.payload.caller.nodeId') = ?
+    // Only manual and workflow-call payloads are ours to write, so a `caller` under any other kind is the fire's own data.
+    rows = db.prepare(`SELECT * FROM workflow_runs WHERE json_extract(trigger_json, '$.kind') IN ('manual', 'workflow-call')
+        AND json_extract(trigger_json, '$.payload.caller.runId') = ? AND json_extract(trigger_json, '$.payload.caller.nodeId') = ?
       ORDER BY json_extract(trigger_json, '$.payload.itemIndex'), started_at, id`).all(parentRunId, nodeId) as RunRow[];
   } catch (error) {
     if (error instanceof Error && /malformed JSON/i.test(error.message)) {

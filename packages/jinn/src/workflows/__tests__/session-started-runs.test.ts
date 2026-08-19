@@ -9,9 +9,10 @@ import type {
   WorkflowAttemptCommand,
   WorkflowAttemptCompletionListener,
 } from "../../shared/types.js";
-import type { WorkflowDefinition } from "../model.js";
+import type { JsonValue, TriggerNode, WorkflowDefinition } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
+import type { ResolvedEmployeeConfig } from "../runtime.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
 
@@ -51,10 +52,10 @@ let service: WorkflowService;
  *  addressable from its run id alone. */
 function attemptSession(runId: string): string { return `session:${runId}:work`; }
 
-function save(id: string): WorkflowDefinition {
+function save(id: string, trigger: TriggerNode["config"] = { kind: "manual" }): WorkflowDefinition {
   const created = service.createDefinition({ id, title: id });
   const saved = service.saveDefinition({ ...created, nodes: [
-    { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+    { id: "start", type: "trigger", name: "Start", config: trigger },
     { id: "work", type: "employee", name: "Work", config: {
       employee: { source: "fixed", value: "worker" }, prompt: "Do the work.",
     } },
@@ -64,6 +65,20 @@ function save(id: string): WorkflowDefinition {
     { id: "work-finish", from: { nodeId: "work", port: "success" }, to: { nodeId: "finish", port: "input" } },
   ] }, created.revision);
   return service.setEnabled({ id, enabled: true, expectedRevision: saved.revision });
+}
+
+/** A run an event fire started, whose payload carries a `caller` key of its own,
+ *  sitting on a live attempt of its Employee node. */
+function fireWithBusinessCaller(definition: WorkflowDefinition, config: ResolvedEmployeeConfig, caller: JsonValue): string {
+  const created = repository.createRun({ workflowId: definition.id, input: {},
+    trigger: { nodeId: "start", kind: "event", payload: { caller } } });
+  const run = repository.getRun(definition.id, created.id)!;
+  repository.mutateRun(run.id, run.revision, (tx) => {
+    tx.setNodeStatus("work", "running", { activated: true, startedAt: NOW });
+    const attempt = tx.createAttempt({ nodeId: "work", resolvedConfig: config, input: {} });
+    tx.settleAttempt("work", attempt.attempt, { status: "running", sessionId: attemptSession(run.id) });
+  });
+  return run.id;
 }
 
 beforeEach(() => {
@@ -148,6 +163,33 @@ describe("Workflow runs started from an attempt session", () => {
     await service.cancelRun({ workflowId: alpha.id, runId: alphaRun.id, reason: "Parent stopped." });
 
     expect(service.getRun(beta.id, betaRun.id)!.status).toBe("cancelled");
+  });
+
+  it("does not mistake an event payload's own caller field for ancestry", async () => {
+    const alpha = save("alpha-flow");
+    const beta = save("beta-flow");
+    const events = save("event-flow", { kind: "event", eventName: "thing.happened" });
+    const seed = await service.startManual({ workflowId: alpha.id, input: {} });
+    const config = service.getRun(alpha.id, seed.id)!.attempts[0]!.resolvedConfig;
+    const fired = fireWithBusinessCaller(events, config,
+      { workflowId: alpha.id, runId: "run_11111111-2222-4333-8444-555555555555", nodeId: "work" });
+
+    const spawned = await service.startManual({
+      workflowId: beta.id, input: {}, callerSessionId: attemptSession(fired),
+    });
+
+    expect(service.getRun(events.id, fired)!.childRuns.map((child) => child.runId)).toEqual([spawned.id]);
+  });
+
+  it("does not list an event-fired run as a child of the run its payload names", async () => {
+    const alpha = save("alpha-flow");
+    const events = save("event-flow", { kind: "event", eventName: "thing.happened" });
+    const parent = await service.startManual({ workflowId: alpha.id, input: {} });
+    const config = service.getRun(alpha.id, parent.id)!.attempts[0]!.resolvedConfig;
+
+    fireWithBusinessCaller(events, config, { workflowId: alpha.id, runId: parent.id, nodeId: "work" });
+
+    expect(service.getRun(alpha.id, parent.id)!.childRuns).toEqual([]);
   });
 
   it("leaves a run started outside an attempt exactly as it was", async () => {
