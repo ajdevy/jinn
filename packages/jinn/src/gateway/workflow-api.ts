@@ -166,9 +166,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   if (parts.length === 4 && method === "GET") { send(res, 200, service.listRuns(workflowId, runQuery(url))); return true; }
   if (parts.length === 4 && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["input", "idempotencyKey", "todoId"]);
+    const caller = callerSessionId(req);
     send(res, 201, await service.startManual({ workflowId, input: value.input as never,
       ...(value.idempotencyKey === undefined ? {} : { idempotencyKey: value.idempotencyKey as string }),
-      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }) })); return true;
+      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }),
+      ...(caller === undefined ? {} : { callerSessionId: caller }) })); return true;
   }
   const runId = parts[4]; if (!runId) return false;
   if (parts.length === 5 && method === "GET") {

@@ -6,7 +6,7 @@ import {
   type WorkflowNodeOutput,
   type WorkflowOutputSchema,
 } from './model.js';
-import type { WorkflowChildRunSummary } from './runtime.js';
+import type { WorkflowFanoutChildSummary } from './runtime.js';
 
 type WorkflowOutputCode =
   | 'multiple-blocks'
@@ -219,7 +219,7 @@ export function parseWorkflowOutput(finalText: string, schema?: WorkflowOutputSc
 
 /** The other way a node output comes to exist: a Workflow Call node joins its
  *  children into one, so a downstream Condition can route on the batch. */
-export function fanoutOutput(children: readonly WorkflowChildRunSummary[]): WorkflowNodeOutput {
+export function fanoutOutput(children: readonly WorkflowFanoutChildSummary[]): WorkflowNodeOutput {
   const outcomes = children.map((child) => ({
     index: child.itemIndex,
     runId: child.runId,

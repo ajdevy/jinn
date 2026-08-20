@@ -483,7 +483,7 @@ export interface WorkflowChildRunV2Wire {
   runId: string
   workflowId: string
   nodeId: string
-  itemIndex: number
+  itemIndex?: number
   status: WorkflowRunStatusV2
   startedAt: string
   endedAt?: string

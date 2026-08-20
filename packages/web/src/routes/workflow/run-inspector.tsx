@@ -98,7 +98,7 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
 function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
   const children = (detail.childRuns ?? [])
     .filter((child) => child.nodeId === nodeId)
-    .sort((a, b) => a.itemIndex - b.itemIndex)
+    .sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
   if (children.length === 0) return null
   return (
     <Section title="Child runs">
@@ -110,8 +110,8 @@ function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire;
             className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
           >
             <span className="min-w-0 flex-1">
-              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                Item {child.itemIndex + 1}
+              <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+                {child.itemIndex === undefined ? child.workflowId : `Item ${child.itemIndex + 1}`}
               </span>
               <span
                 className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
@@ -399,9 +399,9 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
             <>
               <FanoutSection nodeRun={nodeRun} />
               <OutputSection output={nodeRun?.output} isDark={isDark} />
-              <ChildRunsSection detail={detail} nodeId={node.id} />
             </>
           )}
+          <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
             <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
