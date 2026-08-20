@@ -15,7 +15,6 @@ import { useGateway } from '@/hooks/use-gateway'
 import { useModelRegistry } from '@/hooks/use-model-registry'
 import { PageLayout } from '@/components/page-layout'
 import { ChatSidebar, pickDeleteFallbackId, type SidebarOrder } from '@/components/chat/chat-sidebar'
-import { ChatHeaderPills } from '@/components/chat/chat-tabs'
 import { NavRibbon } from '@/components/pill-nav'
 import { MobileTabBar } from '@/components/chat/mobile-tab-bar'
 import { ChatPane, type FreshChatSourceSession } from '@/components/chat/chat-pane'
@@ -29,6 +28,9 @@ import { usePaneIdentity } from './pane-identity'
 import { useChatWorkingSet } from './use-chat-working-set'
 import { useChatPaneState } from './use-chat-pane-state'
 import { historyRecord, parseHistoryPreview } from './chat-history'
+import { ChatGridDropOverlay } from './chat-grid-drop'
+import { useChatGridAdd } from './use-chat-grid-add'
+import { ChatPageHeader } from './chat-page-header'
 import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
@@ -48,7 +50,6 @@ import { useSettings } from '@/routes/settings-provider'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
-import { Check } from 'lucide-react'
 import type { ViewMode } from '@/lib/view-mode'
 import type { GatewayEvent } from '@jinn/gateway-events'
 import { shareDebugLog, clearDebugLog } from '@/lib/debug-log'
@@ -138,9 +139,7 @@ function ChatPage() {
 
   const viewMode = paneState.viewMode
   const [showMoreMenu, setShowMoreMenu] = useState(false)
-  const [showSessionPicker, setShowSessionPicker] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  const sessionPickerRef = useRef<HTMLDivElement>(null)
   const { events, connectionSeq, skillsVersion, subscribe } = useGateway()
   const { data: engineRegistry } = useModelRegistry() // PTY capability per engine — drives the CLI view toggle
   const chatTabs = useChatTabs()
@@ -164,19 +163,16 @@ function ChatPage() {
   // would be seen as "outside" and close the menu. Use a data-attribute
   // ancestor check instead so both copies count as "inside".
   useEffect(() => {
-    if (!showMoreMenu && !showSessionPicker) return
+    if (!showMoreMenu) return
     function handleClick(e: MouseEvent) {
       const target = e.target as HTMLElement | null
       if (showMoreMenu && target && !target.closest('[data-more-menu]')) {
         setShowMoreMenu(false)
       }
-      if (showSessionPicker && sessionPickerRef.current && !sessionPickerRef.current.contains(e.target as Node)) {
-        setShowSessionPicker(false)
-      }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [showMoreMenu, showSessionPicker])
+  }, [showMoreMenu])
 
   const copyToClipboard = useCallback((text: string, field: string) => {
     navigator.clipboard.writeText(text)
@@ -309,6 +305,8 @@ function ChatPage() {
       handleSelect(sessionId, { navigateMobile: false })
     }
   }, [handleSelect, workingSet])
+
+  const gridAdd = useChatGridAdd(workingSet.add, selectedId, handleSelect)
 
   const handleRemovePane = useCallback((sessionId: string) => {
     const next = removeWorkingSetSession(workingSet.state, sessionId)
@@ -864,13 +862,11 @@ function ChatPage() {
       onDeleteSession={handleDeleteSession}
     />
   )
-
   // The conversation title — slim inline title (desktop) / centered nav-bar title
   // (mobile thread). "New chat" on a fresh composer, else nothing until meta loads.
   const headerTitle = sessionMeta?.title?.trim() || (focusedSessionId ? '' : 'New chat')
 
   const onMobileList = mobileView === 'sidebar'
-
   return (
     <FileOpenContext.Provider value={openFile}>
     <PeekProvider>
@@ -927,20 +923,16 @@ function ChatPage() {
 
           {/* Frosted corner pills replace the solid header. Hidden over the mobile
               chat-list view (the sidebar has its own header); shown on desktop + thread. */}
-          <ChatHeaderPills
+          <ChatPageHeader
             hideOnMobile={onMobileList}
             title={headerTitle}
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
+            grid={workingSet.state.sessionIds.length > 1 ? { sessions: sessionsQuery.data ?? [], memberIds: workingSet.state.sessionIds, onAdd: gridAdd.addPane } : undefined}
             moreMenu={moreMenu}
+            copiedField={copiedField}
           />
-
-          {copiedField && (
-            <div className="absolute right-4 top-[58px] z-10 flex items-center gap-1 rounded-full bg-[var(--material-thick)] px-2.5 py-1 text-caption1 font-medium text-[var(--accent)] shadow-[var(--shadow-overlay)]">
-              <Check className="size-3" /> Copied!
-            </div>
-          )}
 
           <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
             {/* Mobile: the chat list is the full-width body; the bottom tab bar
@@ -961,8 +953,13 @@ function ChatPage() {
             />
           </div>
 
-          <div ref={paneSlotRef} className={cn(
-            "flex-1 overflow-hidden flex flex-col",
+          <div
+            ref={paneSlotRef}
+            data-chat-grid-drop-surface
+            data-chat-grid-drop-state={gridAdd.drop.active ? 'eligible' : 'idle'}
+            {...gridAdd.drop.handlers}
+            className={cn(
+            "relative flex-1 overflow-hidden flex flex-col",
             mobileView === 'sidebar' ? 'hidden lg:flex' : 'flex'
           )}>
             {/* File tab → render the in-app file viewer inside the same bounded
@@ -1029,6 +1026,7 @@ function ChatPage() {
                 onStartFreshChat={handleStartFreshChat}
               />
             )}
+            <ChatGridDropOverlay active={gridAdd.drop.active} />
           </div>
 
           {/* Stable above the session-keyed ChatPane: it survives route remount

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type React from 'react'
 import { ChatPane } from '../chat-pane'
 import type { GatewayEvent } from '@jinn/gateway-events'
+import { CHAT_SESSION_DND_MIME } from '@/routes/chat/chat-session-dnd'
 
 let featuresState = {
   notesEnabled: false,
@@ -156,6 +157,26 @@ describe('ChatPane', () => {
     expect(composerActive).toBe(false)
     fireEvent.focusIn(screen.getByTestId('chat-input'))
     expect(onFocus).toHaveBeenCalledOnce()
+  })
+
+  it('lets session drags bubble to the grid while retaining file drops', () => {
+    const outerDrop = vi.fn()
+    const { container } = render(
+      <div onDrop={outerDrop}>
+        <ChatPane sessionId="s1" isActive onFocus={() => {}} subscribe={() => () => {}} events={[]} />
+      </div>,
+    )
+    const pane = container.querySelector<HTMLElement>('[data-chat-pane-session="s1"]')!
+    fireEvent.drop(pane, {
+      dataTransfer: { types: [CHAT_SESSION_DND_MIME], files: [], getData: () => 's2' },
+    })
+    expect(outerDrop).toHaveBeenCalledOnce()
+    outerDrop.mockClear()
+
+    fireEvent.drop(pane, {
+      dataTransfer: { types: ['Files'], files: [new File(['x'], 'x.txt')] },
+    })
+    expect(outerDrop).not.toHaveBeenCalled()
   })
 
   it('returns failed delivery while retaining the optimistic bubble and retry path', async () => {

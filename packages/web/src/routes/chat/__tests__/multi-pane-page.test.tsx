@@ -92,6 +92,7 @@ vi.mock('@/hooks/use-chat-tabs', async (importOriginal) => {
 
 import ChatPageWrapper from '../page'
 import { WORKING_SET_STORAGE_KEY } from '../working-set'
+import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
 
 function pane(id: string): HTMLElement {
   const node = document.querySelector<HTMLElement>(`[data-chat-pane-session="${id}"]`)
@@ -101,6 +102,28 @@ function pane(id: string): HTMLElement {
 
 function emit(event: string, payload: unknown) {
   act(() => gateway.listeners.forEach((listener) => listener({ event, payload })))
+}
+
+function renderRoute() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/?session=a']}>
+        <Routes><Route path="/" element={<ChatPageWrapper />} /></Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+function sessionTransfer(sessionId: string): DataTransfer {
+  return {
+    types: [CHAT_SESSION_DND_MIME],
+    files: [] as unknown as FileList,
+    effectAllowed: 'copy',
+    dropEffect: 'none',
+    setData: vi.fn(),
+    getData: (type: string) => type === CHAT_SESSION_DND_MIME ? sessionId : '',
+  } as unknown as DataTransfer
 }
 
 describe('the routed multi-pane surface', () => {
@@ -117,14 +140,7 @@ describe('the routed multi-pane surface', () => {
   })
 
   it('keeps four live transcripts isolated and preserves a streaming pane while a sibling closes', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(
-      <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/?session=a']}>
-          <Routes><Route path="/" element={<ChatPageWrapper />} /></Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    )
+    renderRoute()
 
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
     await waitFor(() => sessionIds.forEach((id) => expect(pane(id).textContent).toContain(`transcript-${id}`)))
@@ -162,5 +178,33 @@ describe('the routed multi-pane surface', () => {
     expect(pane('c').textContent).toBe(streamingText)
     expect(pane('a').textContent).toContain('transcript-a')
     expect(pane('d').textContent).toContain('transcript-d')
+  })
+
+  it('paints the same live pane and persists the same set from drop and picker', async () => {
+    const initial = JSON.stringify({
+      version: 1,
+      sessionIds: ['a', 'b'],
+      focusedId: 'a',
+      focusHistory: ['a', 'b'],
+    })
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, initial)
+    const dropped = renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(2))
+    const surface = document.querySelector<HTMLElement>('[data-chat-grid-drop-surface]')!
+    fireEvent.drop(surface, { dataTransfer: sessionTransfer('c') })
+    await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b', 'c']))
+    const dropState = localStorage.getItem(WORKING_SET_STORAGE_KEY)
+    dropped.unmount()
+
+    gateway.listeners.clear()
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, initial)
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(2))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add chat to grid' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Title c' }))
+    await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b', 'c']))
+    expect(localStorage.getItem(WORKING_SET_STORAGE_KEY)).toBe(dropState)
   })
 })

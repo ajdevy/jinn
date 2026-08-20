@@ -13,6 +13,7 @@ import { BackgroundActivityStatus } from '@/components/chat/background-activity-
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
 import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
+import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
 
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
 import type { CliTerminalHandle } from '@/components/cli-terminal'
@@ -421,47 +422,10 @@ export function ChatPane({
     onContentReady?.(sessionId)
   }, [sessionId, hydrating, currentSession, messages.length, streamingText, onContentReady])
 
-  // Drag & drop state
-  const [dragOver, setDragOver] = useState(false)
-  const [droppedFiles, setDroppedFiles] = useState<File[]>()
-  const dragCounter = useRef(0)
+  const fileDrop = useChatFileDrop()
   // A threshold, not a default: a load that resolves inside the delay never
   // announces itself, and the transcript stays mounted underneath either way.
   const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current++
-    if (e.dataTransfer.types.includes('Files')) {
-      setDragOver(true)
-    }
-  }, [])
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current--
-    if (dragCounter.current === 0) {
-      setDragOver(false)
-    }
-  }, [])
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current = 0
-    setDragOver(false)
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      setDroppedFiles(files)
-    }
-  }, [])
 
   return (
     <div
@@ -475,13 +439,10 @@ export function ChatPane({
       }}
       data-chat-pane-session={sessionId ?? 'new'} data-chat-pane-active={String(isActive)}
       onClick={onFocus} onFocusCapture={onFocus}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      {...fileDrop.handlers}
     >
       {/* Drop zone overlay */}
-      {dragOver && (
+      {fileDrop.dragOver && (
         <div
           style={{
             position: 'absolute',
@@ -589,8 +550,8 @@ export function ChatPane({
         onStatusRequest={handleStatusRequest}
         skillsVersion={skillsVersion}
         events={events}
-        droppedFiles={droppedFiles}
-        onDroppedFilesConsumed={() => setDroppedFiles(undefined)}
+        droppedFiles={fileDrop.droppedFiles}
+        onDroppedFilesConsumed={fileDrop.clearDroppedFiles}
         focusTrigger={focusTrigger}
         onShortcutsClick={onShortcutsClick}
         statusSlot={

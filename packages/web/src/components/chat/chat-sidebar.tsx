@@ -64,34 +64,10 @@ import {
   SessionRowMenu,
   workflowRunPath,
 } from "@/components/chat/session-row-menu"
+import { writeChatSessionDrag } from "@/routes/chat/chat-session-dnd"
+import type { ChatSidebarProps } from "@/components/chat/chat-sidebar-types"
 
-export interface SidebarOrder {
-  sessionIds: string[]
-  employeeNames: string[]
-  employeeSessionMap: Record<string, string[]>
-}
-
-interface ChatSidebarProps {
-  selectedId: string | null
-  /** Select a session. System-initiated selections (e.g. the post-delete
-   *  neighbour fallback) pass `replace` so they collapse into the current
-   *  history entry instead of pushing a new one. */
-  onSelect: (id: string, opts?: { replace?: boolean; navigateMobile?: boolean }) => void
-  onNewChat: () => void
-  onDelete?: (id: string) => void
-  onArchive?: (id: string) => void
-  onUnarchive?: (id: string) => void
-  onDuplicate?: (newSessionId: string) => void
-  onSessionsLoaded?: (sessions: Session[]) => void
-  onEmployeeSessionsAvailable?: (sessions: Session[]) => void
-  onOrderComputed?: (order: SidebarOrder) => void
-  /** Start a new chat with a session-less roster employee (contactable list). */
-  onContactEmployee?: (name: string) => void
-  /** "mobile" swaps every session row for the touch-native one. The chat route
-   *  mounts this list twice — a desktop column and a phone body — so the row
-   *  shape is chosen by the mount, not by a media query inside the row. */
-  variant?: "desktop" | "mobile"
-}
+export type { SidebarOrder } from "@/components/chat/chat-sidebar-types"
 
 interface FlatItem {
   type: "employee" | "direct"
@@ -302,6 +278,9 @@ const SessionRow = React.memo(function SessionRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <RowTag
+          draggable={!isRenaming}
+          data-chat-session-row={session.id}
+          onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
           {...(!isRenaming && { onClick: () => {
             onSelect(session.id)
             onEmployeeSessionsAvailable?.(parentSessions ?? [session])
@@ -373,6 +352,7 @@ const SessionRow = React.memo(function SessionRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                draggable={false}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Session actions"
                 className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-2 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:hidden group-hover/session:lg:flex group-has-[[data-state=open]]/session:lg:flex"
@@ -492,6 +472,9 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           )}
         >
           <button
+            draggable
+            data-chat-session-row={session.id}
+            onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
             onClick={() => {
               onSelect(session.id)
               onEmployeeSessionsAvailable?.([session])
@@ -554,6 +537,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                draggable={false}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Chat actions"
                 className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-2 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:hidden group-hover/flat:lg:flex group-has-[[data-state=open]]/flat:lg:flex"

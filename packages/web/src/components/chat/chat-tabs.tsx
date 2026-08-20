@@ -23,6 +23,8 @@ export interface ChatHeaderPillsProps {
   backTo?: { label: string; onClick: () => void }
   /** Start a new chat (compose). */
   onNew: () => void
+  /** Desktop-only control for adding another live grid pane. */
+  addGridPane?: ReactNode
   /** Existing "more" (…) menu element, rendered as the last pill control. */
   moreMenu?: ReactNode
 
@@ -52,6 +54,7 @@ export function ChatHeaderPills({
   onBack,
   backTo,
   onNew,
+  addGridPane,
   moreMenu,
 }: ChatHeaderPillsProps) {
   return (
@@ -90,6 +93,7 @@ export function ChatHeaderPills({
           <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
             <SquarePen size={18} />
           </PillButton>
+          {addGridPane}
           {moreMenu}
         </div>
       </div>

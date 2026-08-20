@@ -67,6 +67,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
 
 import { MemoryRouter } from 'react-router-dom'
 import { ChatSidebar, PINNED_VISIBLE } from '../chat-sidebar'
+import { CHAT_SESSION_DND_MIME } from '@/routes/chat/chat-session-dnd'
 
 const NOW = new Date().toISOString()
 
@@ -74,10 +75,10 @@ function webSession(id: string, title: string, extra: Record<string, unknown> = 
   return { id, title, source: 'web', lastActivity: NOW, ...extra }
 }
 
-function renderSidebar() {
+function renderSidebar(variant: 'desktop' | 'mobile' = 'desktop') {
   return render(withQueryClient(
     <MemoryRouter>
-      <ChatSidebar selectedId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />
+      <ChatSidebar selectedId={null} onSelect={vi.fn()} onNewChat={vi.fn()} variant={variant} />
     </MemoryRouter>,
   ))
 }
@@ -90,6 +91,24 @@ beforeEach(() => {
 })
 
 describe('pinned section cap', () => {
+  it('publishes only session identity from desktop rows and leaves mobile rows non-draggable', () => {
+    sidebarData.sessions = [webSession('chat-1', 'Drag this chat')]
+    const desktop = renderSidebar()
+    const row = desktop.container.querySelector<HTMLElement>('[data-chat-session-row="chat-1"]')!
+    const setData = vi.fn()
+    const dataTransfer = { setData, effectAllowed: 'uninitialized' } as unknown as DataTransfer
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(row.getAttribute('draggable')).toBe('true')
+    expect(setData).toHaveBeenCalledOnce()
+    expect(setData).toHaveBeenCalledWith(CHAT_SESSION_DND_MIME, 'chat-1')
+    expect(dataTransfer.effectAllowed).toBe('copy')
+    desktop.unmount()
+
+    const mobile = renderSidebar('mobile')
+    expect(mobile.container.querySelector('[data-chat-session-row="chat-1"]')).toBeNull()
+    expect(mobile.container.querySelector('[draggable="true"]')).toBeNull()
+  })
+
   it('folds pins beyond PINNED_VISIBLE behind "N more pinned" and expands on demand', () => {
     const total = PINNED_VISIBLE + 3
     sidebarData.sessions = Array.from({ length: total }, (_, i) =>

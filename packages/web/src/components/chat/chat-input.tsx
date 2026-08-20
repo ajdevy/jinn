@@ -696,7 +696,7 @@ export function ChatInput({
   const sttPending = stt.state === 'recording' || stt.state === 'transcribing'
 
   return (
-    <div className="pt-[var(--space-3)] pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))] bg-[var(--bg)] shrink-0 relative">
+    <div data-chat-composer className="pt-[var(--space-3)] pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))] bg-[var(--bg)] shrink-0 relative">
       {/* Soft top scrim — fades scrolling content into the composer instead of a
           hard 1px divider. Borderless, readable over the thread in both themes.
           Stays full-bleed (spans the whole thread width). */}
