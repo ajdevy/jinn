@@ -125,8 +125,10 @@ describe("coalescing a backlog of pending Todo events", () => {
 
   it("still starts an event superseded for one workflow when it is the newest for another", async () => {
     definitions = [definitionWith("unfiltered"), definitionWith("build-only", "build")];
-    // A Todo whose row is gone cannot be double-worked, so the Todo claim never
-    // holds the second fire and per-definition coalescing is what is observed.
+    // A Todo whose row is gone cannot be double-worked, so the Todo-wide claim
+    // never holds the second fire and the per-definition coalescing is what is
+    // observed on its own. The test below is the same burst on a live Todo,
+    // where that claim is what decides how much of it can run.
     pending = [event("event-1", "ICI-999999", ["build"]), event("event-2", "ICI-999999")];
 
     await sweep();
@@ -140,6 +142,32 @@ describe("coalescing a backlog of pending Todo events", () => {
       outcome: "superseded",
       detail: "Todo event event-1 superseded by event-2, a newer in_review event on ICI-999999.",
     }]);
+  });
+
+  it("lets the Todo-wide claim, not the coalescing, decide how much of a live burst runs", async () => {
+    definitions = [definitionWith("unfiltered"), definitionWith("build-only", "build")];
+    const item = store.createWorkItem({ title: "different winners" });
+    pending = [event("event-1", item.id, ["build"]), event("event-2", item.id)];
+
+    await sweep();
+
+    // Only one event per Todo can ever produce runs: the first one to fire takes
+    // the Todo-wide claim and every later event of that Todo is refused on it.
+    expect(started).toEqual([
+      { workflowId: "build-only", idempotencyKey: "todo:event-1", payload: expect.anything() },
+    ]);
+    expect(outcomesFor("event-2")).toEqual([
+      {
+        workflowId: "build-only",
+        outcome: "suppressed",
+        detail: "Todo event event-2 suppressed: label filter build does not match.",
+      },
+      {
+        workflowId: "unfiltered",
+        outcome: "suppressed",
+        detail: `Todo event event-2 suppressed: ${item.id} is already being worked by workflow:event-1.`,
+      },
+    ]);
   });
 
   it("leaves a filtered-out event suppressed with its own reason, and the survivor's payload alone", async () => {
