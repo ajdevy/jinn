@@ -93,7 +93,7 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 /** The Todos side of a comment-wait: the earliest live operator comment on a
  *  Todo written strictly inside the window between the park and its deadline. */
 export interface WorkflowTodoCommentFeed {
-  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
+  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string; attachments: ReadonlyArray<{ id: string; mime: string }> } | undefined;
 }
 export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback"> {
   repository: WorkflowRepository;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Bell, Check, Pause, TriangleAlert } from "lucide-react"
+import { AttachmentRefText } from "@/components/attachment-ref-preview"
 import type { Employee, WorkItemDetailWire, WorkItemEventWire } from "@/lib/api"
 import { effectiveMaxRounds } from "@/lib/todos"
 import { displayNameOf, escalationReasonLabel, formatRelativeTime } from "../util"
@@ -153,7 +154,7 @@ export function TaskBanner({
             className="absolute bottom-[3px] left-0 top-[3px] w-[2px] rounded-[1px]"
             style={{ background: style.rail }}
           />
-          {body}
+          <AttachmentRefText text={body} />
         </div>
       ) : needsReason ? (
         // Submit-only: Enter or Save. A blur is not a decision — leaving the
