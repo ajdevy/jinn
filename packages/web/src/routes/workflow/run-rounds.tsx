@@ -53,14 +53,14 @@ function RoundRow({ child, label }: { child: WorkflowChildRunV2Wire; label: stri
 }
 
 export function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
-  const children = (detail.childRuns ?? []).filter((child) => child.nodeId === nodeId).sort((a, b) => a.itemIndex - b.itemIndex)
+  const children = (detail.childRuns ?? []).filter((child) => child.nodeId === nodeId).sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
   const rounds = iterationRounds(detail.nodeRuns?.find((node) => node.nodeId === nodeId))
   if (children.length === 0) return null
   return (
     <Section title={rounds ? `Rounds \u00b7 ${rounds.round} of ${rounds.maxRounds}` : "Child runs"}>
       <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
         {children.map((child) => (
-          <RoundRow key={child.runId} child={child} label={`${rounds ? "Round" : "Item"} ${child.itemIndex + 1}`} />
+          <RoundRow key={child.runId} child={child} label={child.itemIndex === undefined ? child.workflowId : `${rounds ? "Round" : "Item"} ${child.itemIndex + 1}`} />
         ))}
       </div>
     </Section>

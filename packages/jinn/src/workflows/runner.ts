@@ -29,6 +29,7 @@ import { planStopNudge, STOP_NUDGE_TEXT } from "../sessions/stop-nudge.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
+  WorkflowFanoutChildSummary,
   WorkflowError,
   WorkflowNodeRunRecord,
   WorkflowRunDetail,
@@ -378,7 +379,8 @@ export class WorkflowRunner {
   }
 
   private async reconcileFanout(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
-    const children = callChildren(run, node.id);
+    const children = callChildren(run, node.id)
+      .filter((child): child is WorkflowFanoutChildSummary => child.itemIndex !== undefined);
     const active = children.filter((child) => !childTerminal(child)).length;
     const plan = fanoutPlan(run, node, this.options.activeEngineSessions, active);
     const runtime = nodeRun(run, node.id);

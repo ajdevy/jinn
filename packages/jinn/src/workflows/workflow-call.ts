@@ -66,7 +66,7 @@ export function childTerminal(child: WorkflowChildRunSummary): boolean {
 }
 
 export function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowChildRunSummary[]): void {
-  if (children.some((child) => child.itemIndex >= plan.items.length)) {
+  if (children.some((child) => child.itemIndex !== undefined && child.itemIndex >= plan.items.length)) {
     throw new Error(`Workflow Call ${node.id} has a child outside its item range.`);
   }
 }

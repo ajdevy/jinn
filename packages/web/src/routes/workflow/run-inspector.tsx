@@ -339,9 +339,9 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
             <>
               <FanoutSection nodeRun={nodeRun} />
               <OutputSection output={nodeRun?.output} isDark={isDark} />
-              <ChildRunsSection detail={detail} nodeId={node.id} />
             </>
           )}
+          <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
             <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
