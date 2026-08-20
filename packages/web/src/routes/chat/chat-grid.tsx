@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, RefCallback } from 'react'
 import { X } from 'lucide-react'
 import { layoutFor } from './grid-layout'
+import { useChatGridMotion } from './use-chat-grid-motion'
 
 interface ChatGridProps {
   sessionIds: string[]
@@ -18,16 +19,20 @@ interface PaneFrameProps {
   singlePane: boolean
   onFocus: (sessionId: string) => void
   onRemove: (sessionId: string) => void
+  paneRef: RefCallback<HTMLElement>
   children: ReactNode
 }
 
-function PaneFrame({ sessionId, active, singlePane, onFocus, onRemove, children }: PaneFrameProps) {
+function PaneFrame({ sessionId, active, singlePane, onFocus, onRemove, paneRef, children }: PaneFrameProps) {
   return (
     <section
+      ref={paneRef}
       data-testid={`pane-${sessionId}`}
+      data-chat-grid-pane={sessionId}
       data-grid-active={String(active)}
+      data-grid-motion="idle"
       onClick={() => onFocus(sessionId)}
-      className={`relative flex min-h-0 min-w-0 overflow-hidden ${singlePane ? 'flex-1' : 'rounded-[var(--radius-lg)]'}`}
+      className={`relative flex min-h-0 min-w-0 origin-top-left overflow-hidden ${singlePane ? 'flex-1' : 'rounded-[var(--radius-lg)]'}`}
     >
       {!singlePane && (
         <button
@@ -58,9 +63,11 @@ export function ChatGrid({
 }: ChatGridProps) {
   const layout = layoutFor(sessionIds.length, width, height)
   const singlePane = sessionIds.length <= 1
+  const motion = useChatGridMotion(sessionIds)
 
   return (
     <div
+      ref={motion.gridRef}
       data-testid="chat-grid"
       data-columns={layout.columns}
       data-rows={layout.rows}
@@ -81,6 +88,7 @@ export function ChatGrid({
           singlePane={singlePane}
           onFocus={onFocus}
           onRemove={onRemove}
+          paneRef={motion.paneRef(sessionId)}
         >
           {renderPane(sessionId, sessionId === focusedId)}
         </PaneFrame>

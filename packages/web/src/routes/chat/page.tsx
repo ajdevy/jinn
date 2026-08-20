@@ -17,7 +17,7 @@ import { PageLayout } from '@/components/page-layout'
 import { ChatSidebar, pickDeleteFallbackId, type SidebarOrder } from '@/components/chat/chat-sidebar'
 import { NavRibbon } from '@/components/pill-nav'
 import { MobileTabBar } from '@/components/chat/mobile-tab-bar'
-import { ChatPane, type FreshChatSourceSession } from '@/components/chat/chat-pane'
+import type { FreshChatSourceSession } from '@/components/chat/chat-pane'
 import { ThreadPeek, type CommsPeekData } from '@/components/chat/thread-peek'
 import { PeekPanel } from '@/components/peek/peek-panel'
 import { PeekProvider } from '@/components/peek/peek-stack'
@@ -111,7 +111,19 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const workingSet = useChatWorkingSet(committedId, sessionsQuery.data)
-  const focusedSessionId = workingSet.state.focusedId ?? committedId
+  // The committed URL selection can land one render before the working-set
+  // reconciliation effect. Present the same replacement synchronously so the
+  // stable grid never mounts both the outgoing and incoming primary panes.
+  const gridSessionIds = useMemo(() => {
+    if (!committedId || workingSet.state.sessionIds.includes(committedId)) return workingSet.state.sessionIds
+    if (workingSet.state.focusedId && workingSet.state.sessionIds.includes(workingSet.state.focusedId)) {
+      return workingSet.state.sessionIds.map((sessionId) => sessionId === workingSet.state.focusedId ? committedId : sessionId)
+    }
+    return [...workingSet.state.sessionIds, committedId]
+  }, [committedId, workingSet.state.focusedId, workingSet.state.sessionIds])
+  const focusedSessionId = committedId
+    ? (!workingSet.state.sessionIds.includes(committedId) ? committedId : workingSet.state.focusedId ?? committedId)
+    : null
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
@@ -929,7 +941,7 @@ function ChatPage() {
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
-            grid={workingSet.state.sessionIds.length > 1 ? { sessions: sessionsQuery.data ?? [], memberIds: workingSet.state.sessionIds, onAdd: gridAdd.addPane } : undefined}
+            grid={gridSessionIds.length > 1 ? { sessions: sessionsQuery.data ?? [], memberIds: gridSessionIds, onAdd: gridAdd.addPane } : undefined}
             moreMenu={moreMenu}
             copiedField={copiedField}
           />
@@ -970,10 +982,20 @@ function ChatPage() {
               <Suspense fallback={<div className="flex-1" />}>
                 <FileView path={chatTabs.activeTab.path} embedded onBack={handleFileBack} />
               </Suspense>
-            ) : awaitingOpen ? <div className="flex-1" /> : committedId && workingSet.state.sessionIds.length > 1 ? (
+            ) : awaitingOpen ? <div className="flex-1" /> : (
               <MultiChatGrid
-                sessionIds={workingSet.state.sessionIds}
+                sessionIds={gridSessionIds}
                 focusedId={focusedSessionId}
+                primary={{
+                  paneKey,
+                  sessionId: committedId,
+                  pendingUserMessage: pendingMessage,
+                  initialEmployee: committedId ? undefined : pendingEmployee,
+                  onSessionCreated: handleSessionCreated,
+                  viewMode: effectiveViewMode,
+                  focusTrigger: paneState.focusTriggerFor(committedId),
+                  delegatedActivity: focusedDelegatedActivity,
+                }}
                 viewport={{ width: typeof window === 'undefined' ? 1440 : window.innerWidth, height: typeof window === 'undefined' ? 900 : window.innerHeight }}
                 onFocus={handleFocusPane}
                 onRemove={handleRemovePane}
@@ -984,6 +1006,7 @@ function ChatPage() {
                 focusTriggerFor={paneState.focusTriggerFor}
                 delegatedActivityFor={(sessionId) => selectedDelegatedActivityFromList(sessionsQuery.data, sessionId)}
                 onMeta={paneState.updateMeta}
+                onNewMeta={paneState.updateNewMeta}
                 onOpenFile={(sessionId, path) => {
                   fileBackTargetRef.current = sessionId
                   chatTabs.openFileTab(path)
@@ -994,35 +1017,6 @@ function ChatPage() {
                 onRefresh={handleRefresh}
                 onShortcutsClick={() => setShowShortcutOverlay(true)}
                 onContentReady={handlePaneContentReady}
-                onStartFreshChat={handleStartFreshChat}
-              />
-            ) : (
-              <ChatPane
-                key={paneKey}
-                sessionId={committedId}
-                initialScrollTop={committedId ? sessionScrollRef.current.get(committedId) : undefined}
-                initialEmployee={committedId ? undefined : pendingEmployee}
-                isActive={true}
-                onFocus={() => {}}
-                onSessionCreated={handleSessionCreated}
-                onNewChat={handleNewChat}
-                onSessionMetaChange={(meta) => committedId
-                  ? paneState.updateMeta(committedId, meta)
-                  : paneState.updateNewMeta(meta)}
-                onRefresh={handleRefresh}
-                portalName={portalName}
-                subscribe={subscribe}
-                engineRegistry={engineRegistry}
-                connectionSeq={connectionSeq}
-                skillsVersion={skillsVersion}
-                events={events}
-                viewMode={effectiveViewMode}
-                focusTrigger={paneState.focusTriggerFor(committedId)}
-                onShortcutsClick={() => setShowShortcutOverlay(true)}
-                pendingUserMessage={pendingMessage}
-                onPeek={committedId ? (peek) => requestThreadPreview(committedId, peek) : undefined}
-                onContentReady={handlePaneContentReady}
-                delegatedActivity={focusedDelegatedActivity}
                 onStartFreshChat={handleStartFreshChat}
               />
             )}

@@ -170,12 +170,17 @@ describe('the routed multi-pane surface', () => {
     emit('session:delta', { sessionId: 'c', type: 'text', content: 'stream-c' })
     await waitFor(() => expect(pane('c').textContent).toContain('stream-c'))
     const streamingPane = screen.getByTestId('pane-c')
+    const streamingChatPane = pane('c')
     const streamingText = pane('c').textContent
 
     fireEvent.click(screen.getByRole('button', { name: 'Close b' }))
     await waitFor(() => expect(document.querySelector('[data-chat-pane-session="b"]')).toBeNull())
     expect(screen.getByTestId('pane-c')).toBe(streamingPane)
+    expect(pane('c')).toBe(streamingChatPane)
     expect(pane('c').textContent).toBe(streamingText)
+    emit('session:delta', { sessionId: 'c', type: 'text', content: '-still-streaming' })
+    await waitFor(() => expect(pane('c').textContent?.match(/still-streaming/g)).toHaveLength(1))
+    expect(pane('c')).toBe(streamingChatPane)
     expect(pane('a').textContent).toContain('transcript-a')
     expect(pane('d').textContent).toContain('transcript-d')
   })
@@ -206,5 +211,23 @@ describe('the routed multi-pane surface', () => {
     await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
     await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b', 'c']))
     expect(localStorage.getItem(WORKING_SET_STORAGE_KEY)).toBe(dropState)
+  })
+
+  it('keeps the original live pane mounted when the working set grows from one to two', async () => {
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: ['a'],
+      focusedId: 'a',
+      focusHistory: ['a'],
+    }))
+    renderRoute()
+    await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+    const originalPane = pane('a')
+
+    const surface = document.querySelector<HTMLElement>('[data-chat-grid-drop-surface]')!
+    fireEvent.drop(surface, { dataTransfer: sessionTransfer('b') })
+
+    await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
+    expect(pane('a')).toBe(originalPane)
   })
 })
