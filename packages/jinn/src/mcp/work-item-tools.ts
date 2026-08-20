@@ -337,8 +337,8 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       if (!(AGENT_UPDATE_STATUSES as readonly string[]).includes(rawStatus)) throw new JinnMcpToolError(`status must be one of ${AGENT_UPDATE_STATUSES.join(", ")}; cancellation/other lifecycle edits are human surface decisions.`);
       const blockKind = parseBlockKind(args.blockKind);
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
-      // Same validator the route refuses with, so this lane cannot accept a hint the other rejects.
-      if (parseUnblockHint(args.unblockHint) === null) throw new JinnMcpToolError(`${UNBLOCK_HINT_ERROR}.`);
+      // The route's validator AND its words verbatim: a trailing full stop is enough to make them unequal.
+      if (parseUnblockHint(args.unblockHint) === null) throw new JinnMcpToolError(UNBLOCK_HINT_ERROR);
       if (parseParkedUntil(args.parkedUntil) === null) throw new JinnMcpToolError(`${PARKED_UNTIL_ERROR}.`);
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
       // Where a Todo's product lands is metadata, not a lifecycle edge: it rides the same

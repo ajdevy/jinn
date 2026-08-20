@@ -23,22 +23,36 @@ export function hasStopLead(item: WorkItemCompactWire): boolean {
   return !!item.parkedUntil || !!item.unblockHint
 }
 
+/** One bit per element, not one for the pair: a chip and a chip-plus-hint are
+ *  different heights, and folding them into a single bit told the column they
+ *  were the same — so the card below jumped instead of being cushioned. */
+export function stopLeadKey(item: WorkItemCompactWire): string {
+  return `${Number(!!item.parkedUntil)}${Number(!!item.unblockHint)}`
+}
+
 /** The park's remaining time, re-read on a timer so the chip goes away the moment
  *  it runs out rather than at the next refetch. Nothing parked installs no timer,
- *  so a board of ordinary cards costs none. */
+ *  so a board of ordinary cards costs none.
+ *
+ *  The wake-up is the SOONER of the next minute and the expiry itself. A fixed
+ *  cadence left a park that ran out mid-interval still counting down on screen,
+ *  which is the exact dishonesty this chip exists to remove. */
 function useCountdown(parkedUntil: string | undefined): string {
   const [now, setNow] = useState(() => Date.now())
   const ticking = isParked(parkedUntil, now)
   useEffect(() => {
-    if (!ticking) return
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [ticking])
+    if (!ticking || !parkedUntil) return
+    const delay = Math.max(250, Math.min(30_000, Date.parse(parkedUntil) - Date.now()))
+    const timer = window.setTimeout(() => setNow(Date.now()), delay)
+    return () => window.clearTimeout(timer)
+  }, [ticking, parkedUntil, now])
   return ticking && parkedUntil ? formatCountdown(parkedUntil, now) : ""
 }
 
-/** Above the title, on desktop and on the phone: what this card is waiting for. */
-export function StopCauseLead({ item }: { item: WorkItemCompactWire }) {
+/** Above the title, on desktop and on the phone: what this card is waiting for.
+ *  The caller supplies its own placement, because the board card wants this
+ *  hoisted out of its wrapped phone row and a list row does not. */
+export function StopCauseLead({ item, className = "" }: { item: WorkItemCompactWire; className?: string }) {
   const left = useCountdown(item.parkedUntil)
   const hint = item.unblockHint
   if (!left && !hint) return null
@@ -47,7 +61,7 @@ export function StopCauseLead({ item }: { item: WorkItemCompactWire }) {
     // carrying both a chip and a hint had the hint's `who` clipped off its edge.
     <div
       data-testid={`stop-lead-${item.id}`}
-      className="mt-1.5 flex min-w-0 flex-col items-start gap-1 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full"
+      className={`flex min-w-0 flex-col items-start gap-1 ${className}`}
     >
       {left && (
         <span
@@ -60,12 +74,16 @@ export function StopCauseLead({ item }: { item: WorkItemCompactWire }) {
         </span>
       )}
       {hint && (
-        <span
-          className="max-w-full truncate text-[12px] font-medium leading-[1.35]"
-          style={{ color: item.status === "escalated" ? "var(--system-red)" : "var(--system-orange)" }}
-        >
-          {hint.what}
-          <span className="font-normal text-[var(--text-tertiary)]"> · {hint.who}</span>
+        // A line each: `who` is the half that says whose move it is, and running
+        // it on after `what` meant the column's width decided whether it survived.
+        <span className="flex min-w-0 max-w-full flex-col text-[12px] leading-[1.35]">
+          <span
+            className="truncate font-medium"
+            style={{ color: item.status === "escalated" ? "var(--system-red)" : "var(--system-orange)" }}
+          >
+            {hint.what}
+          </span>
+          <span className="truncate text-[var(--text-tertiary)]">{hint.who}</span>
         </span>
       )}
     </div>

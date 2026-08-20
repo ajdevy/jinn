@@ -123,9 +123,10 @@ describe("deriveNeedsYou", () => {
     expect(deriveNeedsYou(items, NOW).map((item) => item.id)).toEqual(["expired", "unreadable", "plain"])
   })
 
-  it("keeps a parked Todo that is also holding a gate — a question is asked whatever the clock says", () => {
-    const item = compact({ id: "gated", status: "blocked", approvalState: "pending", parkedUntil: new Date(NOW + 3_600_000).toISOString() })
-    expect(deriveNeedsYou([item], NOW)).toHaveLength(1)
+  it("drops a parked Todo even when it is holding a gate — the park is what decides", () => {
+    const parked = new Date(NOW + 3_600_000).toISOString()
+    expect(deriveNeedsYou([compact({ id: "gated", status: "blocked", approvalState: "pending", parkedUntil: parked })], NOW)).toHaveLength(0)
+    expect(deriveNeedsYou([compact({ id: "gated-open", status: "blocked", approvalState: "pending" })], NOW)).toHaveLength(1)
   })
 })
 

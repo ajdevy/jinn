@@ -86,6 +86,8 @@ describe("update_work_item — stop cause", () => {
     const mcp = await tool("update_work_item").handler({ id: "JIN-1", status: "escalated", unblockHint: bad }, ctx).catch((err: Error) => err);
 
     expect(route).toMatchObject({ ok: false, status: 400 });
-    expect((mcp as Error).message).toContain((route as { error: string }).error);
+    // Equal, not merely containing: a trailing full stop on one lane is exactly
+    // the drift one shared validator is supposed to make impossible.
+    expect((mcp as Error).message).toBe((route as { error: string }).error);
   });
 });

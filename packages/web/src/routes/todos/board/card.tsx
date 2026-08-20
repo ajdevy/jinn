@@ -13,7 +13,7 @@ import { StateCircle } from "../state-glyph"
 import { stateKeyOf } from "@/lib/todos"
 import { escalationReasonLabel } from "../util"
 import { CardTree } from "./card-tree"
-import { CauseLine, hasStopLead, StopCauseLead } from "./stop-cause"
+import { CauseLine, hasStopLead, StopCauseLead, stopLeadKey } from "./stop-cause"
 
 /* Todos v2 slice 6 — the board card (design-doc §3, states mock specimen 3).
  * Status is NEVER on the card — the column says it. Variant A adds one quiet,
@@ -91,7 +91,7 @@ export function cardLayoutKey(item: WorkItemCompactWire, enrichment: CardEnrichm
   const working = workingSince(item, detail) !== null
   const reason = reasonOf(item, detail) !== null
   const footer = !!item.assignee || !!rollup || (spendUsd > 0 && (!!item.dueAt || item.approvalState === "pending"))
-  return `${Number(body)}${Number(working)}${Number(reason)}${Number(footer)}${Number(hasStopLead(item))}`
+  return `${Number(body)}${Number(working)}${Number(reason)}${Number(footer)}${stopLeadKey(item)}`
 }
 
 function formatDue(iso: string): string {
@@ -228,7 +228,7 @@ export const BoardCard = memo(function BoardCard({
         ) : null}
       </div>
 
-      {hasStopLead(item) && <StopCauseLead item={item} />}
+      {hasStopLead(item) && <StopCauseLead item={item} className="mt-1.5 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full" />}
 
       {/* Title — the only primary ink on the card. 2-line clamp / 1-line mobile. */}
       <div className="mt-1 line-clamp-2 text-[15px] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:m-0 max-[700px]:line-clamp-1 max-[700px]:min-w-0 max-[700px]:flex-1 max-[700px]:text-[16px]">

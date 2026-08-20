@@ -2,6 +2,7 @@ import { memo } from "react"
 import type { Employee, WorkItemCompactWire } from "@/lib/api"
 import { emojiForName } from "@/lib/emoji-pool"
 import { StatusCircle } from "../state-glyph"
+import { hasStopLead, StopCauseLead } from "../board/stop-cause"
 import { formatRelativeTime } from "../util"
 
 function PriorityBars({ priority }: { priority: number }) {
@@ -47,8 +48,11 @@ export const TodoListRow = memo(function TodoListRow({
       data-testid={`todo-list-row-${item.id}`}
       data-anchor-id={item.id}
       onClick={() => onOpen(item.id, item)}
-      className="focus-ring flex min-h-[44px] w-full items-center gap-3 rounded-[var(--radius-md)] px-2.5 text-left outline-none transition-colors duration-150 hover:bg-[var(--fill-quaternary)] max-[700px]:min-h-[52px] max-[700px]:gap-2"
+      className="focus-ring flex min-h-[44px] w-full flex-col items-stretch justify-center gap-1 rounded-[var(--radius-md)] px-2.5 py-1 text-left outline-none transition-colors duration-150 hover:bg-[var(--fill-quaternary)] max-[700px]:min-h-[52px]"
     >
+      {/* The phone renders rows, not cards, so a stopped Todo says why here too. */}
+      {hasStopLead(item) && <StopCauseLead item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-0" />}
+      <span className="flex w-full items-center gap-3 max-[700px]:gap-2">
       <PriorityBars priority={priority} />
       <span
         className="w-[66px] flex-none truncate text-[12px] tracking-[.02em] text-[var(--text-quaternary)] max-[700px]:w-[58px]"
@@ -84,6 +88,7 @@ export const TodoListRow = memo(function TodoListRow({
             {emojiForName(item.assignee)}
           </span>
         )}
+      </span>
       </span>
     </button>
   )

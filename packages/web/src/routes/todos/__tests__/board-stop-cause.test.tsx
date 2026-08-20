@@ -83,8 +83,20 @@ describe("a parked card counts down", () => {
     renderCard(compact({ id: "PLA-5", status: "blocked", parkedUntil: new Date(Date.now() + 60_000).toISOString() }))
     expect(screen.getByTestId("park-chip-PLA-5")).toBeTruthy()
 
-    act(() => { vi.advanceTimersByTime(2 * 60_000) })
+    // One flush per hop: the timer re-arms from the effect that the state update
+    // it made schedules, which is one render later.
+    act(() => { vi.advanceTimersByTime(30_000) })
+    act(() => { vi.advanceTimersByTime(31_000) })
     expect(screen.queryByTestId("park-chip-PLA-5")).toBeNull()
+  })
+
+  it("wakes at the expiry itself, not on a fixed cadence — a short park does not outlive its second", () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderCard(compact({ id: "PLA-12", status: "blocked", parkedUntil: new Date(Date.now() + 5_000).toISOString() }))
+    expect(screen.getByTestId("park-chip-PLA-12")).toBeTruthy()
+
+    act(() => { vi.advanceTimersByTime(6_000) })
+    expect(screen.queryByTestId("park-chip-PLA-12")).toBeNull()
   })
 })
 
@@ -115,18 +127,35 @@ describe("an escalated card leads with the hint", () => {
     renderCard(escalated)
     expect(screen.getByTestId("stop-lead-PLA-6").className).not.toContain("max-[700px]:hidden")
   })
+
+  it("gives who its own line, so a narrow column cannot truncate it away", () => {
+    renderCard(escalated)
+    const lines = [...screen.getByTestId("stop-lead-PLA-6").querySelectorAll("span")]
+      .filter((el) => el.className.includes("truncate"))
+      .map((el) => el.textContent)
+    expect(lines).toContain("sign the renewal")
+    expect(lines).toContain("the operator")
+  })
 })
 
 describe("the column's FLIP key", () => {
   const key = (over: Partial<WorkItemCompactWire>) => cardLayoutKey(compact({ id: "PLA-7", status: "blocked", ...over }), undefined)
 
+  const hint = { what: "decide", who: "the operator" }
+  const parkedUntil = new Date(Date.now() + HOUR).toISOString()
+
   it("changes when a lead appears, so cards below it are cushioned", () => {
-    expect(key({})).not.toBe(key({ unblockHint: { what: "decide", who: "the operator" } }))
-    expect(key({})).not.toBe(key({ parkedUntil: new Date(Date.now() + HOUR).toISOString() }))
+    expect(key({})).not.toBe(key({ unblockHint: hint }))
+    expect(key({})).not.toBe(key({ parkedUntil }))
+  })
+
+  it("tells a chip apart from a chip AND a hint — they are different heights", () => {
+    expect(key({ parkedUntil })).not.toBe(key({ parkedUntil, unblockHint: hint }))
+    expect(key({ unblockHint: hint })).not.toBe(key({ parkedUntil, unblockHint: hint }))
+    expect(key({ parkedUntil })).not.toBe(key({ unblockHint: hint }))
   })
 
   it("does not change as the countdown ticks — the key would churn every minute", () => {
-    const parkedUntil = new Date(Date.now() + HOUR).toISOString()
     expect(key({ parkedUntil })).toBe(key({ parkedUntil }))
   })
 })

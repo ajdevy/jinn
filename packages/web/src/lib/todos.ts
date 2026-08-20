@@ -113,11 +113,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // ── Needs-you inbox ─────────────────────────────────────────────────────────
 // The gateway owns attention routing (?needsAttentionFor=me); this keeps the rows that still visibly need it, since an older
-// gateway over-returns and a park runs out between refetches. A gate is asked whatever the clock says, so only status reads it.
+// gateway over-returns and a park runs out between refetches. An unexpired park leaves the set outright, gate included.
 export type NeedsYouSet = WorkItemCompactWire[]
 
 export function needsAttention(item: WorkItemCompactWire, now = Date.now()): boolean {
-  return item.approvalState === "pending" || ((item.status === "escalated" || item.status === "blocked") && !isParked(item.parkedUntil, now))
+  return !isParked(item.parkedUntil, now) && (item.approvalState === "pending" || item.status === "escalated" || item.status === "blocked")
 }
 
 export function deriveNeedsYou(items: WorkItemCompactWire[], now = Date.now()): NeedsYouSet {
