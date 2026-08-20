@@ -164,7 +164,7 @@ export function IterateSection({ nodeId, config, update }: {
     onChange({ ...iterate, continueWhile: checks.map((check, i) => (i === index ? next : check)) })
 
   return (
-    <section className="space-y-2 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
+    <section className="space-y-2 rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] p-3">
       <div className="flex items-center justify-between gap-[var(--space-3)]">
         <label htmlFor="call-iterate" className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
           Repeat until done

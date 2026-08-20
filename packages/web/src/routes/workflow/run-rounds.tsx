@@ -16,7 +16,7 @@ import { Section, StatusLine, iterationRounds } from "./run-support"
 function RoundRow({ child, label }: { child: WorkflowChildRunWire; label: string }) {
   const output = child.endOutput ?? {}
   return (
-    <div className="border-b border-[var(--separator)] last:border-b-0">
+    <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
       <Link
         to={`/workflow/${encodeURIComponent(child.workflowId)}/runs/${encodeURIComponent(child.runId)}`}
         className="flex min-h-10 items-center gap-2.5 px-3 py-2 transition-colors hover:bg-[var(--fill-tertiary)]"
@@ -38,10 +38,10 @@ function RoundRow({ child, label }: { child: WorkflowChildRunWire; label: string
       {child.sessionId && (
         <Link
           to={`/?session=${encodeURIComponent(child.sessionId)}`}
-          className="block truncate px-3 pb-1.5 text-[length:var(--text-caption2)] text-[var(--accent)] hover:underline"
+          className="flex min-h-[34px] items-center px-3 text-[length:var(--text-caption2)] text-[var(--accent)] hover:underline"
           style={{ fontFamily: "var(--font-code)" }}
         >
-          {child.sessionId}
+          <span className="min-w-0 truncate">{child.sessionId}</span>
         </Link>
       )}
       {Object.keys(output).length > 0 && (
@@ -59,7 +59,7 @@ export function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetail
   if (children.length === 0) return null
   return (
     <Section title={rounds ? `Rounds \u00b7 ${rounds.round} of ${rounds.maxRounds}` : "Child runs"}>
-      <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
+      <div className="space-y-1.5">
         {children.map((child) => (
           <RoundRow key={child.runId} child={child} label={child.itemIndex === undefined ? child.workflowId : `${rounds ? "Round" : "Item"} ${child.itemIndex + 1}`} />
         ))}
