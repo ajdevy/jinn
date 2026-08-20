@@ -1,8 +1,8 @@
 # PLA-118 platform foundation QA
 
-- Date: 2026-08-18
+- Date: 2026-08-20
 - Branch: `feature/PLA-118`
-- Sandboxes: disposable homes on loopback ports 7792 and 7793
+- Sandboxes: fresh disposable homes on loopback ports 7796 and 7797
 - Production home/port: not used
 
 `Verified` means the listed evidence was exercised. `Unverified` is an explicit
@@ -13,16 +13,16 @@ and sandbox data are not retained.
 
 | # | Journey assertion | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Boot A, pair, HttpOnly cookies, `/api/sessions` 200 | Verified | Isolated Chrome pairing returned 200 with script-invisible cookies; bundled macOS pairing also succeeded |
-| 2 | Open `/todos` and a Todo in the same browser | Verified | Created and opened generic `QAA-1`; hard refresh preserved `/todos/QAA-1` |
+| 1 | Boot A, pair, HttpOnly cookies, `/api/sessions` 200 | Verified | Fresh isolated Chrome pairing returned 200 with script-invisible cookies; bundled macOS pairing also succeeded |
+| 2 | Open `/todos` and a Todo in the same browser | Verified | Created and opened generic `QAA-1` in the paired Chrome session |
 | 3 | Browser workspace switch A→B isolates A authentication | Verified with protocol note | B returned 401 before its own pairing; after pairing, distinct HttpOnly cookie names kept both origins usable. RFC cookies are host-, not port-scoped, so an unknown A cookie name may transit to B but B cannot select it |
 | 4 | PWA hard-refresh `/todos` and `/settings`; API remains same-origin | Verified | Both routes retained an active controlling service worker and returned same-origin API 200 after reload |
 | 5 | Chat, Todos, Settings, switcher screenshots at both sizes/themes | Verified | Sixteen generic PNGs under `docs/qa/PLA-118-evidence/`; dimensions checked as 1440×900 and 390×844 |
-| 6 | Bundled Tauri loads local assets; menu/icon/geometry work | Verified | Fresh unsigned macOS `.app` opened the bundled pairing UI at saved 1280×860 geometry; configuration test asserts `WebviewUrl::App` |
+| 6 | Bundled Tauri loads local assets; menu/icon/geometry work | Verified | Fresh unsigned macOS `.app` opened the bundled pairing UI, reloaded from the native View menu, and resized between 1280×860 and 390×844; configuration test asserts `WebviewUrl::App` |
 | 7 | Pair A and B independently | Verified | Live bundled app stored two exact-origin Keychain entries; adding B did not activate it |
-| 8 | A→B changes HTTP, WS, cache, auth, identity; route remains `/todos` | Verified | Live `/settings` A→B and `/todos` B→A runs changed portal identity/data without changing the route; generation isolation tests cover cache and socket state |
+| 8 | A→B changes HTTP, WS, cache, auth, identity; route remains `/todos` | Verified | Live native A↔B switching showed distinct `QAA-1`/`QAB-1` data while preserving `/todos`; generation isolation tests cover cache and socket state |
 | 9 | Delayed A REST and WS after switch are discarded | Verified | Profile-manager deferred response and late-frame tests |
-| 10 | B→A, remove B, restore A, honest unreachable state | Verified | Live return showed A's one Todo; removing B deleted only B's Keychain item; relaunch restored A; relaunch while A was down rendered “Failed to check gateway access” |
+| 10 | B→A, remove B, restore A, honest unreachable state | Verified | Live return showed A's one Todo; removing B left A intact; Reload restored A; Reload while A was down rendered “Failed to check gateway access” |
 | 11 | `jinn://org` and `jinn://settings` stay in-app; HTTPS opens outside | Verified | Both custom links were invoked against the unsigned bundle and rendered their in-app routes; navigation tests verify HTTPS is external |
 | 12 | Unsupported, denied, and failed remain distinct | Verified | Platform contract suite |
 | 13 | Remote/LAN pages cannot invoke native; web bundle has no native dependencies | Verified | Rust caller/origin tests and emitted-asset dependency scan |
@@ -38,7 +38,7 @@ and sandbox data are not retained.
 
 ## Gate record
 
-After S6, `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm ratchet --check && pnpm footguns` exited 0. The gate included 5,041 passing CLI tests (7 skipped), 2,598 passing web tests, 5 shell configuration tests, 16 Rust shell tests, 96 root Node tests, and 92 POSIX tests. Ratchet scanned 1,727 files with no violations; footguns scanned 82 files with no violations or suppressions. The web budget passed at 192,592 B gzip initial, 17,242 B task page, and 24,714 B board page while scanning 356 emitted JavaScript assets for native-runtime markers.
+After reconciliation, `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm ratchet --check && pnpm footguns` exited 0 in S7, S8, and S9. S10 reran the focused profile, transport, platform-contract, product-boundary, and Rust shell suites: 25 web tests and 16 Rust tests passed. The final full-gate result is recorded by the slice commit and work-item checkpoint.
 
 ## Visual evidence manifest
 
