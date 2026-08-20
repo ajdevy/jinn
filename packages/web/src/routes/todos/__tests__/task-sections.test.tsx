@@ -382,8 +382,7 @@ describe("attachments + activity", () => {
 
     const tile = await screen.findByTestId("attachment-tile-wia_close")
     fireEvent.click(tile)
-    const image = screen.getByTestId("attachment-lightbox-image")
-    fireEvent.pointerDown(image, { pointerId: 1 })
+    fireEvent.pointerDown(screen.getByTestId("attachment-lightbox-image"), { pointerId: 1 })
     expect(screen.getByTestId("attachment-lightbox")).toBeTruthy()
 
     fireEvent.keyDown(document, { key: "Escape" })
@@ -392,6 +391,7 @@ describe("attachments + activity", () => {
 
     fireEvent.click(tile)
     fireEvent.pointerDown(screen.getByTestId("attachment-lightbox"), { pointerId: 1 })
+    fireEvent.click(screen.getByTestId("attachment-lightbox"))
     await waitFor(() => expect(screen.queryByTestId("attachment-lightbox")).toBeNull())
   })
 
