@@ -249,4 +249,36 @@ describe("a label that lands after the status move", () => {
     await drain();
     expect(startsFor("intake-lane")).toBe(0);
   });
+
+  it("lets the newest of several waiting events win the lane when the label lands", async () => {
+    arm("burst-open", { status: "assigned" });
+    arm("burst-gated", { status: "assigned", label: "burst-build" });
+    labels.createLabel({ name: "burst-build" });
+    const item = store.createWorkItem({ title: "armed twice, labelled once", source: "human" });
+    // Two arming moves with no drain between them, so both events are still
+    // waiting when the label finally lands.
+    transitions.transition(item.id, "assigned", "operator", { human: true });
+    transitions.transition(item.id, "blocked", "operator", { human: true });
+    transitions.transition(item.id, "assigned", "operator", { human: true });
+    const [first, , second] = store.listWorkItemEvents(item.id).filter((entry) => entry.kind === "status_change");
+
+    await drain();
+    expect(startsFor("burst-gated")).toBe(0);
+
+    labels.addWorkItemLabels(item.id, ["burst-build"], "operator");
+    await drain();
+
+    // Releasing a deferral re-enters the supersession gate, so the older event
+    // never beats the newer one it had been waiting alongside.
+    expect(startsFor("burst-gated")).toBe(1);
+    const held = dbModule.initDb()
+      .prepare("SELECT outcomes FROM workflow_todo_event_claims WHERE event_id = ?")
+      .get(first!.id) as { outcomes: string };
+    expect(JSON.parse(held.outcomes)).toEqual([{
+      workflowId: "burst-gated",
+      outcome: "deferred-then-superseded",
+      detail: `Todo event ${first!.id} waited for its label, then was superseded by ${second!.id},`
+        + ` a newer assigned event on ${item.id}.`,
+    }]);
+  });
 });
