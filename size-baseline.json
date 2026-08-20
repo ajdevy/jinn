@@ -1010,7 +1010,7 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 370,
+      "lines": 325,
       "exempt": [
         "complexity"
       ]
@@ -1032,7 +1032,7 @@
       ]
     },
     "packages/jinn/src/workflows/repository-runs.ts": {
-      "lines": 469,
+      "lines": 431,
       "exempt": [
         "complexity"
       ]
@@ -1049,7 +1049,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1084,
+      "lines": 1060,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1076,7 +1076,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 484,
+      "lines": 481,
       "exempt": [
         "complexity"
       ]
@@ -1510,7 +1510,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1225,
+      "lines": 1223,
       "exempt": [
         "complexity"
       ]
@@ -1564,7 +1564,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1196,
+      "lines": 1086,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1897,7 +1897,7 @@
       ]
     },
     "packages/web/src/routes/workflow/__tests__/inspector.test.tsx": {
-      "lines": 404
+      "lines": 322
     },
     "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
       "lines": 476
@@ -1913,7 +1913,7 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 1071,
+      "lines": 971,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1954,7 +1954,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 428,
+      "lines": 383,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -2012,9 +2012,6 @@
         "max-depth",
         "max-lines-per-function"
       ]
-    },
-    "scripts/vitest-flaky-retry.mjs": {
-      "lines": 301
     },
     "tools/prerelease-todo-converter/artifacts.mjs": {
       "exempt": [

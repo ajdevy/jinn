@@ -63,7 +63,7 @@ export type Binding<T extends JsonValue = JsonValue> =
   | (Omit<Extract<InferredBinding, { source: 'fixed' }>, 'value'> & { value: T })
   | Exclude<InferredBinding, { source: 'fixed' }>;
 const workflowOutputFieldSchema = z.strictObject({
-  type: z.enum(['string', 'number', 'boolean', 'string[]']),
+  type: z.enum(['string', 'number', 'boolean', 'string[]', 'attachment', 'attachment[]']),
   required: z.boolean(),
   description: z.string().optional(),
 });

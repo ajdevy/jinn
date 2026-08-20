@@ -1,11 +1,13 @@
 import { logger } from "../shared/logger.js";
 import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shared/types.js";
 import { TODO_ID_PATTERN } from "../work-items/id.js";
+import { approvalDescription } from "./approval-description.js";
 import { interpolateWorkflowPrompt, resolveBinding } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import { continuationPrompt } from "./employee-continuation.js";
 import { bindingContext, hasSubstitute, resolveDispatch, resolveString, type DispatchResolutionDeps } from "./node-dispatch.js";
 import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
+import { commentReplyOutput, waitDueOutput } from "./wait-comment-output.js";
 import type {
   ConditionNode,
   EmployeeNode,
@@ -144,12 +146,6 @@ function mergeOutput(run: WorkflowRunDetail, nodeId: string): WorkflowNodeOutput
 function approvalRef(run: WorkflowRunDetail, node: ApprovalNode): string | undefined {
   return node.config.approver ? resolveString(node.config.approver, bindingContext(run), "Workflow approver") : undefined;
 }
-/** A parked Wait hands the operator's reply straight into downstream prompts, so
- *  a pasted essay must not become the run's whole context. */
-const MAX_WAIT_COMMENT_CHARS = 4_000;
-function boundedComment(body: string): string {
-  return body.length <= MAX_WAIT_COMMENT_CHARS ? body : `${body.slice(0, MAX_WAIT_COMMENT_CHARS)}\n… (truncated)`;
-}
 /** What a Wait node writes when it parks. `resumeAt` is the instant it stops
  *  waiting unprompted: the scheduled resume for `duration` and `until`, and the
  *  timeout ceiling for `todo-comment`, which an operator reply pre-empts. */
@@ -174,13 +170,6 @@ function waitPark(run: WorkflowRunDetail, node: WaitNode, now: string):
     throw new Error("Workflow Wait timestamp must resolve to a canonical instant.");
   }
   return { resumeAt: value };
-}
-/** A Wait that reaches its own `resumeAt`. Only `todo-comment` distinguishes
- *  the two ways it can end, and it says so on the way out. */
-function waitDueOutput(node: WorkflowNode | undefined): WorkflowNodeOutput {
-  return node?.type === "wait" && node.config.mode === "todo-comment"
-    ? { text: "", fields: { outcome: "timeout" } }
-    : { text: "", fields: {} };
 }
 function endOutput(run: WorkflowRunDetail, node: EndNode): WorkflowNodeOutput {
   let fields: Record<string, JsonValue> = {};
@@ -450,14 +439,15 @@ export class WorkflowRunner {
     const todoId = run.trigger.todoId;
     if (!todoId || !this.options.todoApprovals) return;
     const ref = todoApprovalRef(run, node.id);
+    const request = approvalDescription(run, node);
     try {
-      this.options.todoApprovals.request({ todoId, request: node.config.description, ref,
+      this.options.todoApprovals.request({ todoId, request, ref,
         ...(node.config.options ? { options: node.config.options } : {}),
         ...(approver ? { approver } : {}) });
     } catch { /* the workflow-side gate stands on its own */ }
     try {
       this.options.todoApprovals.notifyParked({ todoId, workflowId: run.workflowId, runId: run.id,
-        nodeId: node.id, request: node.config.description, ref });
+        nodeId: node.id, request, ref });
     } catch (error) {
       logger.warn(`Workflow run ${run.id} could not notify the approver of parked gate ${node.id}: `
         + `${error instanceof Error ? error.message : String(error)}`);
@@ -664,16 +654,17 @@ export class WorkflowRunner {
    *  comment is not claimed: every run parked on that Todo resumes from it, and
    *  a re-sweep is a no-op because the node is no longer `waiting`. */
   async resumeCommentWait(workflowId: string, runId: string, nodeId: string,
-    comment: { id: string; body: string }, now: string): Promise<boolean> {
+    comment: { id: string; body: string; attachments: ReadonlyArray<{ id: string; mime: string }> }, now: string,
+  ): Promise<boolean> {
     const run = this.detail(workflowId, runId);
     const runtime = nodeRun(run, nodeId);
     const authored = run.definition.nodes.find((node) => node.id === nodeId);
-    if (run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
+    const todoId = run.trigger.todoId;
+    if (!todoId || run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
       || runtime.status !== "waiting") return false;
-    const body = boundedComment(comment.body);
+    const output = commentReplyOutput(todoId, comment);
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
-      tx.setNodeStatus(nodeId, "completed", { endedAt: now,
-        output: { text: body, fields: { outcome: "reply", commentId: comment.id, comment: body } } });
+      tx.setNodeStatus(nodeId, "completed", { endedAt: now, output });
       tx.setRunStatus("running");
     });
     this.changed(run);

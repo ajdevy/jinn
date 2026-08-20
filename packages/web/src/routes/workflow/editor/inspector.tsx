@@ -4,14 +4,15 @@ import { useShallow } from "zustand/react/shallow"
 import { Plus, Trash2, X } from "lucide-react"
 import { api } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { ApprovalForm } from "./approval-form"
 import { allocateConditionPort } from "./graph"
 import { CLEAR, Field, PickerField, TextInput, fixedText, withFixed, type BindingWire, type FormProps } from "./inspector-fields"
 import { IterateSection, type IterateWire } from "./inspector-iterate"
 import { NodeTypeIcon } from "./node-icons"
 import { NODE_TYPE_LABEL, type WorkflowNodeWire } from "./ports"
 import { useEditor } from "./store"
+import { WaitForm } from "./wait-form"
 
 function FilterPicker({
   label, value, onChange, options,
@@ -814,107 +815,6 @@ function ConditionForm({ node, update }: FormProps) {
         Anything that matches no route takes the <span className="font-[var(--weight-semibold)]">else</span> path.
         A route with no checks always matches.
       </p>
-    </>
-  )
-}
-
-function ApprovalForm({ node, update }: FormProps) {
-  const config = node.config as Record<string, unknown>
-  const operatorOnly = config.operatorOnly === true
-  return (
-    <>
-      <Field label="What needs approval?">
-        <Textarea
-          rows={3}
-          value={typeof config.description === "string" ? config.description : ""}
-          onChange={(event) => update({ ...config, description: event.target.value })}
-          placeholder="Describe the decision"
-        />
-      </Field>
-      <div className="flex items-center justify-between gap-[var(--space-3)]">
-        <label
-          htmlFor="approval-operator-only"
-          className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]"
-        >
-          Only the operator may decide
-        </label>
-        <Switch
-          id="approval-operator-only"
-          checked={operatorOnly}
-          // Mutually exclusive with an approver: naming one would contradict
-          // reserving the gate, and the definition schema refuses both together.
-          onCheckedChange={(next) => {
-            const { approver: _approver, operatorOnly: _operatorOnly, ...rest } = config
-            update(next ? { ...rest, operatorOnly: true } : rest)
-          }}
-        />
-      </div>
-      <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        {operatorOnly
-          ? "Reserved for the human operator. No employee can decide it, not even the COO, and escalating it does not open it up."
-          : "Otherwise this routes up the org hierarchy, so the COO can decide it."}
-      </p>
-      {!operatorOnly && (
-        <Field label="Approver (optional)">
-          <TextInput
-            value={fixedText(config.approver)}
-            onChange={(event) => update(withFixed(config, "approver", event.target.value))}
-            placeholder="Employee who decides"
-          />
-        </Field>
-      )}
-    </>
-  )
-}
-
-function WaitForm({ node, update }: FormProps) {
-  const config = node.config as { mode?: string; minutes?: number; timeoutMinutes?: number; timestamp?: unknown }
-  // No control for this mode on purpose: every input below writes a whole new
-  // config, so touching one would drop the mode and its timeout. It is authored
-  // through MCP/JSON, and the editor must not quietly rewrite it into a duration.
-  if (config.mode === "todo-comment") {
-    return (
-      <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        Resumes when you comment on the run’s Todo
-        {typeof config.timeoutMinutes === "number" ? `, or times out after ${config.timeoutMinutes} minutes` : ""}
-        . Configured outside the editor.
-      </p>
-    )
-  }
-  const mode = config.mode === "until" ? "until" : "duration"
-  return (
-    <>
-      <PickerField
-        label="Wait"
-        value={mode}
-        onChange={(next) => update(next === "until"
-          ? { mode: "until", timestamp: { source: "fixed", value: "" } }
-          : { mode: "duration", minutes: 60 })}
-        options={[{ value: "duration", label: "For a duration" }, { value: "until", label: "Until a timestamp" }]}
-      />
-      {mode === "duration" ? (
-        <Field label="Minutes">
-          <TextInput
-            type="number"
-            min={1}
-            max={43_200}
-            value={typeof config.minutes === "number" ? String(config.minutes) : ""}
-            onChange={(event) => {
-              const minutes = Math.max(1, Math.min(43_200, Math.round(Number(event.target.value)) || 1))
-              update({ mode: "duration", minutes })
-            }}
-          />
-        </Field>
-      ) : (
-        <Field label="Timestamp (ISO)">
-          <TextInput
-            value={fixedText(config.timestamp)}
-            onChange={(event) => update({ mode: "until", timestamp: { source: "fixed", value: event.target.value } })}
-            placeholder="2026-08-01T09:00:00Z"
-            style={{ fontFamily: "var(--font-code)" }}
-          />
-        </Field>
-      )}
     </>
   )
 }

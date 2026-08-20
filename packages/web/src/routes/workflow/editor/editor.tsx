@@ -93,14 +93,18 @@ export function SaveChip({ onReload }: { onReload: () => void }) {
     return <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">Saving…</span>
   }
   if (save.state === "conflict") {
+    // Losing a write to someone else's edit is the one save state worth announcing,
+    // so the chip carries a live region the way the workflow list's notice does.
     return (
-      <button
-        type="button"
-        onClick={onReload}
-        className="rounded-full bg-[color-mix(in_srgb,var(--system-orange)_14%,transparent)] px-2.5 py-1 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--system-orange)]"
-      >
-        Changed elsewhere — reload
-      </button>
+      <span role="status">
+        <button
+          type="button"
+          onClick={onReload}
+          className="rounded-full bg-[color-mix(in_srgb,var(--system-orange)_14%,transparent)] px-2.5 py-1 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--system-orange)]"
+        >
+          Changed elsewhere — reload
+        </button>
+      </span>
     )
   }
   return (

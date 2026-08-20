@@ -14,6 +14,7 @@ import {
 import { queryKeys } from "@/lib/query-keys"
 import { EditorCanvas, SaveChip, useAutosave } from "./editor/editor"
 import { createEditorStore, EditorStoreContext, useEditor, useEditorApi, type EditorStoreApi } from "./editor/store"
+import { WorkflowLifecycleMenu } from "./lifecycle-menu"
 import {
   StatusGlyph,
   TRIGGER_KIND_LABEL,
@@ -214,6 +215,17 @@ function WorkflowSurface({ store }: { store: EditorStoreApi }) {
     queryClient.setQueryData(queryKeys.workflows.definition(fresh.id), fresh)
   }, [meta.id, queryClient, store])
 
+  // A conflict means the header is holding a revision the server has moved past, so
+  // take its copy before showing the chip — otherwise the next action repeats the
+  // same refused write. If that GET fails too, the chip is the button that retries.
+  const onLifecycleFailure = useCallback(async (error: unknown) => {
+    const conflict = error instanceof ApiError && error.status === 409
+    if (conflict) await reload().catch(() => undefined)
+    store.getState().setSave(conflict
+      ? { state: "conflict" }
+      : { state: "error", message: error instanceof Error ? error.message : "Request failed." })
+  }, [reload, store])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-3 pt-4 md:px-5">
@@ -235,6 +247,12 @@ function WorkflowSurface({ store }: { store: EditorStoreApi }) {
         <EnableSwitch flushNow={flushNow} />
         {meta.enabled && hasManualTrigger && <RunButton workflowId={meta.id} />}
         <LensControl lens={lens} setLens={setLens} />
+        <WorkflowLifecycleMenu
+          variant="header"
+          workflow={meta}
+          onChanged={(saved) => store.getState().acknowledge(saved)}
+          onFailure={(error) => { void onLifecycleFailure(error) }}
+        />
       </header>
       <div className="min-h-0 flex-1">
         {lens === "editor" ? (

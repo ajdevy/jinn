@@ -118,6 +118,30 @@ describe("NeedsYouView", () => {
     expect(screen.getByTestId("needs-operator-only")).toBeTruthy()
   })
 
+  it("shows an attachment ref in the card's quote as a thumbnail, not a token", () => {
+    renderView([item("wi_shot", "in_review", "pending", {
+      id: "PLA-12",
+      approvalRequest: "Ship this? attachment:PLA-12:wia_ab12cd34ef56:image/png",
+    })])
+    const card = screen.getByTestId("needs-item")
+    expect(card.textContent).toContain("Ship this?")
+    expect(card.textContent).not.toContain("wia_ab12cd34ef56:image/png")
+    const thumb = screen.getByTestId("attachment-ref-thumb-wia_ab12cd34ef56")
+    expect(thumb.querySelector("img")?.getAttribute("src"))
+      .toBe("/api/work-items/PLA-12/attachments/wia_ab12cd34ef56?thumb=1")
+  })
+
+  it("shows a ref whose bytes are gone as a named file row rather than a broken image", () => {
+    renderView([item("wi_gone", "in_review", "pending", {
+      id: "PLA-12",
+      approvalRequest: "Still there? attachment:PLA-12:wia_ab12cd34ef56:image/png",
+    })])
+    fireEvent.error(screen.getByTestId("attachment-ref-thumb-wia_ab12cd34ef56").querySelector("img")!)
+
+    expect(screen.queryByTestId("attachment-ref-thumb-wia_ab12cd34ef56")).toBeNull()
+    expect(screen.getByTestId("attachment-ref-file-wia_ab12cd34ef56")).toBeTruthy()
+  })
+
   it("leaves an ordinary pending gate unmarked", () => {
     renderView([item("wi_ordinary", "in_review", "pending")])
     expect(screen.queryByTestId("needs-operator-only")).toBeNull()

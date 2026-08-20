@@ -93,7 +93,7 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 /** The Todos side of a comment-wait: the earliest live operator comment on a
  *  Todo written strictly inside the window between the park and its deadline. */
 export interface WorkflowTodoCommentFeed {
-  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
+  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string; attachments: ReadonlyArray<{ id: string; mime: string }> } | undefined;
 }
 export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback"> {
   repository: WorkflowRepository;
@@ -229,8 +229,8 @@ export class WorkflowService {
   duplicateDefinition(sourceId: WorkflowId, input: { id: WorkflowId; title: string }): WorkflowDefinition {
     const value = this.options.repository.duplicateDefinition(sourceId, input); this.definitionChanged(value); return value;
   }
-  retireDefinition(input: { id: string; expectedRevision: number }): WorkflowDefinition {
-    const value = this.options.repository.retireDefinition(input.id, input.expectedRevision, this.now());
+  setRetired(input: { id: string; retired: boolean; expectedRevision: number }): WorkflowDefinition {
+    const value = this.options.repository.setRetired(input.id, input.retired, input.expectedRevision, this.now());
     this.definitionChanged(value); return value;
   }
   setEnabled(input: { id: string; enabled: boolean; expectedRevision: number }): WorkflowDefinition {

@@ -12,8 +12,9 @@ import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
 import { AttemptCard } from "./run-attempt-card"
+import { FieldsTable } from "./run-fields"
 import { ChildRunsSection } from "./run-rounds"
-import { ErrorNote, FieldsTable, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
+import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
 
 function JsonBlock({ value }: { value: unknown }) {
   return (

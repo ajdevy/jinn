@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { isProxy } from 'node:util/types';
+import { ATTACHMENT_REF_SHAPE, isAttachmentRef } from './attachment-ref.js';
 import {
   jsonValueSchema,
   type JsonValue,
@@ -33,7 +34,7 @@ interface FenceScan {
 
 const MAX_PAYLOAD_BYTES = 262_144;
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
-const FIELD_TYPES = new Set(['string', 'number', 'boolean', 'string[]']);
+const FIELD_TYPES = new Set(['string', 'number', 'boolean', 'string[]', 'attachment', 'attachment[]']);
 const FORBIDDEN_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
 const MESSAGES: Record<WorkflowOutputCode, string> = {
   'multiple-blocks': 'Employee output must contain at most one jinn-output block.',
@@ -152,10 +153,23 @@ function normalizeFields(value: unknown): Record<string, JsonValue> {
 }
 
 function matchesType(value: JsonValue, type: OutputField['type']): boolean {
-  if (type === 'string') return typeof value === 'string';
-  if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
-  if (type === 'boolean') return typeof value === 'boolean';
-  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+  switch (type) {
+    case 'string': return typeof value === 'string';
+    case 'number': return typeof value === 'number' && Number.isFinite(value);
+    case 'boolean': return typeof value === 'boolean';
+    case 'string[]': return Array.isArray(value) && value.every((item) => typeof item === 'string');
+    case 'attachment': return isAttachmentRef(value);
+    case 'attachment[]': return Array.isArray(value) && value.every(isAttachmentRef);
+  }
+}
+
+/** An attachment field fails for a reason the employee can act on: it submitted
+ *  something that is not a ref, and a ref is not a filename it can invent. */
+function typeMismatchMessage(name: string, type: OutputField['type']): string {
+  const declared = `Output field "${name}" does not match declared type "${type}".`;
+  return type === 'attachment' || type === 'attachment[]'
+    ? `${declared} Attach the file to the Todo first, then submit the ref it returns: ${ATTACHMENT_REF_SHAPE}`
+    : declared;
 }
 
 function validateFields(fields: Record<string, JsonValue>, schema: ParsedSchema): Record<string, JsonValue> {
@@ -166,7 +180,7 @@ function validateFields(fields: Record<string, JsonValue>, schema: ParsedSchema)
   }
   for (const [name, field] of Object.entries(schema.fields)) {
     if (Object.hasOwn(fields, name) && !matchesType(fields[name]!, field.type)) {
-      fail('type-mismatch', `Output field "${name}" does not match declared type "${field.type}".`);
+      fail('type-mismatch', typeMismatchMessage(name, field.type));
     }
   }
   if (!schema.allowAdditionalFields) {

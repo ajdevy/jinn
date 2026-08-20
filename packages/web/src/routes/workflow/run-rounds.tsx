@@ -1,7 +1,8 @@
 import { ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 import type { WorkflowChildRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
-import { FieldsTable, Section, StatusLine, iterationRounds } from "./run-support"
+import { FieldsTable } from "./run-fields"
+import { Section, StatusLine, iterationRounds } from "./run-support"
 
 /**
  * What a Workflow Call node's children did, one row each.

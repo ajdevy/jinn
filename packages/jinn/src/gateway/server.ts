@@ -42,7 +42,8 @@ import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthTo
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
 import { setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
-import { firstOperatorCommentAfter, setTodoCommentListener } from "../work-items/comments.js";
+import { firstOperatorCommentAfter } from "../work-items/comments.js";
+import { watchTodoReplies } from "./todo-reply-sweep.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
 import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
@@ -964,17 +965,7 @@ export async function startGateway(
     });
   });
 
-  // The live half of a parked todo-comment Wait; `recover` on boot is the
-  // backstop. Filtered to the operator rather than kicked bare like the status
-  // listener, because every employee and system comment would otherwise sweep
-  // the run table — and a workflow's own comment could kick the sweep that
-  // wrote it.
-  setTodoCommentListener((comment) => {
-    if (comment.authorKind !== "operator" || comment.author !== "operator") return;
-    void workflowService.recover(new Date().toISOString()).catch((error) => {
-      logger.warn(`Workflow Todo comment recovery failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
-  });
+  const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
   // The other half of the Todo-first approval loop: a gate decided on the Todo
   // resolves the workflow node that mirrored it, carrying the picked option.
@@ -1323,7 +1314,7 @@ export async function startGateway(
     // Stop cron scheduler
     stopScheduler();
     setTodoStatusChangeListener(null);
-    setTodoCommentListener(null);
+    stopReplyWatch();
     setTodoApprovalDecisionListener(null);
 
     // Stop connectors

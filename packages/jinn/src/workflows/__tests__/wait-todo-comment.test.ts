@@ -204,7 +204,7 @@ describe("Wait todo-comment mode", () => {
 
     const node = nodeOf(definition.id, run.id);
     expect(node.status).toBe("completed");
-    expect(node.output?.fields).toEqual({ outcome: "timeout" });
+    expect(node.output?.fields).toEqual({ outcome: "timeout", attachments: [] });
     const settled = service.getRun(definition.id, run.id)!;
     expect(settled.status).toBe("completed");
     expect(settled.nodeRuns.find((item) => item.nodeId === "finish")).toMatchObject({ status: "completed" });
@@ -224,7 +224,7 @@ describe("Wait todo-comment mode", () => {
     service = buildService();
     await service.recover(now);
 
-    expect(nodeOf(definition.id, run.id).output?.fields).toEqual({ outcome: "timeout" });
+    expect(nodeOf(definition.id, run.id).output?.fields).toEqual({ outcome: "timeout", attachments: [] });
   });
 
   it("recovers a run parked across a restart and stays idempotent", async () => {

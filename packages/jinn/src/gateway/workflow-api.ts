@@ -152,9 +152,9 @@ async function definitions(req: IncomingMessage, res: ServerResponse, url: URL, 
     const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["id", "title"]);
     send(res, 201, service.duplicateDefinition(id, value as never)); return true;
   }
-  if (parts.length === 4 && ["retire", "enable", "disable"].includes(parts[3]!) && method === "POST") {
-    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["expectedRevision"]);
-    const saved = parts[3] === "retire" ? service.retireDefinition({ id, expectedRevision: value.expectedRevision as number })
+  if (parts.length === 4 && ["retire", "unretire", "enable", "disable"].includes(parts[3]!) && method === "POST") {
+    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["expectedRevision"]); const retiring = parts[3] === "retire" || parts[3] === "unretire";
+    const saved = retiring ? service.setRetired({ id, retired: parts[3] === "retire", expectedRevision: value.expectedRevision as number })
       : service.setEnabled({ id, enabled: parts[3] === "enable", expectedRevision: value.expectedRevision as number });
     send(res, 200, saved); return true;
   }

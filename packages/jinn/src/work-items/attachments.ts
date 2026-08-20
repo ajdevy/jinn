@@ -1,7 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { initDb } from '../shared/db.js';
+import { fsyncBestEffort, hashAndSize } from './attachment-bytes.js';
+import { announceAttachment } from './comment-attachments.js';
 import { ATTACHMENTS_DIR } from '../shared/paths.js';
 import { parseTodoId } from './id.js';
 import { appendWorkItemEvent } from './store.js';
@@ -145,36 +147,6 @@ export function itemBytesUsed(workItemId: string): number {
   return Number(
     initDb().prepare('SELECT COALESCE(SUM(bytes), 0) FROM work_item_attachments WHERE work_item_id = ?').pluck().get(id),
   );
-}
-
-function fsyncBestEffort(target: string): void {
-  try {
-    const fd = fs.openSync(target, 'r');
-    try {
-      fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    // Durability belt only — a failed fsync must not fail the upload.
-  }
-}
-
-function hashAndSize(target: string): { sha256: string; bytes: number } {
-  const digest = createHash('sha256');
-  const fd = fs.openSync(target, 'r');
-  let bytes = 0;
-  try {
-    const chunk = Buffer.alloc(1024 * 1024);
-    let read = 0;
-    while ((read = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0) {
-      digest.update(chunk.subarray(0, read));
-      bytes += read;
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-  return { sha256: digest.digest('hex'), bytes };
 }
 
 /** Move staged content into the content-addressed location: hash → rename into
@@ -342,7 +314,7 @@ export function addAttachment(input: AddAttachmentInput): WorkItemAttachment {
     });
     return attachment;
   });
-  return txn();
+  return announceAttachment(txn());
 }
 
 /** Remove an attachment row (uploader or operator). The stored file is
