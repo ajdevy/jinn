@@ -40,6 +40,7 @@ export function createRealtimeProvider(config: RealtimeConfig): RealtimeProvider
           ...(config.model ? { model: config.model } : {}),
           ...(config.voice ? { voice: config.voice } : {}),
           ...(config.turnDetection ? { turnDetection: config.turnDetection } : {}),
+          ...(config.noiseReduction ? { noiseReduction: config.noiseReduction } : {}),
         },
       });
     default:

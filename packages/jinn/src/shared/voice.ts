@@ -34,10 +34,34 @@ export interface RealtimeTool {
   parameters: JsonObject;
 }
 
-/** Who decides a user turn has ended. `server_vad` lets the provider close the
- *  turn on detected silence (hot mic); `none` means the caller commits each turn
- *  itself (push-to-talk). Metered billing makes `none` the sane default. */
-export type RealtimeTurnDetection = "server_vad" | "none";
+/** How quickly semantic VAD decides that the user has finished a thought. */
+export type RealtimeVadEagerness = "low" | "medium" | "high" | "auto";
+
+export interface RealtimeSemanticVadConfig {
+  type: "semantic_vad";
+  eagerness?: RealtimeVadEagerness;
+}
+
+export interface RealtimeServerVadConfig {
+  type: "server_vad";
+  /** Activation threshold in the provider's 0..1 range. */
+  threshold?: number;
+  /** Audio retained before detected speech starts. */
+  prefixPaddingMs?: number;
+  /** Silence required before detected speech stops. */
+  silenceDurationMs?: number;
+}
+
+/** Who decides a user turn has ended. The `server_vad` string remains the
+ *  untuned legacy shorthand; `none` leaves turn commits to the caller. */
+export type RealtimeTurnDetection =
+  | "server_vad"
+  | "none"
+  | RealtimeSemanticVadConfig
+  | RealtimeServerVadConfig;
+
+/** Input filtering matched to the microphone's distance from the speaker. */
+export type RealtimeNoiseReduction = "near_field" | "far_field";
 
 export interface RealtimeSessionOptions {
   model?: string;
@@ -46,6 +70,7 @@ export interface RealtimeSessionOptions {
   instructions?: string;
   tools?: RealtimeTool[];
   turnDetection?: RealtimeTurnDetection;
+  noiseReduction?: RealtimeNoiseReduction;
 }
 
 /** Everything a caller observes on a live realtime session. */
@@ -127,4 +152,5 @@ export interface RealtimeConfig {
   apiKey?: string;
   voice?: string;
   turnDetection?: RealtimeTurnDetection;
+  noiseReduction?: RealtimeNoiseReduction;
 }

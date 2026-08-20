@@ -142,7 +142,7 @@ describe('WorkflowRepository public definition contract', () => {
     const methods = Object.getOwnPropertyNames(WorkflowService.prototype);
     for (const method of [
       'listDefinitions', 'createDefinition', 'getDefinition', 'saveDefinition', 'duplicateDefinition',
-      'retireDefinition', 'setEnabled', 'startManual', 'fireEvent', 'getRun', 'listRuns',
+      'setRetired', 'setEnabled', 'startManual', 'fireEvent', 'getRun', 'listRuns',
       'getAttemptTranscript', 'cancelRun', 'rerun', 'recover',
     ]) expect(methods).toContain(method);
   });
@@ -168,7 +168,7 @@ describe('public ID validation', () => {
     const methods: Array<[string, (id: unknown) => unknown]> = [
       ['get', (id) => repository.getDefinition(id as string)],
       ['enable', (id) => repository.setEnabled(id as string, true, 1)],
-      ['retire', (id) => repository.retireDefinition(id as string, 1, now)],
+      ['retire', (id) => repository.setRetired(id as string, true, 1, now)],
       ['duplicate', (id) => repository.duplicateDefinition(id as string, { id: 'copy', title: 'Copy' })],
     ];
     const prepare = vi.spyOn(db, 'prepare');
@@ -204,14 +204,14 @@ describe('validation before immediate transactions', () => {
       ['enable id', canonicalNow, 'bad-input', () => repository.setEnabled('Invalid', true, 1)],
       ['enable state', canonicalNow, 'bad-input', () => repository.setEnabled(enableSource.id, 'yes' as unknown as boolean, 1)],
       ['enable revision', canonicalNow, 'revision-conflict', () => repository.setEnabled(enableSource.id, true, 1.5)],
-      ['retire id', canonicalNow, 'bad-input', () => repository.retireDefinition('Invalid', 1, canonicalNow)],
-      ['retire revision', canonicalNow, 'revision-conflict', () => repository.retireDefinition(retireSource.id, 1.5, canonicalNow)],
-      ['retire at', canonicalNow, 'bad-input', () => repository.retireDefinition(retireSource.id, 1, 1 as unknown as string)],
+      ['retire id', canonicalNow, 'bad-input', () => repository.setRetired('Invalid', true, 1, canonicalNow)],
+      ['retire revision', canonicalNow, 'revision-conflict', () => repository.setRetired(retireSource.id, true, 1.5, canonicalNow)],
+      ['retire at', canonicalNow, 'bad-input', () => repository.setRetired(retireSource.id, true, 1, 1 as unknown as string)],
       ['create clock', '2026-07-21T00:00:00Z', 'bad-input', () => create('lock-clock-create')],
       ['duplicate clock', 1, 'bad-input', () => repository.duplicateDefinition(duplicateSource.id, { id: 'lock-clock-copy', title: 'Copy' })],
       ['save clock', 'not-an-instant', 'bad-input', () => repository.saveDefinition(saveSource, 1)],
       ['enable clock', '2026-07-21T00:00:00.000+00:00', 'bad-input', () => repository.setEnabled(enableSource.id, true, 1)],
-      ['retire clock', null, 'bad-input', () => repository.retireDefinition(retireSource.id, 1, canonicalNow)],
+      ['retire clock', null, 'bad-input', () => repository.setRetired(retireSource.id, true, 1, canonicalNow)],
     ];
     const blocker = openWorkflowDatabase(join(root, 'workflows.db'));
     db.pragma('busy_timeout = 0');
@@ -246,7 +246,7 @@ describe('validation before immediate transactions', () => {
     const saved = repository.saveDefinition({ ...created, title: 'Saved' }, 1);
     const enabled = repository.setEnabled(saved.id, true, saved.revision);
     const copy = repository.duplicateDefinition(enabled.id, { id: 'after-lock-copy', title: 'Copy' });
-    const retired = repository.retireDefinition(enabled.id, enabled.revision, canonicalNow);
+    const retired = repository.setRetired(enabled.id, true, enabled.revision, canonicalNow);
     expect({ saved: saved.revision, enabled: enabled.enabled, copy: copy.revision,
       retired: retired.retiredAt, read: repository.getDefinition(copy.id)?.id })
       .toEqual({ saved: 2, enabled: true, copy: 1, retired: canonicalNow, read: copy.id });
@@ -433,8 +433,8 @@ describe('optimistic revision mutations', () => {
       ['2026-07-21T00:00:00Z', () => create('clock-create')],
       ['not-an-instant', () => repository.saveDefinition({ ...saved, title: 'Changed' }, saved.revision)],
       [1, () => repository.setEnabled(enabled.id, true, enabled.revision)],
-      ['2026-07-21T00:00:00Z', () => repository.retireDefinition(
-        retired.id, retired.revision, '2026-07-21T00:30:00.000Z',
+      ['2026-07-21T00:00:00Z', () => repository.setRetired(
+        retired.id, true, retired.revision, '2026-07-21T00:30:00.000Z',
       )],
       ['not-an-instant', () => repository.duplicateDefinition(duplicated.id, { id: 'clock-copy', title: 'Copy' })],
     ];
@@ -468,18 +468,18 @@ describe('optimistic revision mutations', () => {
     const enabled = repository.setEnabled(created.id, true, 1);
     now = '2026-07-21T04:00:00.000Z';
     const retiredAt = '2026-07-21T03:30:00.000Z';
-    const retired = repository.retireDefinition(created.id, enabled.revision, retiredAt);
+    const retired = repository.setRetired(created.id, true, enabled.revision, retiredAt);
 
     expect(retired).toMatchObject({ enabled: false, retiredAt, revision: 3, updatedAt: now });
     expect(db.prepare('SELECT retired_at FROM workflow_definitions WHERE id = ?').pluck().get(created.id)).toBe(retiredAt);
     expectRepositoryError(() => repository.setEnabled(created.id, true, retired.revision), 'retired');
     expectRepositoryError(() => repository.saveDefinition({ ...retired, title: 'Changed' }, retired.revision), 'retired');
-    expectRepositoryError(() => repository.retireDefinition(created.id, retired.revision, retiredAt), 'retired');
+    expectRepositoryError(() => repository.setRetired(created.id, true, retired.revision, retiredAt), 'retired');
   });
 
   it('distinguishes missing rows from revision conflicts', () => {
     expectRepositoryError(() => repository.setEnabled('missing', true, 1), 'not-found');
-    expectRepositoryError(() => repository.retireDefinition('missing', 1, now), 'not-found');
+    expectRepositoryError(() => repository.setRetired('missing', true, 1, now), 'not-found');
     const absent: WorkflowDefinition = {
       schemaVersion: 1, id: 'missing', title: 'Missing', revision: 1, enabled: false,
       nodes: [], edges: [], createdAt: now, updatedAt: now,
@@ -585,9 +585,9 @@ describe('listDefinitions pagination and filters', () => {
     const retiredSource = create('retired-source');
     const retiredEnabledSource = create('retired-enabled-source');
     repository.setEnabled(active.id, true, active.revision);
-    repository.retireDefinition(retiredSource.id, retiredSource.revision, '2026-07-21T10:00:00.000Z');
+    repository.setRetired(retiredSource.id, true, retiredSource.revision, '2026-07-21T10:00:00.000Z');
     const enabled = repository.setEnabled(retiredEnabledSource.id, true, retiredEnabledSource.revision);
-    repository.retireDefinition(enabled.id, enabled.revision, '2026-07-21T10:00:00.000Z');
+    repository.setRetired(enabled.id, true, enabled.revision, '2026-07-21T10:00:00.000Z');
 
     expect(repository.listDefinitions({}).items.map((item) => item.id).sort()).toEqual(['active', 'disabled']);
     expect(repository.listDefinitions({ retired: false }).items.map((item) => item.id).sort()).toEqual(['active', 'disabled']);

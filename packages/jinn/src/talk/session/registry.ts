@@ -18,6 +18,7 @@ import {
 import { alwaysOnTools, toolsForIntents } from "./tools.js";
 import type {
   TalkActionRecord,
+  TalkInterruptionRecord,
   TalkSession,
   TalkSessionReadOptions,
   TalkSessionStore,
@@ -31,6 +32,7 @@ export const TALK_SESSION_TTL_MS = 90_000;
 /** Far more writes than a spoken conversation produces. The cap is here so a
  *  looping client cannot grow the log without bound, not to bound the audit. */
 export const TALK_ACTION_LOG_LIMIT = 500;
+export const TALK_INTERRUPTION_LOG_LIMIT = 500;
 
 /** Carries the HTTP status the router should answer with, so state rules live
  *  here rather than being re-derived at every route. */
@@ -113,6 +115,7 @@ export class TalkSessionRegistry {
       exposedTools: alwaysOnTools().map((tool) => tool.name),
       expandedIntents: [],
       actions: [],
+      interruptions: [],
       visualReceiptKeys: [],
     };
     this.store.save(session);
@@ -209,6 +212,18 @@ export class TalkSessionRegistry {
     }
     this.store.save(session);
     return action;
+  }
+
+  recordInterruption(id: string, input: Omit<TalkInterruptionRecord, "at">): TalkInterruptionRecord {
+    const session = this.require(id);
+    const interruption: TalkInterruptionRecord = { ...input, at: this.now() };
+    const interruptions = session.interruptions ?? (session.interruptions = []);
+    interruptions.push(interruption);
+    if (interruptions.length > TALK_INTERRUPTION_LOG_LIMIT) {
+      interruptions.splice(0, interruptions.length - TALK_INTERRUPTION_LOG_LIMIT);
+    }
+    this.store.save(session);
+    return interruption;
   }
 
   /** The tools these intents add on top of what the session already carries. */

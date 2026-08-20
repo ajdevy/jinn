@@ -1,6 +1,7 @@
 import { queryClient } from "@/lib/query-client"
 import { matchAppRoute } from "@/lib/app-routes"
 import { visibleObjects } from "./visible-objects"
+import { liveChatObject } from "./live-chat-packet"
 import {
   collectControls,
   collectMeaningfulText,
@@ -184,8 +185,11 @@ function genericSelected(snapshot: PageSnapshot): SemanticObject | null {
   }
 }
 
-function resolveSelected(snapshot: PageSnapshot): SemanticObject | null {
+function resolveSelected(snapshot: PageSnapshot, capturedAt: string): SemanticObject | null {
   if (!snapshot.selection) return null
+  if (snapshot.kind === "chat" && snapshot.selection.kind === "chat session") {
+    return liveChatObject(snapshot.selection.id, capturedAt)
+  }
   if (snapshot.kind === "todo") return selectedTodo(snapshot.selection.id)
   if (snapshot.kind === "workflow" || snapshot.kind === "workflow-run") return selectedWorkflow(snapshot)
   return genericSelected(snapshot)
@@ -206,12 +210,13 @@ function screenTitle(object: SemanticObject | null, root: HTMLElement, routeSurf
 
 export function buildScreenContext(input: BuildScreenContextInput): TalkScreenContext {
   const route = matchAppRoute(input.location.path)
-  const selectedObject = resolveSelected(input.location)
+  const capturedAt = input.capturedAt ?? new Date().toISOString()
+  const selectedObject = resolveSelected(input.location, capturedAt)
   const gaps = collectVisualGaps(input.root)
   const missing = missingContext(route?.id, input.location.selection, selectedObject, gaps)
   const title = screenTitle(selectedObject, input.root, route?.surface, input.location.kind)
-  const capturedAt = input.capturedAt ?? new Date().toISOString()
   const routeId = route?.id ?? "plugin-contributed"
+  const selectedChat = input.location.selection?.kind === "chat session"
   return {
     ...input.location,
     version: 1,
@@ -224,7 +229,7 @@ export function buildScreenContext(input: BuildScreenContextInput): TalkScreenCo
     selectedObject,
     visibleItems: visibleObjects(input.location),
     controls: collectControls(input.root),
-    meaningfulText: collectMeaningfulText(input.root),
+    meaningfulText: selectedChat ? "" : collectMeaningfulText(input.root),
     browserInstanceId: input.browserInstanceId,
     focus: describeFocus(input.root),
     hidden: document.visibilityState === "hidden",

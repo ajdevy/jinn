@@ -8,7 +8,6 @@ import { useTheme } from "@/routes/providers"
 import { THEMES } from "@/lib/themes"
 import { api } from "@/lib/api"
 import { authFetch } from "@/lib/auth"
-import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { RemoteAccessPanel } from "@/components/auth/remote-access-panel"
@@ -21,6 +20,7 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
+import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
 import type { EnginesConfig } from "./engines/chain-model"
@@ -154,7 +154,6 @@ export default function SettingsPage() {
     setPortalName,
     setPortalSubtitle,
     setOperatorName,
-    setPortalEmoji,
     setLanguage,
     setTalkOrb,
     resetAll,
@@ -173,10 +172,8 @@ export default function SettingsPage() {
   const [nameValue, setNameValue] = useState(settings.portalName ?? "")
   const [subtitleValue, setSubtitleValue] = useState(settings.portalSubtitle ?? "")
   const [operatorNameValue, setOperatorNameValue] = useState(settings.operatorName ?? "")
-  const [emojiValue, setEmojiValue] = useState(settings.portalEmoji ?? "")
   const [languageValue, setLanguageValue] = useState(settings.language ?? "English")
   const [customHex, setCustomHex] = useState(settings.accentColor ?? "")
-  const [showCooEmojiPicker, setShowCooEmojiPicker] = useState(false)
   const [claudeModelId, setClaudeModelId] = useState("")
   const [claudeModelLabel, setClaudeModelLabel] = useState("")
 
@@ -225,7 +222,6 @@ export default function SettingsPage() {
     setNameValue(settings.portalName ?? "")
     setSubtitleValue(settings.portalSubtitle ?? "")
     setOperatorNameValue(settings.operatorName ?? "")
-    setEmojiValue(settings.portalEmoji ?? "")
     setLanguageValue(settings.language ?? "English")
     setCustomHex(settings.accentColor ?? "")
   }, [
@@ -233,7 +229,6 @@ export default function SettingsPage() {
     settings.portalName,
     settings.portalSubtitle,
     settings.operatorName,
-    settings.portalEmoji,
     settings.language,
     settings.accentColor,
   ])
@@ -495,7 +490,7 @@ export default function SettingsPage() {
                 </div>
               </FieldRow>
               <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-                A floating sphere you can drag to any corner. It shows what the
+                A floating voice control you can drag to any corner. It shows what the
                 assistant is doing through motion alone.
               </div>
               {/* Said here rather than on the first press, which is where the
@@ -619,46 +614,9 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {/* Portal emoji \u2014 one control instead of the old duplicate pair
-                  (a picker section + a raw text input both writing the same
-                  setting). The button opens the searchable picker; the small
-                  field still accepts free-form marks (letters, custom glyphs). */}
-              <div>
-                <label
-                  className="block text-[length:var(--text-caption1)] text-[var(--text-tertiary)] mb-[var(--space-1)]"
-                >
-                  Portal Emoji
-                </label>
-                <div className="relative flex items-center gap-[var(--space-3)]">
-                  <button
-                    type="button"
-                    onClick={() => setShowCooEmojiPicker(!showCooEmojiPicker)}
-                    aria-label="Choose portal emoji"
-                    aria-expanded={showCooEmojiPicker}
-                    className="flex size-[44px] cursor-pointer items-center justify-center rounded-[13px] border-none bg-[var(--fill-quaternary)] text-[26px] leading-none transition-colors hover:bg-[var(--fill-tertiary)]"
-                  >
-                    {settings.portalEmoji ?? "\u{1F9DE}"}
-                  </button>
-                  <input
-                    type="text"
-                    className={cn(CONTROL_CLASS, "w-[96px] text-center")}
-                    placeholder={"\u{1F9DE}\u{FE0F}"}
-                    value={emojiValue}
-                    onChange={(e) => setEmojiValue(e.target.value)}
-                    onBlur={() => setPortalEmoji(emojiValue || null)}
-                  />
-                  {showCooEmojiPicker && (
-                    <EmojiPicker
-                      current={settings.portalEmoji ?? "\u{1F9DE}"}
-                      onSelect={(emoji) => {
-                        setPortalEmoji(emoji)
-                        setShowCooEmojiPicker(false)
-                      }}
-                      onClose={() => setShowCooEmojiPicker(false)}
-                    />
-                  )}
-                </div>
-              </div>
+              <OperatorEmojiRow />
+
+              <PortalEmojiRow />
 
               <div>
                 <label

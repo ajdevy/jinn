@@ -4,10 +4,11 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { report } from "./vitest-flaky-report.mjs";
 import { acquireTestSlot } from "./test-slot-gate.mjs";
-import { report } from "./vitest-flaky-retry-report.mjs";
 
-export { formatFlakySummary } from "./vitest-flaky-retry-report.mjs";
+/* Re-exported so the reporting split stays an internal detail of this script. */
+export { formatFlakySummary } from "./vitest-flaky-report.mjs";
 
 /**
  * Wraps `vitest run` so a test file that fails in CI is rerun once, and a file

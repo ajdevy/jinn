@@ -59,6 +59,7 @@ async function attachCandidate(controls: SessionControls, live: LiveSession, gen
     browserInstanceId: live.browserInstanceId,
     credentialGeneration: resumed.credentialGeneration,
     topicMemory: live.topicMemory,
+    vadType: resumed.vadType ?? "semantic_vad",
   })
   if (generation !== controls.generationRef.current) {
     detach(attachment)

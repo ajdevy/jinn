@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2 } from "./ports"
+import { NODE_TYPE_LABEL, type WorkflowNodeType } from "./ports"
 import { NodeTypeIcon } from "./node-icons"
 
 /** Types offerable mid-graph — Trigger nodes are placed from the palette. */
-export const INSERTABLE_TYPES: WorkflowNodeTypeV2[] = ["employee", "workflow-call", "condition", "approval", "wait", "merge", "end"]
+export const INSERTABLE_TYPES: WorkflowNodeType[] = ["employee", "workflow-call", "condition", "approval", "wait", "merge", "end"]
 
 export function useMenu() {
   const [open, setOpen] = useState(false)
@@ -31,7 +31,7 @@ export function NodeTypeMenu({
   onPick,
   extra,
 }: {
-  onPick: (type: WorkflowNodeTypeV2) => void
+  onPick: (type: WorkflowNodeType) => void
   extra?: React.ReactNode
 }) {
   return (

@@ -11,6 +11,7 @@ function fakeContext() {
     restore: vi.fn(),
     beginPath: vi.fn(),
     arc: vi.fn(),
+    ellipse: vi.fn(),
     clip: vi.fn(),
     fill: vi.fn(),
     fillRect: vi.fn(),
@@ -87,7 +88,7 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
     render(<OrbCanvas state="listening" levelRef={levelRef} size={64} />)
 
     expect(ctx.createRadialGradient).toHaveBeenCalled()
-    expect(ctx.fill).toHaveBeenCalledTimes(3)
+    expect(ctx.fill).toHaveBeenCalledOnce()
   })
 })
 

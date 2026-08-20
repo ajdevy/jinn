@@ -1,15 +1,15 @@
-import { isDeepStrictEqual } from "node:util";
 import { logger } from "../shared/logger.js";
 import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shared/types.js";
 import { TODO_ID_PATTERN } from "../work-items/id.js";
-import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
+import { approvalDescription } from "./approval-description.js";
+import { interpolateWorkflowPrompt, resolveBinding } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import { continuationPrompt } from "./employee-continuation.js";
 import { bindingContext, hasSubstitute, resolveDispatch, resolveString, type DispatchResolutionDeps } from "./node-dispatch.js";
 import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
+import { commentReplyOutput, waitDueOutput } from "./wait-comment-output.js";
 import type {
   ConditionNode,
-  ConditionPredicate,
   EmployeeNode,
   EndNode,
   JsonValue,
@@ -22,13 +22,16 @@ import type {
 } from "./model.js";
 import { dispatchFailure, interruptedAttemptFailure, workflowError } from "./failure.js";
 import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
-import { fanoutConcurrencyRecord, readCapacitySnapshot, resolveFanoutConcurrency, type FanoutConcurrency } from "./capacity.js";
+import { fanoutConcurrencyRecord } from "./capacity.js";
+import { predicatesHold } from "./predicates.js";
+import { callChildren, childTerminal, fanoutInput, fanoutPlan, iterationSettings, iterationStep, validateFanoutChildren,
+  type FanoutPlan, type IterationStep } from "./workflow-call.js";
 import { addMinutes, hasWorkflowOutputBlock, remindDueAttempts, REMINDER_RUNGS_MINUTES } from "./reminder-ladder.js";
 import { planStopNudge, STOP_NUDGE_TEXT } from "../sessions/stop-nudge.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
-  WorkflowChildRunSummary,
+  WorkflowFanoutChildSummary,
   WorkflowError,
   WorkflowNodeRunRecord,
   WorkflowRunDetail,
@@ -82,54 +85,8 @@ export type { WorkflowRearmTarget, WorkflowRevisionRequest, WorkflowRunReflectio
 
 type NodeAction =
   | { kind: "activate" | "skip" | "condition" | "merge" | "approval" | "wait" | "end"; node: WorkflowNode }
-  | { kind: "fanout"; node: WorkflowCallNode }
+  | { kind: "fanout" | "iterate"; node: WorkflowCallNode }
   | { kind: "dispatch"; node: EmployeeNode; config: ResolvedEmployeeConfig };
-
-interface FanoutPlan {
-  workflowId: string;
-  concurrency: FanoutConcurrency;
-  items: JsonValue[];
-  hasItems: boolean;
-}
-
-function fanoutPlan(run: WorkflowRunDetail, node: WorkflowCallNode, capacity: WorkflowRunnerOptions["activeEngineSessions"], activeChildren: number): FanoutPlan {
-  const context = bindingContext(run);
-  const workflowId = resolveString(node.config.workflowId, context, "Workflow Call target");
-  const concurrency = resolveFanoutConcurrency(node, context, capacity ? readCapacitySnapshot(capacity(), activeChildren) : null);
-  if (!node.config.items) return { workflowId, concurrency, items: [null], hasItems: false };
-  const items = resolveBinding(node.config.items, context);
-  if (!Array.isArray(items)) throw new Error(`Workflow Call ${node.id} items must resolve to an array.`);
-  if (items.length > 100) throw new Error(`Workflow Call ${node.id} items may contain at most 100 entries.`);
-  return { workflowId, concurrency, items, hasItems: true };
-}
-
-function fanoutInput(run: WorkflowRunDetail, node: WorkflowCallNode, plan: FanoutPlan, index: number): Record<string, JsonValue> {
-  const base = bindingContext(run);
-  const context: WorkflowBindingContext = {
-    ...base,
-    trigger: {
-      ...base.trigger,
-      itemIndex: index,
-      ...(plan.hasItems ? { item: plan.items[index]! } : {}),
-    },
-  };
-  return Object.fromEntries(Object.entries(node.config.input ?? {})
-    .map(([key, binding]) => [key, resolveBinding(binding, context)]));
-}
-
-function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowChildRunSummary[] {
-  return run.childRuns.filter((child) => child.nodeId === nodeId);
-}
-
-function childTerminal(child: WorkflowChildRunSummary): boolean {
-  return ["completed", "failed", "cancelled"].includes(child.status);
-}
-
-function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowChildRunSummary[]): void {
-  if (children.some((child) => child.itemIndex >= plan.items.length)) {
-    throw new Error(`Workflow Call ${node.id} has a child outside its item range.`);
-  }
-}
 
 function composeEmployeePrompt(run: WorkflowRunDetail, node: EmployeeNode, continued: boolean): string {
   const prompt = interpolateWorkflowPrompt(continuationPrompt(node, continued), bindingContext(run));
@@ -144,7 +101,9 @@ function edgeActivated(run: WorkflowRunDetail, edge: WorkflowRunDetail["definiti
   if (!runtime.activated) return false;
   if (runtime.status === "failed" && source.type === "employee") return edge.from.port === "error";
   if (runtime.status !== "completed") return false;
-  const port = source.type === "condition" || source.type === "approval" ? runtime.output?.fields.port : "success";
+  const routed = source.type === "condition" || source.type === "approval"
+    || (source.type === "workflow-call" && source.config.iterate !== undefined);
+  const port = routed ? runtime.output?.fields.port : "success";
   return port === edge.from.port;
 }
 function activationPossible(run: WorkflowRunDetail, nodeId: string, seen = new Set<string>()): boolean {
@@ -167,34 +126,9 @@ function mergeReady(run: WorkflowRunDetail, nodeId: string): boolean {
     return source.activated ? terminalNode(source) : !activationPossible(run, edge.from.nodeId);
   });
 }
-function resolved(binding: ConditionPredicate["left"], context: WorkflowBindingContext): { exists: boolean; value?: JsonValue } {
-  try { return { exists: true, value: resolveBinding(binding, context) }; }
-  catch (error) {
-    if (error instanceof WorkflowBindingError && error.code === "missing-value") return { exists: false };
-    throw error;
-  }
-}
-function predicateMatches(predicate: ConditionPredicate, context: WorkflowBindingContext): boolean {
-  const left = resolved(predicate.left, context);
-  if (predicate.operator === "exists") return left.exists;
-  if (predicate.operator === "not-exists") return !left.exists;
-  if (!left.exists || !predicate.right) return false;
-  const right = resolved(predicate.right, context);
-  if (!right.exists) return false;
-  if (predicate.operator === "equals") return isDeepStrictEqual(left.value, right.value);
-  if (predicate.operator === "not-equals") return !isDeepStrictEqual(left.value, right.value);
-  if (predicate.operator === "contains") return typeof left.value === "string" && typeof right.value === "string"
-    ? left.value.includes(right.value) : Array.isArray(left.value) && left.value.some((item) => isDeepStrictEqual(item, right.value));
-  if (predicate.operator === "in") return typeof right.value === "string" && typeof left.value === "string"
-    ? right.value.includes(left.value) : Array.isArray(right.value) && right.value.some((item) => isDeepStrictEqual(item, left.value));
-  if (typeof left.value !== "number" || typeof right.value !== "number") return false;
-  return predicate.operator === "gt" ? left.value > right.value
-    : predicate.operator === "gte" ? left.value >= right.value
-      : predicate.operator === "lt" ? left.value < right.value : left.value <= right.value;
-}
 function conditionPort(run: WorkflowRunDetail, node: ConditionNode): string {
   const context = bindingContext(run);
-  return node.config.cases.find((item) => item.all.every((predicate) => predicateMatches(predicate, context)))?.port
+  return node.config.cases.find((item) => predicatesHold(item.all, context))?.port
     ?? node.config.defaultPort;
 }
 function inputFor(run: WorkflowRunDetail, nodeId: string): JsonValue {
@@ -211,12 +145,6 @@ function mergeOutput(run: WorkflowRunDetail, nodeId: string): WorkflowNodeOutput
 }
 function approvalRef(run: WorkflowRunDetail, node: ApprovalNode): string | undefined {
   return node.config.approver ? resolveString(node.config.approver, bindingContext(run), "Workflow approver") : undefined;
-}
-/** A parked Wait hands the operator's reply straight into downstream prompts, so
- *  a pasted essay must not become the run's whole context. */
-const MAX_WAIT_COMMENT_CHARS = 4_000;
-function boundedComment(body: string): string {
-  return body.length <= MAX_WAIT_COMMENT_CHARS ? body : `${body.slice(0, MAX_WAIT_COMMENT_CHARS)}\n… (truncated)`;
 }
 /** What a Wait node writes when it parks. `resumeAt` is the instant it stops
  *  waiting unprompted: the scheduled resume for `duration` and `until`, and the
@@ -242,13 +170,6 @@ function waitPark(run: WorkflowRunDetail, node: WaitNode, now: string):
     throw new Error("Workflow Wait timestamp must resolve to a canonical instant.");
   }
   return { resumeAt: value };
-}
-/** A Wait that reaches its own `resumeAt`. Only `todo-comment` distinguishes
- *  the two ways it can end, and it says so on the way out. */
-function waitDueOutput(node: WorkflowNode | undefined): WorkflowNodeOutput {
-  return node?.type === "wait" && node.config.mode === "todo-comment"
-    ? { text: "", fields: { outcome: "timeout" } }
-    : { text: "", fields: {} };
 }
 function endOutput(run: WorkflowRunDetail, node: EndNode): WorkflowNodeOutput {
   let fields: Record<string, JsonValue> = {};
@@ -319,8 +240,14 @@ export class WorkflowRunner {
       }
       if (node.type === "workflow-call") {
         try {
-          const children = fanoutChildren(run, node.id);
+          const children = callChildren(run, node.id);
           const active = children.filter((child) => !childTerminal(child)).length;
+          if (node.config.iterate) {
+            // One round at a time, so there is nothing to decide until the round
+            // in flight has settled.
+            if (runtime.status === "pending" || active === 0) return { kind: "iterate", node };
+            continue;
+          }
           const plan = fanoutPlan(run, node, this.options.activeEngineSessions, active);
           validateFanoutChildren(node, plan, children);
           if (runtime.status === "pending" || (children.length === plan.items.length && active === 0)
@@ -396,8 +323,53 @@ export class WorkflowRunner {
     });
   }
 
+  /** One round of a bounded loop. The node stays `running` across rounds — the
+   *  service refuses a child whose caller node is not live — and settles only
+   *  when `continueWhile` stops asking or the bound runs out. Exhaustion routes
+   *  through the `exhausted` port rather than failing the run, so what happens
+   *  after N is whatever the author wired there. */
+  private async reconcileIteration(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
+    const children = callChildren(run, node.id);
+    if (children.some((child) => !childTerminal(child))) return;
+    const at = this.now();
+    let step: IterationStep;
+    try {
+      step = iterationStep(run, node, children);
+    } catch (error) { this.failRun(run, error, node.id); return; }
+    if (step.kind === "settle") {
+      this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+        tx.setNodeStatus(node.id, "completed", { output: step.output, endedAt: at });
+      });
+      this.changed(run);
+      return;
+    }
+    this.options.repository.mutateRun(run.id, run.revision, (tx) => {
+      tx.setNodeStatus(node.id, "running", {
+        resolvedConfig: { workflowId: step.workflowId, round: step.round, maxRounds: iterationSettings(node).maxRounds },
+        ...(nodeRun(run, node.id).startedAt ? {} : { startedAt: at }),
+      });
+    });
+    try {
+      await this.options.callWorkflow({
+        workflowId: step.workflowId,
+        caller: { workflowId: run.workflowId, runId: run.id, nodeId: node.id },
+        input: step.input,
+        idempotencyKey: `${run.id}:${node.id}:${step.round}`,
+        itemIndex: step.round - 1,
+      });
+    } catch (error) {
+      const current = this.detail(run.workflowId, run.id);
+      if (!current.cancelRequestedAt && !["completed", "failed", "cancelled"].includes(current.status)) {
+        this.failRun(current, error, node.id);
+      }
+      return;
+    }
+    this.changed(run);
+  }
+
   private async reconcileFanout(run: WorkflowRunDetail, node: WorkflowCallNode): Promise<void> {
-    const children = fanoutChildren(run, node.id);
+    const children = callChildren(run, node.id)
+      .filter((child): child is WorkflowFanoutChildSummary => child.itemIndex !== undefined);
     const active = children.filter((child) => !childTerminal(child)).length;
     const plan = fanoutPlan(run, node, this.options.activeEngineSessions, active);
     const runtime = nodeRun(run, node.id);
@@ -467,14 +439,15 @@ export class WorkflowRunner {
     const todoId = run.trigger.todoId;
     if (!todoId || !this.options.todoApprovals) return;
     const ref = todoApprovalRef(run, node.id);
+    const request = approvalDescription(run, node);
     try {
-      this.options.todoApprovals.request({ todoId, request: node.config.description, ref,
+      this.options.todoApprovals.request({ todoId, request, ref,
         ...(node.config.options ? { options: node.config.options } : {}),
         ...(approver ? { approver } : {}) });
     } catch { /* the workflow-side gate stands on its own */ }
     try {
       this.options.todoApprovals.notifyParked({ todoId, workflowId: run.workflowId, runId: run.id,
-        nodeId: node.id, request: node.config.description, ref });
+        nodeId: node.id, request, ref });
     } catch (error) {
       logger.warn(`Workflow run ${run.id} could not notify the approver of parked gate ${node.id}: `
         + `${error instanceof Error ? error.message : String(error)}`);
@@ -631,7 +604,8 @@ export class WorkflowRunner {
   private async advanceNow(workflowId: string, runId: string): Promise<WorkflowRunDetail> {
     const definition = this.detail(workflowId, runId).definition;
     const max = definition.nodes.length * 4 + 4
-      + definition.nodes.filter((node) => node.type === "workflow-call").length * 100;
+      + definition.nodes.reduce((budget, node) => budget
+        + (node.type === "workflow-call" ? 100 * (node.config.iterate?.maxRounds ?? 1) : 0), 0);
     for (let index = 0; index < max; index += 1) {
       const run = this.detail(workflowId, runId);
       if (["completed", "failed", "cancelled"].includes(run.status)) return run;
@@ -643,6 +617,7 @@ export class WorkflowRunner {
       }
       if (action.kind === "dispatch") await this.dispatch(run, action.node, action.config);
       else if (action.kind === "fanout") await this.reconcileFanout(run, action.node);
+      else if (action.kind === "iterate") await this.reconcileIteration(run, action.node);
       else this.applyInline(run, action);
     }
     return this.failRun(this.detail(workflowId, runId), new Error("Workflow control flow did not settle."));
@@ -679,16 +654,17 @@ export class WorkflowRunner {
    *  comment is not claimed: every run parked on that Todo resumes from it, and
    *  a re-sweep is a no-op because the node is no longer `waiting`. */
   async resumeCommentWait(workflowId: string, runId: string, nodeId: string,
-    comment: { id: string; body: string }, now: string): Promise<boolean> {
+    comment: { id: string; body: string; attachments: ReadonlyArray<{ id: string; mime: string }> }, now: string,
+  ): Promise<boolean> {
     const run = this.detail(workflowId, runId);
     const runtime = nodeRun(run, nodeId);
     const authored = run.definition.nodes.find((node) => node.id === nodeId);
-    if (run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
+    const todoId = run.trigger.todoId;
+    if (!todoId || run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
       || runtime.status !== "waiting") return false;
-    const body = boundedComment(comment.body);
+    const output = commentReplyOutput(todoId, comment);
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
-      tx.setNodeStatus(nodeId, "completed", { endedAt: now,
-        output: { text: body, fields: { outcome: "reply", commentId: comment.id, comment: body } } });
+      tx.setNodeStatus(nodeId, "completed", { endedAt: now, output });
       tx.setRunStatus("running");
     });
     this.changed(run);
@@ -780,6 +756,7 @@ export class WorkflowRunner {
       && run.definition.edges.some((edge) => edge.from.nodeId === input.nodeId && edge.from.port === status);
     const missingRoute: WorkflowError = { code: "workflow-approval-route-missing",
       message: `Workflow approval ${input.nodeId} has no ${status} route.`, retryable: false, nodeId: input.nodeId };
+    const gateOutput = { text: input.choice ?? "", fields: { port: status, ...(note ? { reason: note } : {}) }, ...(input.choice !== undefined ? { choice: input.choice } : {}) };
     this.options.repository.mutateRun(run.id, input.expectedRevision, (tx) => {
       const pending = run.approvals.find((approval) => approval.nodeId === input.nodeId)!;
       tx.putApproval({ nodeId: pending.nodeId, requestedAt: pending.requestedAt,
@@ -790,11 +767,10 @@ export class WorkflowRunner {
         // The gate was decided, not broken — `completed` on its `rejected` port.
         // The run is `cancelled`, not `failed`: a human stopped it on purpose, and
         // a failed run would reflect `blocked` onto the very Todo being re-armed.
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: "", fields: { port: status } }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("cancelled", { cancelRequestedAt: at, endedAt: at, error: revising });
       } else if (routed) {
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: input.choice ?? "", fields: { port: status },
-          ...(input.choice !== undefined ? { choice: input.choice } : {}) }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("running");
       } else {
         tx.setNodeStatus(input.nodeId, "failed", { error: missingRoute, endedAt: at });

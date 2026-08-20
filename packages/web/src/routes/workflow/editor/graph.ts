@@ -1,6 +1,6 @@
 import type { Edge, Node } from "@xyflow/react"
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
-import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2, type WorkflowNodeWire, nodeBox } from "./ports"
+import type { WorkflowDefinitionWire } from "@/lib/api"
+import { NODE_TYPE_LABEL, type WorkflowNodeType, type WorkflowNodeWire, nodeBox } from "./ports"
 
 /** Live run state painted onto a card when the canvas renders a run. Its
  *  presence flips the card into read-only mode: no add affordances, handles
@@ -8,7 +8,9 @@ import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2, type WorkflowNodeWire, nodeBo
 export interface NodeRunView {
   status: string
   dimmed: boolean
-  workflowCall?: { succeeded: number; total: number }
+  /** `rounds` is set when the call iterates: a round is a whole child run, so
+   *  the card counts rounds rather than folding them into one child tally. */
+  workflowCall?: { succeeded: number; total: number; rounds?: { round: number; maxRounds: number } }
   waitComment?: { todoId: string; timeoutMinutes: number }
 }
 
@@ -18,6 +20,12 @@ export interface EdgeRunView {
   taken: boolean
 }
 
+/** What a Workflow Call card counts: rounds when it loops, children when it
+ *  fans out. */
+export function workflowCallProgress(call: NonNullable<NodeRunView["workflowCall"]>): string {
+  return call.rounds ? `Round ${call.rounds.round}/${call.rounds.maxRounds}` : `${call.succeeded}/${call.total}`
+}
+
 export type EditorNodeData = { node: WorkflowNodeWire; run?: NodeRunView }
 export type EditorNode = Node<EditorNodeData>
 export type EditorEdgeData = { run?: EdgeRunView }
@@ -25,8 +33,8 @@ export type EditorEdge = Edge<EditorEdgeData>
 
 /** The subset of a definition the canvas can draw — run detail carries this
  *  snapshot shape; the editor passes the full definition. */
-export type GraphSnapshot = Pick<WorkflowDefinitionV2Wire, "nodes" | "edges"> & {
-  ui?: WorkflowDefinitionV2Wire["ui"]
+export type GraphSnapshot = Pick<WorkflowDefinitionWire, "nodes" | "edges"> & {
+  ui?: WorkflowDefinitionWire["ui"]
 }
 
 /** Everything about the definition that is not the graph itself, echoed back on save. */
@@ -36,18 +44,20 @@ export interface EditorMeta {
   description?: string
   revision: number
   enabled: boolean
-  inputs?: WorkflowDefinitionV2Wire["inputs"]
+  retiredAt: string | null
+  inputs?: WorkflowDefinitionWire["inputs"]
   createdAt: string
   updatedAt: string
 }
 
-export function toEditorMeta(definition: WorkflowDefinitionV2Wire): EditorMeta {
+export function toEditorMeta(definition: WorkflowDefinitionWire): EditorMeta {
   return {
     id: definition.id,
     title: definition.title,
     ...(definition.description === undefined ? {} : { description: definition.description }),
     revision: definition.revision,
     enabled: definition.enabled,
+    retiredAt: definition.retiredAt ?? null,
     ...(definition.inputs === undefined ? {} : { inputs: definition.inputs }),
     createdAt: definition.createdAt,
     updatedAt: definition.updatedAt,
@@ -94,7 +104,7 @@ export function serializeDefinition(
   meta: EditorMeta,
   nodes: EditorNode[],
   edges: EditorEdge[],
-): WorkflowDefinitionV2Wire {
+): WorkflowDefinitionWire {
   return {
     schemaVersion: 1,
     id: meta.id,
@@ -103,10 +113,9 @@ export function serializeDefinition(
     revision: meta.revision,
     enabled: meta.enabled,
     ...(meta.inputs === undefined ? {} : { inputs: meta.inputs }),
-    nodes: nodes.map((node) => {
-      const value = node.data.node
-      return { id: value.id, type: value.type, name: value.name.trim() || NODE_TYPE_LABEL[value.type], config: value.config }
-    }),
+    // Spread rather than rebuild: listing the fields back out would decouple
+    // `type` from `config` and lose which arm of the union this node is.
+    nodes: nodes.map(({ data: { node } }) => ({ ...node, name: node.name.trim() || NODE_TYPE_LABEL[node.type] })),
     edges: edges.map((edge) => ({
       id: edge.id,
       from: { nodeId: edge.source, port: edge.sourceHandle ?? "success" },
@@ -125,7 +134,7 @@ export function serializeDefinition(
   }
 }
 
-export function allocateNodeId(type: WorkflowNodeTypeV2, taken: ReadonlySet<string>): string {
+export function allocateNodeId(type: WorkflowNodeType, taken: ReadonlySet<string>): string {
   if (!taken.has(type)) return type
   for (let index = 2; ; index += 1) {
     const candidate = `${type}-${index}`
@@ -147,27 +156,26 @@ export function allocateConditionPort(taken: ReadonlySet<string>): string {
   }
 }
 
-function defaultConfig(type: WorkflowNodeTypeV2): Record<string, unknown> {
+/** Each arm returns the whole node, not just its config: `type` and `config`
+ *  are one choice, and splitting them is what lets a wrong pair compile. */
+export function createWorkflowNode(type: WorkflowNodeType, id: string): WorkflowNodeWire {
+  const name = NODE_TYPE_LABEL[type]
   switch (type) {
     case "trigger":
-      return { kind: "manual" }
+      return { id, type, name, config: { kind: "manual" } }
     case "employee":
-      return { employee: { source: "fixed", value: "" }, prompt: "" }
+      return { id, type, name, config: { employee: { source: "fixed", value: "" }, prompt: "" } }
     case "workflow-call":
-      return { workflowId: { source: "fixed", value: "" }, concurrency: 2 }
+      return { id, type, name, config: { workflowId: { source: "fixed", value: "" }, concurrency: 2 } }
     case "condition":
-      return { cases: [{ port: "case-1", label: "Case 1", all: [] }], defaultPort: "else" }
+      return { id, type, name, config: { cases: [{ port: "case-1", label: "Case 1", all: [] }], defaultPort: "else" } }
     case "merge":
-      return { mode: "wait-all" }
+      return { id, type, name, config: { mode: "wait-all" } }
     case "approval":
-      return { description: "" }
+      return { id, type, name, config: { description: "" } }
     case "wait":
-      return { mode: "duration", minutes: 60 }
+      return { id, type, name, config: { mode: "duration", minutes: 60 } }
     case "end":
-      return { result: "success" }
+      return { id, type, name, config: { result: "success" } }
   }
-}
-
-export function createWorkflowNode(type: WorkflowNodeTypeV2, id: string): WorkflowNodeWire {
-  return { id, type, name: NODE_TYPE_LABEL[type], config: defaultConfig(type) }
 }

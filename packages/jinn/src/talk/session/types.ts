@@ -55,6 +55,17 @@ export interface TalkActionRecord {
   undoOf?: string;
 }
 
+/** One provider-owned cancellation decision. Deliberately contains no provider
+ * identities, transcript, or audio: it describes detection, not content. */
+export interface TalkInterruptionRecord {
+  at: number;
+  kind: "speech_interruption";
+  vadType: "server_vad" | "semantic_vad";
+  cancelledBy: "provider";
+  recovered: boolean;
+  speechMs: number | null;
+}
+
 export interface TalkSession {
   id: string;
   /** Server-minted browser binding for provider evidence sent by this tab. */
@@ -86,6 +97,8 @@ export interface TalkSession {
   expandedIntents: string[];
   /** Every write this session attempted, oldest first. */
   actions: TalkActionRecord[];
+  /** Bounded, content-free interruption decisions, oldest first. */
+  interruptions?: TalkInterruptionRecord[];
   /** Receipt identities already accepted, bounded with the action audit. */
   visualReceiptKeys: string[];
 }

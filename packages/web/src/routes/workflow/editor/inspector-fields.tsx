@@ -1,14 +1,18 @@
+import type { JsonValueWire, WorkflowBindingWire } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { WorkflowNodeWire } from "./ports"
+import { fixedBinding, type StringBinding, type WorkflowNodeWire } from "./ports"
 
-/* ── tiny form primitives (Ledger-styled, matching ui/textarea) ───────────── */
+/* ── tiny form primitives (Ledger-styled) ─────────────────────────────────── */
 
+/* Editor fields separate by fill, not by a hairline: no resting border, a fill one
+   step up from the panel so the field still reads, and focus carried by the ring.
+   34px is the floor every inspector field shares, so 390px stays tappable. */
 export function TextInput(props: React.ComponentProps<"input">) {
   const { className = "", ...rest } = props
   return (
     <input
       {...rest}
-      className={`h-8 w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-quaternary)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:border-[var(--accent)] focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] ${className}`}
+      className={`h-[34px] w-full rounded-[var(--radius-md)] bg-[var(--fill-secondary)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${className}`}
     />
   )
 }
@@ -24,6 +28,8 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
+const TRIGGER_CLASS = "min-h-[34px] border-0 bg-[var(--fill-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+
 export function PickerField({
   label, value, onChange, options, placeholder,
 }: {
@@ -38,7 +44,7 @@ export function PickerField({
       {/* "" is a controlled empty selection — `|| undefined` would flip the
           Select uncontrolled→controlled on first pick and warn. */}
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger aria-label={label}>
+        <SelectTrigger aria-label={label} className={TRIGGER_CLASS}>
           <SelectValue placeholder={placeholder ?? "Choose…"} />
         </SelectTrigger>
         <SelectContent>
@@ -55,21 +61,37 @@ export const CLEAR = "__none__"
 
 /* ── binding helpers: plain text ⇄ fixed bindings ─────────────────────────── */
 
-export type BindingWire = { source?: unknown; value?: unknown; path?: unknown; nodeId?: unknown }
-
-export function fixedText(value: unknown): string {
-  const binding = value as BindingWire | undefined
-  return binding?.source === "fixed" && typeof binding.value === "string" ? binding.value : ""
+/** The picker's text for a binding: the literal someone typed, or empty when the
+ *  binding points at run data and there is nothing to show in a text box. */
+export function fixedText(binding: StringBinding | undefined): string {
+  return (binding && fixedBinding(binding)) ?? ""
 }
 
-export function withFixed(config: Record<string, unknown>, key: string, text: string, keepEmpty = false): Record<string, unknown> {
-  const next = { ...config }
-  if (!text && !keepEmpty) delete next[key]
-  else next[key] = { source: "fixed", value: text }
-  return next
+/** Fixed predicate values coerce sensibly: true/false → boolean, numerics → number. */
+export function parseFixedValue(text: string): JsonValueWire {
+  if (text === "true") return true
+  if (text === "false") return false
+  if (text.trim() !== "" && Number.isFinite(Number(text))) return Number(text)
+  return text
 }
 
-export interface FormProps {
-  node: WorkflowNodeWire
-  update: (config: Record<string, unknown>) => void
+export function parseJsonFixedValue(text: string): JsonValueWire {
+  try {
+    return JSON.parse(text) as JsonValueWire
+  } catch {
+    return text
+  }
+}
+
+export function fixedValueText(value: WorkflowBindingWire<JsonValueWire> | undefined): string {
+  if (value?.source !== "fixed") return ""
+  return typeof value.value === "string" ? value.value : JSON.stringify(value.value ?? "")
+}
+
+export interface FormProps<N extends WorkflowNodeWire = WorkflowNodeWire> {
+  node: N
+  /** Takes the whole edited node rather than a bare config: `type` and `config`
+   *  are one choice in the schema, and only moving them together stops a config
+   *  being written onto an arm it does not belong to. */
+  update: (node: N) => void
 }

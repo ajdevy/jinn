@@ -1,87 +1,23 @@
-import { isProxy } from 'node:util/types';
 import { z } from 'zod';
 import { nodeFallbackSchema } from './engine-chain.js';
+import { FORBIDDEN_PATH_SEGMENTS, jsonValueSchema, normalizedSchema } from './json-schema.js';
+import type { JsonValue } from './json-schema.js';
 import { triggerConfigSchema } from './trigger-config-schema.js';
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export { jsonValueSchema } from './json-schema.js';
+export type { JsonPrimitive, JsonValue } from './json-schema.js';
 
 const MAX_DEFINITION_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
-const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+/** A round costs a whole child run, so the ceiling is deliberately low: past
+ *  this an author wants a different Workflow, not a longer loop. It also keeps
+ *  an iterating node inside the reconcile budget in `runner.ts`. */
+export const MAX_ITERATION_ROUNDS = 20;
 const SOURCE_ROOT_SEGMENTS = new Set(['input', 'trigger', 'run', 'nodes']);
-const INVALID_INPUT = Symbol('invalid-workflow-input');
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
-
-type OwnDescriptors = ReturnType<typeof Object.getOwnPropertyDescriptors>;
-
-function normalizeArray(descriptors: OwnDescriptors, ancestors: WeakSet<object>): JsonValue | typeof INVALID_INPUT {
-  const keys = Reflect.ownKeys(descriptors);
-  if (keys.some((key) => typeof key !== 'string' || (key !== 'length' && !/^(0|[1-9][0-9]*)$/.test(key)))) return INVALID_INPUT;
-  const lengthDescriptor = descriptors.length;
-  if (!lengthDescriptor || !('value' in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value)
-    || lengthDescriptor.value < 0 || keys.length !== lengthDescriptor.value + 1) return INVALID_INPUT;
-  const normalized: JsonValue[] = [];
-  for (let index = 0; index < lengthDescriptor.value; index += 1) {
-    const descriptor = descriptors[String(index)];
-    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) return INVALID_INPUT;
-    const child = normalizeJson(descriptor.value, ancestors);
-    if (child === INVALID_INPUT) return INVALID_INPUT;
-    normalized.push(child);
-  }
-  return normalized;
-}
-
-function normalizeRecord(descriptors: OwnDescriptors, ancestors: WeakSet<object>): JsonValue | typeof INVALID_INPUT {
-  const normalized: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-  for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== 'string' || FORBIDDEN_PATH_SEGMENTS.has(key)) return INVALID_INPUT;
-    const descriptor = descriptors[key];
-    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) return INVALID_INPUT;
-    const child = normalizeJson(descriptor.value, ancestors);
-    if (child === INVALID_INPUT) return INVALID_INPUT;
-    Object.defineProperty(normalized, key, { value: child, enumerable: true, configurable: true, writable: true });
-  }
-  return normalized;
-}
-
-function normalizeJson(value: unknown, ancestors: WeakSet<object>): JsonValue | typeof INVALID_INPUT {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : INVALID_INPUT;
-  if (typeof value !== 'object' || isProxy(value) || ancestors.has(value)) return INVALID_INPUT;
-  const prototype = Object.getPrototypeOf(value);
-  const array = Array.isArray(value);
-  if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return INVALID_INPUT;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  ancestors.add(value);
-  try {
-    return array
-      ? normalizeArray(descriptors, ancestors)
-      : normalizeRecord(descriptors, ancestors);
-  } finally {
-    ancestors.delete(value);
-  }
-}
-
-function normalizeInput(value: unknown): unknown {
-  try {
-    return normalizeJson(value, new WeakSet<object>());
-  } catch {
-    return INVALID_INPUT;
-  }
-}
-
-function normalizedSchema<T extends z.ZodType>(schema: T) {
-  return z.preprocess(normalizeInput, schema);
-}
-
-export const jsonValueSchema = normalizedSchema(z.custom<JsonValue>(
-  (value) => value !== INVALID_INPUT,
-  { message: 'Value must be bounded, accessor-free JSON data' },
-));
 
 const finiteNumberSchema = z.number().finite();
 export const workflowIdSchema = z.string()
@@ -127,7 +63,7 @@ export type Binding<T extends JsonValue = JsonValue> =
   | (Omit<Extract<InferredBinding, { source: 'fixed' }>, 'value'> & { value: T })
   | Exclude<InferredBinding, { source: 'fixed' }>;
 const workflowOutputFieldSchema = z.strictObject({
-  type: z.enum(['string', 'number', 'boolean', 'string[]']),
+  type: z.enum(['string', 'number', 'boolean', 'string[]', 'attachment', 'attachment[]']),
   required: z.boolean(),
   description: z.string().optional(),
 });
@@ -159,6 +95,24 @@ const employeeNodeSchema = z.strictObject({
     output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
   }),
 });
+const conditionPredicateSchema = z.strictObject({
+  left: bindingSchema,
+  operator: z.enum(['equals', 'not-equals', 'exists', 'not-exists', 'contains', 'gt', 'gte', 'lt', 'lte', 'in']),
+  right: bindingSchema.optional(),
+});
+const workflowIterationSchema = z.strictObject({
+  /** The ceiling on rounds, and the whole reason iteration is safe to have. A
+   *  literal, never a binding: a number that only exists once the run is under
+   *  way is not a bound anyone can read off the definition. Optional here only
+   *  so that omitting it still parses and so reaches `validateExecutableWorkflow`,
+   *  which rejects it as `unbounded-iteration` naming the node — a definition
+   *  that fails to parse can only say "invalid". */
+  maxRounds: z.number().int().min(1).max(MAX_ITERATION_ROUNDS).optional(),
+  /** Another round runs only while every predicate holds against the round that
+   *  just finished. While these are read the node stands for its own latest
+   *  round, so `{ source: 'node', nodeId: <this node> }` asks what it returned. */
+  continueWhile: z.array(conditionPredicateSchema).min(1).max(10),
+});
 const workflowCallNodeSchema = z.strictObject({
   id: nodeIdSchema,
   type: z.literal('workflow-call'),
@@ -168,12 +122,12 @@ const workflowCallNodeSchema = z.strictObject({
     items: bindingSchema.optional(),
     input: z.record(pathSegmentSchema, bindingSchema).optional(),
     concurrency: z.union([concurrencySchema, bindingWithFixed(concurrencySchema)]).default(2), // children at once: a number, or a binding a planner node fills in; clamped at run time by `systemConcurrencyCeiling` (capacity.ts)
+    /** Call the target again, up to `maxRounds` times, while the round that just
+     *  finished still asks for another. Each round is its own child run, so it
+     *  keeps its own status, output and sessions. Mutually exclusive with `items`:
+     *  fan-out is width decided up front, iteration is depth decided as it goes. */
+    iterate: workflowIterationSchema.optional(),
   }),
-});
-const conditionPredicateSchema = z.strictObject({
-  left: bindingSchema,
-  operator: z.enum(['equals', 'not-equals', 'exists', 'not-exists', 'contains', 'gt', 'gte', 'lt', 'lte', 'in']),
-  right: bindingSchema.optional(),
 });
 const conditionCaseSchema = z.strictObject({
   port: portSchema,
@@ -215,10 +169,10 @@ const approvalNodeSchema = z.strictObject({
     // approve a pipeline the COO started — fine for ordinary gates, a
     // governance hole for one that authorizes something irreversible.
     operatorOnly: z.boolean().optional(),
-    // Variant-picking: the labels are mirrored onto the bound Todo's approval
-    // and the pick is read back as `{{ node.<id>.choice }}`. Deliberately fixed
-    // labels, not bindings — a gate the operator reads must not shift under it.
-    options: z.array(z.string().min(1).max(80)).min(2).max(8)
+    // Variant-picking: the labels mirror onto the bound Todo's approval and the
+    // pick reads back as `{{ node.<id>.choice }}`. Fixed labels, not bindings, and
+    // trimmed as the mirror trims — two spellings is a gate neither door can decide.
+    options: z.array(z.string().trim().min(1).max(80)).min(2).max(8)
       .refine((values) => new Set(values).size === values.length, 'Approval options must be unique').optional(),
   }).refine((config) => !(config.operatorOnly && config.approver !== undefined),
     'An operator-only approval cannot also name an approver.'),
@@ -346,6 +300,7 @@ export type TriggerNode = z.infer<typeof triggerNodeSchema>;
 export type EmployeeNode = z.infer<typeof employeeNodeSchema>;
 export type WorkflowCallNode = z.infer<typeof workflowCallNodeSchema>;
 export type ConditionPredicate = z.infer<typeof conditionPredicateSchema>;
+export type WorkflowIteration = z.infer<typeof workflowIterationSchema>;
 export type ConditionNode = z.infer<typeof conditionNodeSchema>;
 export type MergeNode = z.infer<typeof mergeNodeSchema>;
 export type ApprovalNode = z.infer<typeof approvalNodeSchema>;

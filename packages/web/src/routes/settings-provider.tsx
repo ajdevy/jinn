@@ -1,4 +1,3 @@
-
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import {
   type JinnSettings,
@@ -28,8 +27,11 @@ interface SettingsContextValue {
   setIconBgHidden: (hidden: boolean) => void
   setEmojiOnly: (emojiOnly: boolean) => void
   setOperatorName: (name: string | null) => void
+  setOperatorEmoji: (emoji: string | null) => void
   setLanguage: (language: string) => void
   setTalkOrb: (enabled: boolean) => void
+  setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
+  setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
   getEmployeeDisplay: (employee: { name: string; emoji: string; id: string }) => EmployeeDisplay
@@ -47,8 +49,11 @@ const SettingsContext = createContext<SettingsContextValue>({
   setIconBgHidden: () => {},
   setEmojiOnly: () => {},
   setOperatorName: () => {},
+  setOperatorEmoji: () => {},
   setLanguage: () => {},
   setTalkOrb: () => {},
+  setTalkOrbVariant: () => {},
+  setTalkMicrophone: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
@@ -69,17 +74,29 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setSettings(loadSettings())
   }, [])
 
-  // Then sync companyName/portalName/operatorName from backend config (source of truth) once
-  // the shared onboarding query resolves. This ensures the correct COO name
-  // shows up even if localStorage has stale values from a previous onboarding.
+  // Then sync companyName/portalName/operatorName/operatorEmoji from backend config
+  // (source of truth) once the shared onboarding query resolves. This ensures the
+  // correct COO name and operator icon show up even if localStorage has stale
+  // values from a previous onboarding or another browser.
   useEffect(() => {
-    if (!onboarding || (!onboarding.companyName && !onboarding.portalName && !onboarding.operatorName)) return
+    if (!onboarding) return
     setSettings((prev) => {
       const merged = {
         ...prev,
         ...(onboarding.companyName ? { companyName: onboarding.companyName } : {}),
         ...(onboarding.portalName ? { portalName: onboarding.portalName } : {}),
         ...(onboarding.operatorName ? { operatorName: onboarding.operatorName } : {}),
+        // The emoji lives only in gateway config, so an absent one means unset —
+        // it has to clear a stale local value rather than leave it standing.
+        operatorEmoji: onboarding.operatorEmoji ?? null,
+      }
+      if (
+        merged.companyName === prev.companyName &&
+        merged.portalName === prev.portalName &&
+        merged.operatorName === prev.operatorName &&
+        merged.operatorEmoji === prev.operatorEmoji
+      ) {
+        return prev
       }
       saveSettings(merged)
       return merged
@@ -114,73 +131,81 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     },
     [update],
   )
-
   const setPortalName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, portalName: name || null }))
     },
     [update],
   )
-
   const setCompanyName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, companyName: name || null }))
     },
     [update],
   )
-
   const setPortalSubtitle = useCallback(
     (subtitle: string | null) => {
       update((prev) => ({ ...prev, portalSubtitle: subtitle || null }))
     },
     [update],
   )
-
   const setPortalEmoji = useCallback(
     (emoji: string | null) => {
       update((prev) => ({ ...prev, portalEmoji: emoji || null }))
     },
     [update],
   )
-
   const setPortalIcon = useCallback(
     (icon: string | null) => {
       update((prev) => ({ ...prev, portalIcon: icon }))
     },
     [update],
   )
-
   const setIconBgHidden = useCallback(
     (hidden: boolean) => {
       update((prev) => ({ ...prev, iconBgHidden: hidden }))
     },
     [update],
   )
-
   const setEmojiOnly = useCallback(
     (emojiOnly: boolean) => {
       update((prev) => ({ ...prev, emojiOnly }))
     },
     [update],
   )
-
   const setOperatorName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, operatorName: name || null }))
     },
     [update],
   )
-
+  const setOperatorEmoji = useCallback(
+    (emoji: string | null) => {
+      update((prev) => ({ ...prev, operatorEmoji: emoji || null }))
+    },
+    [update],
+  )
   const setLanguage = useCallback(
     (language: string) => {
       update((prev) => ({ ...prev, language: language || "English" }))
     },
     [update],
   )
-
   const setTalkOrb = useCallback(
     (enabled: boolean) => {
       update((prev) => ({ ...prev, talkOrb: enabled }))
+    },
+    [update],
+  )
+  const setTalkOrbVariant = useCallback(
+    (variant: JinnSettings["talkOrbVariant"]) => {
+      update((prev) => ({ ...prev, talkOrbVariant: variant }))
+    },
+    [update],
+  )
+  const setTalkMicrophone = useCallback(
+    (microphone: JinnSettings["talkMicrophone"]) => {
+      update((prev) => ({ ...prev, talkMicrophone: microphone }))
     },
     [update],
   )
@@ -240,8 +265,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setIconBgHidden,
         setEmojiOnly,
         setOperatorName,
+        setOperatorEmoji,
         setLanguage,
         setTalkOrb,
+        setTalkOrbVariant,
+        setTalkMicrophone,
         setEmployeeOverride,
         clearEmployeeOverride,
         getEmployeeDisplay,

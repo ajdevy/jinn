@@ -48,7 +48,6 @@ const GATEWAY_OPERATIONS: readonly TalkControlOperation[] = [
     task: string("The full delegation brief."),
   }, ["id", "employee"]), "delegation", { mutability: "write", verification: "todo-session-link-reread" }),
   gateway("read_session", "Read one chat session and its recent messages.", params({ id: string("The session id.") }, ["id"]), "sessions", { mutability: "read", verification: "session-reread" }),
-  gateway("talk_send_to_session", "Send one operator message into a chat session.", params({ id: string("The session id."), message: string("The operator message.") }, ["id", "message"]), "sessions", { mutability: "write", verification: "message-reread" }),
   gateway("talk_start_workflow_run", "Start one enabled manual Workflow run.", params({ id: string("The workflow id."), input: string("Optional JSON object input.") }, ["id"]), "workflows", { mutability: "write", verification: "workflow-run-reread" }),
   gateway("read_workflow_runs", "Read recent runs of one Workflow.", params({ id: string("The workflow id."), limit: integer("Maximum runs to return.") }, ["id"]), "workflows", { mutability: "read", verification: "workflow-runs-reread" }),
   gateway("read_workflow_run", "Read one exact Workflow run.", params({ id: string("The workflow id."), runId: string("The run id.") }, ["id", "runId"]), "workflows", { mutability: "read", verification: "workflow-run-reread" }),
@@ -93,8 +92,8 @@ export const TALK_COMPANY_CAPABILITY_COVERAGE = {
   },
   "chat-core": {
     status: "supported",
-    operations: ["read_session", "talk_send_to_session"],
-    evidence: "normal session and exact inserted-message rereads",
+    operations: ["read_session", "talk_search_chat_messages", "talk_draft_reply", "talk_replace_draft", "talk_send_draft", "talk_draft_and_send", "talk_send_to_session"],
+    evidence: "bounded current-chat excerpts, visible-composer receipts, and named-session consent",
   },
   "chat-lifecycle": {
     status: "explicit-gap",
@@ -128,7 +127,12 @@ export const TALK_COMPANY_CAPABILITY_COVERAGE = {
   },
   "screen-navigation-and-visual": {
     status: "supported",
-    operations: BROWSER_CONTROL_OPERATIONS.map((operation) => operation.name),
+    operations: BROWSER_CONTROL_OPERATIONS
+      .filter((operation) => !new Set([
+        "talk_search_chat_messages", "talk_draft_reply", "talk_replace_draft",
+        "talk_send_draft", "talk_draft_and_send", "talk_send_to_session",
+      ]).has(operation.name))
+      .map((operation) => operation.name),
     evidence: "browser receipt, awaited UI effect, or bounded sanitized visual receipt",
   },
   "capability-inventory": {

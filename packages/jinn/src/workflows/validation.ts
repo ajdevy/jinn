@@ -10,8 +10,10 @@ import {
 import { validateBindingPath } from './bindings.js';
 import { validateCronSchedule } from '../cron/validation.js';
 import type { WorkflowValidationIssue } from './issues.js';
+import { ITERATION_EXHAUSTED_PORT, workflowCallIterationIssues, workflowCallSaveIssues } from './validation-workflow-call.js';
 
 export type { WorkflowValidationIssue } from './issues.js';
+export { workflowCallSaveIssues } from './validation-workflow-call.js';
 
 type AddIssue = (issue: WorkflowValidationIssue) => void;
 type RecordValue = Record<string, unknown>;
@@ -99,7 +101,8 @@ function portsOf(node: WorkflowNode): string[] {
   switch (type) {
     case 'trigger': return ['success'];
     case 'employee': return ['success', 'error'];
-    case 'workflow-call': return ['success'];
+    case 'workflow-call': return record(record(node)?.config)?.iterate
+      ? ['success', ITERATION_EXHAUSTED_PORT] : ['success'];
     case 'condition': return conditionPorts(node);
     case 'merge': return ['success'];
     case 'approval': return ['approved', 'rejected'];
@@ -142,7 +145,8 @@ function addConditionIssues(nodes: WorkflowNode[], add: AddIssue): void {
   }
 }
 
-function checkBinding(value: unknown, path: string, id: string | undefined, context: BindingCheckContext): void {
+function checkBinding(value: unknown, path: string, id: string | undefined, context: BindingCheckContext,
+  self: 'self-allowed' | 'self-rejected' = 'self-rejected'): void {
   const binding = record(value) as (RecordValue & Partial<Binding>) | undefined;
   if (!binding || binding.source === 'fixed' || typeof binding.path !== 'string') return;
   try { validateBindingPath(binding.path); }
@@ -154,7 +158,7 @@ function checkBinding(value: unknown, path: string, id: string | undefined, cont
   if (binding.source !== 'node' || typeof binding.nodeId !== 'string' || !id) return;
   if (!context.known.has(binding.nodeId)) {
     context.add({ code: 'unknown-node-binding', message: 'Node binding references an unknown node.', nodeId: id, path });
-  } else if (binding.nodeId === id || !walk([id], context.graph.reverse).has(binding.nodeId)) {
+  } else if (binding.nodeId === id ? self === 'self-rejected' : !walk([id], context.graph.reverse).has(binding.nodeId)) {
     context.add({ code: 'non-predecessor-binding', message: 'Node binding must reference a reachable predecessor.', nodeId: id, path });
   }
 }
@@ -171,6 +175,12 @@ function addNodeBindingIssues(node: WorkflowNode, nodeIndex: number, context: Bi
   } else if (value?.type === 'workflow-call') {
     for (const key of ['workflowId', 'items', 'concurrency']) checkBinding(config?.[key], `${base}.${key}`, id, context);
     for (const [key, binding] of Object.entries(record(config?.input) ?? {})) checkBinding(binding, `${base}.input.${key}`, id, context);
+    const continueWhile = record(config?.iterate)?.continueWhile;
+    for (const [index, predicate] of (Array.isArray(continueWhile) ? continueWhile : []).entries()) {
+      const itemPath = `${base}.iterate.continueWhile.${index}`;
+      checkBinding(record(predicate)?.left, `${itemPath}.left`, id, context, 'self-allowed');
+      checkBinding(record(predicate)?.right, `${itemPath}.right`, id, context, 'self-allowed');
+    }
   } else if (value?.type === 'condition') {
     const cases = Array.isArray(config?.cases) ? config.cases : [];
     for (const [caseIndex, item] of cases.entries()) {
@@ -385,20 +395,6 @@ export function todoTriggerFilterIssues(definition: WorkflowDefinition): Workflo
     : []);
 }
 
-export function workflowCallTargetIssues(definition: WorkflowDefinition): WorkflowValidationIssue[] {
-  const safe = safeDefinition(definition);
-  if (!safe) return [];
-  return safe.nodes.flatMap((node, index) => node.type === 'workflow-call'
-    && node.config.workflowId.source === 'fixed' && node.config.workflowId.value === safe.id
-    ? [{
-        code: 'workflow-call-self-reference',
-        message: 'A Workflow Call cannot target its own defining Workflow.',
-        nodeId: node.id,
-        path: `nodes.${index}.config.workflowId`,
-      }]
-    : []);
-}
-
 /** A `todo-comment` Wait resumes on a comment on the run's bound Todo, and only
  *  some Trigger kinds can bind one. `schedule` and `event` never do, so a node
  *  they alone can reach could only ever time out — refused here rather than at
@@ -443,7 +439,8 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   addReachabilityIssues(nodes, graph, add);
   for (const item of scheduleTriggerIssues(safe)) add(item);
   for (const item of todoTriggerFilterIssues(safe)) add(item);
-  for (const item of workflowCallTargetIssues(safe)) add(item);
+  for (const item of workflowCallSaveIssues(safe)) add(item);
+  for (const item of workflowCallIterationIssues(safe)) add(item);
   for (const item of todoCommentWaitTriggerIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
   return { ok: issues.length === 0, issues };

@@ -157,7 +157,7 @@ function control(providerCallId: string, tool: string, args: Record<string, unkn
 }
 
 describe("universal Talk gateway control acceptance", () => {
-  it("routes representative Todo, delegation, chat, and Workflow writes once with verified UI effects", async () => {
+  it("routes representative Todo, delegation, and Workflow writes once while refusing browser-consent sends", async () => {
     vi.stubGlobal("fetch", async () => ({
       ok: true,
       json: async () => ({ value: "test-ephemeral-token", expires_at: Math.floor(Date.now() / 1000) + 600 }),
@@ -175,7 +175,6 @@ describe("universal Talk gateway control acceptance", () => {
       "talk_comment_todo",
       "talk_assign_todo",
       "talk_delegate_todo",
-      "talk_send_to_session",
       "talk_start_workflow_run",
     ]);
     const journeyOperations = manifest.operations.filter((operation) => names.has(operation.name));
@@ -252,18 +251,12 @@ describe("universal Talk gateway control acceptance", () => {
       message: "Please include the final evidence summary.",
     });
     const sent = await call(context, "POST", route, message);
-    const sentReplay = await call(context, "POST", route, message);
     expect(sent.body).toMatchObject({
-      ok: true,
-      operation: "talk_send_to_session",
-      verified: true,
-      replayed: false,
-      evidence: { sessionId: delegatedSession.id },
-      uiEffect: { navigate: `/?session=${delegatedSession.id}` },
+      ok: false,
+      code: "wrong-target",
     });
-    expect(sentReplay.body).toMatchObject({ ok: true, replayed: true, receiptId: sent.body.receiptId });
     expect(sessions.getMessages(delegatedSession.id).filter((entry) => entry.role === "user").map((entry) => entry.content))
-      .toEqual(["Complete the bounded verification task.", "Please include the final evidence summary."]);
+      .toEqual(["Complete the bounded verification task."]);
 
     const workflow = control("workflow-1", "talk_start_workflow_run", {
       id: "verification-flow",

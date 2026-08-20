@@ -120,6 +120,10 @@ export default defineConfig(() => {
         // need its own build and its own React peer, and the singleton the SDK
         // exists to guarantee is exactly what a second React copy would break.
         '@jinn/plugin-sdk': path.resolve(__dirname, 'src/plugins/sdk/index.ts'),
+        // Types only, and only ever imported with `import type`, so this alias
+        // never resolves at build time — it exists so `tsc` and Vite agree on
+        // what the specifier means.
+        '@jinn/workflow-wire': path.resolve(__dirname, '../jinn/src/workflows/wire.ts'),
       },
     },
     build: {

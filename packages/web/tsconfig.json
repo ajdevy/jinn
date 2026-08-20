@@ -18,6 +18,9 @@
       ],
       "@jinn/plugin-sdk": [
         "./src/plugins/sdk/index.ts"
+      ],
+      "@jinn/workflow-wire": [
+        "../jinn/src/workflows/wire.ts"
       ]
     }
   },

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { Check, MessageSquareText } from "lucide-react"
+import { AttachmentRefText } from "@/components/attachment-ref-preview"
 import type { Employee, WorkItemCompactWire, WorkItemOpenDetailWire, WorkItemStatusWire } from "@/lib/api"
 import {
   DropdownMenu,
@@ -10,7 +11,8 @@ import {
 import { EmployeeChip } from "@/components/ui/employee-chip"
 import { STATUS_LABEL, effectiveMaxRounds, operatorSafeTodoError, provenanceLabel, publicWorkItemReference } from "@/lib/todos"
 import { legalTargets } from "@/lib/legal-targets"
-import { ProvenanceIcon, StateCircle, StatusCircle, type StateGlyphKey } from "./state-glyph"
+import { attentionKind, stateKey, type AttentionKind } from "./needs-you-support"
+import { ProvenanceIcon, StateCircle, StatusCircle } from "./state-glyph"
 import { rejectConsequence } from "./task-page/banner"
 import { reasonOf, rollupOf } from "./board/card"
 import { useBoardTrees } from "./board/use-board"
@@ -28,17 +30,6 @@ import { displayNameOf, formatRelativeTime } from "./util"
  * a legal-exit menu (human-only edges); blocked unblocks through its legal
  * manual exits. The menus consume the same legalTargets() module as drag and
  * the pickers — one legality truth. */
-
-type AttentionKind = "approval" | "escalated" | "blocked"
-
-function attentionKind(item: WorkItemCompactWire): AttentionKind {
-  if (item.approvalState === "pending") return "approval"
-  return item.status === "blocked" ? "blocked" : "escalated"
-}
-
-function stateKey(kind: AttentionKind): StateGlyphKey {
-  return kind === "approval" ? "approval" : kind
-}
 
 function shortRef(id: string): string {
   return id.length > 18 ? `${id.slice(0, 17)}…` : id
@@ -261,7 +252,7 @@ function NeedsYouCard({
           className="absolute bottom-[3px] left-0 top-[3px] w-[2px] rounded-[1px]"
           style={{ background: railColor }}
         />
-        <p className="max-w-[62ch] text-[15px] leading-[1.55] text-[var(--text-secondary)]">{quote}</p>
+        <p className="max-w-[62ch] text-[15px] leading-[1.55] text-[var(--text-secondary)]"><AttachmentRefText text={quote} /></p>
       </div>
 
       {/* Actions per kind (states mock §1). */}

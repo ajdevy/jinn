@@ -11,7 +11,7 @@ Use this skill for repeatable, scheduled, event-driven, or multi-step automation
 
 - Use `list_workflows` and `get_workflow` to inspect canonical definitions.
 - `create_workflow` creates a disabled draft from `id`, `title`, and optional `description`.
-- Save a complete graph with `update_workflow`, passing the current `expectedRevision`. The canonical node types are trigger, employee, condition, merge, approval, wait, and end.
+- Save a complete graph with `update_workflow`, passing the current `expectedRevision`. The canonical node types are trigger, employee, workflow-call, condition, merge, approval, wait, and end.
 - A strong review flow is PLAN -> IMPLEMENT -> VERIFY. State evidence and stop conditions in Employee prompts.
 - Definitions must have one Trigger and at least one End before they can be enabled. Use the enable_workflow or disable_workflow tool with the current revision.
 - Use `duplicate_workflow` for a new identity and `retire_workflow` for obsolete definitions. Never delete run evidence.
@@ -56,11 +56,33 @@ Its payload carries `todoId`, `fromStatus`, `toStatus`, `source`, `department`, 
 
 An Approval node creates a native pending approval on the run. The resolved routed owner cannot decide their own approval, while a hierarchy root/COO is exempt. Reviewers should avoid approving work they personally executed. Use `decide_workflow_approval`. Route unclear authority to the manager/COO.
 
-Give an Approval node `options` (2 to 8 unique labels) to ask for a CHOICE rather than a yes/no — "which of these three variants ships". On a Todo-bound run the options mirror onto that Todo's approval, so the pick happens on the Todos surface; approving without picking one of them is refused rather than defaulted. Read the pick downstream as `{{ node.<approvalNodeId>.choice }}`, typically from a Condition.
+Give an Approval node `options` (2 to 8 unique labels) to ask for a CHOICE rather than a yes/no — "which of these three variants ships". On a Todo-bound run the options mirror onto that Todo's approval, so the pick can happen on either surface and whichever one decides it settles both; approving without picking one of them is refused rather than defaulted. Read the pick downstream as `{{ node.<approvalNodeId>.choice }}`, typically from a Condition, and the decider's reason as `{{ node.<approvalNodeId>.fields.reason }}`.
 
 ```json
 { "description": "Which variant ships?", "options": ["variant-a", "variant-b", "variant-c"] }
 ```
+
+## Repeat a step, at most N times
+
+A Workflow Call node with `iterate` runs its target again while the round that just finished still asks for another, and never more than `maxRounds` times. The body is authored once; a round is a whole child run, so each round keeps its own status, its own output, and its own sessions.
+
+```json
+{
+  "workflowId": { "source": "fixed", "value": "review-body" },
+  "input": { "round": { "source": "trigger", "path": "round" }, "of": { "source": "trigger", "path": "maxRounds" } },
+  "iterate": {
+    "maxRounds": 2,
+    "continueWhile": [{ "left": { "source": "node", "nodeId": "<this node>", "path": "fields.last.verdict" },
+      "operator": "equals", "right": { "source": "fixed", "value": "rework" } }]
+  }
+}
+```
+
+`maxRounds` is a literal, never a binding, and a definition that iterates without one is refused as `unbounded-iteration`. `continueWhile` reads the node as its own latest round — `fields.last` is what that round returned, `fields.round` is how many have run, and `fields.rounds` is the per-round trail. It is the one place a node may bind to itself, because the round has already finished by the time it is asked.
+
+The node has two exits. `success` is taken when a round stops asking for another. `exhausted` is taken when the bound runs out while one still is — an escalation route, not a failure, and it must be wired or the definition is refused. `iterate` and `items` are exclusive: fan-out is a width fixed up front, iteration is a depth decided round by round.
+
+While a Workflow Call maps its target's inputs, `{{ trigger.round }}` and `{{ trigger.maxRounds }}` are in scope, so the body can be told which round it is in and say something different on the last one. Map them into the target's declared inputs and read them there as `{{ input.<name> }}`.
 
 ## Cancel
 

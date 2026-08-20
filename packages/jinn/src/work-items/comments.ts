@@ -1,4 +1,5 @@
 import { initDb } from '../shared/db.js';
+import { listCommentAttachments, type WorkItemAttachmentHandle } from './comment-attachments.js';
 import { parseTodoId } from './id.js';
 import type { WriteOrigin } from './origin.js';
 import { appendWorkItemEvent } from './store.js';
@@ -136,11 +137,17 @@ export { addComment } from './comment-add.js';
  *  instant belongs to the timeout — that is where the node stops waiting, so a
  *  reply from there on cannot be one the run was still open to. Without the
  *  upper bound a restart hours late would answer an expired park. */
+/** The operator's reply as a parked Wait consumes it: the words, plus handles
+ *  for whatever was attached to that comment. A screenshot is half the answer. */
+export interface OperatorReply extends Pick<WorkItemComment, 'id' | 'body' | 'createdAt'> {
+  attachments: WorkItemAttachmentHandle[];
+}
+
 export function firstOperatorCommentAfter(
   workItemId: string,
   after: string,
   until: string,
-): Pick<WorkItemComment, 'id' | 'body' | 'createdAt'> | undefined {
+): OperatorReply | undefined {
   const db = initDb();
   const row = db.prepare(
     `SELECT id, body, created_at FROM work_item_comments
@@ -148,7 +155,10 @@ export function firstOperatorCommentAfter(
        AND deleted_at IS NULL AND created_at > ? AND created_at < ?
      ORDER BY created_at, rowid LIMIT 1`,
   ).get(parseTodoId(workItemId), after, until) as Record<string, unknown> | undefined;
-  return row ? { id: row.id as string, body: row.body as string, createdAt: row.created_at as string } : undefined;
+  if (!row) return undefined;
+  const id = row.id as string;
+  return { id, body: row.body as string, createdAt: row.created_at as string,
+    attachments: listCommentAttachments(id) };
 }
 
 function requireEditable(db: ReturnType<typeof initDb>, id: string, editor: CommentEditor, action: string): WorkItemComment {

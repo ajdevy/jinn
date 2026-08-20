@@ -1,3 +1,4 @@
+import { ATTACHMENT_REF_SHAPE } from "./attachment-ref.js";
 import type { EmployeeNode } from "./model.js";
 
 function tableText(value: string): string {
@@ -19,6 +20,12 @@ export function buildNodeContract(
       lines.push(`| \`${name}\` | ${field.type} | ${field.required ? "yes" : "no"} | ${
         field.description ? tableText(field.description) : ""
       } |`);
+    }
+    if (Object.values(node.config.output.fields).some((field) => field.type.startsWith("attachment"))) {
+      lines.push(
+        "",
+        `An attachment field takes a reference, never bytes: attach the file to this Todo with \`attach_to_work_item\`, then submit the \`${ATTACHMENT_REF_SHAPE}\` ref it returns.`,
+      );
     }
     lines.push(
       "",

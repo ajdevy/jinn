@@ -2,7 +2,7 @@ import "@xyflow/react/dist/style.css"
 import { useMemo } from "react"
 import { Background, BackgroundVariant, Panel, ReactFlow, useReactFlow } from "@xyflow/react"
 import { Maximize, Minus, Plus } from "lucide-react"
-import type { WorkflowAttemptV2Wire, WorkflowNodeRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowAttemptWire, WorkflowNodeRunWire, WorkflowRunDetailWire } from "@/lib/api"
 import { editorEdgeTypes } from "./editor/edge"
 import {
   toFlowEdges,
@@ -13,14 +13,15 @@ import {
 } from "./editor/graph"
 import { tidyLayout } from "./editor/layout"
 import { editorNodeTypes } from "./editor/node-card"
-import { deriveNodeStatus, isLiveRunStatus } from "./run-support"
+import { deriveNodeStatus, isLiveRunStatus, iterationRounds } from "./run-support"
 
 /** Client mirror of the runner's edgeActivated: an edge was traversed when its
- *  source settled and routed through this port (condition/approval record the
- *  chosen port; a failed employee routes its error lane). */
-function edgeTaken(
+ *  source settled and routed through this port (condition/approval and an
+ *  iterating Workflow Call record the chosen port; a failed employee routes its
+ *  error lane). Keep this in step with `edgeActivated` in runner.ts. */
+export function edgeTaken(
   sourceType: string | undefined,
-  sourceRun: WorkflowNodeRunV2Wire | undefined,
+  sourceRun: WorkflowNodeRunWire | undefined,
   port: string,
 ): boolean {
   if (!sourceRun?.activated) return false
@@ -30,16 +31,21 @@ function edgeTaken(
     const routed = sourceRun.output?.fields?.["port"]
     return typeof routed === "string" && routed === port
   }
+  // A Workflow Call that iterates leaves through `success` or `exhausted` and
+  // records which; one that does not iterate records no port and only ever
+  // leaves through `success`.
+  const looped = sourceType === "workflow-call" ? sourceRun.output?.fields?.["port"] : undefined
+  if (typeof looped === "string") return looped === port
   return port === "success"
 }
 
 function buildGraph(
-  detail: WorkflowRunDetailV2Wire,
+  detail: WorkflowRunDetailWire,
   selectedNodeId: string | null,
 ): { nodes: EditorNode[]; edges: EditorEdge[] } {
   const nodeRuns = new Map(detail.nodeRuns.map((nodeRun) => [nodeRun.nodeId, nodeRun]))
   const nodeTypes = new Map(detail.definition.nodes.map((node) => [node.id, node.type]))
-  const attemptsByNode = new Map<string, WorkflowAttemptV2Wire[]>()
+  const attemptsByNode = new Map<string, WorkflowAttemptWire[]>()
   for (const attempt of detail.attempts) {
     const list = attemptsByNode.get(attempt.nodeId) ?? []
     list.push(attempt)
@@ -59,6 +65,9 @@ function buildGraph(
       const outputSucceeded = nodeRun?.output?.fields?.["succeeded"]
       const outputTotal = nodeRun?.output?.fields?.["total"]
       const configuredTotal = nodeRun?.resolvedConfig?.["total"]
+      // An iterating call counts rounds; a fan-out reports none and keeps
+      // counting children.
+      const rounds = iterationRounds(nodeRun)
       const workflowCall = node.data.node.type === "workflow-call" ? {
         succeeded: typeof outputSucceeded === "number"
           ? outputSucceeded
@@ -66,6 +75,7 @@ function buildGraph(
         total: typeof outputTotal === "number"
           ? outputTotal
           : typeof configuredTotal === "number" ? configuredTotal : children.length,
+        ...(rounds ? { rounds } : {}),
       } : undefined
       const waitTodoId = nodeRun?.resolvedConfig?.["todoId"]
       const waitTimeout = nodeRun?.resolvedConfig?.["timeoutMinutes"]
@@ -136,7 +146,7 @@ export function RunCanvas({
   selectedNodeId,
   onSelectNode,
 }: {
-  detail: WorkflowRunDetailV2Wire
+  detail: WorkflowRunDetailWire
   selectedNodeId: string | null
   onSelectNode: (nodeId: string | null) => void
 }) {

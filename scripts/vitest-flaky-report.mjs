@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * How a flaky-retry run is reported: console blocks, GitHub annotations, and the
+ * job summary. Kept apart from the run/retry logic in vitest-flaky-retry.mjs so
+ * neither file has to carry the other's concern.
+ */
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
@@ -70,9 +76,10 @@ function annotate(entry, packageDir) {
 
 function appendJobSummary(markdown) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (summaryPath) {
-    fs.appendFileSync(summaryPath, markdown);
+  if (!summaryPath) {
+    return;
   }
+  fs.appendFileSync(summaryPath, markdown);
 }
 
 export function report({ flaky, stillFailing, packageDir }) {

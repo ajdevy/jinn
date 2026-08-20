@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import type { WorkItemCompactWire, WorkItemStatusWire, ApprovalStateWire } from "@/lib/api"
+import { createBrowserGatewayTransport, installGatewayTransport } from "@/lib/gateway-transport"
 import { NeedsYouView } from "../needs-you-view"
 
 /* Todos v2 slice 6 stage C — the Attention inbox restyled to states.html §1:
@@ -20,6 +21,9 @@ const getWorkItemTree = vi.fn()
 const getWorkItems = vi.fn()
 const getWorkItemTrees = vi.fn()
 const setWorkItemStatus = vi.fn()
+const ACTIVE_ORIGIN = "https://qa-a.example:7779"
+
+let restoreTransport: (() => void) | null = null
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
@@ -76,11 +80,21 @@ function renderView(items: WorkItemCompactWire[], resolvingIds = new Set<string>
 }
 
 beforeEach(() => {
+  restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+    origin: ACTIVE_ORIGIN,
+    request: vi.fn(),
+    navigate: vi.fn(),
+  }))
   vi.clearAllMocks()
   getWorkItem.mockRejectedValue(Object.assign(new Error("nf"), { status: 404 }))
   getWorkItemTree.mockRejectedValue(Object.assign(new Error("nf"), { status: 404 }))
   getWorkItems.mockResolvedValue({ workItems: [] })
   getWorkItemTrees.mockResolvedValue({ trees: {} })
+})
+
+afterEach(() => {
+  restoreTransport?.()
+  restoreTransport = null
 })
 
 describe("NeedsYouView", () => {
@@ -116,6 +130,30 @@ describe("NeedsYouView", () => {
   it("marks a pending gate that is reserved for the operator", () => {
     renderView([item("wi_reserved", "in_review", "pending", { approvalOperatorOnly: true })])
     expect(screen.getByTestId("needs-operator-only")).toBeTruthy()
+  })
+
+  it("shows an attachment ref in the card's quote as a thumbnail, not a token", () => {
+    renderView([item("wi_shot", "in_review", "pending", {
+      id: "PLA-12",
+      approvalRequest: "Ship this? attachment:PLA-12:wia_ab12cd34ef56:image/png",
+    })])
+    const card = screen.getByTestId("needs-item")
+    expect(card.textContent).toContain("Ship this?")
+    expect(card.textContent).not.toContain("wia_ab12cd34ef56:image/png")
+    const thumb = screen.getByTestId("attachment-ref-thumb-wia_ab12cd34ef56")
+    expect(thumb.querySelector("img")?.getAttribute("src"))
+      .toBe(`${ACTIVE_ORIGIN}/api/work-items/PLA-12/attachments/wia_ab12cd34ef56?thumb=1`)
+  })
+
+  it("shows a ref whose bytes are gone as a named file row rather than a broken image", () => {
+    renderView([item("wi_gone", "in_review", "pending", {
+      id: "PLA-12",
+      approvalRequest: "Still there? attachment:PLA-12:wia_ab12cd34ef56:image/png",
+    })])
+    fireEvent.error(screen.getByTestId("attachment-ref-thumb-wia_ab12cd34ef56").querySelector("img")!)
+
+    expect(screen.queryByTestId("attachment-ref-thumb-wia_ab12cd34ef56")).toBeNull()
+    expect(screen.getByTestId("attachment-ref-file-wia_ab12cd34ef56")).toBeTruthy()
   })
 
   it("leaves an ordinary pending gate unmarked", () => {

@@ -2,14 +2,10 @@
  * The talk session's HTTP half: open, keep alive, park, resume, close, and post
  * what a turn cost.
  *
- * Everything here is `authFetch` and JSON — no media, no peer connection, no
- * React. The provider connection is `webrtc-connection.ts`'s job, and keeping
- * the two apart is what lets the lifecycle be driven by a test at wall-clock
- * speed under fake timers.
- *
  * `docs/talk-session-runtime.md` is the contract these routes implement.
  */
 import { authFetch } from "@/lib/auth"
+import { loadSettings, type TalkMicrophone } from "@/lib/settings"
 import type { TalkUsage } from "./usage-delta"
 import type { VisualCaptureReceipt } from "../context/visual-capture"
 import { parseTalkControlManifest, type TalkControlManifest } from "./control-manifest"
@@ -17,6 +13,10 @@ import type { TalkUiEffect } from "./ui-effects"
 import { browserInstanceId } from "../context/browser-instance"
 import type { TalkScreenContext } from "../context/page-snapshot"
 import { decodeGatewayEvent, type TalkProactiveCuePayload } from "@jinn/gateway-events"
+import type { InterruptionTelemetry } from "./false-start-recovery"
+import { parseOpenedSession } from "./opened-session"
+
+export type TalkVadType = "server_vad" | "semantic_vad"
 
 /** The gateway reaps a session after three missed beats (`TALK_SESSION_TTL_MS`,
  *  90s), so this is the slowest rate that keeps one alive. */
@@ -37,6 +37,8 @@ export interface OpenTalkSession {
   brief: string
   manifest: TalkControlManifest
   topicMemory?: string
+  vadType: TalkVadType
+  noiseReduction: TalkMicrophone
 }
 
 export interface TalkToken {
@@ -44,6 +46,8 @@ export interface TalkToken {
   expiresAt: number
   browserInstanceId: string
   credentialGeneration: number
+  vadType?: TalkVadType
+  noiseReduction?: TalkMicrophone
 }
 
 export interface ResumableTalkSession {
@@ -116,22 +120,12 @@ function jsonBody(body: unknown): RequestInit {
  * possible, and asking costs nothing.
  */
 export async function openTalkSession(): Promise<OpenTalkSession> {
-  const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions", jsonBody({ browserInstanceId: browserInstanceId() }))
-  const manifest = parseTalkControlManifest(opened.manifest)
-  if (typeof opened.id !== "string" || typeof opened.token !== "string" || !manifest) {
-    throw new Error("The gateway opened a talk session without an id, credential, and valid control manifest.")
-  }
-  return {
-    id: opened.id,
-    browserInstanceId: opened.browserInstanceId ?? browserInstanceId(),
-    credentialGeneration: opened.credentialGeneration ?? 1,
-    token: opened.token,
-    expiresAt: opened.expiresAt ?? 0,
-    model: opened.model ?? "",
-    brief: opened.brief ?? "",
-    manifest,
-    topicMemory: typeof opened.topicMemory === "string" ? opened.topicMemory : "",
-  }
+  const noiseReduction = loadSettings().talkMicrophone
+  const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions", jsonBody({
+    browserInstanceId: browserInstanceId(),
+    noiseReduction,
+  }))
+  return parseOpenedSession(opened, noiseReduction)
 }
 
 /** Inspect a candidate without minting a credential or touching the microphone. */
@@ -249,11 +243,23 @@ export async function parkTalkSession(id: string): Promise<void> {
 /** Resume returns a fresh credential, because the one the session was parked
  *  with expires within its 600 seconds. */
 export async function resumeTalkSession(id: string): Promise<TalkToken> {
-  const resumed = await talkFetch<TalkToken>(sessionPath(id, "resume"))
-  return { token: resumed.token, expiresAt: resumed.expiresAt, browserInstanceId: resumed.browserInstanceId, credentialGeneration: resumed.credentialGeneration }
+  const resumed = await talkFetch<TalkToken>(sessionPath(id, "resume"), jsonBody({
+    noiseReduction: loadSettings().talkMicrophone,
+  }))
+  return {
+    token: resumed.token,
+    expiresAt: resumed.expiresAt,
+    browserInstanceId: resumed.browserInstanceId,
+    credentialGeneration: resumed.credentialGeneration,
+    ...(resumed.vadType ? { vadType: resumed.vadType } : {}),
+    ...(resumed.noiseReduction ? { noiseReduction: resumed.noiseReduction } : {}),
+  }
 }
 
-/** `usage` is this turn's delta. See `usage-delta.ts` for why that matters. */
+export function postTalkInterruption(id: string, event: InterruptionTelemetry): Promise<void> {
+  return talkFetch(sessionPath(id, "interruptions"), jsonBody(event))
+}
+
 export async function postTalkTurn(
   id: string,
   usage: TalkUsage,
@@ -269,12 +275,6 @@ export async function postTalkTurn(
   }))
 }
 
-/**
- * Beat until the returned function is called. A failed beat is swallowed rather
- * than stopping the interval: the network drops for less time than the reaper's
- * ninety seconds far more often than it drops for longer, and the next beat is
- * what re-attaches.
- */
 export function startTalkHeartbeat(id: string): () => void {
   const timer = setInterval(() => {
     void heartbeatTalkSession(id).catch(() => {})

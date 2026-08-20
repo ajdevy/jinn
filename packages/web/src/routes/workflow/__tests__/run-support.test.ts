@@ -1,26 +1,36 @@
 import { describe, expect, it } from "vitest"
-import type { WorkflowRunDetailV2Wire, WorkflowRunLeanV2Wire } from "@/lib/api"
+import type { WorkflowAttemptWire, WorkflowRunDetailWire, WorkflowRunLeanWire } from "@/lib/api"
 import { mergeRunDetail, missingPromptAttempt } from "../run-support"
 
-function attempt(nodeId: string, number: number, promptText?: string) {
+const STAMP = "2026-07-23T08:00:00.000Z"
+
+function attempt(nodeId: string, number: number, promptText?: string): WorkflowAttemptWire {
   return {
-    runId: "run-1", nodeId, attempt: number, status: "running" as const,
-    startedAt: "2026-07-23T08:00:00.000Z", remindersSent: 0, extensions: 0,
+    runId: "run-1", nodeId, attempt: number, status: "running",
+    resolvedConfig: { employeeId: "a-lead", engine: "claude", retry: { attempts: 1, delaySeconds: 0, backoff: "fixed" } },
+    startedAt: STAMP, remindersSent: 0, stopNudgesSent: 0, extensions: 0, lastProcessedTurn: 0,
     ...(promptText === undefined ? {} : { promptText }),
   }
 }
 
-const snapshot = {
+const snapshot: WorkflowRunDetailWire = {
   id: "run-1", workflowId: "digest", workflowTitle: "Digest", definitionRevision: 3, revision: 4,
-  definition: { nodes: [{ id: "writer", type: "employee", name: "Writer", config: {} }], edges: [] },
-  status: "running", trigger: { nodeId: "trigger", kind: "manual" },
-  startedAt: "2026-07-23T08:00:00.000Z",
-  nodeRuns: [], attempts: [attempt("writer", 1, "First prompt.")], approvals: [],
-} as unknown as WorkflowRunDetailV2Wire
+  definition: {
+    schemaVersion: 1, id: "digest", title: "Digest", revision: 3, enabled: true,
+    nodes: [{
+      id: "writer", type: "employee", name: "Writer",
+      config: { employee: { source: "fixed", value: "a-lead" }, prompt: "" },
+    }],
+    edges: [], createdAt: STAMP, updatedAt: STAMP,
+  },
+  status: "running", trigger: { nodeId: "trigger", kind: "manual", payload: {} }, input: {},
+  spendUsd: 0, startedAt: STAMP,
+  nodeRuns: [], attempts: [attempt("writer", 1, "First prompt.")], approvals: [], childRuns: [],
+}
 
-function lean(attempts: ReturnType<typeof attempt>[], overrides = {}): WorkflowRunLeanV2Wire {
-  const { definition: _snapshot, ...rest } = snapshot
-  return { ...rest, attempts, ...overrides } as unknown as WorkflowRunLeanV2Wire
+function lean(attempts: WorkflowAttemptWire[], overrides: Partial<WorkflowRunLeanWire> = {}): WorkflowRunLeanWire {
+  const { definition: _definition, ...rest } = snapshot
+  return { ...rest, attempts, ...overrides }
 }
 
 describe("mergeRunDetail", () => {
@@ -56,7 +66,7 @@ describe("missingPromptAttempt", () => {
   it("names the latest attempt when its prompt is missing", () => {
     const detail = { ...snapshot, attempts: [attempt("writer", 1, "First prompt."), attempt("writer", 2)] }
 
-    expect(missingPromptAttempt(detail as unknown as WorkflowRunDetailV2Wire, "writer")).toBe("writer:2")
+    expect(missingPromptAttempt(detail, "writer")).toBe("writer:2")
   })
 
   it("is null when the latest prompt is known or the node has no attempts", () => {

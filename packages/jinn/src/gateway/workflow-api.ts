@@ -4,7 +4,7 @@ import { CALLER_SESSION_HEADER } from "../mcp/identity.js";
 import { logger } from "../shared/logger.js";
 import { getSession } from "../sessions/registry.js";
 import type { DefinitionListQuery, RunListQuery } from "../workflows/repository.js";
-import type { WorkflowRunDetail } from "../workflows/runtime.js";
+import type { WorkflowAttemptWire, WorkflowRunDetail, WorkflowRunDetailWire, WorkflowRunLeanWire } from "../workflows/wire.js";
 import { WorkflowOutputError } from "../workflows/output.js";
 import { readJsonBody } from "./http-helpers.js";
 import { isJsonMediaType } from "./media-type.js";
@@ -117,7 +117,7 @@ function runDetailIsFull(url: URL): boolean {
  *  retry copies the first attempt's value, and the graph is acyclic so a node
  *  activates once. The node run keeps it — that is the only copy for a node type
  *  that owns no attempts — and the wire carries it once. */
-function withoutAttemptInput(detail: WorkflowRunDetail) {
+function withoutAttemptInput(detail: WorkflowRunDetail): WorkflowAttemptWire[] {
   return detail.attempts.map(({ input, ...attempt }) => attempt);
 }
 
@@ -125,12 +125,12 @@ function withoutAttemptInput(detail: WorkflowRunDetail) {
  *  the whole definition snapshot plus every interpolated prompt. The definition
  *  is still reachable through GET /api/workflows/:id, and prompts through the
  *  attempt transcript route. */
-function leanRunDetail(detail: WorkflowRunDetail, spendUsd: number) {
+function leanRunDetail(detail: WorkflowRunDetail, spendUsd: number): WorkflowRunLeanWire {
   const { definition, attempts, ...run } = detail;
   return { ...run, attempts: withoutAttemptInput(detail).map(({ promptText, ...attempt }) => attempt), spendUsd };
 }
 
-function fullRunDetail(detail: WorkflowRunDetail, spendUsd: number) {
+function fullRunDetail(detail: WorkflowRunDetail, spendUsd: number): WorkflowRunDetailWire {
   return { ...detail, attempts: withoutAttemptInput(detail), spendUsd };
 }
 
@@ -152,9 +152,9 @@ async function definitions(req: IncomingMessage, res: ServerResponse, url: URL, 
     const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["id", "title"]);
     send(res, 201, service.duplicateDefinition(id, value as never)); return true;
   }
-  if (parts.length === 4 && ["retire", "enable", "disable"].includes(parts[3]!) && method === "POST") {
-    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["expectedRevision"]);
-    const saved = parts[3] === "retire" ? service.retireDefinition({ id, expectedRevision: value.expectedRevision as number })
+  if (parts.length === 4 && ["retire", "unretire", "enable", "disable"].includes(parts[3]!) && method === "POST") {
+    const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["expectedRevision"]); const retiring = parts[3] === "retire" || parts[3] === "unretire";
+    const saved = retiring ? service.setRetired({ id, retired: parts[3] === "retire", expectedRevision: value.expectedRevision as number })
       : service.setEnabled({ id, enabled: parts[3] === "enable", expectedRevision: value.expectedRevision as number });
     send(res, 200, saved); return true;
   }
@@ -166,9 +166,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   if (parts.length === 4 && method === "GET") { send(res, 200, service.listRuns(workflowId, runQuery(url))); return true; }
   if (parts.length === 4 && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["input", "idempotencyKey", "todoId"]);
+    const caller = callerSessionId(req);
     send(res, 201, await service.startManual({ workflowId, input: value.input as never,
       ...(value.idempotencyKey === undefined ? {} : { idempotencyKey: value.idempotencyKey as string }),
-      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }) })); return true;
+      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }),
+      ...(caller === undefined ? {} : { callerSessionId: caller }) })); return true;
   }
   const runId = parts[4]; if (!runId) return false;
   if (parts.length === 5 && method === "GET") {
@@ -187,10 +189,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "approval" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;
-    const value = record(parsed, ["decision", "reason", "expectedRevision"]);
+    const value = record(parsed, ["decision", "reason", "choice", "expectedRevision"]);
     send(res, 200, await service.decideApproval({ workflowId, runId, nodeId: parts[6]!,
-      decision: value.decision as never, expectedRevision: value.expectedRevision as number,
-      decidedBy: approvalActor(req), ...(value.reason === undefined ? {} : { reason: value.reason as string }) })); return true;
+      decision: value.decision as never, expectedRevision: value.expectedRevision as number, decidedBy: approvalActor(req),
+      ...(value.reason === undefined ? {} : { reason: value.reason as string }),
+      ...(value.choice === undefined ? {} : { choice: value.choice as string }) })); return true;
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "retry" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;

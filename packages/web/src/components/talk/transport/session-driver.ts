@@ -18,7 +18,8 @@ import { executeTalkTool } from "./tool-call-executor"
 import { recordSettledTurn } from "./turn-recorder"
 import { createSessionContextBridge } from "./session-context-bridge"
 import { DriverProactiveCues, type ProactiveCueSettled } from "./driver-proactive-cues"
-
+import { FalseStartRecovery, handleInterruptionFrame, sendFalseStartContinuation,
+  type InterruptionTelemetry } from "./false-start-recovery"
 export { PAGE_CONTEXT_DEBOUNCE_MS } from "./session-context-bridge"
 export interface TalkDriverOptions {
   sessionId: string
@@ -34,6 +35,8 @@ export interface TalkDriverOptions {
   send: (event: Record<string, unknown>) => void
   onState: (state: OrbState) => void
   onError: (message: string) => void
+  vadType?: InterruptionTelemetry["vadType"]
+  onInterruption?: (event: InterruptionTelemetry) => void
   visualCapture?: ReturnType<typeof createVisualCapture>
   applyUiEffect?: (effect: TalkUiEffect | null) => Promise<void>
 }
@@ -51,11 +54,6 @@ export interface TalkDriver {
    *  driver that outlived its channel would keep pushing context at nothing. */
   stop: () => void
 }
-/**
- * The provider receives the gateway-issued manifest projected into ordinary
- * function declarations. Target metadata stays in the driver and decides
- * whether a call runs as a bounded browser effect or through `/control`.
- */
 /** Everything one live conversation remembers: what has been billed, what the
  *  assistant last said, what the orb is currently showing, and enough about the
  *  tool calls in flight to answer one utterance exactly once. */
@@ -83,6 +81,11 @@ interface DriverState {
    *  results may start another spoken response. A provider-created response
    *  for the new utterance clears this fence. */
   interrupted: boolean
+  activeResponseId: string | null
+  playbackResponseId: string | null
+  completedResponseId: string | null
+  handledUserItems: Set<string>
+  recovery: FalseStartRecovery
   proactive: DriverProactiveCues
   stopped: boolean
   lastUserRequestKey: string | null
@@ -95,21 +98,19 @@ function show(driver: DriverState, next: OrbState): void {
   driver.state = next
   driver.options.onState(next)
 }
-/**
- * Ask the assistant to speak, once the tool outputs are on the conversation.
- *
- * Held rather than dropped while a response is still going: the provider
- * refuses a second one, and dropping the ask would leave a tool result the
- * model never speaks — a silent stall, which is the worse of the two failures.
- */
 function requestResponse(driver: DriverState): void {
   if (driver.interrupted) return
-  if (driver.responding) {
+  if (driver.responding || driver.outstanding > 0) {
     driver.owed = true
     return
   }
   driver.owed = false
   driver.options.send({ type: "response.create" })
+}
+
+function continueResponse(driver: DriverState): void {
+  driver.interrupted = false
+  sendFalseStartContinuation(driver.options.send)
 }
 
 /**
@@ -123,6 +124,7 @@ function requestResponse(driver: DriverState): void {
  */
 async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type: "tool_call" }>): Promise<void> {
   if (driver.executed.has(call.callId)) return
+  driver.recovery.disqualify(driver.activeResponseId ?? driver.playbackResponseId)
   driver.executed.add(call.callId)
   driver.outstanding += 1
 
@@ -169,25 +171,43 @@ function finishTurn(driver: DriverState, frame: Extract<RealtimeFrame, { type: "
     after: driver.lastUserEvidence?.persisted })
 }
 
-/**
- * The response is over: price it, then make the one request it was owed.
- *
- * Unless one of its tool calls is still running. That call is the last to
- * answer, so it is the one that asks — asking here as well would put a second
- * `response.create` on the same utterance, which is the duplicate reply.
- */
 function endResponse(driver: DriverState, frame: Extract<RealtimeFrame, { type: "turn_done" }>): void {
+  const interruptedResponse = driver.recovery.responseDone(frame)
   driver.responding = false
+  driver.activeResponseId = null
+  driver.completedResponseId = frame.status === "completed" ? frame.responseId ?? null : null
   finishTurn(driver, frame)
+  if (driver.recovery.takeContinuation()) {
+    continueResponse(driver)
+    return
+  }
+  if (frame.status === "cancelled") {
+    if (driver.owed && driver.outstanding === 0) requestResponse(driver)
+    return
+  }
+  if (interruptedResponse) return
   driver.proactive.settle("completed")
   if (driver.owed && driver.outstanding === 0) requestResponse(driver)
   else driver.proactive.flush()
 }
 
+function answerUserTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { type: "transcript" }>): void {
+  if (!frame.final || !frame.itemId || driver.handledUserItems.has(frame.itemId)) return
+  driver.handledUserItems.add(frame.itemId)
+  const decision = driver.recovery.transcript(frame.itemId, frame.text)
+  if (decision === "continue") {
+    continueResponse(driver)
+  } else if (decision === "respond" || (decision === null && frame.text.trim())) {
+    driver.interrupted = false
+    requestResponse(driver)
+  }
+}
+
 function handleTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { type: "transcript" }>): void {
-  if (frame.role !== "assistant") {
+  if (frame.role === "user") {
     if (frame.final && frame.itemId) driver.lastUserRequestKey = frame.itemId
     driver.lastUserEvidence = persistOperatorTranscript(frame, driver.options) ?? driver.lastUserEvidence
+    answerUserTranscript(driver, frame)
     return
   }
   show(driver, "speaking")
@@ -195,13 +215,23 @@ function handleTranscript(driver: DriverState, frame: Extract<RealtimeFrame, { t
 }
 
 function handle(driver: DriverState, frame: RealtimeFrame): void {
+  if (handleInterruptionFrame(
+    driver,
+    frame,
+    () => driver.proactive.settle("interrupted"),
+    (state) => show(driver, state),
+    () => continueResponse(driver),
+  )) return
   switch (frame.type) {
     case "tool_call":
       void runTool(driver, frame)
       return
     case "turn_started":
+      driver.recovery.newerResponse(frame.responseId)
       driver.interrupted = false
       driver.responding = true
+      driver.activeResponseId = frame.responseId ?? null
+      driver.completedResponseId = null
       // Whatever was owed, this response carries: it was created after those
       // outputs were appended, so it already speaks them.
       driver.owed = false
@@ -212,20 +242,8 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
     case "transcript":
       handleTranscript(driver, frame)
       return
-    case "speech_started":
-      if (driver.responding) {
-        driver.options.send({ type: "response.cancel" })
-        driver.responding = false
-        driver.owed = false
-        driver.interrupted = true
-      }
-      driver.proactive.settle("interrupted")
-      show(driver, "listening")
-      return
-    case "speech_stopped":
-      show(driver, "thinking")
-      return
     case "error":
+      driver.recovery.disqualify(driver.activeResponseId ?? driver.playbackResponseId)
       show(driver, "error")
       driver.options.onError(frame.message)
       return
@@ -237,6 +255,7 @@ function handle(driver: DriverState, frame: RealtimeFrame): void {
 export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
   let driver: DriverState
   const proactive = new DriverProactiveCues(options.send, () => show(driver, "thinking"))
+  const recovery = new FalseStartRecovery(options.vadType ?? "server_vad", options.onInterruption ?? (() => {}))
   driver = {
     options,
     billed: emptyTalkUsage(),
@@ -247,12 +266,17 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
     responding: false,
     owed: false,
     interrupted: false,
+    activeResponseId: null,
+    playbackResponseId: null,
+    completedResponseId: null,
+    handledUserItems: new Set(),
     stopped: false,
     lastUserRequestKey: null,
     lastUserEvidence: null,
     visualReceipts: [],
     visualCapture: options.visualCapture ?? createVisualCapture(),
     proactive,
+    recovery,
   }
   const read = createFrameReader()
   const context = createSessionContextBridge(options)
@@ -262,14 +286,13 @@ export function createTalkDriver(options: TalkDriverOptions): TalkDriver {
       const frame = read(data)
       if (frame) handle(driver, frame)
     },
-    cue: (summary, receiptId, settled) => driver.proactive.accept(
-      summary,
-      receiptId,
-      settled,
-      driver.responding || driver.outstanding > 0,
-    ),
+    cue: (summary, receiptId, settled) => {
+      driver.recovery.disqualify(driver.activeResponseId ?? driver.playbackResponseId)
+      return driver.proactive.accept(summary, receiptId, settled, driver.responding || driver.outstanding > 0)
+    },
     stop: () => {
       driver.stopped = true
+      driver.recovery.disable()
       driver.proactive.stop()
       context.stop()
     },

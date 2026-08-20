@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react"
 import { applyEdgeChanges, applyNodeChanges, type OnEdgesChange, type OnNodesChange, type XYPosition } from "@xyflow/react"
 import { createStore, useStore } from "zustand"
-import type { WorkflowDefinitionV2Wire, WorkflowIssueV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire, WorkflowIssueWire } from "@/lib/api"
 import {
   allocateEdgeId,
   allocateNodeId,
@@ -15,7 +15,7 @@ import {
   type EditorNode,
 } from "./graph"
 import { freeCenter, tidyLayout } from "./layout"
-import { acceptsInput, nodeBox, outputPorts, type WorkflowNodeTypeV2, type WorkflowNodeWire } from "./ports"
+import { acceptsInput, nodeBox, outputPorts, type WorkflowNodeType, type WorkflowNodeWire } from "./ports"
 
 export type SaveState =
   | { state: "saved" }
@@ -33,25 +33,28 @@ export interface EditorState {
   /** Bumped by every user edit; 0 = pristine since load/acknowledge. */
   serial: number
   save: SaveState
-  issues: WorkflowIssueV2Wire[] | null
+  issues: WorkflowIssueWire[] | null
 
   onNodesChange: OnNodesChange<EditorNode>
   onEdgesChange: OnEdgesChange<EditorEdge>
   connect: (source: string, sourceHandle: string, target: string) => void
-  addNodeAt: (type: WorkflowNodeTypeV2, center: XYPosition) => string
-  insertOnEdge: (type: WorkflowNodeTypeV2, edgeId: string, center: XYPosition) => void
+  addNodeAt: (type: WorkflowNodeType, center: XYPosition) => string
+  insertOnEdge: (type: WorkflowNodeType, edgeId: string, center: XYPosition) => void
   removeNode: (nodeId: string) => void
   removeEdge: (edgeId: string) => void
   renameNode: (nodeId: string, name: string) => void
-  updateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void
+  /** Swap in an edited copy of a node. Takes the whole node, not a loose config:
+   *  `type` and `config` are one choice, and only travelling as a pair keeps a
+   *  config from being written onto an arm it does not belong to. */
+  replaceNode: (node: WorkflowNodeWire) => void
   selectNode: (nodeId: string | null) => void
   tidy: () => void
   setSave: (save: SaveState) => void
   /** Record the server's answer to a save — revision advances, edits stay. */
-  acknowledge: (saved: Pick<WorkflowDefinitionV2Wire, "revision" | "enabled" | "updatedAt">) => void
+  acknowledge: (saved: Pick<WorkflowDefinitionWire, "revision" | "enabled" | "retiredAt" | "updatedAt">) => void
   /** Replace everything with a fresh server definition (conflict reload, enable flip). */
-  applyDefinition: (definition: WorkflowDefinitionV2Wire) => void
-  setIssues: (issues: WorkflowIssueV2Wire[] | null) => void
+  applyDefinition: (definition: WorkflowDefinitionWire) => void
+  setIssues: (issues: WorkflowIssueWire[] | null) => void
 }
 
 function updateNode(nodes: EditorNode[], nodeId: string, patch: (node: WorkflowNodeWire) => WorkflowNodeWire): EditorNode[] {
@@ -62,7 +65,7 @@ function updateNode(nodes: EditorNode[], nodeId: string, patch: (node: WorkflowN
   })
 }
 
-function initialGraph(definition: WorkflowDefinitionV2Wire): { nodes: EditorNode[]; edges: EditorEdge[] } {
+function initialGraph(definition: WorkflowDefinitionWire): { nodes: EditorNode[]; edges: EditorEdge[] } {
   const nodes = toFlowNodes(definition)
   const edges = toFlowEdges(definition)
   // Anything not arranged by hand — an import, or a definition an agent
@@ -71,7 +74,7 @@ function initialGraph(definition: WorkflowDefinitionV2Wire): { nodes: EditorNode
   return { nodes: usesManualLayout(definition) ? nodes : tidyLayout(nodes, edges), edges }
 }
 
-export function createEditorStore(definition: WorkflowDefinitionV2Wire) {
+export function createEditorStore(definition: WorkflowDefinitionWire) {
   return createStore<EditorState>()((set, get) => ({
     meta: toEditorMeta(definition),
     ...initialGraph(definition),
@@ -185,15 +188,16 @@ export function createEditorStore(definition: WorkflowDefinitionV2Wire) {
       }))
     },
 
-    updateNodeConfig: (nodeId, config) => {
+    replaceNode: (node) => {
       set((state) => {
-        const nodes = updateNode(state.nodes, nodeId, (node) => ({ ...node, config }))
-        const changed = nodes.find((node) => node.id === nodeId)
+        // The name comes from the store copy: it is edited by its own field.
+        const nodes = updateNode(state.nodes, node.id, (current) => ({ ...node, name: current.name }))
+        const changed = nodes.find((item) => item.id === node.id)
         // A removed Condition case takes its wires with it — graph bookkeeping,
         // not validation (verdicts stay server-side).
         const ports = changed ? new Set(outputPorts(changed.data.node).map((port) => port.id)) : null
         const edges = ports
-          ? state.edges.filter((edge) => edge.source !== nodeId || ports.has(edge.sourceHandle ?? ""))
+          ? state.edges.filter((edge) => edge.source !== node.id || ports.has(edge.sourceHandle ?? ""))
           : state.edges
         return { nodes, edges, serial: state.serial + 1 }
       })
@@ -211,7 +215,7 @@ export function createEditorStore(definition: WorkflowDefinitionV2Wire) {
 
     acknowledge: (saved) => {
       set((state) => ({
-        meta: { ...state.meta, revision: saved.revision, enabled: saved.enabled, updatedAt: saved.updatedAt },
+        meta: { ...state.meta, revision: saved.revision, enabled: saved.enabled, retiredAt: saved.retiredAt ?? null, updatedAt: saved.updatedAt },
         save: { state: "saved" },
       }))
     },

@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import type { WorkflowAttemptV2Wire } from "@/lib/api"
+import type { WorkflowAttemptWire } from "@/lib/api"
 import { AttemptCard } from "../run-attempt-card"
 
-function attempt(resolvedConfig: WorkflowAttemptV2Wire["resolvedConfig"]): WorkflowAttemptV2Wire {
+function attempt(resolvedConfig: WorkflowAttemptWire["resolvedConfig"]): WorkflowAttemptWire {
   return {
     runId: "run_1",
     nodeId: "writer",
@@ -14,7 +14,9 @@ function attempt(resolvedConfig: WorkflowAttemptV2Wire["resolvedConfig"]): Workf
     startedAt: "2026-08-05T12:00:00.000Z",
     endedAt: "2026-08-05T12:00:30.000Z",
     remindersSent: 0,
+    stopNudgesSent: 0,
     extensions: 0,
+    lastProcessedTurn: 0,
   }
 }
 
@@ -25,6 +27,7 @@ describe("AttemptCard", () => {
         attempt={attempt({
           employeeId: "blog-writer",
           engine: "codex",
+          retry: { attempts: 1, delaySeconds: 0, backoff: "fixed" },
           substitutedFrom: { engine: "claude", reason: "out of quota" },
         })}
       />,
@@ -33,7 +36,7 @@ describe("AttemptCard", () => {
   })
 
   it("says nothing about substitution when the attempt ran on its own engine", () => {
-    render(<AttemptCard attempt={attempt({ employeeId: "blog-writer", engine: "claude" })} />)
+    render(<AttemptCard attempt={attempt({ employeeId: "blog-writer", engine: "claude", retry: { attempts: 1, delaySeconds: 0, backoff: "fixed" } })} />)
     expect(screen.queryByText(/Ran on/)).toBeNull()
   })
 })

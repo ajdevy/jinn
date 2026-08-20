@@ -339,13 +339,13 @@
       "lines": 374
     },
     "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": {
-      "lines": 695,
+      "lines": 631,
       "exempt": [
         "max-params"
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5781,
+      "lines": 5761,
       "exempt": [
         "complexity",
         "max-depth",
@@ -443,7 +443,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1375,
+      "lines": 1366,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -487,7 +487,7 @@
       ]
     },
     "packages/jinn/src/gateway/workflow-todo-surface.ts": {
-      "lines": 335,
+      "lines": 308,
       "exempt": [
         "complexity"
       ]
@@ -850,7 +850,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 847
+      "lines": 837
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -901,14 +901,14 @@
       "lines": 324
     },
     "packages/jinn/src/work-items/approvals.ts": {
-      "lines": 442,
+      "lines": 360,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/jinn/src/work-items/attachments.ts": {
-      "lines": 390,
+      "lines": 362,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1010,7 +1010,7 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 370,
+      "lines": 325,
       "exempt": [
         "complexity"
       ]
@@ -1032,7 +1032,7 @@
       ]
     },
     "packages/jinn/src/workflows/repository-runs.ts": {
-      "lines": 469,
+      "lines": 431,
       "exempt": [
         "complexity"
       ]
@@ -1043,13 +1043,13 @@
       ]
     },
     "packages/jinn/src/workflows/repository.ts": {
-      "lines": 394,
+      "lines": 385,
       "exempt": [
         "complexity"
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1084,
+      "lines": 1060,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1058,7 +1058,7 @@
       ]
     },
     "packages/jinn/src/workflows/service.ts": {
-      "lines": 504,
+      "lines": 482,
       "exempt": [
         "complexity",
         "max-depth"
@@ -1076,7 +1076,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 484,
+      "lines": 481,
       "exempt": [
         "complexity"
       ]
@@ -1152,7 +1152,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1104,
+      "lines": 1074,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1404,
+      "lines": 1349,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1810,
+      "lines": 1781,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1243,7 +1243,6 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 306,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1510,7 +1509,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1225,
+      "lines": 1120,
       "exempt": [
         "complexity"
       ]
@@ -1564,7 +1563,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1196,
+      "lines": 1086,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1671,7 +1670,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1657,
+      "lines": 1615,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1769,7 +1768,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 518,
+      "lines": 509,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1800,7 +1799,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/activity.tsx": {
-      "lines": 615,
+      "lines": 613,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1896,7 +1895,7 @@
       ]
     },
     "packages/web/src/routes/workflow/__tests__/inspector.test.tsx": {
-      "lines": 404
+      "lines": 322
     },
     "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
       "lines": 476
@@ -1912,14 +1911,14 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 1071,
+      "lines": 753,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/workflow/editor/node-card.tsx": {
-      "lines": 362,
+      "lines": 341,
       "exempt": [
         "complexity"
       ]
@@ -1953,7 +1952,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 488,
+      "lines": 387,
       "exempt": [
         "complexity",
         "max-lines-per-function"

@@ -56,7 +56,7 @@ const definition = {
   updatedAt: "2026-07-23T08:00:00.000Z",
   nodes: [
     { id: "trigger", type: "trigger", name: "Kickoff", config: { kind: "manual" } },
-    { id: "writer", type: "employee", name: "Writer", config: { prompt: "" } },
+    { id: "writer", type: "employee", name: "Writer", config: { employee: { source: "fixed", value: "" }, prompt: "" } },
   ],
   edges: [{ id: "e1", from: { nodeId: "trigger", port: "success" }, to: { nodeId: "writer", port: "input" } }],
   ui: { positions: { trigger: { x: 0, y: 0 }, writer: { x: 400, y: 0 } } },

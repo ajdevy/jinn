@@ -24,6 +24,7 @@ import { ThreadPeek, type CommsPeekData } from '@/components/chat/thread-peek'
 import { PeekPanel } from '@/components/peek/peek-panel'
 import { PeekProvider } from '@/components/peek/peek-stack'
 import { ChatErrorBoundary } from './chat-error-boundary'
+import { ChatHeaderMenu } from './chat-header-menu'
 import { usePaneIdentity } from './pane-identity'
 import { formatMessage } from '@/components/chat/chat-messages'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
@@ -43,7 +44,7 @@ import { useSettings } from '@/routes/settings-provider'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
-import { Archive, ArchiveRestore, Check, Copy, MoreHorizontal, Search, Share2, Trash2 } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { writeViewMode, type ViewMode } from '@/lib/view-mode'
 import type { GatewayEvent } from '@jinn/gateway-events'
 import { shareDebugLog, clearDebugLog } from '@/lib/debug-log'
@@ -877,138 +878,27 @@ function ChatPage() {
     : cliModeAvailable ? undefined : 'CLI view is not available for this engine'
   const effectiveViewMode: ViewMode = cliModeAvailable ? viewMode : 'chat'
 
-  // More (…) menu — rendered as the last control inside the right header pill.
-  // D7: ALWAYS rendered (even on a new chat, where it carries Search + the view
-  // toggle) so the right pill is consistent. When a session is selected the items
-  // are grouped: primary (Search · view toggle · Duplicate) → Developer cluster →
-  // destructive Delete, each separated.
   const moreMenu = (
-    <div data-more-menu className="relative">
-      <button
-        onClick={() => setShowMoreMenu((v) => !v)}
-        aria-label="More options"
-        className="inline-flex size-9 lg:size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-foreground"
-      >
-        <MoreHorizontal className="size-[18px]" />
-      </button>
-
-      {showMoreMenu && (
-        <div className="absolute right-0 top-full z-[200] mt-2 min-w-[220px] overflow-hidden rounded-[var(--radius-md)] border border-border bg-[var(--material-thick)] shadow-[var(--shadow-overlay)] backdrop-blur-xl">
-          {/* PRIMARY group — Search (⌘K), then the Chat/CLI view toggle, then
-              Duplicate (only when a session is selected). */}
-          {/* D4: Search lives at the very top — the only visible ⌘K entry point on desktop. */}
-          <button
-            onClick={openGlobalSearch}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
-          >
-            <Search className="size-3.5" />
-            <span className="flex-1">Search…</span>
-            <kbd className="font-mono text-caption2 text-[var(--text-quaternary)]">⌘K</kbd>
-          </button>
-          {/* Chat/CLI view toggle (moved here from the old tab bar so it stays
-              reachable now that the header is a pill). */}
-          <div className="flex items-center gap-1 px-3 py-2">
-            <button
-              onClick={() => { if (!viewSwitchLocked) { setAndPersistViewMode('chat'); setShowMoreMenu(false) } }}
-              disabled={viewSwitchLocked}
-              title={viewSwitchLocked ? cliTitle : undefined}
-              className={cn(
-                "flex-1 rounded-md px-2 py-1 text-caption1 font-medium transition-colors",
-                effectiveViewMode === 'chat' ? "bg-[var(--accent-fill)] text-[var(--accent)]" : "text-muted-foreground hover:bg-accent",
-                viewSwitchLocked && "opacity-60 cursor-not-allowed"
-              )}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => { if (cliModeAvailable && !viewSwitchLocked) { setAndPersistViewMode('cli'); setShowMoreMenu(false) } }}
-              disabled={!cliModeAvailable || viewSwitchLocked}
-              title={cliTitle}
-              className={cn(
-                "flex-1 rounded-md px-2 py-1 font-mono text-caption1 font-medium transition-colors",
-                effectiveViewMode === 'cli' ? "bg-[var(--accent-fill)] text-[var(--accent)]" : "text-muted-foreground hover:bg-accent",
-                (!cliModeAvailable || viewSwitchLocked) && "opacity-45 cursor-not-allowed"
-              )}
-            >
-              CLI
-            </button>
-          </div>
-          {selectedId && (
-            <button
-              onClick={() => { if (selectedId) handleDuplicate(selectedId) }}
-              disabled={duplicateSessionMutation.isPending}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-            >
-              <Copy className="size-3.5" />
-              <span className="flex-1">{duplicateSessionMutation.isPending ? 'Duplicating...' : 'Duplicate...'}</span>
-            </button>
-          )}
-
-          {selectedId && (
-            <>
-              <div className="my-0.5 border-t border-border" />
-              <button
-                onClick={() => {
-                  if (!selectedId) return
-                  if (sessionMeta?.archivedAt) handleUnarchiveSession(selectedId)
-                  else handleArchiveSession(selectedId)
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
-              >
-                {sessionMeta?.archivedAt ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />}
-                <span className="flex-1">{sessionMeta?.archivedAt ? 'Unarchive chat' : 'Archive chat'}</span>
-              </button>
-              {/* DEVELOPER cluster */}
-              <div className="my-0.5 border-t border-border" />
-              <div className="px-3 pb-1 pt-2 text-caption2 font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-                Developer
-              </div>
-              <button
-                onClick={() => copyToClipboard(selectedId, 'id')}
-                className="block w-full px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
-              >
-                Copy Session ID
-              </button>
-              {sessionMeta?.engineSessionId && (
-                <button
-                  onClick={() => {
-                    const cli = sessionMeta.engine === 'codex' ? 'codex' : 'claude'
-                    copyToClipboard(`${cli} --resume ${sessionMeta.engineSessionId}`, 'cli')
-                  }}
-                  className="block w-full px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
-                >
-                  Copy CLI Resume Command
-                </button>
-              )}
-              <button
-                onClick={() => { setShowMoreMenu(false); shareDebugLog() }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
-              >
-                <Share2 className="size-3.5" />
-                <span className="flex-1">Share debug log</span>
-              </button>
-              <button
-                onClick={() => { setShowMoreMenu(false); clearDebugLog() }}
-                className="block w-full px-3 py-2 text-left text-caption1 text-muted-foreground transition-colors hover:bg-accent"
-              >
-                Clear debug log
-              </button>
-
-              {/* DESTRUCTIVE */}
-              <div className="my-0.5 border-t border-border" />
-              <button
-                onClick={() => { setShowMoreMenu(false); if (selectedId && window.confirm('Delete this session?')) handleDeleteSession(selectedId) }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-[var(--system-red)] transition-colors hover:bg-accent"
-              >
-                <Trash2 className="size-3.5" />
-                <span className="flex-1">Delete Session</span>
-                <kbd className="font-mono text-caption2 text-[var(--text-quaternary)]">⌫</kbd>
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+    <ChatHeaderMenu
+      open={showMoreMenu}
+      onOpenChange={setShowMoreMenu}
+      selectedId={selectedId}
+      sessionMeta={sessionMeta}
+      openGlobalSearch={openGlobalSearch}
+      effectiveViewMode={effectiveViewMode}
+      cliModeAvailable={cliModeAvailable}
+      viewSwitchLocked={viewSwitchLocked}
+      cliTitle={cliTitle}
+      setAndPersistViewMode={setAndPersistViewMode}
+      onDuplicate={handleDuplicate}
+      duplicatePending={duplicateSessionMutation.isPending}
+      onArchive={handleArchiveSession}
+      onUnarchive={handleUnarchiveSession}
+      onCopyToClipboard={copyToClipboard}
+      onShareDebugLog={shareDebugLog}
+      onClearDebugLog={clearDebugLog}
+      onDeleteSession={handleDeleteSession}
+    />
   )
 
   // The conversation title — slim inline title (desktop) / centered nav-bar title

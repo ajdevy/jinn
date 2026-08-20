@@ -26,7 +26,6 @@ describe("the authoritative Talk control manifest", () => {
       "talk_assign_todo",
       "talk_delegate_todo",
       "read_session",
-      "talk_send_to_session",
       "talk_start_workflow_run",
       "read_workflow_runs",
     ]) {
@@ -34,7 +33,39 @@ describe("the authoritative Talk control manifest", () => {
     }
     expect(byName.get("open_todo")).toMatchObject({ target: "browser", mutability: "effect" });
     expect(byName.get("capture_current_view")).toMatchObject({ target: "browser", mutability: "read" });
+    expect(byName.get("talk_search_chat_messages")).toMatchObject({
+      target: "browser",
+      mutability: "read",
+      operatorOnly: false,
+      parameters: {
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: { type: "string" } },
+      },
+    });
     expect(byName.get("read_talk_capability")).toMatchObject({ target: "gateway", mutability: "read", operatorOnly: false });
+  });
+
+  it("keeps visible-composer actions browser-local while named-session send stays gated", () => {
+    const byName = new Map(buildTalkControlManifest().operations.map((operation) => [operation.name, operation]));
+    for (const name of ["talk_draft_reply", "talk_replace_draft", "talk_send_draft", "talk_draft_and_send"]) {
+      const operation = byName.get(name);
+      expect(operation, name).toMatchObject({
+        target: "browser",
+        intent: "sessions",
+        mutability: "effect",
+        operatorOnly: false,
+      });
+      expect(operation?.parameters.properties).not.toHaveProperty("id");
+      expect(operation?.parameters.properties).not.toHaveProperty("sessionId");
+    }
+    expect(byName.get("talk_send_to_session")).toMatchObject({
+      target: "browser",
+      exposure: "always",
+      mutability: "effect",
+      operatorOnly: false,
+      verification: "browser-receipt",
+    });
   });
 
   it("contains no credentials or machine paths", () => {

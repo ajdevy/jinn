@@ -277,7 +277,7 @@ describe("the Talk driving journey", () => {
     driver.receive(JSON.stringify({ type: "response.created" }))
     driver.receive(JSON.stringify({ type: "input_audio_buffer.speech_started" }))
     await waitFor(() => expect(acknowledge).toHaveBeenCalledWith("talk-1", "receipt-urgent", "interrupted"))
-    expect(sent.filter((event) => event.type === "response.cancel")).toHaveLength(1)
+    expect(sent.filter((event) => event.type === "response.cancel")).toHaveLength(0)
     driver.receive(JSON.stringify({ type: "error", error: { message: "Realtime unavailable." } }))
     render(<TalkSurface state={states.at(-1) as "error"} />)
     expect(errors).toEqual(["Realtime unavailable."])

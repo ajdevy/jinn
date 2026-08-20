@@ -95,6 +95,31 @@ describe("TalkSessionRepository", () => {
     expect(reloaded.reap()).toEqual([]);
     expect(reloaded.resume(opened.id).state).toBe("live");
   });
+
+  it("reloads content-free interruption telemetry through a fresh registry", () => {
+    const { database, sessions } = repositoryPair();
+    const clock = clockAt();
+    const first = new TalkSessionRegistry(clock.now, sessions);
+    const opened = first.open({ sessionId: "chat-row-4", model: "realtime-model", brief: "", tokenExpiresAt: 2 });
+
+    first.recordInterruption(opened.id, {
+      kind: "speech_interruption",
+      vadType: "semantic_vad",
+      cancelledBy: "provider",
+      recovered: true,
+      speechMs: 240,
+    });
+
+    const reloaded = new TalkSessionRegistry(clock.now, new TalkSessionRepository(database));
+    expect(reloaded.get(opened.id)?.interruptions).toEqual([{
+      at: 1_000_000,
+      kind: "speech_interruption",
+      vadType: "semantic_vad",
+      cancelledBy: "provider",
+      recovered: true,
+      speechMs: 240,
+    }]);
+  });
 });
 
 describe("TalkToolReceiptRepository", () => {

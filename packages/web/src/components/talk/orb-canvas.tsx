@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
-import { lobeCentres, orbParams, type Lobe, type OrbParams, type OrbState } from "./orb-motion"
+import {
+  orbScene,
+  type OrbPrimitive,
+  type OrbState,
+  type OrbTone,
+  type OrbVariant,
+} from "./orb-motion"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
 
 /**
- * Three blurred lobes drifting inside a sphere with no outline. A 2D canvas
- * rather than a CSS filter stack: `blur()` on a 64px element re-rasterizes on
- * every scroll frame, and the orb has to hold its animation while the page
- * behind it scrolls.
+ * Four flat geometries painted from one pure scene model. A 2D canvas rather
+ * than a CSS filter stack keeps the 64px control cheap while the page scrolls.
  */
 
 const PALETTE_TOKENS = [
@@ -16,6 +20,7 @@ const PALETTE_TOKENS = [
   "--orb-lobe-a",
   "--orb-lobe-b",
   "--orb-lobe-c",
+  "--system-red",
 ] as const
 
 type OrbPalette = Record<(typeof PALETTE_TOKENS)[number], string>
@@ -32,72 +37,55 @@ interface Frame {
   /** CSS size of the square the sphere fills. */
   size: number
   palette: OrbPalette
-  params: OrbParams
+  variant: OrbVariant
+  state: OrbState
+  level: number
   seconds: number
 }
 
-/**
- * Body under the lobes, so the page never shows through the gaps. Concentric —
- * an offset centre would read as a specular highlight, which turns the light
- * body into a glass marble.
- */
-function paintBase(ctx: CanvasRenderingContext2D, frame: Frame): void {
-  const centre = frame.size / 2
-  const gradient = ctx.createRadialGradient(centre, centre, 0, centre, centre, centre)
-  gradient.addColorStop(0, frame.palette["--orb-core"])
-  gradient.addColorStop(0.55, frame.palette["--orb-bloom"])
-  gradient.addColorStop(1, frame.palette["--orb-base"])
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, frame.size, frame.size)
+function toneColors(palette: OrbPalette, tone: OrbTone): readonly [string, string, string] {
+  if (tone === "warm") return [palette["--orb-core"], palette["--orb-lobe-a"], palette["--orb-base"]]
+  if (tone === "violet") return [palette["--orb-bloom"], palette["--orb-lobe-b"], palette["--orb-lobe-c"]]
+  if (tone === "alert") return [palette["--orb-core"], palette["--system-red"], palette["--orb-base"]]
+  return [palette["--orb-core"], palette["--orb-bloom"], palette["--orb-lobe-c"]]
 }
 
-/**
- * Dissolves the rim instead of cutting it. A clip path would give the sphere the
- * hard outline the whole design is trying not to have; masking on alpha lets the
- * body fade into the page. Only the alpha channel of this gradient is used, so
- * the colour in it is not a colour decision.
- */
-function maskRim(ctx: CanvasRenderingContext2D, size: number): void {
-  const centre = size / 2
-  const gradient = ctx.createRadialGradient(centre, centre, 0, centre, centre, centre)
-  gradient.addColorStop(0, "rgba(0,0,0,1)")
-  gradient.addColorStop(0.55, "rgba(0,0,0,1)")
-  gradient.addColorStop(0.82, "rgba(0,0,0,0.5)")
-  gradient.addColorStop(1, "rgba(0,0,0,0)")
-  ctx.globalCompositeOperation = "destination-in"
-  ctx.globalAlpha = 1
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-}
-
-function paintLobe(ctx: CanvasRenderingContext2D, frame: Frame, lobe: Lobe, color: string): void {
-  const centre = frame.size / 2
-  const x = centre + lobe.x * centre
-  const y = centre + lobe.y * centre
-  const radius = lobe.radius * centre + frame.params.softness * frame.size
-  // Each lobe keeps its own hue all the way out. A shared mid-stop here made
-  // every lobe the same colour and the sphere lost its amber-to-violet read.
-  const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius)
-  gradient.addColorStop(0, color)
-  gradient.addColorStop(1, "transparent")
-  ctx.fillStyle = gradient
+function paintPrimitive(
+  ctx: CanvasRenderingContext2D,
+  frame: Frame,
+  primitive: OrbPrimitive,
+): void {
+  const x = primitive.x * frame.size
+  const y = primitive.y * frame.size
+  const rx = primitive.rx * frame.size
+  const ry = primitive.ry * frame.size
+  const colors = toneColors(frame.palette, primitive.tone)
+  if (primitive.flat) ctx.fillStyle = colors[1]
+  else {
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry))
+    gradient.addColorStop(0, colors[0])
+    gradient.addColorStop(0.58, colors[1])
+    gradient.addColorStop(1, primitive.fade ? "transparent" : colors[2])
+    ctx.fillStyle = gradient
+  }
+  ctx.globalAlpha = primitive.alpha
   ctx.beginPath()
-  ctx.arc(x, y, radius, 0, Math.PI * 2)
-  ctx.fill()
+  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2)
+  if (primitive.kind === "ring") {
+    const inner = primitive.inner ?? 0.66
+    ctx.ellipse(x, y, rx * inner, ry * inner, 0, 0, Math.PI * 2, true)
+    ctx.fill("evenodd")
+  } else ctx.fill()
 }
 
 function paintOrb(ctx: CanvasRenderingContext2D, frame: Frame): void {
   ctx.globalCompositeOperation = "source-over"
   ctx.globalAlpha = 1
   ctx.clearRect(0, 0, frame.size, frame.size)
-  paintBase(ctx, frame)
-  ctx.globalCompositeOperation = "lighter"
-  ctx.globalAlpha = Math.min(1, frame.params.brightness)
-  const colors = [frame.palette["--orb-lobe-a"], frame.palette["--orb-lobe-b"], frame.palette["--orb-lobe-c"]]
-  lobeCentres(frame.params, frame.seconds).forEach((lobe, index) => {
-    paintLobe(ctx, frame, lobe, colors[index])
-  })
-  maskRim(ctx, frame.size)
+  for (const primitive of orbScene(frame.variant, frame.state, frame.level, frame.seconds)) {
+    paintPrimitive(ctx, frame, primitive)
+  }
+  ctx.globalAlpha = 1
 }
 
 /**
@@ -122,14 +110,17 @@ function useThemeAttribute(): string {
 
 interface OrbCanvasProps {
   state: OrbState
+  variant?: OrbVariant
   /** Live 0..1 amplitude, read once per frame. React state here would re-render
    *  the whole app on every audio frame. */
   levelRef: RefObject<number>
   /** CSS size in px. The sphere fills the square. */
   size: number
+  /** Comparison surfaces paint one deterministic frame even when motion is allowed. */
+  motion?: "live" | "still"
 }
 
-export function OrbCanvas({ state, levelRef, size }: OrbCanvasProps) {
+export function OrbCanvas({ state, variant = "mist", levelRef, size, motion = "live" }: OrbCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reduce = usePrefersReducedMotion()
   const themeAttribute = useThemeAttribute()
@@ -145,20 +136,27 @@ export function OrbCanvas({ state, levelRef, size }: OrbCanvasProps) {
     const palette = readPalette(canvas)
 
     // Still, not dead: one frame per state, in that state's own geometry.
-    if (reduce) {
-      paintOrb(ctx, { size, palette, params: orbParams(state), seconds: 0 })
+    if (reduce || motion === "still") {
+      paintOrb(ctx, { size, palette, variant, state, level: 0, seconds: 0 })
       return
     }
 
     let frame = 0
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw)
-      paintOrb(ctx, { size, palette, params: orbParams(state, levelRef.current), seconds: now / 1000 })
+      paintOrb(ctx, { size, palette, variant, state, level: levelRef.current, seconds: now / 1000 })
     }
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
     // `themeAttribute` is not read here — it re-reads the palette when the theme flips.
-  }, [state, size, reduce, themeAttribute, levelRef])
+  }, [state, variant, size, reduce, motion, themeAttribute, levelRef])
 
-  return <canvas ref={canvasRef} aria-hidden style={{ width: size, height: size, display: "block" }} />
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden
+      data-orb-canvas-variant={variant}
+      style={{ width: size, height: size, display: "block" }}
+    />
+  )
 }
