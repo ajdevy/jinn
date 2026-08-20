@@ -159,3 +159,36 @@ describe('failed send', () => {
     expect(container.querySelectorAll('.user-msg-bubble')[1].getAttribute('data-send-state')).toBeNull()
   })
 })
+
+describe('a row that is all blocks', () => {
+  const taskList: Message = {
+    id: 'b1',
+    role: 'assistant',
+    content: '',
+    timestamp: T0 + 1_000,
+    blocks: [{
+      id: 'pl-1',
+      type: 'task-list',
+      version: 1,
+      status: 'running',
+      title: 'Plan',
+      payload: { items: [{ id: 'i1', text: 'Step one', status: 'queued' }] },
+    }],
+  }
+
+  it('carries the enter mark on the bubble, having no transcript to put it on', () => {
+    const { container, rerender } = render(<ChatMessages messages={[user('u1', 'ask')]} loading={false} />)
+    rerender(<ChatMessages messages={[user('u1', 'ask'), taskList]} loading={false} />)
+
+    expect(container.querySelectorAll('.assistant-transcript')).toHaveLength(0)
+    expect(container.querySelectorAll('.assistant-msg-bubble[data-msg-enter]')).toHaveLength(1)
+  })
+
+  it('leaves the bubble unmarked when the transcript is already carrying it', () => {
+    const { container, rerender } = render(<ChatMessages messages={[user('u1', 'ask')]} loading={false} />)
+    rerender(<ChatMessages messages={[user('u1', 'ask'), assistant('a1', 'Done.')]} loading={false} />)
+
+    expect(container.querySelectorAll('.assistant-transcript[data-msg-enter]')).toHaveLength(1)
+    expect(container.querySelectorAll('.assistant-msg-bubble[data-msg-enter]')).toHaveLength(0)
+  })
+})

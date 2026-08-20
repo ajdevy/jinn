@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { Message } from '@/lib/conversations'
+import type { MessageItem } from './chat-messages'
 import { parseAgentRelay } from './agent-relay'
 import { parseTeammateReply } from './teammate-reply'
 
@@ -55,14 +56,48 @@ function takeUnseen(messages: Message[], seen: Set<string>): [string, Message][]
 }
 
 /**
+ * Every message the grouping actually puts on screen. Grouping drops several
+ * on the way — a delegation's own tool call, a dispatch superseded by its
+ * block, a tool call a receipt supersedes — and those have no row to animate.
+ */
+export function renderedMessageIds(items: MessageItem[]): Set<string> {
+  const ids = new Set<string>()
+  for (const item of items) {
+    const rows = item.kind === 'tool-group' || item.kind === 'todo-burst'
+      ? item.msgs
+      : item.kind === 'callback-burst'
+        ? item.entries.map((entry) => entry.msg)
+        : [item.msg]
+    for (const row of rows) if (row.id) ids.add(row.id)
+  }
+  return ids
+}
+
+/**
+ * A row whose entrance is already someone else's job. `use-live-session` mints
+ * a `LiveBlockArrival` for exactly these two block types and `ChatBlockInline`
+ * plays it, so a generic mark on top would animate the row twice.
+ */
+function hasOwnBlockArrival(message: Message): boolean {
+  return Boolean(message.blocks?.some((block) => block.type === 'delegation' || block.type === 'dispatch'))
+}
+
+/**
  * The rows of one commit that still play an entrance: the newest few, and none
  * at all under reduced motion. A catch-up reconciles on its tail because the
  * rows above it are already scrolled past by the time the transcript settles,
  * so animating them would be work the reader never sees.
+ *
+ * Rows the transcript never shows, and rows that carry their own arrival, are
+ * out of the running before the cap counts. Either kind would otherwise spend
+ * the slots on an entrance it is not going to play here — a commit tailed by a
+ * delegation's own tool calls, or by the delegations themselves — and leave the
+ * chip beside them to appear instantly.
  */
-function animatedRows(batch: [string, Message][]): Set<string> {
+function animatedRows(batch: [string, Message][], rendered: Set<string>): Set<string> {
   if (prefersReducedMotion()) return new Set()
-  return new Set(batch.slice(-LIVE_ARRIVAL_BATCH_MAX).map(([id]) => id))
+  const visible = batch.filter(([id, message]) => rendered.has(id) && !hasOwnBlockArrival(message))
+  return new Set(visible.slice(-LIVE_ARRIVAL_BATCH_MAX).map(([id]) => id))
 }
 
 /**
@@ -100,7 +135,7 @@ export interface MessageArrivals {
  * visible to the SAME render that first sees the message, or the row paints once
  * without its attribute and the animation is lost.
  */
-export function useMessageArrivals(messages: Message[], streamingText: string): MessageArrivals {
+export function useMessageArrivals(messages: Message[], streamingText: string, items: MessageItem[]): MessageArrivals {
   const seenIdsRef = useRef<Set<string> | null>(null)
   const commsRef = useRef<Map<string, number>>(new Map())
   const enteringRef = useRef<Set<string>>(new Set())
@@ -110,11 +145,12 @@ export function useMessageArrivals(messages: Message[], streamingText: string): 
   const streamedRef = useRef(false)
   if (streamingText.length > 0) streamedRef.current = true
 
+  const rendered = useMemo(() => renderedMessageIds(items), [items])
   useMemo(() => {
     const seen = seenIdsRef.current
     if (!seen) return
     const batch = takeUnseen(messages, seen)
-    const animated = animatedRows(batch)
+    const animated = animatedRows(batch, rendered)
     let batchIndex = 0
     for (const [id, message] of batch) {
       // The row that ends a stream plays nothing, and consumes the stream that

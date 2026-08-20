@@ -13,8 +13,16 @@ const longThread: Message[] = Array.from({ length: 200 }, (_, i) => ({
 
 afterEach(() => { vi.restoreAllMocks() })
 
+/**
+ * `content-visibility: auto` skips an offscreen row's layout, and the row then
+ * reports `contain-intrinsic-size` instead of itself. A flat estimate for every
+ * row means each one re-measures the first time it comes into view, which moves
+ * the content above the reader mid-scroll — the drag going sticky is that shift
+ * fighting the finger. A transcript short enough to render every row has nothing
+ * to save by skipping any of them, and a long one is windowed instead.
+ */
 describe("chat message row scrolling", () => {
-  it("lets offscreen message rows skip layout and paint", () => {
+  it("keeps a message row measuring itself, so it cannot resize under the reader", () => {
     const messages: Message[] = [{
       id: "message-1",
       role: "user",
@@ -25,14 +33,15 @@ describe("chat message row scrolling", () => {
     const { container } = render(<ChatMessages messages={messages} loading={false} />)
     const row = container.querySelector<HTMLElement>('[data-message-id="message-1"]')
 
-    expect(row?.style.contentVisibility).toBe("auto")
-    expect(row?.style.containIntrinsicSize).toBe("auto 120px")
+    expect(row).toBeTruthy()
+    expect(row?.style.contentVisibility).toBe("")
+    expect(row?.style.containIntrinsicSize).toBe("")
   })
 
-  it("drops it once windowed, where a skipped row would report a placeholder height", () => {
-    // `content-visibility: auto` makes the ResizeObserver see contain-intrinsic-size
-    // instead of the row, so the virtualizer would cache 120px for every row and
-    // put every offset below it in the wrong place.
+  it("holds once windowed, where a skipped row would report a placeholder height", () => {
+    // Same reason, sharper consequence: the virtualizer's ResizeObserver would
+    // cache contain-intrinsic-size for every row and put every offset below it
+    // in the wrong place.
     const layout = installVirtualLayout(120, 800)
     const { container } = render(<ChatMessages messages={longThread} loading={false} />)
     const rows = container.querySelectorAll<HTMLElement>("[data-message-id]")
