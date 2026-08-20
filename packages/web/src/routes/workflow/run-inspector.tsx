@@ -7,6 +7,7 @@ import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { api, type WorkflowAttemptV2Wire, type WorkflowNodeRunV2Wire, type WorkflowRunDetailV2Wire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { useTheme } from "@/routes/providers"
+import { ApprovalDecision, type ApprovalDecisionExtra } from "./approval-decision"
 import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
@@ -244,53 +245,6 @@ function SessionSection({ sessionId }: { sessionId: string }) {
   )
 }
 
-function ApprovalSection({ approval, onDecide, deciding }: {
-  approval: WorkflowRunDetailV2Wire["approvals"][number]
-  onDecide: (nodeId: string, decision: "approve" | "reject") => void
-  deciding: boolean
-}) {
-  if (approval.status === "pending") {
-    return (
-      <Section title="Approval">
-        <div className="rounded-[10px] bg-[var(--fill-quaternary)] px-3 py-2.5">
-          <p className="text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
-            Requested {formatStarted(approval.requestedAt)}
-            {approval.approverRef ? ` · ${approval.approverRef}` : ""}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "approve")}
-              className="h-7 flex-1 rounded-full bg-[var(--accent)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "reject")}
-              className="h-7 flex-1 rounded-full bg-[var(--fill-secondary)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--system-red)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      </Section>
-    )
-  }
-  return (
-    <Section title="Approval">
-      <Note>
-        {approval.status === "approved" ? "Approved" : "Rejected"}
-        {approval.decidedBy ? ` by ${approval.decidedBy}` : ""}
-        {approval.decidedAt ? ` · ${formatStarted(approval.decidedAt)}` : ""}
-        {approval.reason ? ` — ${approval.reason}` : ""}
-      </Note>
-    </Section>
-  )
-}
-
 function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: WorkflowNodeRunV2Wire | undefined }) {
   const port = nodeRun?.output?.fields?.["port"]
   if (typeof port !== "string") return null
@@ -352,7 +306,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
   detail: WorkflowRunDetailV2Wire
   nodeId: string
   onClose: () => void
-  onDecide: (nodeId: string, decision: "approve" | "reject") => void
+  onDecide: (nodeId: string, decision: "approve" | "reject", extra?: ApprovalDecisionExtra) => void
   deciding: boolean
 }) {
   const { theme } = useTheme()
@@ -450,7 +404,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
-            <ApprovalSection approval={approval} onDecide={onDecide} deciding={deciding} />
+            <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
           )}
           {/* A settled comment-wait says nothing: the node keeps its resumeAt and
               resolvedConfig after it resumes, and neither "waiting" nor "resumes"

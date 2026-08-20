@@ -60,8 +60,20 @@ export default function WorkflowRunPage() {
   })
 
   const decide = useMutation({
-    mutationFn: ({ nodeId, decision }: { nodeId: string; decision: "approve" | "reject" }) =>
-      api.decideWorkflowApprovalV2(id, runId, nodeId, { decision, expectedRevision: query.data?.revision ?? 0 }),
+    /** A blank reason or an ungiven choice is not a value: the body carries only
+     *  what the operator actually said. */
+    mutationFn: ({ nodeId, decision, reason, choice }: {
+      nodeId: string
+      decision: "approve" | "reject"
+      reason?: string
+      choice?: string
+    }) =>
+      api.decideWorkflowApprovalV2(id, runId, nodeId, {
+        decision,
+        expectedRevision: query.data?.revision ?? 0,
+        ...(reason?.trim() ? { reason: reason.trim() } : {}),
+        ...(choice ? { choice } : {}),
+      }),
     onSuccess: (decided) => {
       queryClient.setQueryData(runKey, decided)
       void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.runs(id) })
@@ -134,7 +146,7 @@ export default function WorkflowRunPage() {
                 detail={detail}
                 nodeId={selectedNodeId}
                 onClose={() => setSelectedNodeId(null)}
-                onDecide={(nodeId, decision) => decide.mutate({ nodeId, decision })}
+                onDecide={(nodeId, decision, extra) => decide.mutate({ nodeId, decision, ...extra })}
                 deciding={decide.isPending}
               />
             )}

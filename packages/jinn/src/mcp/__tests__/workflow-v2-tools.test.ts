@@ -55,6 +55,8 @@ describe("Workflow v2 MCP tools", () => {
       ["rerun_workflow_run", { workflowId: "release-flow", runId: "run-1", definition: "current", idempotencyKey: "again-1" }, "POST", "/api/workflows/release-flow/runs/run-1/rerun", { definition: "current", idempotencyKey: "again-1" }],
       ["decide_workflow_approval", { workflowId: "release-flow", runId: "run-1", nodeId: "review", decision: "reject", reason: "Revise", expectedRevision: 4 },
         "POST", "/api/workflows/release-flow/runs/run-1/nodes/review/approval", { decision: "reject", reason: "Revise", expectedRevision: 4 }],
+      ["decide_workflow_approval", { workflowId: "release-flow", runId: "run-1", nodeId: "review", decision: "approve", choice: "variant-b", expectedRevision: 4 },
+        "POST", "/api/workflows/release-flow/runs/run-1/nodes/review/approval", { decision: "approve", choice: "variant-b", expectedRevision: 4 }],
       ["retry_workflow_node", { workflowId: "release-flow", runId: "run-1", nodeId: "write", idempotencyKey: "retry-1" },
         "POST", "/api/workflows/release-flow/runs/run-1/nodes/write/retry", { idempotencyKey: "retry-1" }],
       ["fire_workflow_event", { eventName: "build.finished", fireId: "build-1", payload: { ok: true } }, "POST", "/api/workflows/events/build.finished", { fireId: "build-1", payload: { ok: true } }],
@@ -67,6 +69,11 @@ describe("Workflow v2 MCP tools", () => {
       const candidate = attemptTools().find((tool) => tool.name === name)!; await candidate.handler(args, context);
       expect(calls.at(-1)).toEqual({ url: `http://127.0.0.1:7811${route}`, method, ...(payload === undefined ? {} : { body: payload }) });
     }
+  });
+
+  it("lets an options gate be picked from MCP, not just approved blind", () => {
+    const tool = buildWorkflowTools().find((candidate) => candidate.name === "decide_workflow_approval")!;
+    expect(tool.inputSchema.properties).toMatchObject({ choice: { type: "string" } });
   });
 
   it("keeps both attempt-session tools optional and schema constrained", () => {

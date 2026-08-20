@@ -4,11 +4,13 @@ import { resolveApprovalRouteTarget, resolveRootApprovalTarget } from '../gatewa
 import { parseTodoApprovalRef } from '../workflows/todo-approval-ref.js';
 import { notifyApprovalDecision } from './approval-decision-listener.js';
 import { currentApproval } from './approval-rows.js';
+import { ApprovalChoiceError, ApprovalNotPendingError, decideApproval } from './approval-decision-row.js';
 import { openDescendantsDeepestFirst } from './cascade.js';
 import { appendWorkItemEvent, getWorkItem, type ApprovalTargetKind, type WorkItem } from './store.js';
 import { transition } from './transitions.js';
 
 export { currentApproval, listApprovals, type WorkItemApproval } from './approval-rows.js';
+export { ApprovalChoiceError, ApprovalNotPendingError } from './approval-decision-row.js';
 export {
   setTodoApprovalDecisionListener,
   type TodoApprovalDecisionEvent,
@@ -49,13 +51,6 @@ export {
 export const MAX_APPROVAL_OPTIONS = 8;
 export const MAX_APPROVAL_OPTION_LENGTH = 80;
 
-export class ApprovalChoiceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ApprovalChoiceError';
-  }
-}
-
 /** Normalize + validate an offered option set. Returns null for "no options"
  *  so a plain approval and an empty list are the same thing. */
 export function normalizeApprovalOptions(options: readonly string[] | null | undefined): string[] | null {
@@ -88,17 +83,6 @@ export interface RequestApprovalInput {
   operatorOnly?: boolean;
   /** Who requested it (audit only). */
   actor?: string | null;
-}
-
-/** Thrown when a decision lands on an item whose approval is no longer `pending`
- *  (a double-decide, or a decide-after-resolve race) — surfaced as `no-pending`.
- *  It is the in-transaction guard that makes the native decision atomic: raised
- *  inside the decision transaction, it rolls the whole thing back. */
-export class ApprovalNotPendingError extends Error {
-  constructor(id: string) {
-    super(`work item ${id} has no pending approval to decide`);
-    this.name = 'ApprovalNotPendingError';
-  }
 }
 
 function sameOptions(left: string[] | null, right: string[] | null): boolean {
@@ -202,72 +186,6 @@ export interface ArchiveWorkItemOptions {
   /** Cancel every open descendant first (depth-first), each with its own audited
    *  transition. Honored only together with `human: true` (operator authority). */
   cascade?: boolean;
-}
-
-/**
- * Record a human decision on an item's pending approval (raw write): set the
- * `approved`/`rejected` state + the decided-by/at stamps and append ONE
- * `approval_decided` event. Status is NOT touched here — `decideWorkItemApproval`
- * applies the fixed consequence rules. Throws on an unknown item.
- */
-function decideApproval(id: string, decision: ApprovalDecision, decidedBy: string, note?: string, choice?: string): WorkItem {
-  const db = initDb();
-  const txn = db.transaction((): WorkItem => {
-    const item = getWorkItem(id);
-    if (!item) throw new Error(`decideApproval: work item ${id} not found`);
-    const current = currentApproval(item.id);
-    if (current?.state !== 'pending') throw new ApprovalNotPendingError(id);
-    const picked = resolveChoice(current, decision, choice);
-    const state = decision === 'approve' ? 'approved' : 'rejected';
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE work_item_approvals
-         SET state = ?, decided_by = ?, decided_at = ?, note = ?
-       WHERE id = ? AND state = 'pending'`,
-    ).run(state, decidedBy, now, note ?? null, current.id);
-    if (picked !== undefined) {
-      db.prepare('UPDATE work_item_approval_choices SET choice = ? WHERE approval_id = ?').run(picked, current.id);
-    }
-    db.prepare('UPDATE work_items SET updated_at = ?, version = version + 1 WHERE id = ?').run(now, item.id);
-    appendWorkItemEvent({
-      workItemId: id,
-      kind: 'approval_decided',
-      actor: decidedBy,
-      detail: {
-        decision,
-        ...(picked !== undefined ? { choice: picked } : {}),
-        ...(note !== undefined ? { note } : {}),
-        ...(current.ref ? { ref: current.ref } : {}),
-      },
-    });
-    return getWorkItem(id)!;
-  });
-  return txn();
-}
-
-/**
- * The choice rules, applied to the pending gate being decided. Approving a gate
- * that offers options REQUIRES picking one of them — never a silent default —
- * and a choice is meaningless on a gate that offers none, or on a rejection.
- * Returns the option to persist, or undefined when there is nothing to persist.
- */
-function resolveChoice(
-  current: { options: string[] | null },
-  decision: ApprovalDecision,
-  choice: string | undefined,
-): string | undefined {
-  if (choice !== undefined) {
-    if (decision !== 'approve') throw new ApprovalChoiceError('a choice can only accompany an approve decision');
-    if (!current.options) throw new ApprovalChoiceError('this approval does not offer options to choose from');
-    if (!current.options.includes(choice)) {
-      throw new ApprovalChoiceError(`choice must be one of the offered options: ${current.options.join(', ')}`);
-    }
-    return choice;
-  }
-  if (current.options && decision === 'approve') {
-    throw new ApprovalChoiceError(`approving this Todo requires choosing one of: ${current.options.join(', ')}`);
-  }
-  return undefined;
 }
 
 /**

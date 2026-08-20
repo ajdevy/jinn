@@ -852,7 +852,7 @@ export const api = {
     id: string,
     runId: string,
     nodeId: string,
-    body: { decision: "approve" | "reject"; expectedRevision: number; reason?: string },
+    body: { decision: "approve" | "reject"; expectedRevision: number; reason?: string; choice?: string },
   ) =>
     post<WorkflowRunDetailV2Wire>(
       `/api/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/approval`,
