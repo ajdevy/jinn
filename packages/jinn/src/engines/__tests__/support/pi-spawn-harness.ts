@@ -1,9 +1,9 @@
 import { PassThrough } from "node:stream";
 
 /**
- * The fake child process pi.test.ts drives `spawn` with. It sits in its own
- * module only because inlining it puts that suite at 343 lines, over the size
- * ratchet's 300-line cap — there is no second caller yet.
+ * The fake child process the pi suites drive `spawn` with, plus the two helpers
+ * that go with it. Vitest module mocks are per-file, so `pi.test.ts` and
+ * `pi-mcp-attach.test.ts` each build their own `spawn` factory over this shape.
  */
 export interface FakeProc {
   stdout: PassThrough;
