@@ -10,9 +10,10 @@ import { setTodoCommentListener } from "../work-items/comments.js";
  *  again — so the first look waits out an unhurried upload. */
 const COMMENT_SETTLE_MS = 12_000;
 
-/** How long a landed upload defers the sweep. Uploads arrive one request at a
- *  time, so each one re-arms this short window and a long sequence keeps
- *  extending it; the sweep runs once the last file has settled. */
+/** How far past a landed upload the sweep is held off. Uploads arrive one
+ *  request at a time, and a deadline only ever moves later: a file that lands
+ *  inside the comment's window leaves it alone, while a sequence still running
+ *  when that window ends drags the sweep along behind the last file. */
 const UPLOAD_SETTLE_MS = 2_000;
 
 /** The live half of a parked `todo-comment` Wait; `recover` on boot is the
@@ -23,8 +24,16 @@ const UPLOAD_SETTLE_MS = 2_000;
  *  Returns the teardown that stops listening and cancels a pending sweep. */
 export function watchTodoReplies(recover: () => Promise<unknown>): () => void {
   let timer: NodeJS.Timeout | null = null;
+  /** When the armed timer is due, so a later signal can push the sweep back but
+   *  never pull it in — an upload's short window must not cut the comment's. */
+  let dueAt = 0;
   const settle = (delay: number): void => {
-    if (timer) clearTimeout(timer);
+    const due = Date.now() + delay;
+    if (timer) {
+      if (due <= dueAt) return;
+      clearTimeout(timer);
+    }
+    dueAt = due;
     timer = setTimeout(() => {
       timer = null;
       void recover().catch((error) => {
@@ -43,5 +52,6 @@ export function watchTodoReplies(recover: () => Promise<unknown>): () => void {
     setTodoCommentListener(null);
     setTodoAttachmentListener(null);
     if (timer) clearTimeout(timer);
+    timer = null;
   };
 }
