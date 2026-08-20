@@ -1920,7 +1920,7 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/node-card.tsx": {
-      "lines": 362,
+      "lines": 357,
       "exempt": [
         "complexity"
       ]
@@ -1954,7 +1954,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 487,
+      "lines": 428,
       "exempt": [
         "complexity",
         "max-lines-per-function"

@@ -122,11 +122,22 @@ export type IterationStep =
 /** The whole loop decision, in one place: run the next round, leave through
  *  `success` because nothing asked for another, or leave through `exhausted`
  *  because the bound ran out while something still did. Exhaustion is a route,
- *  not a failure — the run carries on down whatever the author wired there. */
+ *  not a failure — the run carries on down whatever the author wired there.
+ *
+ *  A round that did not complete is neither. `continueWhile` reads the round's
+ *  output, and a broken round has none, so letting it fall through would read a
+ *  crashed body as a loop that finished cleanly — and asking a body that just
+ *  failed for another round is worse. Both stop here, loudly. */
 export function iterationStep(run: WorkflowRunDetail, node: WorkflowCallNode,
   children: readonly WorkflowChildRunSummary[]): IterationStep {
   const settings = iterationSettings(node);
   const { maxRounds } = settings;
+  const broken = children.find((child) => child.status !== "completed");
+  if (broken) {
+    throw new Error(`Workflow Call ${node.id} round ${children.indexOf(broken) + 1} ${broken.status} `
+      + `(run ${broken.runId})${broken.error ? `: ${broken.error.message}` : ""}. `
+      + `A loop cannot judge a round that did not finish; fix the target Workflow or retry the round.`);
+  }
   if (children.length > 0) {
     const fields = iterationFields(children, maxRounds);
     if (!wantsAnotherRound(run, node, settings, fields)) return { kind: "settle", port: "success", output: iterationOutput(fields, "success") };

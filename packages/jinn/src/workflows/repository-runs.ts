@@ -290,6 +290,8 @@ export function readRunsByCaller(
     }
     if (itemIndex !== undefined) seen.add(itemIndex as number);
     const end = orderedNodes(db, run).find((candidate) => candidate.nodeType === 'end' && candidate.status === 'completed');
+    const nodes = orderedNodes(db, run);
+    const session = nodes.filter((candidate) => candidate.output?.sessionId).at(-1)?.output?.sessionId;
     return {
       runId: run.id,
       workflowId: run.workflowId,
@@ -299,6 +301,7 @@ export function readRunsByCaller(
       startedAt: run.startedAt,
       ...(run.endedAt ? { endedAt: run.endedAt } : {}),
       ...(end?.output ? { endOutput: end.output.fields } : {}),
+      ...(session ? { sessionId: session } : {}),
       ...(run.error ? { error: run.error } : {}),
     };
   });

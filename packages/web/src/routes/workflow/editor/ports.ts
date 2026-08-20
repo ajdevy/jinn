@@ -1,3 +1,5 @@
+import { useEffect } from "react"
+import { useUpdateNodeInternals } from "@xyflow/react"
 import type { WorkflowDefinitionV2Wire } from "@/lib/api"
 
 export type WorkflowNodeWire = WorkflowDefinitionV2Wire["nodes"][number]
@@ -58,15 +60,35 @@ export function nodeBox(node: WorkflowNodeWire): { width: number; height: number
   }
 }
 
+/** A node's output ports, keeping React Flow's cached handle bounds in step when
+ *  a config change adds or drops one — toggling iteration on a Workflow Call
+ *  does exactly that. */
+export function useOutputPorts(node: WorkflowNodeWire): OutputPortSpec[] {
+  const updateInternals = useUpdateNodeInternals()
+  const ports = outputPorts(node)
+  const portKey = ports.map((port) => port.id).join("\0")
+  useEffect(() => {
+    updateInternals(node.id)
+  }, [node.id, portKey, updateInternals])
+  return ports
+}
+
 /** Output ports with their exact dot centers on the box perimeter. */
 export function outputPorts(node: WorkflowNodeWire): OutputPortSpec[] {
   const box = nodeBox(node)
   switch (node.type) {
     case "trigger":
-    case "workflow-call":
     case "wait":
     case "merge":
       return [{ id: "success", label: "", wall: "side", x: box.width, y: box.height / 2 }]
+    case "workflow-call": {
+      // A call that iterates has somewhere else to go: `exhausted` is the route
+      // out when it spends every round and the body still wants another. Keep
+      // `success` first — store.ts wires a newly inserted node to ports[0].
+      const success = { id: "success", label: "", wall: "side" as const, x: box.width, y: box.height / 2 }
+      if (!(node.config as { iterate?: unknown }).iterate) return [success]
+      return [success, { id: "exhausted", label: "exhausted", wall: "bottom", x: box.width - 28, y: box.height }]
+    }
     case "employee":
       return [
         { id: "success", label: "", wall: "side", x: box.width, y: box.height / 2 },

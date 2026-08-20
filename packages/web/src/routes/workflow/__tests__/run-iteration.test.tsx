@@ -26,6 +26,7 @@ vi.mock("@/components/page-layout", () => ({
 vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
 import WorkflowRunPage from "../run"
+import { edgeTaken } from "../run-canvas"
 
 /**
  * A round is a whole child run, so the canvas has to count rounds rather than
@@ -39,17 +40,20 @@ const nodes = [
     iterate: { maxRounds: 3, continueWhile: [] },
   } },
   { id: "shipped", type: "end", name: "Shipped", config: { result: "success" } },
+  { id: "escalated", type: "end", name: "Escalated", config: { result: "success" } },
 ]
 const edges = [
   { id: "e1", from: { nodeId: "start", port: "success" }, to: { nodeId: "loop", port: "input" } },
   { id: "e2", from: { nodeId: "loop", port: "success" }, to: { nodeId: "shipped", port: "input" } },
+  { id: "e3", from: { nodeId: "loop", port: "exhausted" }, to: { nodeId: "escalated", port: "input" } },
 ]
-const positions = { start: { x: 0, y: 0 }, loop: { x: 300, y: 0 }, shipped: { x: 600, y: 0 } }
+const positions = { start: { x: 0, y: 0 }, loop: { x: 300, y: 0 }, shipped: { x: 600, y: 0 }, escalated: { x: 600, y: 200 } }
 
-function round(index: number, status: string, endOutput?: Record<string, unknown>) {
+function round(index: number, status: string, endOutput?: Record<string, unknown>, sessionId?: string) {
   return {
     nodeId: "loop", itemIndex: index, runId: `body-${index + 1}`, workflowId: "body-flow",
-    status, startedAt: `2026-08-20T12:00:0${index}.000Z`, ...(endOutput ? { endOutput } : {}),
+    status, startedAt: `2026-08-20T12:00:0${index}.000Z`,
+    ...(endOutput ? { endOutput } : {}), ...(sessionId ? { sessionId } : {}),
   }
 }
 
@@ -130,5 +134,38 @@ describe("an iterating Workflow Call in a run", () => {
     ])
     expect(links[0]!.getAttribute("href")).toBe("/workflow/body-flow/runs/body-1")
     expect(links[1]!.getAttribute("href")).toBe("/workflow/body-flow/runs/body-2")
+  })
+
+  it("routes an exhausted loop down its exhausted lane, not down success", () => {
+    const settled = (port: string) => ({
+      runId: "run-1", nodeId: "loop", nodeType: "workflow-call" as const, status: "completed" as const,
+      activated: true, startedAt: "2026-08-20T12:00:00.000Z",
+      output: { text: "", fields: { round: 3, maxRounds: 3, port, exhausted: port === "exhausted" } },
+    })
+
+    expect(edgeTaken("workflow-call", settled("exhausted"), "exhausted")).toBe(true)
+    expect(edgeTaken("workflow-call", settled("exhausted"), "success")).toBe(false)
+    expect(edgeTaken("workflow-call", settled("success"), "success")).toBe(true)
+    expect(edgeTaken("workflow-call", settled("success"), "exhausted")).toBe(false)
+
+    // A call that does not iterate records no port and still leaves via success.
+    const plain = { ...settled("success"), output: { text: "", fields: { total: 1, succeeded: 1 } } }
+    expect(edgeTaken("workflow-call", plain, "success")).toBe(true)
+  })
+
+  it("shows what each round returned and the session it ran in", async () => {
+    serveRun(
+      { status: "running", resolvedConfig: { workflowId: "body-flow", round: 2, maxRounds: 3 } },
+      [round(0, "completed", { verdict: "rework" }, "session-round-1"), round(1, "running")],
+    )
+    renderRun()
+
+    fireEvent.click(await screen.findByText("Rework loop"))
+    const inspector = within(await screen.findByTestId("run-inspector"))
+
+    expect(inspector.getByText("verdict")).toBeTruthy()
+    expect(inspector.getByText("rework")).toBeTruthy()
+    const session = inspector.getByRole("link", { name: "session-round-1" })
+    expect(session.getAttribute("href")).toBe("/?session=session-round-1")
   })
 })

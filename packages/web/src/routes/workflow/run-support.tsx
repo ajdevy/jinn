@@ -207,3 +207,30 @@ export function iterationRounds(runtime: WorkflowNodeRunV2Wire | undefined): { r
   const { round, maxRounds } = counted
   return typeof round === "number" && typeof maxRounds === "number" ? { round, maxRounds } : undefined
 }
+
+export function formatFieldValue(value: unknown): string {
+  if (typeof value === "string") return value
+  return JSON.stringify(value) ?? String(value)
+}
+
+export function FieldsTable({ fields }: { fields: Record<string, unknown> }) {
+  const entries = Object.entries(fields)
+  if (entries.length === 0) return null
+  return (
+    <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-3 border-b border-[var(--separator)] px-3 py-2 last:border-b-0">
+          <span
+            className="w-[92px] shrink-0 truncate pt-px text-[length:var(--text-caption1)] text-[var(--text-tertiary)]"
+            style={{ fontFamily: "var(--font-code)" }}
+          >
+            {key}
+          </span>
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[length:var(--text-caption1)] text-[var(--text-primary)]">
+            {formatFieldValue(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}

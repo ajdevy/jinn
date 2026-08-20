@@ -12,34 +12,8 @@ import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
 import { AttemptCard } from "./run-attempt-card"
-import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, iterationRounds, latestAttempt } from "./run-support"
-
-function formatFieldValue(value: unknown): string {
-  if (typeof value === "string") return value
-  return JSON.stringify(value) ?? String(value)
-}
-
-function FieldsTable({ fields }: { fields: Record<string, unknown> }) {
-  const entries = Object.entries(fields)
-  if (entries.length === 0) return null
-  return (
-    <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
-      {entries.map(([key, value]) => (
-        <div key={key} className="flex gap-3 border-b border-[var(--separator)] px-3 py-2 last:border-b-0">
-          <span
-            className="w-[92px] shrink-0 truncate pt-px text-[length:var(--text-caption1)] text-[var(--text-tertiary)]"
-            style={{ fontFamily: "var(--font-code)" }}
-          >
-            {key}
-          </span>
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[length:var(--text-caption1)] text-[var(--text-primary)]">
-            {formatFieldValue(value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
+import { ChildRunsSection } from "./run-rounds"
+import { ErrorNote, FieldsTable, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
@@ -89,39 +63,6 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
               {row.value}
             </span>
           </div>
-        ))}
-      </div>
-    </Section>
-  )
-}
-
-function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
-  const children = (detail.childRuns ?? []).filter((child) => child.nodeId === nodeId).sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
-  const rounds = iterationRounds(detail.nodeRuns?.find((node) => node.nodeId === nodeId))
-  if (children.length === 0) return null
-  return (
-    <Section title={rounds ? `Rounds · ${rounds.round} of ${rounds.maxRounds}` : "Child runs"}>
-      <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
-        {children.map((child) => (
-          <Link
-            key={child.runId}
-            to={`/workflow/${encodeURIComponent(child.workflowId)}/runs/${encodeURIComponent(child.runId)}`}
-            className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                {rounds ? "Round" : "Item"} {child.itemIndex + 1}
-              </span>
-              <span
-                className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
-                style={{ fontFamily: "var(--font-code)" }}
-              >
-                {child.runId}
-              </span>
-            </span>
-            <StatusLine status={child.status} />
-            <ChevronRight size={14} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
-          </Link>
         ))}
       </div>
     </Section>

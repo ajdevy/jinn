@@ -16,9 +16,10 @@ import { editorNodeTypes } from "./editor/node-card"
 import { deriveNodeStatus, isLiveRunStatus, iterationRounds } from "./run-support"
 
 /** Client mirror of the runner's edgeActivated: an edge was traversed when its
- *  source settled and routed through this port (condition/approval record the
- *  chosen port; a failed employee routes its error lane). */
-function edgeTaken(
+ *  source settled and routed through this port (condition/approval and an
+ *  iterating Workflow Call record the chosen port; a failed employee routes its
+ *  error lane). Keep this in step with `edgeActivated` in runner.ts. */
+export function edgeTaken(
   sourceType: string | undefined,
   sourceRun: WorkflowNodeRunV2Wire | undefined,
   port: string,
@@ -30,6 +31,11 @@ function edgeTaken(
     const routed = sourceRun.output?.fields?.["port"]
     return typeof routed === "string" && routed === port
   }
+  // A Workflow Call that iterates leaves through `success` or `exhausted` and
+  // records which; one that does not iterate records no port and only ever
+  // leaves through `success`.
+  const looped = sourceType === "workflow-call" ? sourceRun.output?.fields?.["port"] : undefined
+  if (typeof looped === "string") return looped === port
   return port === "success"
 }
 

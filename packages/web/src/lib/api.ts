@@ -487,7 +487,7 @@ export interface WorkflowChildRunV2Wire {
   status: WorkflowRunStatusV2
   startedAt: string
   endedAt?: string
-  endOutput?: Record<string, unknown>
+  endOutput?: Record<string, unknown>; sessionId?: string
   error?: WorkflowRunErrorV2Wire
 }
 

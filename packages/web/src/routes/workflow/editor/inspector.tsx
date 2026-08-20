@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { allocateConditionPort } from "./graph"
 import { CLEAR, Field, PickerField, TextInput, fixedText, withFixed, type BindingWire, type FormProps } from "./inspector-fields"
+import { IterateSection, type IterateWire } from "./inspector-iterate"
 import { NodeTypeIcon } from "./node-icons"
 import { NODE_TYPE_LABEL, type WorkflowNodeWire } from "./ports"
 import { useEditor } from "./store"
@@ -571,10 +572,8 @@ function concurrencyBinding(value: unknown): BindingWire {
 function WorkflowCallForm({ node, update }: FormProps) {
   const nodeIds = useEditor(useShallow((state) => state.nodes.map((item) => item.id))).filter((id) => id !== node.id)
   const config = node.config as {
-    workflowId?: BindingWire
-    items?: BindingWire
-    input?: Record<string, BindingWire>
-    concurrency?: number | BindingWire
+    workflowId?: BindingWire; items?: BindingWire; input?: Record<string, BindingWire>
+    concurrency?: number | BindingWire; iterate?: IterateWire
   }
   const input = config.input ?? {}
   const inputEntries = Object.entries(input)
@@ -698,6 +697,7 @@ function WorkflowCallForm({ node, update }: FormProps) {
           </div>
         ))}
       </section>
+      <IterateSection nodeId={node.id} config={config} update={update} />
     </>
   )
 }

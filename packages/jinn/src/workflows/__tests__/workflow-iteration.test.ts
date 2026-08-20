@@ -3,64 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  Employee,
-  ModelRegistry,
-  WorkflowAttemptCommand,
-  WorkflowAttemptCompletion,
-  WorkflowAttemptCompletionListener,
-} from "../../shared/types.js";
 import type { JsonValue, WorkflowDefinition, WorkflowNode } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
-import { WorkflowService } from "../service.js";
+import { WorkflowService, WorkflowServiceError } from "../service.js";
+import { Executor, employee, models } from "./iteration-harness.js";
 
 /**
  * The runtime half of bounded iteration, on the shape it was built for: a body
  * that keeps asking for another round. It has to stop at exactly `maxRounds`,
  * leave through `exhausted`, and keep every round separately readable.
  */
-
-const employee: Employee = {
-  name: "worker", displayName: "Worker", department: "operations", rank: "employee",
-  engine: "test-engine", model: "test-model", effortLevel: "high", persona: "Complete work.",
-};
-const models: ModelRegistry = {
-  "test-engine": {
-    name: "test-engine", available: true, defaultModel: "test-model", effortMechanism: "codex-config",
-    models: [{ id: "test-model", label: "Test", supportsEffort: true, effortLevels: ["high"] }],
-  },
-};
-
-class Executor {
-  readonly commands: WorkflowAttemptCommand[] = [];
-  private readonly listeners = new Set<WorkflowAttemptCompletionListener>();
-
-  async startAttempt(command: WorkflowAttemptCommand): Promise<{ sessionId: string }> {
-    this.commands.push(command);
-    return { sessionId: this.sessionId(command) };
-  }
-  async stopAttempt(): Promise<void> {}
-  subscribe(listener: WorkflowAttemptCompletionListener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-  readTerminalCompletion(): null { return null; }
-  /** Settle the attempt the body is currently parked on, reporting `fields`. */
-  async settleLatest(fields: Record<string, JsonValue>): Promise<void> {
-    const command = this.commands.at(-1)!;
-    const event: WorkflowAttemptCompletion = {
-      sessionId: this.sessionId(command), owner: command.owner, terminalVersion: 1, turn: 1,
-      outcome: "succeeded", finalText: `Done.\n\`\`\`jinn-output\n${JSON.stringify(fields)}\n\`\`\``,
-      completedAt: "2026-08-20T12:05:00.000Z",
-    };
-    await Promise.all([...this.listeners].map((listener) => listener(event)));
-  }
-  private sessionId(command: WorkflowAttemptCommand): string {
-    return `session:${command.owner.runId}:${command.owner.nodeId}:${command.owner.attempt}`;
-  }
-}
 
 let root: string;
 let database: Database.Database;
@@ -125,6 +79,14 @@ function loopWorkflow(maxRounds: number): WorkflowDefinition {
     edge("loop-shipped", "loop", "success", "shipped"),
     edge("loop-escalated", "loop", "exhausted", "escalated"),
   ]);
+}
+
+/** The validation issue codes a rejected authoring call carried. */
+function issueCodes(call: () => unknown): string[] {
+  try { call(); } catch (error) {
+    return error instanceof WorkflowServiceError ? (error.issues ?? []).map((issue) => issue.code) : [];
+  }
+  throw new Error("Expected the call to be refused.");
 }
 
 function endedAt(runId: string): { route: string; status: string } {
@@ -238,5 +200,56 @@ describe("bounded iteration at run time", () => {
       .map((child) => service.getRun(child.workflowId, child.runId)!.idempotencyKey);
     expect(new Set(keys).size).toBe(2);
     expect(keys).toEqual([`${run.id}:loop:1`, `${run.id}:loop:2`]);
+  });
+
+  it("stops on a round that did not finish rather than reading it as a clean loop", async () => {
+    bodyWorkflow();
+    loopWorkflow(3);
+    const run = await service.startManual({ workflowId: "loop-flow", input: {} });
+
+    await executor.failLatest();
+
+    // One round ran and broke. The loop neither claims success nor asks the
+    // broken body for another round.
+    expect(repository.listChildRuns(run.id, "loop")).toHaveLength(1);
+    expect(executor.commands).toHaveLength(1);
+    const detail = service.getRun("loop-flow", run.id)!;
+    expect(detail.status).toBe("failed");
+    expect(endedAt(run.id).route).toBe("none");
+    const loop = detail.nodeRuns.find((node) => node.nodeId === "loop")!;
+    expect(loop.status).not.toBe("completed");
+    expect(detail.error?.message).toMatch(/round 1 failed/);
+  });
+
+  it("refuses to store a loop with no bound, but lets a half-drawn one stay saveable", async () => {
+    bodyWorkflow();
+    const loop = (iterate: Record<string, unknown>): WorkflowNode => ({
+      id: "loop", type: "workflow-call", name: "Loop",
+      config: { workflowId: { source: "fixed", value: "body-flow" }, concurrency: 1, iterate } as never,
+    });
+    const nodes = (iterate: Record<string, unknown>): WorkflowNode[] => [
+      { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+      loop(iterate),
+      { id: "shipped", type: "end", name: "Shipped", config: { result: "success" } },
+    ];
+    const wired = [edge("start-loop", "start", "success", "loop"), edge("loop-shipped", "loop", "success", "shipped")];
+    const check = [{ left: { source: "node", nodeId: "loop", path: "fields.last.verdict" },
+      operator: "equals", right: { source: "fixed", value: "rework" } }];
+
+    // The bound is node-local, so it is refused before the definition is stored.
+    const draft = service.createDefinition({ id: "unbounded-flow", title: "Unbounded" });
+    expect(() => service.saveDefinition({ ...draft, nodes: nodes({ continueWhile: check }), edges: wired }, draft.revision))
+      .toThrow(WorkflowServiceError);
+    expect(issueCodes(() => service.saveDefinition(
+      { ...draft, nodes: nodes({ continueWhile: check }), edges: wired }, draft.revision))).toContain("unbounded-iteration");
+
+    // The exhausted route is a wiring rule: a loop mid-draw still saves, and
+    // only enabling it insists the escalation lane exists.
+    const partial = service.createDefinition({ id: "half-drawn-flow", title: "Half drawn" });
+    const saved = service.saveDefinition(
+      { ...partial, nodes: nodes({ maxRounds: 2, continueWhile: check }), edges: wired }, partial.revision);
+    expect(saved.revision).toBeGreaterThan(partial.revision);
+    expect(issueCodes(() => service.setEnabled({ id: saved.id, enabled: true, expectedRevision: saved.revision })))
+      .toContain("iteration-missing-exhausted-route");
   });
 });

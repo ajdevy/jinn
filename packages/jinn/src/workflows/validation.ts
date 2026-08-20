@@ -10,10 +10,10 @@ import {
 import { validateBindingPath } from './bindings.js';
 import { validateCronSchedule } from '../cron/validation.js';
 import type { WorkflowValidationIssue } from './issues.js';
-import { ITERATION_EXHAUSTED_PORT, workflowCallIterationIssues, workflowCallTargetIssues } from './validation-workflow-call.js';
+import { ITERATION_EXHAUSTED_PORT, workflowCallIterationIssues, workflowCallSaveIssues } from './validation-workflow-call.js';
 
 export type { WorkflowValidationIssue } from './issues.js';
-export { workflowCallTargetIssues } from './validation-workflow-call.js';
+export { workflowCallSaveIssues } from './validation-workflow-call.js';
 
 type AddIssue = (issue: WorkflowValidationIssue) => void;
 type RecordValue = Record<string, unknown>;
@@ -439,7 +439,7 @@ export function validateExecutableWorkflow(definition: WorkflowDefinition): { ok
   addReachabilityIssues(nodes, graph, add);
   for (const item of scheduleTriggerIssues(safe)) add(item);
   for (const item of todoTriggerFilterIssues(safe)) add(item);
-  for (const item of workflowCallTargetIssues(safe)) add(item);
+  for (const item of workflowCallSaveIssues(safe)) add(item);
   for (const item of workflowCallIterationIssues(safe)) add(item);
   for (const item of todoCommentWaitTriggerIssues(safe)) add(item);
   const issues = finalizeIssues(collected, nodes, edges);
