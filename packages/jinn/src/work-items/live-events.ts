@@ -101,25 +101,47 @@ export interface TodoStatusChangeEvent extends WorkItemEvent {
 
 export type TodoStatusChangeListener = (event: TodoStatusChangeEvent) => void | Promise<void>;
 
+/** A Todo's labels changed. The `todo-status` trigger's label filter reads the
+ *  Todo when its event DRAINS rather than when the Todo moved, so a label that
+ *  lands after the move has to re-open that drain — nothing else looks again. */
+export type TodoLabelsChangeListener = (workItemId: string) => void | Promise<void>;
+
 let todoStatusChangeListener: TodoStatusChangeListener | null = null;
+let todoLabelsChangeListener: TodoLabelsChangeListener | null = null;
 
 export function setTodoStatusChangeListener(listener: TodoStatusChangeListener | null): void {
   todoStatusChangeListener = listener;
 }
 
-export function notifyTodoStatusChange(event: WorkItemEvent | undefined, item: WorkItem): void {
-  if (!event || !event.fromStatus || !event.toStatus) return;
-  const change = { ...event, fromStatus: event.fromStatus, toStatus: event.toStatus, item };
+export function setTodoLabelsChangeListener(listener: TodoLabelsChangeListener | null): void {
+  todoLabelsChangeListener = listener;
+}
+
+/** Hand a committed write to a bridge listener. The listener is read when the
+ *  signal releases, not when it was raised, and whatever it does — throw or
+ *  reject — must never roll back or throw from the write that already committed. */
+function bridge<T>(current: () => ((value: T) => void | Promise<void>) | null, value: T): void {
   emitOrHold(() => {
-    if (!todoStatusChangeListener) return;
+    const listener = current();
+    if (!listener) return;
     try {
-      const maybe = todoStatusChangeListener(change);
+      const maybe = listener(value);
       if (maybe && typeof (maybe as Promise<void>).catch === "function") {
         void (maybe as Promise<void>).catch(() => undefined);
       }
     } catch {
       // Best-effort bridge: a workflow-fire failure must never roll back or throw
-      // from the guarded lifecycle transition that already committed.
+      // from the guarded lifecycle write that already committed.
     }
   });
+}
+
+export function notifyTodoStatusChange(event: WorkItemEvent | undefined, item: WorkItem): void {
+  if (!event || !event.fromStatus || !event.toStatus) return;
+  bridge(() => todoStatusChangeListener,
+    { ...event, fromStatus: event.fromStatus, toStatus: event.toStatus, item });
+}
+
+export function notifyTodoLabelsChanged(workItemId: string): void {
+  bridge(() => todoLabelsChangeListener, workItemId);
 }

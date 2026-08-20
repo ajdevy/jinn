@@ -1,4 +1,6 @@
-import { assertBoundCaller, gatewayRequest, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
+import { gatewayRequest, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
+import { labelTools } from "./label-tools.js";
+import { assertIdentity, gatewayFailure, mutationResult } from "./work-item-result.js";
 import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { parseTodoId } from "../work-items/id.js";
@@ -30,7 +32,6 @@ const WORK_ITEM_NOTE_CHAR_CAP = 8_000;
 const STATUSES = ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"] as const;
 const SOURCES = ["human", "delegation", "cron", "workflow", "session", "connector", "goal"] as const;
 const AGENT_UPDATE_STATUSES = ["backlog", "assigned", "executing", "in_review", "blocked", "escalated", "done"] as const;
-const ACTIVITY_RECEIPT_HINT = "Preview or Open the persisted activity receipt in this chat.";
 const TODO_ID_SCHEMA = { type: "string", pattern: "^[A-Z]{3}-[1-9][0-9]*$" } as const;
 const COMMENT_ID_SCHEMA = { type: "string", pattern: "^wic_[0-9a-f]{12}$" } as const;
 const COMMENT_ID_PATTERN = /^wic_[0-9a-f]{12}$/;
@@ -38,38 +39,12 @@ const COMMENT_LIST_LIMIT_MAX = 500;
 const COMMENT_ATTACHMENTS_MAX = 10;
 const ATTACHMENT_PATH_CHAR_CAP = 1024;
 
-function mutationResult(body: unknown, hint: string): Record<string, unknown> {
-  const value = body && typeof body === "object" && !Array.isArray(body)
-    ? body as Record<string, unknown>
-    : { result: body };
-  return { ...value, hint: `${hint} ${ACTIVITY_RECEIPT_HINT}` };
-}
-
-function assertIdentity(ctx: JinnMcpContext): void {
-  assertBoundCaller(ctx);
-}
-
-function asText(body: unknown, max = 1200): string {
-  const text = typeof body === "string" ? body : JSON.stringify(body);
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
 function qs(params: Record<string, string | number | undefined>): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) parts.push(`${key}=${encodeURIComponent(String(value))}`);
   }
   return parts.join("&");
-}
-
-function gatewayFailure(what: string, status: number, body: unknown): JinnMcpToolError {
-  const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const detail = typeof rec.error === "string" ? rec.error : asText(body);
-  if (status === 400) return new JinnMcpToolError(`${what} rejected (400): ${detail}`);
-  if (status === 403) return new JinnMcpToolError(`${what} refused (403): ${detail}`);
-  if (status === 404) return new JinnMcpToolError(`${what} failed (404): ${detail || "not found"}`);
-  if (status === 409) return new JinnMcpToolError(`${what} conflicted (409): ${detail}`);
-  return new JinnMcpToolError(`${what} failed (HTTP ${status}): ${detail}`);
 }
 
 function summarize(item: Record<string, unknown>): Record<string, unknown> {
@@ -647,64 +622,6 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  const label: JinnMcpTool = {
-    name: "label_work_item",
-    description: "Set existing Todo labels.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: TODO_ID_SCHEMA,
-        labels: { type: "array", items: { type: "string" } },
-      },
-      required: ["id", "labels"],
-    },
-    handler: async (args, ctx) => {
-      assertIdentity(ctx);
-      const id = requireTodoId(args);
-      const labels = requireLabelRefs(args);
-      const { status, body } = await gatewayRequest(ctx, "PUT", `/api/work-items/${encodeURIComponent(id)}/labels`, { labels });
-      if (status >= 400) throw gatewayFailure(`labelling work item "${id}"`, status, body);
-      return mutationResult(body, "Todo labels replaced.");
-    },
-  };
-
-  const labelCreate: JinnMcpTool = {
-    name: "create_label",
-    description: "Create a Todo label; operator or manager only.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        color: { type: "string" },
-        department: { type: "string" },
-      },
-      required: ["name"],
-    },
-    handler: async (args, ctx) => {
-      assertIdentity(ctx);
-      const payload: Record<string, unknown> = { name: requireString(args, "name") };
-      for (const key of ["color", "department"] as const) {
-        const v = optionalString(args, key);
-        if (v !== undefined) payload[key] = v;
-      }
-      const { status, body } = await gatewayRequest(ctx, "POST", "/api/labels", payload);
-      if (status >= 400) throw gatewayFailure("creating label", status, body);
-      return { ...(body as Record<string, unknown>), hint: "Next: label_work_item { id, labels }, or pass labels to create_work_item." };
-    },
-  };
-
-  const labelsList: JinnMcpTool = {
-    name: "list_labels",
-    description: "List Todo labels.",
-    inputSchema: { type: "object", properties: {} },
-    handler: async (_args, ctx) => {
-      assertIdentity(ctx);
-      const { status, body } = await gatewayRequest(ctx, "GET", "/api/labels");
-      if (status >= 400) throw gatewayFailure("listing labels", status, body);
-      return body;
-    },
-  };
-
   const dispatchConfig: JinnMcpTool = {
     name: "set_work_item_dispatch",
     description: "Set how a Todo's NEXT attempt runs: skills to preload, engine/model override. Safe while executing.",
@@ -748,5 +665,5 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  return [list, get, tree, search, create, update, edit, assign, archive, comment, listComments, attach, listAttachments, link, unlink, label, labelCreate, labelsList, dispatchConfig, departments];
+  return [list, get, tree, search, create, update, edit, assign, archive, comment, listComments, attach, listAttachments, link, unlink, ...labelTools(), dispatchConfig, departments];
 }

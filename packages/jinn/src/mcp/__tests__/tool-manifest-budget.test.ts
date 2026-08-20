@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5932;
+const MAX_MANIFEST_TOKENS = 5952;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -123,9 +123,22 @@ const ATTESTED = {
   // definition" on rerun_workflow_run, whose `definition` enum is
   // `["original","current"]`. The remaining 3 fit under the unchanged ceiling —
   // Pi sits two below it, so the next addition still has to pay its own way.
-  rpc: { tokens: 5424, sha256: "91d3619df025c1caae8310453fab4d18d546922cf1c1c784d535420d0297541d" },
-  pi: { tokens: 5930, sha256: "a626d94d3e049c62ef5c4fb8c747235aeddeaf5886f9aef1894bd8bec79e1d6c" },
-  openai: { tokens: 5629, sha256: "968b132e47eee9c3ef06b953d90a085e72d6262407f144913f2340e8a97b12b2" },
+  // Rebased for `mode` on label_work_item (PLA-155). Replace was the only mode
+  // this tool had, so an agent told to drop one label had to re-send every other
+  // label from memory to keep it — and a Todo that lost its arming label that way
+  // sits at its arming status forever, because its lane trigger filters on that
+  // label. The whole addition is one enum property and six words: `mode` is
+  // `{"type":"string","enum":["add","remove"]}` at 14 tokens, and the tool's own
+  // description went from "Set existing Todo labels." to "Set Todo labels; mode
+  // add/remove keeps the rest." for 6 more. The alternative shape — sibling `add`
+  // and `remove` arrays — cost 8 tokens more and let a caller name two modes at
+  // once. No enum is restated in prose anywhere on this surface any more and no
+  // field list duplicates its own properties, so unlike the earlier rebases there
+  // was nothing dead left to buy the 20 back from; the ceiling moves by exactly
+  // that. Pi stays two under it, the headroom it had before.
+  rpc: { tokens: 5444, sha256: "2a6474ff549beb34baeaf17c98354077332b68bbe9ed954d118d62d0412b8635" },
+  pi: { tokens: 5950, sha256: "d271143889ae5a769500ec9a6dd4b04aff8a3a827676afeb5a69ef93db8a5a2c" },
+  openai: { tokens: 5649, sha256: "fd3e3edf3755afc956190e9c8fd5f96813d9e9c487fb892f9ca2769e5147055f" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

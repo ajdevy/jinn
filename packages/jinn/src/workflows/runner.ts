@@ -503,9 +503,9 @@ export class WorkflowRunner {
   /** Where a re-armed Todo has to land, read off the CURRENT definition rather
    *  than the snapshot this run started with: a workflow disabled or retired
    *  since the run began fires nothing, and a Todo left sitting at its trigger
-   *  status would look queued forever. The status comes from the trigger, never
-   *  from a hardcoded default — every Todo-triggered workflow gets this, not one
-   *  of them. */
+   *  status would look queued forever. The status and the filters come from the
+   *  trigger, never from a hardcoded default — every Todo-triggered workflow gets
+   *  this, not one of them. */
   private rearmTarget(workflowId: string): WorkflowRearmTarget {
     const current = this.options.repository.getDefinition(workflowId);
     if (!current) return { unavailable: `workflow \`${workflowId}\` no longer exists` };
@@ -516,8 +516,8 @@ export class WorkflowRunner {
     if (trigger?.config.kind !== "todo-status") {
       return { unavailable: `workflow \`${workflowId}\` has no Todo trigger to re-arm` };
     }
-    return { status: trigger.config.status,
-      ...(trigger.config.actor !== undefined ? { actor: trigger.config.actor } : {}) };
+    const { status, actor, label } = trigger.config;
+    return { status, ...(actor !== undefined ? { actor } : {}), ...(label !== undefined ? { label } : {}) };
   }
 
   /** Attribute a phase session to the run's bound Todo, so the Todo's derived

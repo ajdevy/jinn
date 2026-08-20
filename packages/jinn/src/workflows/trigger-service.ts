@@ -19,6 +19,7 @@ export interface FireWorkflowEventInput {
 }
 
 interface IndexedTrigger { definition: WorkflowDefinition; trigger: TriggerNode }
+interface TodoCandidate extends IndexedTrigger { mismatch: TodoMismatch | undefined }
 interface ScheduleIndex extends IndexedTrigger { task: ScheduledTask }
 function bad(message: string): never { throw new WorkflowRepositoryError("bad-input", message); }
 function payload(value: unknown): Record<string, JsonValue> {
@@ -36,31 +37,56 @@ function labelMatches(filter: string, labels: WorkflowTodoStatusEvent["item"]["l
   let name: string; try { name = normalizeLabelName(filter); } catch { return false; }
   return labels.some((label) => label.id === filter || label.name === name);
 }
-/** The reason this Todo event does NOT match the trigger, or undefined when it
- *  does. Filters are ANDed; the first mismatch is what gets reported, so a
- *  suppressed run always says which filter refused it. */
-function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): string | undefined {
-  if (node.config.kind !== "todo-status") return "trigger is not a todo-status trigger";
+/** Which filter refused a Todo event, and why. The `filter` half exists because
+ *  `label` is the one refusal that can be a race rather than a decision. */
+interface TodoMismatch { filter: "label" | "other"; reason: string }
+function refused(reason: string): TodoMismatch { return { filter: "other", reason }; }
+/** Why this Todo event does NOT match the trigger, or undefined when it does.
+ *  Filters are ANDed; the first mismatch is what gets reported, so a suppressed
+ *  run always says which filter refused it. */
+function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): TodoMismatch | undefined {
+  if (node.config.kind !== "todo-status") return refused("trigger is not a todo-status trigger");
   const { actor, label, department, assignee, delegates, unlabeled, unassigned, rootOnly } = node.config;
   // An arming delegate moved the Todo as itself, so the event names its session
   // rather than the operator; the stamp the status route wrote at that moment is
   // what says the operator's authority stands behind it. Only an `operator`
   // filter is widened, and only where the binding has not opted out.
   const armed = actor === "operator" && delegates !== false && event.armedAsDelegate !== null;
-  if (actor !== undefined && actor !== event.actor && !armed) return `actor ${event.actor ?? "unknown"} is not ${actor}`;
-  if (department !== undefined && department !== event.item.department) return `department filter ${department} does not match`;
-  if (assignee !== undefined && assignee !== event.item.assignee) return `assignee filter ${assignee} does not match`;
-  if (label !== undefined && !labelMatches(label, event.item.labels)) return `label filter ${label} does not match`;
+  if (actor !== undefined && actor !== event.actor && !armed) return refused(`actor ${event.actor ?? "unknown"} is not ${actor}`);
+  if (department !== undefined && department !== event.item.department) return refused(`department filter ${department} does not match`);
+  if (assignee !== undefined && assignee !== event.item.assignee) return refused(`assignee filter ${assignee} does not match`);
+  if (label !== undefined && !labelMatches(label, event.item.labels)) {
+    return { filter: "label", reason: `label filter ${label} does not match` };
+  }
   if (unlabeled === undefined && unassigned === undefined && rootOnly === undefined) return undefined;
   // These three assert what the Todo IS right now, so a row that has since been
   // deleted answers none of them — an unknown Todo must refuse rather than fall
   // through as a match and arm a workflow on nothing.
   const live = event.item.live;
-  if (live === null) return "the Todo no longer exists, so its live filters cannot match";
-  if (unlabeled && event.item.labels.length > 0) return "unlabeled filter does not match: the Todo carries labels";
-  if (unassigned && live.assignee !== null) return `unassigned filter does not match: the Todo is assigned to ${live.assignee}`;
-  if (rootOnly && live.parentId !== null) return `rootOnly filter does not match: the Todo is a child of ${live.parentId}`;
+  if (live === null) return refused("the Todo no longer exists, so its live filters cannot match");
+  if (unlabeled && event.item.labels.length > 0) return refused("unlabeled filter does not match: the Todo carries labels");
+  if (unassigned && live.assignee !== null) return refused(`unassigned filter does not match: the Todo is assigned to ${live.assignee}`);
+  if (rootOnly && live.parentId !== null) return refused(`rootOnly filter does not match: the Todo is a child of ${live.parentId}`);
   return undefined;
+}
+/** Whether the Todo is still sitting where this event put it. Once it has moved
+ *  on the event is stale, whatever a later write does to the Todo. */
+function stillWhereTheEventLeftIt(event: WorkflowTodoStatusEvent): boolean {
+  return event.item.live?.status === event.toStatus;
+}
+/**
+ * Whether a label filter could still come good on its own. Labels are read when
+ * the event DRAINS, and the drain is kicked by the status write, so a Todo
+ * labelled a moment after it moved is judged unlabelled — a race, not a
+ * decision, and sealing the event there is what leaves the Todo sitting at its
+ * arming status with nothing armed and nothing that will ever look again.
+ *
+ * Every other filter read something a label cannot change, so only a set of
+ * refusals that are ALL label refusals reopens.
+ */
+function labelRaceUnsettled(event: WorkflowTodoStatusEvent, mismatches: ReadonlyArray<TodoMismatch>): boolean {
+  return mismatches.length > 0 && mismatches.every((mismatch) => mismatch.filter === "label")
+    && stillWhereTheEventLeftIt(event);
 }
 export class WorkflowTriggerService {
   private readonly schedules = new Map<string, ScheduleIndex>();
@@ -146,17 +172,10 @@ export class WorkflowTriggerService {
     const claim = this.feed.claimEvent(event.id, indexed.map((item) => item.definition.id));
     if (claim.state !== "acquired") return 0;
     const allowed = new Set(claim.definitionIds);
-    // Record WHY a candidate did not run: a filtered-out Todo event otherwise
-    // completes silently, which is indistinguishable from a broken trigger.
-    const outcomes: WorkflowTodoEventClaimOutcome[] = candidates
-      .filter((item) => item.mismatch !== undefined)
-      .map((item) => {
-        const detail = `Todo event ${event.id} suppressed: ${item.mismatch}.`;
-        logger.info(`Workflow ${item.definition.id}: ${detail}`);
-        return { workflowId: item.definition.id, outcome: "suppressed" as const, detail };
-      });
+    const outcomes = this.suppressionOutcomes(event, candidates);
     const labels = event.item.labels.map((label) => label.name);
     const runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
+    if (this.settlesWithoutRunning(event, candidates, runnable, outcomes, claim.deferred === true)) return 0;
     // Claim the TODO, not just the event: the event claim stops this event being
     // replayed, and this stops a DIFFERENT event — or another gateway — starting
     // a second run on work somebody is already doing. A rejected claim means the
@@ -188,6 +207,41 @@ export class WorkflowTriggerService {
       this.feed.completeEvent(event.id, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
     } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
+  }
+
+  /** Record WHY a candidate did not run: a filtered-out Todo event otherwise
+   *  completes silently, which is indistinguishable from a broken trigger. */
+  private suppressionOutcomes(event: WorkflowTodoStatusEvent,
+    candidates: ReadonlyArray<TodoCandidate>): WorkflowTodoEventClaimOutcome[] {
+    return candidates.filter((item) => item.mismatch !== undefined).map((item) => {
+      const detail = `Todo event ${event.id} suppressed: ${item.mismatch!.reason}.`;
+      logger.info(`Workflow ${item.definition.id}: ${detail}`);
+      return { workflowId: item.definition.id, outcome: "suppressed" as const, detail };
+    });
+  }
+
+  /**
+   * Whether this event ends here rather than starting anything.
+   *
+   * A deferral is only good while the Todo sits where the event put it: once it has
+   * moved on the event is stale, and a label landing later must not fire a run on
+   * work that has already gone somewhere else.
+   *
+   * Otherwise, nothing to run with a label filter alone standing in the way means
+   * the label can still land, so the event goes back in the queue rather than being
+   * sealed forever. The candidate list goes back whole, because deciding the match
+   * again is exactly what the next drain is for.
+   */
+  private settlesWithoutRunning(event: WorkflowTodoStatusEvent, candidates: ReadonlyArray<TodoCandidate>,
+    runnable: ReadonlyArray<IndexedTrigger>, outcomes: WorkflowTodoEventClaimOutcome[], deferred: boolean): boolean {
+    if (deferred && !stillWhereTheEventLeftIt(event)) {
+      this.suppressAll(event, runnable, outcomes, `${event.workItemId} has moved on from ${event.toStatus}`);
+      return true;
+    }
+    if (runnable.length > 0) return false;
+    if (!labelRaceUnsettled(event, candidates.flatMap((item) => item.mismatch ? [item.mismatch] : []))) return false;
+    this.feed.deferEvent(event.id, candidates.map((item) => item.definition.id), outcomes);
+    return true;
   }
 
   /** Refuse every candidate that survived the filters for the same reason, and

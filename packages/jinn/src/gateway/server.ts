@@ -40,7 +40,7 @@ import { HookRegistry } from "./hook-registry.js";
 import { writeGatewayInfo, readGatewayInfo, updateGatewayPtyPids, startupGatewayPids, gatewayBaseUrl } from "./gateway-info.js";
 import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure, verifyGatewayAuth } from "./auth.js";
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
-import { setTodoLiveEmitter } from "../work-items/live-events.js";
+import { setTodoLabelsChangeListener, setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
 import { firstOperatorCommentAfter } from "../work-items/comments.js";
 import { watchTodoReplies } from "./todo-reply-sweep.js";
@@ -959,11 +959,11 @@ export async function startGateway(
   // its item to in_review/done (trust) without waiting for the next boot.
   const stopWorkItemReconciler = startWorkItemReconciler();
 
-  setTodoStatusChangeListener(() => {
-    void workflowService.recover(new Date().toISOString()).catch((error) => {
-      logger.warn(`Workflow Todo trigger recovery failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
-  });
+  // A todo-status trigger's label filter reads the Todo when its event DRAINS rather than when it moved, so a label landing after the move re-opens the drain too.
+  const drainTodoTriggers = (): void => { void workflowService.recover(new Date().toISOString())
+    .catch((error) => logger.warn(`Workflow Todo trigger recovery failed: ${error instanceof Error ? error.message : String(error)}`)); };
+  setTodoStatusChangeListener(drainTodoTriggers);
+  setTodoLabelsChangeListener(drainTodoTriggers);
 
   const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
@@ -1313,7 +1313,7 @@ export async function startGateway(
 
     // Stop cron scheduler
     stopScheduler();
-    setTodoStatusChangeListener(null);
+    setTodoStatusChangeListener(null); setTodoLabelsChangeListener(null);
     stopReplyWatch();
     setTodoApprovalDecisionListener(null);
 

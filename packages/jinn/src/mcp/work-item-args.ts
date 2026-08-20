@@ -66,6 +66,19 @@ export function requireLabelRefs(args: Record<string, unknown>): string[] {
   return (args.labels as string[]).map((entry) => entry.trim());
 }
 
+/** Which label operation this call is, as the route's own body: `mode` names what
+ *  to do with `labels`, and its absence is what replacing the whole set looks like. */
+export function requireLabelChange(args: Record<string, unknown>): Record<string, string[]> {
+  const refs = requireLabelRefs(args);
+  const mode = optionalEnum(args, "mode", ["add", "remove"] as const);
+  // An empty `labels` deliberately clears the set; an empty add or remove names
+  // nothing, which is a caller that has lost track of what it meant to send.
+  if (mode !== undefined && refs.length === 0) {
+    throw new JinnMcpToolError(`labels must name at least one label to ${mode} — an empty list would change nothing`);
+  }
+  return { [mode ?? "labels"]: refs };
+}
+
 export function optionalString(args: Record<string, unknown>, name: string, max = FILTER_CHAR_CAP): string | undefined {
   const v = args[name];
   if (v === undefined || v === null) return undefined;
