@@ -8,8 +8,8 @@ import {
   ApiError,
   WorkflowValidationApiError,
   api,
-  type WorkflowDefinitionV2Wire,
-  type WorkflowRunSummaryV2Wire,
+  type WorkflowDefinitionWire,
+  type WorkflowRunSummaryWire,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { EditorCanvas, SaveChip, useAutosave } from "./editor/editor"
@@ -23,7 +23,7 @@ import {
   statusMeta,
 } from "./run-support"
 
-function RunRow({ run }: { run: WorkflowRunSummaryV2Wire }) {
+function RunRow({ run }: { run: WorkflowRunSummaryWire }) {
   const meta = statusMeta(run.status)
   const nodeHint = run.currentOrFailingNode
   return (
@@ -267,7 +267,7 @@ function WorkflowSurface({ store }: { store: EditorStoreApi }) {
   )
 }
 
-function WorkflowEditorProvider({ definition }: { definition: WorkflowDefinitionV2Wire }) {
+function WorkflowEditorProvider({ definition }: { definition: WorkflowDefinitionWire }) {
   const [store] = useState(() => createEditorStore(definition))
   return (
     <EditorStoreContext value={store}>

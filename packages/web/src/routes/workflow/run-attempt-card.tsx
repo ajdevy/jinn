@@ -1,7 +1,7 @@
-import type { WorkflowAttemptV2Wire } from "@/lib/api"
+import type { WorkflowAttemptWire } from "@/lib/api"
 import { StatusLine, formatDuration, formatStarted } from "./run-support"
 
-function ladderSummary(attempt: WorkflowAttemptV2Wire): string | null {
+function ladderSummary(attempt: WorkflowAttemptWire): string | null {
   const parts: string[] = []
   const reminders = attempt.remindersSent ?? 0
   if (reminders > 0) parts.push(reminders === 1 ? "1 reminder sent" : `${reminders} reminders sent`)
@@ -11,7 +11,7 @@ function ladderSummary(attempt: WorkflowAttemptV2Wire): string | null {
   return parts.length > 0 ? parts.join(" · ") : null
 }
 
-export function AttemptCard({ attempt }: { attempt: WorkflowAttemptV2Wire }) {
+export function AttemptCard({ attempt }: { attempt: WorkflowAttemptWire }) {
   const ladder = ladderSummary(attempt)
   return (
     <div className="rounded-[10px] bg-[var(--fill-quaternary)] px-3 py-2.5">

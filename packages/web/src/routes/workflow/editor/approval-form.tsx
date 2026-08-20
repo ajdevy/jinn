@@ -2,7 +2,10 @@ import { useEffect, useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Field, TextInput, fixedText, withFixed, type FormProps } from "./inspector-fields"
+import { Field, TextInput, fixedText, type FormProps } from "./inspector-fields"
+import type { WorkflowNodeOfType } from "./ports"
+
+type ApprovalConfig = WorkflowNodeOfType<"approval">["config"]
 
 // The gateway takes 2-8 unique labels of at most 80 characters. An invalid
 // label stays in the row it was typed into and never reaches the config, so
@@ -11,10 +14,17 @@ const MIN_CHOICES = 2
 const MAX_CHOICES = 8
 const MAX_CHOICE_LENGTH = 80
 
-function storedChoices(config: Record<string, unknown>): string[] | null {
-  const { options } = config
-  if (!Array.isArray(options) || !options.every((option) => typeof option === "string")) return null
-  return options as string[]
+function storedChoices(config: ApprovalConfig): string[] | null {
+  return config.options ?? null
+}
+
+/** Empty clears the binding: an approver the schema never sees beats one it
+ *  would reject for being blank. */
+function withApprover(config: ApprovalConfig, value: string): ApprovalConfig {
+  const next = { ...config }
+  if (value) next.approver = { source: "fixed", value }
+  else delete next.approver
+  return next
 }
 
 /* The gateway trims every label before it validates them, so " A " and "A" are
@@ -114,8 +124,8 @@ function ChoiceList({ choices, setChoices }: { choices: string[]; setChoices: (n
 }
 
 function ChoicesSection({ config, update }: {
-  config: Record<string, unknown>
-  update: (config: Record<string, unknown>) => void
+  config: ApprovalConfig
+  update: (config: ApprovalConfig) => void
 }) {
   const choices = storedChoices(config)
   return (
@@ -149,16 +159,17 @@ function ChoicesSection({ config, update }: {
   )
 }
 
-export function ApprovalForm({ node, update }: FormProps) {
-  const config = node.config as Record<string, unknown>
+export function ApprovalForm({ node, update }: FormProps<WorkflowNodeOfType<"approval">>) {
+  const config = node.config
+  const set = (next: ApprovalConfig) => update({ ...node, config: next })
   const operatorOnly = config.operatorOnly === true
   return (
     <>
       <Field label="What needs approval?">
         <Textarea
           rows={3}
-          value={typeof config.description === "string" ? config.description : ""}
-          onChange={(event) => update({ ...config, description: event.target.value })}
+          value={config.description}
+          onChange={(event) => set({ ...config, description: event.target.value })}
           placeholder="Describe the decision"
         />
       </Field>
@@ -176,7 +187,7 @@ export function ApprovalForm({ node, update }: FormProps) {
           // reserving the gate, and the definition schema refuses both together.
           onCheckedChange={(next) => {
             const { approver: _approver, operatorOnly: _operatorOnly, ...rest } = config
-            update(next ? { ...rest, operatorOnly: true } : rest)
+            set(next ? { ...rest, operatorOnly: true } : rest)
           }}
         />
       </div>
@@ -189,12 +200,12 @@ export function ApprovalForm({ node, update }: FormProps) {
         <Field label="Approver (optional)">
           <TextInput
             value={fixedText(config.approver)}
-            onChange={(event) => update(withFixed(config, "approver", event.target.value))}
+            onChange={(event) => set(withApprover(config, event.target.value))}
             placeholder="Employee who decides"
           />
         </Field>
       )}
-      <ChoicesSection config={config} update={update} />
+      <ChoicesSection config={config} update={set} />
     </>
   )
 }

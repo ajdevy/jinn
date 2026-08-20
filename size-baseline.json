@@ -443,7 +443,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1375,
+      "lines": 1366,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -908,7 +908,7 @@
       ]
     },
     "packages/jinn/src/work-items/attachments.ts": {
-      "lines": 390,
+      "lines": 362,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1043,13 +1043,13 @@
       ]
     },
     "packages/jinn/src/workflows/repository.ts": {
-      "lines": 394,
+      "lines": 385,
       "exempt": [
         "complexity"
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1084,
+      "lines": 1075,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1510,7 +1510,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1223,
+      "lines": 1120,
       "exempt": [
         "complexity"
       ]
@@ -1770,7 +1770,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 518,
+      "lines": 509,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1913,14 +1913,14 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 971,
+      "lines": 773,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/workflow/editor/node-card.tsx": {
-      "lines": 362,
+      "lines": 346,
       "exempt": [
         "complexity"
       ]
@@ -1954,7 +1954,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 442,
+      "lines": 420,
       "exempt": [
         "complexity",
         "max-lines-per-function"

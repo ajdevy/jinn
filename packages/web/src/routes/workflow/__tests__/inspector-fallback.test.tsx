@@ -10,14 +10,14 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 
 /** PLA-149: which engines cover for this node's own is authored here, and a chain
  *  someone wrote as JSON has to survive being looked at. */
 
-const definition: WorkflowDefinitionV2Wire = {
+const definition: WorkflowDefinitionWire = {
   schemaVersion: 1, id: "morning-digest", title: "Morning Digest", revision: 3, enabled: false,
   createdAt: "2026-07-23T08:00:00.000Z", updatedAt: "2026-07-23T08:00:00.000Z",
   nodes: [{ id: "writer", type: "employee", name: "Writer",

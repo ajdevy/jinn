@@ -7,8 +7,8 @@ import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   ApiError,
   api,
-  type WorkflowDefinitionSummaryV2Wire,
-  type WorkflowDefinitionV2Wire,
+  type WorkflowDefinitionSummaryWire,
+  type WorkflowDefinitionWire,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { WorkflowLifecycleMenu } from "./lifecycle-menu"
@@ -42,8 +42,8 @@ function NewWorkflowDialog({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 interface WorkflowListEntry {
-  summary: WorkflowDefinitionSummaryV2Wire
-  definition: WorkflowDefinitionV2Wire | null
+  summary: WorkflowDefinitionSummaryWire
+  definition: WorkflowDefinitionWire | null
 }
 
 async function loadDefinitions(retired: boolean): Promise<WorkflowListEntry[]> {
@@ -54,7 +54,7 @@ async function loadDefinitions(retired: boolean): Promise<WorkflowListEntry[]> {
   })))
 }
 
-function countLabel(definition: WorkflowDefinitionV2Wire | null): string {
+function countLabel(definition: WorkflowDefinitionWire | null): string {
   if (!definition) return "Definition unavailable"
   const nodes = `${definition.nodes.length} ${definition.nodes.length === 1 ? "node" : "nodes"}`
   const edges = `${definition.edges.length} ${definition.edges.length === 1 ? "edge" : "edges"}`

@@ -10,13 +10,13 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowChildRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowChildRunWire, WorkflowRunDetailWire } from "@/lib/api"
 import type { WorkflowNodeWire } from "../editor/ports"
 import { RunInspector } from "../run-inspector"
 
 const STARTED_AT = "2026-08-19T09:00:00.000Z"
 
-function detailWith(node: WorkflowNodeWire, childRuns: WorkflowChildRunV2Wire[]): WorkflowRunDetailV2Wire {
+function detailWith(node: WorkflowNodeWire, childRuns: WorkflowChildRunWire[]): WorkflowRunDetailWire {
   return {
     schemaVersion: 1, workflowId: "publish", id: "run_parent", status: "running",
     startedAt: STARTED_AT, endedAt: null, revision: 1,
@@ -28,14 +28,14 @@ function detailWith(node: WorkflowNodeWire, childRuns: WorkflowChildRunV2Wire[])
     },
     nodeRuns: [{ nodeId: node.id, status: "running", activated: true, startedAt: STARTED_AT, endedAt: null }],
     attempts: [], approvals: [], childRuns,
-  } as unknown as WorkflowRunDetailV2Wire
+  } as unknown as WorkflowRunDetailWire
 }
 
-function child(patch: Partial<WorkflowChildRunV2Wire>): WorkflowChildRunV2Wire {
+function child(patch: Partial<WorkflowChildRunWire>): WorkflowChildRunWire {
   return { runId: "run_child", workflowId: "publish-item", nodeId: "fanout", status: "running", startedAt: STARTED_AT, ...patch }
 }
 
-function renderRun(detail: WorkflowRunDetailV2Wire, nodeId: string) {
+function renderRun(detail: WorkflowRunDetailWire, nodeId: string) {
   const router = createMemoryRouter(
     [{
       path: "/",
@@ -76,7 +76,7 @@ describe("child runs in the run inspector", () => {
       id: "fanout",
       type: "workflow-call",
       name: "Publish items",
-      config: { workflowId: { source: "fixed", value: "publish-item" } },
+      config: { workflowId: { source: "fixed", value: "publish-item" }, concurrency: 2 },
     }
     const detail = detailWith(node, [
       child({ runId: "run_second", itemIndex: 1 }),

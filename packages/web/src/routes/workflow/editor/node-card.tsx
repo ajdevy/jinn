@@ -16,7 +16,9 @@ import {
   nodeBox,
   outputPorts,
   type OutputPortSpec,
-  type WorkflowNodeTypeV2,
+  type WorkflowNodeType,
+  fixedBinding,
+  type WorkflowNodeOfType,
   type WorkflowNodeWire,
 } from "./ports"
 import { useEditorApi } from "./store"
@@ -59,7 +61,7 @@ function FreeHandleAdd({ nodeId, spec, bottom }: { nodeId: string; spec: OutputP
   const menu = useMenu()
   if (connections.length !== 0) return null
 
-  const onPick = (type: WorkflowNodeTypeV2) => {
+  const onPick = (type: WorkflowNodeType) => {
     const origin = internal?.internals.positionAbsolute ?? { x: 0, y: 0 }
     const state = store.getState()
     const desired = bottom
@@ -184,11 +186,9 @@ function CardShell({
   )
 }
 
-function triggerCaption(node: WorkflowNodeWire): string {
-  const config = node.config as { kind?: unknown; cron?: unknown }
+function triggerCaption(config: WorkflowNodeOfType<"trigger">["config"]): string {
   switch (config.kind) {
-    case "schedule":
-      return typeof config.cron === "string" && config.cron ? config.cron : "Schedule"
+    case "schedule": return config.cron || "Schedule"
     case "event": return "On event"
     case "todo-status": return "On Todo status"
     case "workflow-call": return "Called by workflow"
@@ -197,30 +197,16 @@ function triggerCaption(node: WorkflowNodeWire): string {
 }
 
 function nodeCaption(node: WorkflowNodeWire): string {
-  const config = node.config as Record<string, unknown>
   switch (node.type) {
-    case "trigger": return triggerCaption(node)
-    case "employee": {
-      const employee = config.employee as { source?: unknown; value?: unknown } | undefined
-      return employee?.source === "fixed" && typeof employee.value === "string" && employee.value
-        ? employee.value
-        : "Choose employee"
-    }
-    case "approval": {
-      const description = config.description
-      return typeof description === "string" && description.trim() ? description : "Approval gate"
-    }
-    case "workflow-call": {
-      const workflowId = config.workflowId as { source?: unknown; value?: unknown } | undefined
-      return workflowId?.source === "fixed" && typeof workflowId.value === "string" && workflowId.value
-        ? workflowId.value
-        : "Choose workflow"
-    }
+    case "trigger": return triggerCaption(node.config)
+    case "employee": return fixedBinding(node.config.employee) ?? "Choose employee"
+    case "approval": return node.config.description.trim() || "Approval gate"
+    case "workflow-call": return fixedBinding(node.config.workflowId) ?? "Choose workflow"
     case "wait":
-      if (config.mode === "todo-comment") return "On your comment"
-      return config.mode === "until" ? "Until timestamp" : `${typeof config.minutes === "number" ? config.minutes : "?"} min`
+      if (node.config.mode === "todo-comment") return "On your comment"
+      return node.config.mode === "until" ? "Until timestamp" : `${node.config.minutes} min`
     case "end":
-      return config.result === "failure" ? "Failure" : "Success"
+      return node.config.result === "failure" ? "Failure" : "Success"
     default:
       return ""
   }
@@ -235,9 +221,7 @@ function compactMinutes(minutes: number): string {
 }
 
 function employeeName(node: WorkflowNodeWire): string | null {
-  if (node.type !== "employee") return null
-  const employee = (node.config as { employee?: { source?: unknown; value?: unknown } }).employee
-  return employee?.source === "fixed" && typeof employee.value === "string" && employee.value ? employee.value : null
+  return node.type === "employee" ? fixedBinding(node.config.employee) : null
 }
 
 function StandardCard({ data, selected }: NodeProps<EditorNode>) {

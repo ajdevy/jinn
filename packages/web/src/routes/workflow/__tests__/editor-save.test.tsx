@@ -21,12 +21,12 @@ vi.mock("@/lib/api", () => {
   }
 })
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { useAutosave } from "../editor/editor"
 import { createEditorStore, EditorStoreContext, type EditorStoreApi } from "../editor/store"
 
-const definition: WorkflowDefinitionV2Wire = {
+const definition: WorkflowDefinitionWire = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",

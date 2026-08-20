@@ -13,14 +13,14 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react"
-import type { WorkflowNodeTypeV2, WorkflowNodeWire } from "./ports"
+import type { WorkflowNodeType, WorkflowNodeWire } from "./ports"
 
 interface Tint {
   bg: string
   fg: string
 }
 
-const TINT: Record<WorkflowNodeTypeV2, Tint> = {
+const TINT: Record<WorkflowNodeType, Tint> = {
   trigger: { bg: "var(--accent-fill)", fg: "var(--accent)" },
   employee: { bg: "color-mix(in srgb, var(--system-blue) 15%, transparent)", fg: "var(--system-blue)" },
   "workflow-call": { bg: "color-mix(in srgb, var(--system-indigo) 15%, transparent)", fg: "var(--system-indigo)" },
@@ -41,7 +41,7 @@ const TRIGGER_ICON: Record<string, LucideIcon> = {
   "workflow-call": Workflow,
 }
 
-const TYPE_ICON: Record<WorkflowNodeTypeV2, LucideIcon> = {
+const TYPE_ICON: Record<WorkflowNodeType, LucideIcon> = {
   trigger: Zap,
   employee: UserRound,
   "workflow-call": Workflow,
@@ -52,13 +52,12 @@ const TYPE_ICON: Record<WorkflowNodeTypeV2, LucideIcon> = {
   end: Flag,
 }
 
-function iconFor(type: WorkflowNodeTypeV2, node?: WorkflowNodeWire): { Icon: LucideIcon; tint: Tint } {
-  if (type === "trigger" && node) {
-    const kind = (node.config as { kind?: unknown }).kind
-    const Icon = typeof kind === "string" ? (TRIGGER_ICON[kind] ?? Zap) : Zap
+function iconFor(type: WorkflowNodeType, node?: WorkflowNodeWire): { Icon: LucideIcon; tint: Tint } {
+  if (type === "trigger") {
+    const Icon = node?.type === "trigger" ? (TRIGGER_ICON[node.config.kind] ?? Zap) : Zap
     return { Icon, tint: TINT.trigger }
   }
-  if (type === "end" && node && (node.config as { result?: unknown }).result === "failure") {
+  if (type === "end" && node?.type === "end" && node.config.result === "failure") {
     return { Icon: OctagonX, tint: END_FAILURE_TINT }
   }
   return { Icon: TYPE_ICON[type], tint: TINT[type] }
@@ -71,7 +70,7 @@ export function NodeTypeIcon({
   size = 32,
   iconSize = 15,
 }: {
-  type: WorkflowNodeTypeV2
+  type: WorkflowNodeType
   node?: WorkflowNodeWire
   size?: number
   iconSize?: number
