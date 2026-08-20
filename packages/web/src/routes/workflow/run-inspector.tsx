@@ -110,7 +110,7 @@ function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire;
             className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
           >
             <span className="min-w-0 flex-1">
-              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+              <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
                 {child.itemIndex === undefined ? child.workflowId : `Item ${child.itemIndex + 1}`}
               </span>
               <span
