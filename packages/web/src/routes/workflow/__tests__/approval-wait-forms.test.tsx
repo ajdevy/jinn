@@ -8,6 +8,7 @@ import {
   installInspectorDomPolyfills,
   nodeConfig,
   renderApproval,
+  renderUnhandledWait,
   renderWait,
 } from "./inspector-form-harness"
 
@@ -182,7 +183,7 @@ describe("wait inspector modes", () => {
 
   it("explains a mode it cannot render read-only instead of downgrading it", () => {
     const config = { mode: "signal", channel: "deploys" }
-    const store = renderWait(config)
+    const store = renderUnhandledWait(config)
 
     expect(screen.getByText(/does not\s+know/)).toBeTruthy()
     // Every control in this form replaces the whole config, so one appearing here
@@ -197,7 +198,7 @@ describe("wait inspector modes", () => {
 
   it("keeps an unhandled mode intact while an unrelated field is edited", () => {
     const config = { mode: "signal", channel: "deploys" }
-    const store = renderWait(config)
+    const store = renderUnhandledWait(config)
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Await the deploy signal" } })
 
