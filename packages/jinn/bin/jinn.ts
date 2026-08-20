@@ -235,6 +235,25 @@ withJson(workflow.command("retry <workflowId> <runId> <nodeId>").requiredOption(
     });
 }
 
+// Backup subcommands (jinn backup run|list|verify|restore)
+const backupAction = (name: string) => async (...received: unknown[]) => {
+  const command = received.pop() as Command;
+  const handlers = await import("../src/cli/backup.js") as unknown as Record<string, (...args: unknown[]) => unknown>;
+  await handlers[name]!(...received, command.opts());
+};
+const backup = program.command("backup").description("Snapshot and restore instance homes");
+withJson(backup.command("run").description("Snapshot every registered instance home, then prune")
+  .option("--root <dir>", "Where snapshots are written")
+  .option("--retention-days <days>", "Days of snapshots to keep")
+  .option("--max-total-gb <gb>", "Total size cap across every home")).action(backupAction("runBackup"));
+withJson(backup.command("list").description("List the snapshots on disk").option("--root <dir>", "Where snapshots are written"))
+  .action(backupAction("runBackupList"));
+withJson(backup.command("verify <snapshot>").description("Re-hash a snapshot against its manifest"))
+  .action(backupAction("runBackupVerify"));
+withJson(backup.command("restore <snapshot>").description("Rebuild a home from a snapshot")
+  .requiredOption("--home <dir>", "Directory to rebuild")
+  .option("--force", "Restore over a home that is not empty")).action(backupAction("runBackupRestore"));
+
 export function buildProgram(): Command { return program; }
 export function isDirectExecution(moduleUrl: string, argvPath: string | undefined): boolean {
   if (!argvPath) return false;
