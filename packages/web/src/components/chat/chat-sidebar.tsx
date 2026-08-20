@@ -1085,11 +1085,12 @@ export function ChatSidebar({
       }
     }
 
-    // ---- Default mode. The recency buckets (Today / Yesterday / Older) hold
-    // the operator's own top-level chats (isFocusedSession) — delegated and
-    // automated sessions never flood the switcher. "All" additionally surfaces
-    // workflow runs as flat rows and reveals the per-employee Team directory
-    // (every employee's full session history, grouped, with true counts).
+    // ---- Default mode. In Focused, the recency buckets (Today / Yesterday /
+    // Older) hold only the operator's own top-level chats (isFocusedSession) —
+    // delegated and automated sessions never flood the switcher. "All" shows
+    // every visible session as flat rows (children, workflow runs, the lot)
+    // and reveals the per-employee Team directory (every employee's full
+    // session history, grouped, with true counts).
     // Cron sessions are excluded entirely: Scheduled lives on the Cron page,
     // reachable through the quiet link-row at the end of the list.
     const now = new Date()
@@ -1126,10 +1127,11 @@ export function ChatSidebar({
         pinnedRows.push(toRow(s))
         continue
       }
-      // Workflow runs are first-class rows in ALL mode (badged by the indigo
-      // WorkflowSessionChip); Focused stays strictly the operator's own chats.
-      // Delegated/automated child sessions stay grouped in the Team directory.
-      if (!isFocusedSession(s) && !(focusMode === "all" && s.source === "workflow")) {
+      // All means all: every visible non-cron session is a flat recency row —
+      // delegated children, workflow runs (badged by the indigo
+      // WorkflowSessionChip), the lot. Focused stays strictly the operator's
+      // own chats; the Team directory keeps the grouped per-employee view.
+      if (focusMode !== "all" && !isFocusedSession(s)) {
         hiddenAutomated += 1
         continue
       }
