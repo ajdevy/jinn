@@ -35,17 +35,17 @@ export function useChatGridState({
     ? (focusedSessionId ? [focusedSessionId] : [])
     : visibleWorkingSet.sessionIds
   const initialMobileSessionIds = useMemo(
-    () => mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions),
-    [sessions, visibleWorkingSet.sessionIds],
+    () => mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions, [], focusedSessionId),
+    [focusedSessionId, sessions, visibleWorkingSet.sessionIds],
   )
   const [mobileSessionIds, setMobileSessionIds] = useState(initialMobileSessionIds)
   useEffect(() => {
     setMobileSessionIds((current) => {
-      const next = mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions, current)
+      const next = mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions, current, focusedSessionId)
       return next.length === current.length && next.every((id, index) => id === current[index])
         ? current
         : next
     })
-  }, [sessions, visibleWorkingSet.sessionIds])
+  }, [focusedSessionId, sessions, visibleWorkingSet.sessionIds])
   return { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds }
 }

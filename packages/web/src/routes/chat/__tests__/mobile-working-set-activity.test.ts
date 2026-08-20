@@ -19,7 +19,15 @@ describe('mobile working-set activity', () => {
     expect(mobileWorkingSetIds(['a', 'c'], sessions)).toEqual(['a', 'c', 'd', 'b'])
   })
 
-  it('retains filled slot identities when navigation replaces a working-set member', () => {
+  it('keeps the focused chat and every session-backed member on the strip', () => {
+    const sessions = ['s5', 's8', 's1', 's2', 's3'].map((id) => ({ id }))
+
+    const ids = mobileWorkingSetIds(['s1', 's2'], sessions, ['s5', 's8', 's1', 's2'], 's3')
+
+    expect(ids).toEqual(expect.arrayContaining(['s1', 's2', 's3']))
+  })
+
+  it('retains filled slot identities when focus moves to an existing slot', () => {
     const sessions = [
       { id: 'a' },
       { id: 'b' },
@@ -29,7 +37,40 @@ describe('mobile working-set activity', () => {
     ]
     const before = mobileWorkingSetIds(['a', 'b'], sessions)
 
-    expect(mobileWorkingSetIds(['d', 'b'], sessions, before)).toEqual(before)
+    expect(mobileWorkingSetIds(['d', 'b'], sessions, before, 'd')).toEqual(before)
+  })
+
+  it('changes exactly one trailing non-required slot for an off-strip focus', () => {
+    const previous = ['s5', 's8', 's7', 's6']
+    const sessions = [...previous, 's1'].map((id) => ({ id }))
+
+    const next = mobileWorkingSetIds(['s1'], sessions, previous, 's1')
+    const changedSlots = next.filter((id, index) => id !== previous[index])
+
+    expect(next).toEqual(['s5', 's8', 's7', 's1'])
+    expect(changedSlots).toHaveLength(1)
+  })
+
+  it('keeps surviving slots at their indices when it fills a vacancy', () => {
+    const sessions = ['s5', 's7', 's6', 's1'].map((id) => ({ id }))
+
+    expect(mobileWorkingSetIds(['s1'], sessions, ['s5', 'missing', 's7', 's6'], 's1'))
+      .toEqual(['s5', 's1', 's7', 's6'])
+  })
+
+  it('returns at most four unique session-backed ids', () => {
+    const sessions = ['s1', 's2', 's3'].map((id) => ({ id }))
+    const ids = mobileWorkingSetIds(
+      ['ghost', 's1', 's1'],
+      sessions,
+      ['ghost', 's1', 's1', 'missing'],
+      'ghost',
+    )
+    const availableIds = new Set(sessions.map(({ id }) => id))
+
+    expect(ids.length).toBeLessThanOrEqual(4)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids.every((id) => availableIds.has(id))).toBe(true)
   })
 
   it('cross-fades once per message while appending streamed chunks without duplication', () => {

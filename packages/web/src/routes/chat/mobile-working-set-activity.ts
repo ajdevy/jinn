@@ -39,23 +39,63 @@ function textContent(value: unknown): string {
   }).join(' ')
 }
 
+const MOBILE_SLOT_COUNT = 4
+
+function retainedMobileSlots(
+  previousIds: readonly string[],
+  availableIds: ReadonlySet<string>,
+): Array<string | undefined> {
+  const slots: Array<string | undefined> = Array.from({ length: MOBILE_SLOT_COUNT })
+  for (let index = 0; index < Math.min(previousIds.length, slots.length); index += 1) {
+    const id = previousIds[index]
+    if (availableIds.has(id) && !slots.includes(id)) slots[index] = id
+  }
+  return slots
+}
+
+function seatRequiredMobileIds(slots: Array<string | undefined>, requiredIds: readonly string[]) {
+  const requiredSet = new Set(requiredIds)
+  for (const id of requiredIds) {
+    if (slots.includes(id)) continue
+    const vacancy = slots.findIndex((slot) => !slot)
+    if (vacancy >= 0) {
+      slots[vacancy] = id
+      continue
+    }
+    let replaceIndex = slots.length - 1
+    while (replaceIndex >= 0 && requiredSet.has(slots[replaceIndex] ?? '')) replaceIndex -= 1
+    if (replaceIndex >= 0) slots[replaceIndex] = id
+  }
+}
+
+function fillMobileSlotVacancies(
+  slots: Array<string | undefined>,
+  candidateIds: readonly string[],
+  availableIds: ReadonlySet<string>,
+) {
+  for (const id of candidateIds) {
+    if (!availableIds.has(id) || slots.includes(id)) continue
+    const vacancy = slots.findIndex((slot) => !slot)
+    if (vacancy < 0) return
+    slots[vacancy] = id
+  }
+}
+
 export function mobileWorkingSetIds(
   memberIds: readonly string[],
   sessions: ReadonlyArray<{ id?: unknown }>,
   previousIds: readonly string[] = [],
+  focusedId: string | null = null,
 ): string[] {
-  const ids: string[] = []
-  const availableIds = new Set([
-    ...memberIds,
-    ...sessions.map((session) => String(session.id ?? '')).filter(Boolean),
-  ])
-  const add = (id: string) => {
-    if (id && !ids.includes(id) && ids.length < 4) ids.push(id)
-  }
-  previousIds.filter((id) => availableIds.has(id)).forEach(add)
-  memberIds.forEach(add)
-  sessions.forEach((session) => add(String(session.id ?? '')))
-  return ids
+  const sessionIds = sessions.map((session) => String(session.id ?? '')).filter(Boolean)
+  const availableIds = new Set(sessionIds)
+  const slots = retainedMobileSlots(previousIds, availableIds)
+  const requiredIds = [...new Set([focusedId, ...memberIds])]
+    .filter((id): id is string => !!id && availableIds.has(id))
+    .slice(0, slots.length)
+  seatRequiredMobileIds(slots, requiredIds)
+  fillMobileSlotVacancies(slots, [...memberIds, ...sessionIds], availableIds)
+  return slots.filter((id): id is string => !!id)
 }
 
 export function clearMobileWorkingSetMoved(
