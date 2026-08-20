@@ -1,10 +1,10 @@
 import { useState } from "react"
 import { OptionPills } from "@/components/ui/option-pills"
-import type { WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowRunDetailWire } from "@/lib/api"
 import type { WorkflowNodeWire } from "./editor/ports"
 import { Note, Section, formatStarted } from "./run-support"
 
-type WorkflowApprovalWire = WorkflowRunDetailV2Wire["approvals"][number]
+type WorkflowApprovalWire = WorkflowRunDetailWire["approvals"][number]
 
 /** What the operator adds to a decision: the variant they picked, and why. */
 export interface ApprovalDecisionExtra {

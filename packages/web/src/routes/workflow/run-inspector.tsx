@@ -218,53 +218,6 @@ function SessionSection({ sessionId }: { sessionId: string }) {
   )
 }
 
-function ApprovalSection({ approval, onDecide, deciding }: {
-  approval: WorkflowRunDetailWire["approvals"][number]
-  onDecide: (nodeId: string, decision: "approve" | "reject") => void
-  deciding: boolean
-}) {
-  if (approval.status === "pending") {
-    return (
-      <Section title="Approval">
-        <div className="rounded-[10px] bg-[var(--fill-quaternary)] px-3 py-2.5">
-          <p className="text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
-            Requested {formatStarted(approval.requestedAt)}
-            {approval.approverRef ? ` · ${approval.approverRef}` : ""}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "approve")}
-              className="h-7 flex-1 rounded-full bg-[var(--accent)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "reject")}
-              className="h-7 flex-1 rounded-full bg-[var(--fill-secondary)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--system-red)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      </Section>
-    )
-  }
-  return (
-    <Section title="Approval">
-      <Note>
-        {approval.status === "approved" ? "Approved" : "Rejected"}
-        {approval.decidedBy ? ` by ${approval.decidedBy}` : ""}
-        {approval.decidedAt ? ` · ${formatStarted(approval.decidedAt)}` : ""}
-        {approval.reason ? ` — ${approval.reason}` : ""}
-      </Note>
-    </Section>
-  )
-}
-
 function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: WorkflowNodeRunWire | undefined }) {
   const port = nodeRun?.output?.fields?.["port"]
   if (typeof port !== "string") return null
