@@ -9,10 +9,12 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowNodeWire, WorkflowRunDetailWire } from "@/lib/api"
+import type { JsonValueWire, WorkflowNodeWire, WorkflowRunDetailWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 import { RunInspector } from "../run-inspector"
+
+const STAMP = "2026-08-05T12:00:00.000Z"
 
 const PLANNED_DEGREE = { source: "node", nodeId: "plan", path: "fields.degree" } as const
 
@@ -35,20 +37,26 @@ function renderEditor(config: WorkflowCallConfig) {
   return store
 }
 
-function renderRun(resolvedConfig: Record<string, unknown>) {
-  const detail = {
-    schemaVersion: 1, workflowId: "publish", id: "run_1", status: "running",
-    startedAt: "2026-08-05T12:00:00.000Z", endedAt: null, revision: 1,
+function renderRun(resolvedConfig: Record<string, JsonValueWire>) {
+  const detail: WorkflowRunDetailWire = {
+    workflowId: "publish", workflowTitle: "Publish", definitionRevision: 1, id: "run_1", status: "running",
+    startedAt: STAMP, revision: 1, spendUsd: 0,
     trigger: { kind: "manual", nodeId: "start", payload: {} }, input: {},
     definition: {
       schemaVersion: 1, id: "publish", title: "Publish", revision: 1, enabled: true,
-      createdAt: "2026-08-05T12:00:00.000Z", updatedAt: "2026-08-05T12:00:00.000Z",
-      nodes: [{ id: "fanout", type: "workflow-call", name: "Publish items", config: { workflowId: { source: "fixed", value: "publish-item" } } }],
+      createdAt: STAMP, updatedAt: STAMP,
+      nodes: [{
+        id: "fanout", type: "workflow-call", name: "Publish items",
+        config: { workflowId: { source: "fixed", value: "publish-item" }, concurrency: 2 },
+      }],
       edges: [], ui: { positions: { fanout: { x: 0, y: 0 } } },
     },
-    nodeRuns: [{ nodeId: "fanout", status: "running", activated: true, startedAt: "2026-08-05T12:00:00.000Z", endedAt: null, resolvedConfig }],
+    nodeRuns: [{
+      runId: "run_1", nodeId: "fanout", nodeType: "workflow-call", status: "running",
+      activated: true, startedAt: STAMP, resolvedConfig,
+    }],
     attempts: [], approvals: [], childRuns: [],
-  } as unknown as WorkflowRunDetailWire
+  }
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RunInspector detail={detail} nodeId="fanout" onClose={() => undefined} onDecide={() => undefined} deciding={false} />
