@@ -8,7 +8,7 @@ import {
 } from "react"
 import { cn } from "@/lib/utils"
 import { OrbCanvas } from "./orb-canvas"
-import type { OrbState } from "./orb-motion"
+import type { OrbState, OrbVariant } from "./orb-motion"
 import { nearestCorner, readPark, writePark, type ParkCorner, type Point } from "./orb-park"
 import { dockPath } from "./situation-choreography"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
@@ -124,6 +124,7 @@ function useOrbDrag() {
 interface TalkOrbProps {
   /** What the orb is doing. Motion is the only channel — the orb carries no text. */
   state?: OrbState
+  variant?: OrbVariant
   /** Live 0..1 amplitude driving the lobes. Absent until something is talking. */
   levelRef?: RefObject<number>
   /** Where the sphere's centre should sit while a situation is open, in viewport
@@ -215,7 +216,7 @@ function sphereStyle(drag: Point | null, flight: Flight | null, reduce: boolean)
  * hand every tap meant for the sphere to the scrim and the orb would go dead for
  * exactly as long as a decision is on screen.
  */
-export function TalkOrb({ state = "idle", levelRef, dock, active = false, label, onToggle }: TalkOrbProps) {
+export function TalkOrb({ variant = "mist", state = "idle", levelRef, dock, active = false, label, onToggle }: TalkOrbProps) {
   const silent = useRef(0)
   const sphereRef = useRef<HTMLButtonElement | null>(null)
   const { corner, offset, takeDragged, handlers } = useOrbDrag()
@@ -235,13 +236,14 @@ export function TalkOrb({ state = "idle", levelRef, dock, active = false, label,
         ref={sphereRef}
         data-talk-orb
         data-orb-state={state}
+        data-orb-variant={variant}
         type="button"
         aria-label={label ?? (active ? "End voice session" : "Start voice session")}
         aria-pressed={active}
         className={cn(
           "pointer-events-auto absolute cursor-grab touch-none overflow-hidden rounded-full",
           "appearance-none border-none bg-transparent p-0",
-          "shadow-[var(--shadow-key)] outline-none active:cursor-grabbing",
+          "outline-none active:cursor-grabbing",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
           CORNER_CLASS[corner],
         )}
@@ -249,7 +251,7 @@ export function TalkOrb({ state = "idle", levelRef, dock, active = false, label,
         onClick={onClick}
         {...handlers}
       >
-        <OrbCanvas state={state} levelRef={levelRef ?? silent} size={SPHERE_SIZE} />
+        <OrbCanvas variant={variant} state={state} levelRef={levelRef ?? silent} size={SPHERE_SIZE} />
       </button>
     </div>
   )

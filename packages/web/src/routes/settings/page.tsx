@@ -490,7 +490,7 @@ export default function SettingsPage() {
                 </div>
               </FieldRow>
               <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-                A floating sphere you can drag to any corner. It shows what the
+                A floating voice control you can drag to any corner. It shows what the
                 assistant is doing through motion alone.
               </div>
               {/* Said here rather than on the first press, which is where the

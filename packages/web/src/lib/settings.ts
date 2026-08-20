@@ -1,7 +1,11 @@
+import { isOrbVariant, type OrbVariant } from "@/components/talk/orb-motion"
+
 export interface EmployeeOverride {
   emoji?: string
   profileImage?: string
 }
+
+export type TalkMicrophone = "far_field" | "near_field"
 
 export interface JinnSettings {
   accentColor: string | null
@@ -17,6 +21,10 @@ export interface JinnSettings {
   language: string
   /** The floating Talk orb. Off until something is there for it to talk to. */
   talkOrb: boolean
+  /** The persisted visual strategy for the floating Talk control. */
+  talkOrbVariant: OrbVariant
+  /** Provider-side filtering for the microphone used by Talk. */
+  talkMicrophone: TalkMicrophone
   employeeOverrides: Record<string, EmployeeOverride>
 }
 
@@ -33,6 +41,8 @@ export const DEFAULTS: JinnSettings = {
   operatorEmoji: null,
   language: "English",
   talkOrb: false,
+  talkOrbVariant: "mist",
+  talkMicrophone: "far_field",
   employeeOverrides: {},
 }
 
@@ -44,7 +54,12 @@ export function loadSettings(): JinnSettings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULTS }
     const parsed = JSON.parse(raw)
-    return { ...DEFAULTS, ...parsed }
+    const merged = { ...DEFAULTS, ...parsed } as JinnSettings
+    if (!isOrbVariant(merged.talkOrbVariant)) merged.talkOrbVariant = DEFAULTS.talkOrbVariant
+    if (merged.talkMicrophone !== "near_field" && merged.talkMicrophone !== "far_field") {
+      merged.talkMicrophone = DEFAULTS.talkMicrophone
+    }
+    return merged
   } catch {
     return { ...DEFAULTS }
   }

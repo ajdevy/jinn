@@ -1,4 +1,6 @@
 import { APPROVAL_TOOLS } from "./approval-tools"
+import { CHAT_MESSAGE_SEARCH_TOOL } from "./chat-message-search"
+import { CHAT_COMPOSER_TOOLS } from "./chat-composer-tools"
 import { afterNextPaint, nowMs, recordToolTiming } from "./budget"
 import { CONSENT_TOOLS } from "./consent-tools"
 import { ESCAPE_HATCH_TOOL } from "./escape-hatch"
@@ -26,6 +28,8 @@ export const TALK_TOOLS: readonly TalkTool[] = [
   ...NAVIGATE_TOOLS,
   ...RESOLVE_TOOLS,
   ...READ_TOOLS,
+  CHAT_MESSAGE_SEARCH_TOOL,
+  ...CHAT_COMPOSER_TOOLS,
   ...WRITE_TOOLS,
   ...CONSENT_TOOLS,
   ...APPROVAL_TOOLS,

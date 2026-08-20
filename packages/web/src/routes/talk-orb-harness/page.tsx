@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { ORB_STATES, type OrbState } from "@/components/talk/orb-motion"
+import { OrbCanvas } from "@/components/talk/orb-canvas"
+import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
+import { ORB_STATES, ORB_VARIANTS, type OrbState } from "@/components/talk/orb-motion"
 import type { SituationPayload } from "@/components/talk/situation-payload"
 import {
   presentSituation,
@@ -7,7 +9,9 @@ import {
   useDeferredSituation,
 } from "@/components/talk/talk-situation-store"
 import { TalkSurface } from "@/components/talk/talk-surface"
+import { usePrefersReducedMotion } from "@/components/talk/use-reduced-motion"
 import { cn } from "@/lib/utils"
+import { useSettings } from "@/routes/settings-provider"
 import { SITUATION_KINDS, situationFixture } from "./situation-fixtures"
 import { ToolBench } from "./tool-bench"
 
@@ -20,8 +24,9 @@ import { ToolBench } from "./tool-bench"
 /** A pair of beating sines reads as speech; one sine reads as a metronome. */
 function useSyntheticLevel(state: OrbState) {
   const level = useRef(0)
+  const reduce = usePrefersReducedMotion()
   useEffect(() => {
-    if (state !== "listening" && state !== "speaking") {
+    if (reduce || (state !== "listening" && state !== "speaking")) {
       level.current = 0
       return
     }
@@ -33,8 +38,48 @@ function useSyntheticLevel(state: OrbState) {
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [state])
+  }, [reduce, state])
   return level
+}
+
+const QUIET_LEVEL = { current: 0 }
+
+function VariantGallery() {
+  return (
+    <div className="grid grid-cols-1 gap-[var(--space-3)] xl:grid-cols-2">
+      {ORB_VARIANTS.map((variant) => (
+        <section
+          key={variant}
+          className="rounded-[var(--radius-xl)] bg-[var(--fill-quaternary)] p-[var(--space-4)] shadow-[var(--shadow-subtle)]"
+        >
+          <h2
+            data-orb-variant-heading={variant}
+            className="mb-[var(--space-3)] text-[length:var(--text-headline)] font-medium capitalize text-[var(--text-primary)]"
+          >
+            {variant}
+          </h2>
+          <div className="grid grid-cols-3 gap-[var(--space-2)] sm:grid-cols-6">
+            {ORB_STATES.map((state) => (
+              <div
+                key={state}
+                data-orb-preview
+                data-orb-variant={variant}
+                data-orb-state={state}
+                className="min-w-0 rounded-[var(--radius-md)] bg-[var(--material-ultra-thin)] px-[var(--space-1)] py-[var(--space-2)] text-center"
+              >
+                <div className="flex justify-center">
+                  <OrbCanvas variant={variant} state={state} levelRef={QUIET_LEVEL} size={56} motion="still" />
+                </div>
+                <span className="block truncate text-[length:var(--text-caption2)] capitalize text-[var(--text-secondary)]">
+                  {state}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
 }
 
 function StatePicker({ state, onPick }: { state: OrbState; onPick: (next: OrbState) => void }) {
@@ -46,7 +91,7 @@ function StatePicker({ state, onPick }: { state: OrbState; onPick: (next: OrbSta
           onClick={() => onPick(option)}
           aria-pressed={option === state}
           className={cn(
-            "h-[38px] cursor-pointer rounded-full border-none px-4 text-[length:var(--text-subheadline)] capitalize",
+            "min-h-10 cursor-pointer rounded-full border-none px-4 text-[length:var(--text-subheadline)] capitalize transition-transform duration-150 ease-out active:scale-[0.96]",
             option === state
               ? "bg-[var(--accent-fill)] text-[var(--accent)]"
               : "bg-[var(--fill-tertiary)] text-[var(--text-secondary)]",
@@ -60,7 +105,7 @@ function StatePicker({ state, onPick }: { state: OrbState; onPick: (next: OrbSta
 }
 
 const BENCH_BUTTON = cn(
-  "h-[38px] cursor-pointer rounded-full border-none px-4",
+  "min-h-10 cursor-pointer rounded-full border-none px-4",
   "text-[length:var(--text-subheadline)]",
 )
 
@@ -100,33 +145,40 @@ function SituationPicker({ onPick }: { onPick: (kind: SituationPayload["kind"]) 
   )
 }
 
-/** Something for the orb to keep animating in front of. */
-function ScrollBed() {
-  return (
-    <div className="mt-[var(--space-5)] flex flex-col gap-[var(--space-3)]">
-      {Array.from({ length: 40 }, (_, row) => (
-        <div
-          key={row}
-          className="h-[72px] rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)]"
-        />
-      ))}
-    </div>
-  )
-}
-
 export default function TalkOrbHarnessPage() {
   const [state, setState] = useState<OrbState>("idle")
   const levelRef = useSyntheticLevel(state)
+  const { settings, setTalkOrbVariant } = useSettings()
 
   return (
-    <div className="h-dvh overflow-y-auto bg-[var(--bg)] px-[var(--space-5)] py-[var(--space-6)]">
-      <StatePicker state={state} onPick={setState} />
-      <SituationPicker onPick={(kind) => presentSituation(situationFixture(kind))} />
-      <div className="mt-[var(--space-5)]">
-        <ToolBench />
-      </div>
-      <ScrollBed />
-      <TalkSurface state={state} levelRef={levelRef} />
+    <div className="h-dvh overflow-y-auto bg-[var(--bg)] px-[var(--space-4)] py-[var(--space-6)] sm:px-[var(--space-6)]">
+      <main className="mx-auto max-w-[1000px] pb-28">
+        <h1 className="text-balance text-[length:var(--text-title2)] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+          Talk orb
+        </h1>
+        <p className="mb-[var(--space-5)] mt-[var(--space-2)] max-w-[58ch] text-pretty text-[length:var(--text-subheadline)] text-[var(--text-secondary)]">
+          Choose a calm shape, then compare how every voice state reads. Your choice follows the floating control across reloads.
+        </p>
+
+        <OrbVariantPicker
+          value={settings.talkOrbVariant}
+          onChange={setTalkOrbVariant}
+          state={state}
+          className="mb-[var(--space-4)]"
+        />
+        <StatePicker state={state} onPick={setState} />
+
+        <div className="mt-[var(--space-5)]">
+          <VariantGallery />
+        </div>
+
+        <details className="mt-[var(--space-5)] rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] p-[var(--space-4)] text-[var(--text-secondary)]">
+          <summary className="min-h-10 cursor-pointer text-[length:var(--text-footnote)]">Developer controls</summary>
+          <SituationPicker onPick={(kind) => presentSituation(situationFixture(kind))} />
+          <div className="mt-[var(--space-5)]"><ToolBench /></div>
+        </details>
+      </main>
+      <TalkSurface variant={settings.talkOrbVariant} state={state} levelRef={levelRef} />
     </div>
   )
 }

@@ -1,4 +1,3 @@
-
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import {
   type JinnSettings,
@@ -31,6 +30,8 @@ interface SettingsContextValue {
   setOperatorEmoji: (emoji: string | null) => void
   setLanguage: (language: string) => void
   setTalkOrb: (enabled: boolean) => void
+  setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
+  setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
   getEmployeeDisplay: (employee: { name: string; emoji: string; id: string }) => EmployeeDisplay
@@ -51,6 +52,8 @@ const SettingsContext = createContext<SettingsContextValue>({
   setOperatorEmoji: () => {},
   setLanguage: () => {},
   setTalkOrb: () => {},
+  setTalkOrbVariant: () => {},
+  setTalkMicrophone: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
@@ -128,80 +131,81 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     },
     [update],
   )
-
   const setPortalName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, portalName: name || null }))
     },
     [update],
   )
-
   const setCompanyName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, companyName: name || null }))
     },
     [update],
   )
-
   const setPortalSubtitle = useCallback(
     (subtitle: string | null) => {
       update((prev) => ({ ...prev, portalSubtitle: subtitle || null }))
     },
     [update],
   )
-
   const setPortalEmoji = useCallback(
     (emoji: string | null) => {
       update((prev) => ({ ...prev, portalEmoji: emoji || null }))
     },
     [update],
   )
-
   const setPortalIcon = useCallback(
     (icon: string | null) => {
       update((prev) => ({ ...prev, portalIcon: icon }))
     },
     [update],
   )
-
   const setIconBgHidden = useCallback(
     (hidden: boolean) => {
       update((prev) => ({ ...prev, iconBgHidden: hidden }))
     },
     [update],
   )
-
   const setEmojiOnly = useCallback(
     (emojiOnly: boolean) => {
       update((prev) => ({ ...prev, emojiOnly }))
     },
     [update],
   )
-
   const setOperatorName = useCallback(
     (name: string | null) => {
       update((prev) => ({ ...prev, operatorName: name || null }))
     },
     [update],
   )
-
   const setOperatorEmoji = useCallback(
     (emoji: string | null) => {
       update((prev) => ({ ...prev, operatorEmoji: emoji || null }))
     },
     [update],
   )
-
   const setLanguage = useCallback(
     (language: string) => {
       update((prev) => ({ ...prev, language: language || "English" }))
     },
     [update],
   )
-
   const setTalkOrb = useCallback(
     (enabled: boolean) => {
       update((prev) => ({ ...prev, talkOrb: enabled }))
+    },
+    [update],
+  )
+  const setTalkOrbVariant = useCallback(
+    (variant: JinnSettings["talkOrbVariant"]) => {
+      update((prev) => ({ ...prev, talkOrbVariant: variant }))
+    },
+    [update],
+  )
+  const setTalkMicrophone = useCallback(
+    (microphone: JinnSettings["talkMicrophone"]) => {
+      update((prev) => ({ ...prev, talkMicrophone: microphone }))
     },
     [update],
   )
@@ -264,6 +268,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setOperatorEmoji,
         setLanguage,
         setTalkOrb,
+        setTalkOrbVariant,
+        setTalkMicrophone,
         setEmployeeOverride,
         clearEmployeeOverride,
         getEmployeeDisplay,

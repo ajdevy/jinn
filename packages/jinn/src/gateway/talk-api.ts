@@ -25,7 +25,6 @@ import { TalkSessionRepository, TalkToolReceiptRepository } from "../talk/sessio
 import { alwaysOnTools, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { json, type ParsedRoute } from "./route-helpers.js";
-import { readJsonBody } from "./http-helpers.js";
 import { handleTalkControl } from "./talk-control-api.js";
 import { talkSessionStatus } from "./talk-session-status.js";
 import { handleTalkConfigApi } from "./talk-config-api.js";
@@ -37,6 +36,9 @@ import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.
 import type { ApiContext } from "./api.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
 import { handleTalkProactiveApi } from "./talk-proactive-api.js";
+import { recordInterruption } from "./talk-interruption-api.js";
+import { readTalkAudioProfile, readTalkOpenRequest } from "./talk-audio-profile.js";
+import { talkCredentialResponse } from "./talk-credential-response.js";
 
 export interface TalkApiOptions {
   getConfig: () => JinnConfig;
@@ -95,24 +97,14 @@ function runtimeFor(session: TalkSession, options: TalkApiOptions): TalkControlR
   return runtime;
 }
 
-async function requestedBrowserId(req: IncomingMessage, res: ServerResponse): Promise<string | null | undefined> {
-  const parsed = await readJsonBody(req, res, { allowEmpty: true });
-  if (!parsed.ok) return null;
-  const value = (parsed.body as { browserInstanceId?: unknown } | undefined)?.browserInstanceId;
-  const invalid = value !== undefined && (typeof value !== "string" || value.length < 8 || value.length > 200);
-  if (!invalid) return value as string | undefined;
-  send(res, 400, { error: "A bounded browserInstanceId is required." });
-  return null;
-}
-
 /** The collection itself: POST opens a session, and nothing else lives here. */
 async function openRoute(req: IncomingMessage, res: ServerResponse, options: TalkApiOptions, method: string): Promise<boolean> {
   if (method !== "POST") return false;
-  const requestedBrowser = await requestedBrowserId(req, res);
-  if (requestedBrowser === null) return true;
+  const requested = await readTalkOpenRequest(req, res);
+  if (!requested) return true;
   const config = options.getConfig();
   const tools = alwaysOnTools();
-  const token = await mintTalkToken(res, config, tools);
+  const token = await mintTalkToken(res, config, tools, undefined, requested.noiseReduction);
   if (!token) return true; // mint already answered with 503 or 502
   // The row exists so spend reuses the session ledger. `talk` is already a
   // non-connector source, so nothing tries to reply into it.
@@ -127,30 +119,30 @@ async function openRoute(req: IncomingMessage, res: ServerResponse, options: Tal
     model: pinnedModel(config),
     brief: buildStandingBrief(config, scanOrg(config)).text,
     tokenExpiresAt: token.expiresAt,
-    ...(typeof requestedBrowser === "string" ? { browserInstanceId: requestedBrowser } : {}),
+    ...(requested.browserInstanceId ? { browserInstanceId: requested.browserInstanceId } : {}),
   });
   runtimeFor(session, options);
-  send(res, 201, { ...talkSessionStatus(session, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
+  send(res, 201, talkCredentialResponse(session, controlManifest, token, tools));
   return true;
 }
 
 /** Re-mint for an expiring credential or a resume, scoped to whatever the
  *  session has been granted so far rather than to the always-on set. */
-async function reissueToken(res: ServerResponse, config: JinnConfig, session: TalkSession): Promise<void> {
+async function reissueToken(
+  res: ServerResponse,
+  config: JinnConfig,
+  session: TalkSession,
+  noiseReduction?: "near_field" | "far_field",
+): Promise<void> {
   const tools = toolsByName(session.exposedTools);
-  const token = await mintTalkToken(res, config, tools, session.tokenExpiresAt);
+  const token = await mintTalkToken(res, config, tools, session.tokenExpiresAt, noiseReduction);
   if (!token) return;
   talkSessions.recordToken(session.id, token.expiresAt);
   const current = talkSessions.get(session.id)!;
-  send(res, 200, { ...talkSessionStatus(current, controlManifest), token: token.value, expiresAt: token.expiresAt, tools });
+  send(res, 200, talkCredentialResponse(current, controlManifest, token, tools));
 }
 
-async function recordSessionEvidence(
-  req: IncomingMessage,
-  res: ServerResponse,
-  id: string,
-  action: string,
-): Promise<boolean> {
+async function recordSessionEvidence(req: IncomingMessage, res: ServerResponse, id: string, action: string): Promise<boolean> {
   if (action === "turn") {
     await recordTurn(req, res, talkSessions.heartbeat(id), talkSessions);
     return true;
@@ -161,6 +153,10 @@ async function recordSessionEvidence(
   }
   if (action === "context") {
     await handleTalkTopicContext(req, res, talkSessions.heartbeat(id), { send });
+    return true;
+  }
+  if (action === "interruptions") {
+    await recordInterruption(req, res, talkSessions.heartbeat(id), talkSessions);
     return true;
   }
   return false;
@@ -192,6 +188,16 @@ function parkTransportSession(id: string): TalkSession {
   return current?.state === "parked" ? current : talkSessions.park(id);
 }
 
+async function rotateSessionCredential(req: IncomingMessage, res: ServerResponse, id: string,
+  options: TalkApiOptions, resume: boolean): Promise<boolean> {
+  const noiseReduction = await readTalkAudioProfile(req, res);
+  if (noiseReduction === null) return true;
+  const session = resume ? talkSessions.resume(id) : talkSessions.heartbeat(id);
+  if (resume) runtimeFor(session, options);
+  await reissueToken(res, options.getConfig(), session, noiseReduction);
+  return true;
+}
+
 /** `/api/talk/sessions/:id/<action>`. Every branch resolves the session through
  *  the registry, which raises a typed 404 of its own when the id is unknown. */
 async function sessionAction(
@@ -206,15 +212,10 @@ async function sessionAction(
     case "park":
       send(res, 200, talkSessionStatus(parkTransportSession(id), controlManifest));
       return true;
-    case "resume": {
-      const session = talkSessions.resume(id);
-      runtimeFor(session, options);
-      await reissueToken(res, options.getConfig(), session);
-      return true;
-    }
+    case "resume":
+      return rotateSessionCredential(req, res, id, options, true);
     case "token":
-      await reissueToken(res, options.getConfig(), talkSessions.heartbeat(id));
-      return true;
+      return rotateSessionCredential(req, res, id, options, false);
     case "heartbeat":
       send(res, 200, talkSessionStatus(talkSessions.heartbeat(id), controlManifest));
       return true;

@@ -60,4 +60,3 @@ export function workflowToolHeaders(sessionId: string): Record<string, string> {
     [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(sessionId),
   };
 }
-

@@ -28,6 +28,7 @@ export function talkSessionStatus(session: TalkSession, manifest: TalkControlMan
     turns: session.turns,
     truncatedTurns: session.truncatedTurns,
     actions: session.actions,
+    interruptions: session.interruptions ?? [],
     brief: session.brief,
     // The brief rides replaced instructions, outside the rolling turn budget.
     briefChars: session.brief.length,

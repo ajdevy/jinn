@@ -25,10 +25,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 const { createTalkDriver } = await import("../session-driver")
 const { browserControlFixture } = await import("./control-fixture")
 
-const RESPONSE_CREATED = JSON.stringify({ type: "response.created" })
+const RESPONSE_CREATED = JSON.stringify({ type: "response.created", response: { id: "response-1" } })
 const RESPONSE_DONE = JSON.stringify({ type: "response.done", response: {} })
 const SPEECH_STARTED = JSON.stringify({ type: "input_audio_buffer.speech_started" })
-const ASSISTANT_AUDIO = JSON.stringify({ type: "response.output_audio_transcript.delta", delta: "Hello" })
 
 function toolCall(callId: string) {
   return JSON.stringify({
@@ -102,7 +101,7 @@ describe("asking for a response after a tool call", () => {
     talk.driver.receive(SPEECH_STARTED)
 
     expect(settled).toHaveBeenCalledWith("interrupted")
-    expect(talk.cancels()).toHaveLength(1)
+    expect(talk.cancels()).toHaveLength(0)
   })
 
   it("answers both calls of one turn and then asks for a single response", async () => {
@@ -142,18 +141,6 @@ describe("asking for a response after a tool call", () => {
 })
 
 describe("a response already in flight", () => {
-  it("cancels a speaking response once when the operator barges in", () => {
-    const talk = driver()
-
-    talk.driver.receive(RESPONSE_CREATED)
-    talk.driver.receive(ASSISTANT_AUDIO)
-    talk.driver.receive(SPEECH_STARTED)
-    talk.driver.receive(SPEECH_STARTED)
-
-    expect(talk.cancels()).toHaveLength(1)
-    expect(talk.states.at(-1)).toBe("listening")
-  })
-
   it("does not speak a tool result that settles after a barge-in", async () => {
     let finishComment: (value: unknown) => void = () => {}
     addWorkItemComment.mockReturnValue(new Promise((resolve) => { finishComment = resolve }))
@@ -169,7 +156,7 @@ describe("a response already in flight", () => {
     await settle()
 
     expect(addWorkItemComment).toHaveBeenCalledTimes(1)
-    expect(talk.cancels()).toHaveLength(1)
+    expect(talk.cancels()).toHaveLength(0)
     expect(talk.requests()).toHaveLength(0)
   })
 

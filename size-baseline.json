@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5764,
+      "lines": 5761,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1152,7 +1152,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1104,
+      "lines": 1074,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1392,
+      "lines": 1349,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1243,7 +1243,6 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 343,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1672,7 +1671,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1633,
+      "lines": 1615,
       "exempt": [
         "complexity",
         "max-lines-per-function"

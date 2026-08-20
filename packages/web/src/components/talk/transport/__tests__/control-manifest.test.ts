@@ -25,4 +25,23 @@ describe("the browser's gateway-issued Talk manifest", () => {
     expect(functionTools(manifest)).toEqual([{ type: "function", name: "open_todo", description: operation.description, parameters: operation.parameters }])
     expect(findTool(operation.name)).toBeDefined()
   })
+
+  it("has a registered browser executor for on-demand chat search", () => {
+    const search = {
+      ...operation,
+      name: "talk_search_chat_messages",
+      target: "browser" as const,
+      mutability: "read" as const,
+      parameters: {
+        type: "object" as const,
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        additionalProperties: false as const,
+      },
+    }
+    const manifest = parseTalkControlManifest({ version: 1, operations: [search] })!
+
+    expect(functionTools(manifest)[0]?.name).toBe("talk_search_chat_messages")
+    expect(findTool("talk_search_chat_messages")).toBeDefined()
+  })
 })

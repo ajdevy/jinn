@@ -145,7 +145,7 @@ async function openSession(controls: SessionControls): Promise<void> {
     rememberResumableTalkSession(opened)
     setTalkSessionId(opened)
     const identity = { browserInstanceId: session.browserInstanceId, credentialGeneration: session.credentialGeneration,
-      topicMemory: session.topicMemory }
+      topicMemory: session.topicMemory, vadType: session.vadType }
     const attachment = await controls.attach(opened, session.token, session.brief, session.manifest, identity)
     if (generation !== controls.generationRef.current) {
       detach(attachment)

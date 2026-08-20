@@ -11,6 +11,7 @@ import type { OrbState } from "../orb-motion"
 import { createTalkDriver, type TalkDriver } from "./session-driver"
 import type { ConnectRealtime, TalkConnection } from "./webrtc-connection"
 import type { TalkControlManifest } from "./control-manifest"
+import { postTalkInterruption, type TalkVadType } from "./session-client"
 
 export interface Attachment {
   connection: TalkConnection
@@ -21,6 +22,7 @@ export interface TalkCredentialIdentity {
   browserInstanceId: string
   credentialGeneration: number
   topicMemory?: string
+  vadType?: TalkVadType
 }
 
 /** Drop both halves. Called wherever the connection goes: close, park, page
@@ -39,6 +41,15 @@ function reportConnectionClose(
     setError("The realtime connection was interrupted.")
     setState("error")
   } else setState("idle")
+}
+
+function reportDriverState(
+  state: OrbState,
+  setState: (state: OrbState) => void,
+  setError: (message: string | null) => void,
+): void {
+  if (state !== "error") setError(null)
+  setState(state)
 }
 
 /**
@@ -71,11 +82,10 @@ export function useAttach(
         brief,
         topicMemory: identity.topicMemory,
         manifest,
+        vadType: identity.vadType ?? "semantic_vad",
+        onInterruption: (event) => { void postTalkInterruption(id, event).catch(() => {}) },
         send: (event) => connection?.send(event),
-        onState: (state) => {
-          if (state !== "error") setError(null)
-          setState(state)
-        },
+        onState: (state) => reportDriverState(state, setState, setError),
         onError: setError,
       })
 
