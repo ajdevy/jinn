@@ -12,7 +12,8 @@ import type {
 import type { JsonValue, TriggerNode, WorkflowDefinition } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
-import type { ResolvedEmployeeConfig } from "../runtime.js";
+import type { ResolvedEmployeeConfig, WorkflowRunDetail } from "../runtime.js";
+import { assertCallableCaller } from "../session-caller.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
 
@@ -67,11 +68,12 @@ function save(id: string, trigger: TriggerNode["config"] = { kind: "manual" }): 
   return service.setEnabled({ id, enabled: true, expectedRevision: saved.revision });
 }
 
-/** A run an event fire started, whose payload carries a `caller` key of its own,
- *  sitting on a live attempt of its Employee node. */
-function fireWithBusinessCaller(definition: WorkflowDefinition, config: ResolvedEmployeeConfig, caller: JsonValue): string {
+/** A run sitting on a live attempt of its Employee node, whose trigger payload
+ *  carries a `caller` key — ancestry on a manual fire, business data on an event. */
+function runWithCallerPayload(definition: WorkflowDefinition, config: ResolvedEmployeeConfig,
+  caller: JsonValue, kind: "manual" | "event"): string {
   const created = repository.createRun({ workflowId: definition.id, input: {},
-    trigger: { nodeId: "start", kind: "event", payload: { caller } } });
+    trigger: { nodeId: "start", kind, payload: { caller } } });
   const run = repository.getRun(definition.id, created.id)!;
   repository.mutateRun(run.id, run.revision, (tx) => {
     tx.setNodeStatus("work", "running", { activated: true, startedAt: NOW });
@@ -125,6 +127,35 @@ describe("Workflow runs started from an attempt session", () => {
     })).rejects.toMatchObject({ code: "bad-input", message: "Workflow call recursion is not allowed." });
   });
 
+  it("refuses an ancestry that loops back on itself", async () => {
+    const chain = save("chain-flow");
+    const target = save("target-flow");
+    const seed = await service.startManual({ workflowId: chain.id, input: {} });
+    const resolvedConfig = service.getRun(chain.id, seed.id)!.attempts[0]!.resolvedConfig;
+    const first = repository.createRun({ workflowId: chain.id, input: {},
+      trigger: { nodeId: "start", kind: "manual", payload: {} } }).id;
+    const second = runWithCallerPayload(chain, resolvedConfig,
+      { workflowId: chain.id, runId: first, nodeId: "work" }, "manual");
+
+    // `createRun` mints its own run id, so no run can name a successor at the
+    // moment it is written. The loop is closed over the read instead — the shape
+    // a hand-edited or half-restored ledger would hand the guard.
+    const looped: Parameters<typeof assertCallableCaller>[0] = {
+      findAttemptBySessionId: (sessionId) => repository.findAttemptBySessionId(sessionId),
+      listRecoverableRuns: () => repository.listRecoverableRuns(),
+      getRun: (workflowId, runId): WorkflowRunDetail | null => {
+        const run = repository.getRun(workflowId, runId);
+        if (!run || run.id !== first) return run;
+        return { ...run, trigger: { ...run.trigger,
+          payload: { caller: { workflowId: chain.id, runId: second, nodeId: "work" } } } };
+      },
+    };
+
+    expect(() => assertCallableCaller(looped, target.id,
+      { workflowId: chain.id, runId: second, nodeId: "work" }))
+      .toThrow("Workflow caller ancestry contains a cycle.");
+  });
+
   it("refuses an ancestry nested deeper than the cap", async () => {
     const chain = save("chain-flow");
     const target = save("target-flow");
@@ -171,8 +202,8 @@ describe("Workflow runs started from an attempt session", () => {
     const events = save("event-flow", { kind: "event", eventName: "thing.happened" });
     const seed = await service.startManual({ workflowId: alpha.id, input: {} });
     const config = service.getRun(alpha.id, seed.id)!.attempts[0]!.resolvedConfig;
-    const fired = fireWithBusinessCaller(events, config,
-      { workflowId: alpha.id, runId: "run_11111111-2222-4333-8444-555555555555", nodeId: "work" });
+    const fired = runWithCallerPayload(events, config,
+      { workflowId: alpha.id, runId: "run_11111111-2222-4333-8444-555555555555", nodeId: "work" }, "event");
 
     const spawned = await service.startManual({
       workflowId: beta.id, input: {}, callerSessionId: attemptSession(fired),
@@ -187,7 +218,7 @@ describe("Workflow runs started from an attempt session", () => {
     const parent = await service.startManual({ workflowId: alpha.id, input: {} });
     const config = service.getRun(alpha.id, parent.id)!.attempts[0]!.resolvedConfig;
 
-    fireWithBusinessCaller(events, config, { workflowId: alpha.id, runId: parent.id, nodeId: "work" });
+    runWithCallerPayload(events, config, { workflowId: alpha.id, runId: parent.id, nodeId: "work" }, "event");
 
     expect(service.getRun(alpha.id, parent.id)!.childRuns).toEqual([]);
   });
