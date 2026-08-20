@@ -1,10 +1,10 @@
 import { useState } from "react"
 import { OptionPills } from "@/components/ui/option-pills"
-import type { WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowRunDetailWire } from "@/lib/api"
 import type { WorkflowNodeWire } from "./editor/ports"
 import { Note, Section, formatStarted } from "./run-support"
 
-type WorkflowApprovalWire = WorkflowRunDetailV2Wire["approvals"][number]
+type WorkflowApprovalWire = WorkflowRunDetailWire["approvals"][number]
 
 /** What the operator adds to a decision: the variant they picked, and why. */
 export interface ApprovalDecisionExtra {
@@ -24,10 +24,14 @@ function approvalOptions(node: WorkflowNodeWire): string[] {
 const SUBMIT =
   "focus-ring min-h-11 min-w-0 flex-1 truncate rounded-full px-3 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] outline-none transition-opacity hover:opacity-90 disabled:opacity-50 sm:min-h-9"
 
-function DecidedNote({ approval }: { approval: WorkflowApprovalWire }) {
+/** A settled gate still has to say which variant was picked. On a gate that
+ *  offered choices the pick *is* the decision, and it outlives the decision on
+ *  the node output — the approval record never carries it. */
+function DecidedNote({ approval, choice }: { approval: WorkflowApprovalWire; choice?: string }) {
   return (
     <Note>
       {approval.status === "approved" ? "Approved" : "Rejected"}
+      {choice ? ` · ${choice}` : ""}
       {approval.decidedBy ? ` by ${approval.decidedBy}` : ""}
       {approval.decidedAt ? ` · ${formatStarted(approval.decidedAt)}` : ""}
       {approval.reason ? ` — ${approval.reason}` : ""}
@@ -119,11 +123,12 @@ function PendingDecision({ options, approval, onDecide, deciding }: {
   )
 }
 
-export function ApprovalDecision({ node, approval, onDecide, deciding }: {
+export function ApprovalDecision({ node, approval, onDecide, deciding, choice }: {
   node: WorkflowNodeWire
   approval: WorkflowApprovalWire
   onDecide: (nodeId: string, decision: "approve" | "reject", extra?: ApprovalDecisionExtra) => void
   deciding: boolean
+  choice?: string
 }) {
   return (
     <Section title="Approval">
@@ -140,7 +145,7 @@ export function ApprovalDecision({ node, approval, onDecide, deciding }: {
             deciding={deciding}
           />
         )
-        : <DecidedNote approval={approval} />}
+        : <DecidedNote approval={approval} choice={choice} />}
     </Section>
   )
 }

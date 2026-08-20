@@ -12,12 +12,22 @@ import type {
   DiscordConnectorConfig,
   McpGlobalConfig,
   ModelsConfig,
-  PortalConfig,
   SlackConnectorConfig,
   TelegramConnectorConfig,
   WebConnectorConfig,
   WhatsAppConnectorConfig,
 } from "./types.js";
+
+export interface PortalConfig {
+  companyName?: string;
+  companyPrefix?: string;
+  portalName?: string;
+  operatorName?: string;
+  operatorEmoji?: string;
+  language?: string;
+  onboarded?: boolean;
+  setupComplete?: boolean;
+}
 
 export interface JinnConfig {
   jinn?: { version?: string };

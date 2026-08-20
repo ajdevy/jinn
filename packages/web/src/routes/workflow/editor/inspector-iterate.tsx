@@ -1,7 +1,8 @@
 import { Plus, X } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Field, TextInput, type BindingWire } from "./inspector-fields"
+import { Field, TextInput } from "./inspector-fields"
+import type { WorkflowNodeOfType } from "./ports"
 
 /**
  * Authoring the loop on a Workflow Call node: the bound, and the condition each
@@ -14,11 +15,15 @@ import { Field, TextInput, type BindingWire } from "./inspector-fields"
  * `validateExecutableWorkflow` has the last word.
  */
 
-const OPERATORS = ["equals", "not-equals", "exists", "not-exists", "contains", "gt", "gte", "lt", "lte", "in"] as const
+type CallConfig = WorkflowNodeOfType<"workflow-call">["config"]
+type IterateWire = NonNullable<CallConfig["iterate"]>
+type PredicateWire = IterateWire["continueWhile"][number]
+type Operator = PredicateWire["operator"]
+
+const OPERATORS: Operator[] = ["equals", "not-equals", "exists", "not-exists", "contains", "gt", "gte", "lt", "lte", "in"]
 const MAX_ROUNDS = 20
 
-export type PredicateWire = { left?: BindingWire; operator?: string; right?: BindingWire }
-export type IterateWire = { maxRounds?: number; continueWhile?: PredicateWire[] }
+const isOperator = (value: string): value is Operator => OPERATORS.some((operator) => operator === value)
 
 /** Text typed into a comparison box, as the scalar the runner will compare. A
  *  bare number or boolean means what it looks like; everything else is a string. */
@@ -29,13 +34,13 @@ function fixedValue(text: string): string | number | boolean {
   return text.trim() !== "" && Number.isFinite(numeric) ? numeric : text
 }
 
-function comparisonText(right: BindingWire | undefined): string {
-  const value = right?.value
-  return value === undefined || value === null ? "" : String(value)
+function comparisonText(right: PredicateWire["right"]): string {
+  if (right?.source !== "fixed") return ""
+  return right.value === null ? "" : String(right.value)
 }
 
-function roundPath(left: BindingWire | undefined): string {
-  return typeof left?.path === "string" ? left.path : ""
+function roundPath(left: PredicateWire["left"]): string {
+  return left.source === "fixed" ? "" : left.path
 }
 
 function defaultPredicate(nodeId: string): PredicateWire {
@@ -70,7 +75,7 @@ function CheckRow({ nodeId, check, onChange, onRemove }: {
         </button>
       </div>
       <div className="flex gap-1">
-        <Select value={check.operator ?? "equals"} onValueChange={(operator) => onChange({ ...check, operator })}>
+        <Select value={check.operator} onValueChange={(next) => { if (isOperator(next)) onChange({ ...check, operator: next }) }}>
           <SelectTrigger aria-label="Operator" className="h-8 w-auto min-w-[104px] flex-none">
             <SelectValue />
           </SelectTrigger>
@@ -144,8 +149,8 @@ function LoopFields({ nodeId, iterate, onChange, checks, patch }: {
 
 export function IterateSection({ nodeId, config, update }: {
   nodeId: string
-  config: Record<string, unknown> & { iterate?: IterateWire }
-  update: (config: Record<string, unknown>) => void
+  config: CallConfig
+  update: (config: CallConfig) => void
 }) {
   const iterate = config.iterate
   /** Absent means absent: turning the loop off deletes the key rather than

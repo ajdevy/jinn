@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest"
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire, WorkflowNodeWire } from "@/lib/api"
 import { serializeDefinition, toFlowEdges, toFlowNodes } from "../editor/graph"
 import { tidyLayout } from "../editor/layout"
 import { outputPorts, nodeBox } from "../editor/ports"
 import { createEditorStore } from "../editor/store"
 import { AGENT_WRITTEN, SNAKE } from "./fixtures/specimen"
 
-const definition: WorkflowDefinitionV2Wire = {
+/** `ui` is optional on the wire — a freshly created workflow carries no `ui`
+ *  key — but this fixture is authored with one and the tests read it back. */
+const definition: WorkflowDefinitionWire & { ui: NonNullable<WorkflowDefinitionWire["ui"]> } = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",
@@ -48,14 +50,14 @@ describe("editor store", () => {
     const wire = serializeDefinition(meta, nodes, edges)
     expect(wire.nodes).toEqual(definition.nodes)
     expect(wire.edges).toEqual(definition.edges)
-    expect(wire.ui.positions).toEqual(definition.ui.positions)
+    expect(wire.ui?.positions).toEqual(definition.ui.positions)
     expect(wire.revision).toBe(3)
     expect(store.getState().serial).toBe(0)
   })
 
   it("round-trips workflow-call bindings without mutating their config", () => {
     const withCall = structuredClone(definition)
-    const config = {
+    const config: Extract<WorkflowNodeWire, { type: "workflow-call" }>["config"] = {
       workflowId: { source: "fixed", value: "publish-item" },
       items: { source: "node", nodeId: "route", path: "fields.items" },
       input: {
@@ -128,10 +130,10 @@ describe("editor store", () => {
     const { meta, nodes, edges } = store.getState()
     const wire = serializeDefinition(meta, nodes, edges)
 
-    expect(wire.ui.layout).toBe("manual")
-    expect(wire.ui.positions["route"]).toEqual({ x: 640, y: 220 })
+    expect(wire.ui?.layout).toBe("manual")
+    expect(wire.ui?.positions["route"]).toEqual({ x: 640, y: 220 })
     const reloaded = createEditorStore(structuredClone(wire))
-    expect(Object.fromEntries(reloaded.getState().nodes.map((node) => [node.id, node.position]))).toEqual(wire.ui.positions)
+    expect(Object.fromEntries(reloaded.getState().nodes.map((node) => [node.id, node.position]))).toEqual(wire.ui?.positions)
   })
 
   it("adds nodes with allocated ids and connects them once", () => {
@@ -163,9 +165,14 @@ describe("editor store", () => {
 
   it("prunes wires whose condition case was removed", () => {
     const store = freshStore()
-    store.getState().updateNodeConfig("route", {
-      cases: [{ port: "case-1", label: "Long", all: [] }],
-      defaultPort: "else",
+    store.getState().replaceNode({
+      id: "route",
+      type: "condition",
+      name: "Route",
+      config: {
+        cases: [{ port: "case-1", label: "Long", all: [] }],
+        defaultPort: "else",
+      },
     })
     expect(store.getState().edges.find((edge) => edge.id === "e2")).toBeUndefined()
     expect(store.getState().edges.find((edge) => edge.id === "e1")).toBeTruthy()

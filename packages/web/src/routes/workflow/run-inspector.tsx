@@ -4,13 +4,13 @@ import { ChevronDown, ChevronRight, MessageCircle, X } from "lucide-react"
 import { Link } from "react-router-dom"
 import { MarkdownView } from "@/components/markdown-view"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
-import { api, type WorkflowAttemptV2Wire, type WorkflowNodeRunV2Wire, type WorkflowRunDetailV2Wire } from "@/lib/api"
+import { api, type WorkflowAttemptWire, type WorkflowNodeRunWire, type WorkflowRunDetailWire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { useTheme } from "@/routes/providers"
 import { ApprovalDecision, type ApprovalDecisionExtra } from "./approval-decision"
 import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
-import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
+import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, fixedBinding, type WorkflowNodeOfType, type WorkflowNodeWire } from "./editor/ports"
 import { AttemptCard } from "./run-attempt-card"
 import { FieldsTable } from "./run-fields"
 import { ChildRunsSection } from "./run-rounds"
@@ -31,11 +31,10 @@ function JsonBlock({ value }: { value: unknown }) {
 /* ── section building blocks ──────────────────────────────────────────────── */
 
 function fixedEmployee(node: WorkflowNodeWire): string | null {
-  const employee = (node.config as { employee?: { source?: unknown; value?: unknown } }).employee
-  return employee?.source === "fixed" && typeof employee.value === "string" && employee.value ? employee.value : null
+  return node.type === "employee" ? fixedBinding(node.config.employee) : null
 }
 
-function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: WorkflowAttemptV2Wire | undefined }) {
+function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: WorkflowAttemptWire | undefined }) {
   const config = attempt?.resolvedConfig
   const employeeId = config?.employeeId ?? fixedEmployee(node)
   if (!employeeId) return null
@@ -186,7 +185,7 @@ function SessionSection({ sessionId }: { sessionId: string }) {
   )
 }
 
-function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: WorkflowNodeRunV2Wire | undefined }) {
+function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: WorkflowNodeRunWire | undefined }) {
   const port = nodeRun?.output?.fields?.["port"]
   if (typeof port !== "string") return null
   const label = conditionCases(node).find((item) => item.port === port)?.label
@@ -205,7 +204,7 @@ function RouteSection({ node, nodeRun }: { node: WorkflowNodeWire; nodeRun: Work
 
 /** The Todo a wait is bound to, when it is a comment-wait: this mode resumes on
  *  the operator's comment and keeps resumeAt only as its timeout deadline. */
-function commentWaitTodoId(nodeRun: WorkflowNodeRunV2Wire | undefined): string | null {
+function commentWaitTodoId(nodeRun: WorkflowNodeRunWire | undefined): string | null {
   const config = nodeRun?.resolvedConfig
   if (config?.["mode"] !== "todo-comment") return null
   const todoId = config["todoId"]
@@ -214,7 +213,7 @@ function commentWaitTodoId(nodeRun: WorkflowNodeRunV2Wire | undefined): string |
 
 /** What the fan-out was told to run at once, and the narrower number the machine
  *  allowed — so a planner's degree is never implied to have been honoured. */
-function FanoutSection({ nodeRun }: { nodeRun: WorkflowNodeRunV2Wire | undefined }) {
+function FanoutSection({ nodeRun }: { nodeRun: WorkflowNodeRunWire | undefined }) {
   const requested = nodeRun?.resolvedConfig?.["concurrency"]
   const effective = nodeRun?.resolvedConfig?.["concurrencyEffective"]
   if (typeof requested !== "number") return null
@@ -229,11 +228,10 @@ function FanoutSection({ nodeRun }: { nodeRun: WorkflowNodeRunV2Wire | undefined
   )
 }
 
-function triggerCaption(node: WorkflowNodeWire): string {
-  const config = node.config as { kind?: unknown; cron?: unknown }
+function triggerCaption(config: WorkflowNodeOfType<"trigger">["config"]): string {
   switch (config.kind) {
     case "schedule":
-      return typeof config.cron === "string" && config.cron ? `Schedule · ${config.cron}` : "Schedule"
+      return config.cron ? `Schedule · ${config.cron}` : "Schedule"
     case "event": return "On event"
     case "todo-status": return "On Todo status"
     case "workflow-call": return "Called by workflow"
@@ -244,7 +242,7 @@ function triggerCaption(node: WorkflowNodeWire): string {
 /* ── the inspector ────────────────────────────────────────────────────────── */
 
 export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
-  detail: WorkflowRunDetailV2Wire
+  detail: WorkflowRunDetailWire
   nodeId: string
   onClose: () => void
   onDecide: (nodeId: string, decision: "approve" | "reject", extra?: ApprovalDecisionExtra) => void
@@ -309,7 +307,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           {nodeRun?.error && <ErrorNote message={nodeRun.error.message} />}
           {node.type === "trigger" && (
             <Section title="Fires on">
-              <Note>{triggerCaption(node)}</Note>
+              <Note>{triggerCaption(node.config)}</Note>
             </Section>
           )}
           {node.type === "employee" && (
@@ -345,7 +343,13 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
-            <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
+            <ApprovalDecision
+              node={node}
+              approval={approval}
+              onDecide={onDecide}
+              deciding={deciding}
+              choice={nodeRun?.output?.choice}
+            />
           )}
           {/* A settled comment-wait says nothing: the node keeps its resumeAt and
               resolvedConfig after it resumes, and neither "waiting" nor "resumes"
@@ -365,7 +369,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           {node.type === "end" && (
             <>
               <Section title="Result">
-                <Note>{(node.config as { result?: unknown }).result === "failure" ? "Failure" : "Success"}</Note>
+                <Note>{node.config.result === "failure" ? "Failure" : "Success"}</Note>
               </Section>
               <OutputSection output={nodeRun?.output} isDark={isDark} />
             </>

@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5781,
+      "lines": 5764,
       "exempt": [
         "complexity",
         "max-depth",
@@ -443,7 +443,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1375,
+      "lines": 1366,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -850,7 +850,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 847
+      "lines": 837
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -908,7 +908,7 @@
       ]
     },
     "packages/jinn/src/work-items/attachments.ts": {
-      "lines": 390,
+      "lines": 362,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1043,13 +1043,13 @@
       ]
     },
     "packages/jinn/src/workflows/repository.ts": {
-      "lines": 394,
+      "lines": 385,
       "exempt": [
         "complexity"
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1060,
+      "lines": 1075,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1404,
+      "lines": 1392,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1810,
+      "lines": 1781,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1243,7 +1243,7 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 306,
+      "lines": 343,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1510,7 +1510,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1223,
+      "lines": 1120,
       "exempt": [
         "complexity"
       ]
@@ -1672,7 +1672,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1657,
+      "lines": 1633,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1770,7 +1770,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 518,
+      "lines": 509,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1801,7 +1801,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/activity.tsx": {
-      "lines": 615,
+      "lines": 613,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1913,7 +1913,7 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 971,
+      "lines": 773,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1954,7 +1954,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 383,
+      "lines": 420,
       "exempt": [
         "complexity",
         "max-lines-per-function"

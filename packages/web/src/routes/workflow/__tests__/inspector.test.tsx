@@ -28,11 +28,12 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
+import type { WorkflowNodeOfType } from "../editor/ports"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 
-const definition: WorkflowDefinitionV2Wire = {
+const definition: WorkflowDefinitionWire = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",
@@ -73,7 +74,7 @@ function employeeConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderTrigger(config: Record<string, unknown>) {
+function renderTrigger(config: WorkflowNodeOfType<"trigger">["config"]) {
   const initial = structuredClone(definition)
   initial.nodes = [{
     id: "trigger",
@@ -81,7 +82,7 @@ function renderTrigger(config: Record<string, unknown>) {
     name: "Todo updated",
     config,
   }]
-  initial.ui.positions = { trigger: { x: 0, y: 0 } }
+  initial.ui = { positions: { trigger: { x: 0, y: 0 } } }
   const store = createEditorStore(initial)
   store.getState().selectNode("trigger")
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -99,10 +100,10 @@ function triggerConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderWorkflowCall(config: Record<string, unknown>) {
+function renderWorkflowCall(config: WorkflowNodeOfType<"workflow-call">["config"]) {
   const initial = structuredClone(definition)
   initial.nodes = [{ id: "fanout", type: "workflow-call", name: "Publish items", config }]
-  initial.ui.positions = { fanout: { x: 0, y: 0 } }
+  initial.ui = { positions: { fanout: { x: 0, y: 0 } } }
   const store = createEditorStore(initial)
   store.getState().selectNode("fanout")
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -213,17 +214,16 @@ describe("todo trigger filters", () => {
     expect(triggerConfig(store)).toEqual({ kind: "todo-status", status: "in_review" })
   })
 
-  it.each(["manual", "schedule", "event", "workflow-call"])(
-    "renders no filters for %s triggers",
-    (kind) => {
-      renderTrigger({ kind })
+  it.each([{ kind: "manual" }, { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+    { kind: "event", eventName: "item.arrived" }, { kind: "workflow-call" }] as const)(
+    "renders no filters for $kind triggers", (config) => {
+    renderTrigger(config)
 
-      expect(screen.queryByRole("combobox", { name: "Label" })).toBeNull()
-      expect(screen.queryByRole("combobox", { name: "Department" })).toBeNull()
-      expect(screen.queryByRole("combobox", { name: "Assignee" })).toBeNull()
-      expect(screen.queryByLabelText("Actor")).toBeNull()
-    },
-  )
+    expect(screen.queryByRole("combobox", { name: "Label" })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Department" })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Assignee" })).toBeNull()
+    expect(screen.queryByLabelText("Actor")).toBeNull()
+  })
 })
 
 describe("employee inspector output schema", () => {
@@ -268,7 +268,7 @@ describe("employee inspector output schema", () => {
 
 describe("workflow-call inspector", () => {
   it("renders an authored fan-out config without mutating it", () => {
-    const config = {
+    const config: WorkflowNodeOfType<"workflow-call">["config"] = {
       workflowId: { source: "fixed", value: "publish-item" },
       items: { source: "fixed", value: [{ topic: "one" }, { topic: "two" }] },
       input: { topic: { source: "trigger", path: "item.topic" } },

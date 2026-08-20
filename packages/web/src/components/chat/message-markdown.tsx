@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { isTodoId, TODO_ID_MENTION_SOURCE } from '@/lib/todo-id'
 import { TodoMention } from '@/components/todo-mention'
-import { CodeBlockChrome } from '@/components/code-block-chrome'
 import { ChevronDown } from 'lucide-react'
+import { CodeBlock, parseFenceLang } from '@/components/chat/message-code-block'
 import { FILE_PATH_CORE, isFilePath, renderPathLink } from '@/components/chat/message-file-link'
 
-// chat-messages passes isFilePath on to its own callers, so it stays exported here.
+// chat-messages takes both of these through this module, so they stay exported here.
 export { isFilePath }
+export { parseFenceLang } from '@/components/chat/message-code-block'
 
 // Inline-formatter pattern, assembled from the shared FILE_PATH_CORE so the
 // bare-path alternative (capture group 9) stays identical to FILE_PATH_RE.
@@ -95,22 +96,6 @@ function inlineFormat(text: string): React.ReactNode {
   }
   if (last < text.length) parts.push(text.slice(last))
   return parts.length === 1 ? parts[0] : <>{parts}</>
-}
-
-// Parse the language label off a ```fence line. Returns lowercased first token
-// (e.g. ```tsx {3-5} → "tsx"), or '' for a bare ``` fence.
-export function parseFenceLang(line: string): string {
-  const after = line.replace(/^```/, '').trim()
-  if (!after) return ''
-  return after.split(/\s+/)[0].toLowerCase()
-}
-
-function CodeBlock({ code, lang, keyProp }: { code: string; lang?: string; keyProp: number }) {
-  return (
-    <CodeBlockChrome key={keyProp} code={code} language={lang} className="my-[var(--space-2)]">
-      <pre className="code-block overflow-x-auto py-[var(--space-3)] px-[var(--space-4)] text-[length:var(--text-footnote)] leading-normal font-[family-name:var(--font-code)] text-[var(--text-primary)]"><code>{code}</code></pre>
-    </CodeBlockChrome>
-  )
 }
 
 /* ── Reasoning trace tags ───────────────────────────────── */

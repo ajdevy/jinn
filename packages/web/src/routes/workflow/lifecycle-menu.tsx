@@ -14,7 +14,7 @@ import {
   SESSION_MENU_ITEM_CLASS,
   SESSION_MENU_SEPARATOR_CLASS,
 } from "@/components/chat/session-row-menu"
-import { ApiError, api, type WorkflowDefinitionV2Wire } from "@/lib/api"
+import { ApiError, api, type WorkflowDefinitionWire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { DIALOG_ACTION_CLASS, DIALOG_CANCEL_CLASS, WorkflowNameDialog } from "./name-dialog"
 
@@ -105,9 +105,9 @@ function LifecycleItems({ enabled, retired, onAction, onDuplicate }: {
 /** Every write carries the revision the caller is holding, so a Workflow that moved
  *  underneath comes back as a 409 rather than overwriting the other change. */
 function useLifecycleWrites(workflow: LifecycleWorkflow, settled: () => void,
-  onChanged: ((definition: WorkflowDefinitionV2Wire) => void) | undefined, onFailure: (error: unknown) => void) {
+  onChanged: ((definition: WorkflowDefinitionWire) => void) | undefined, onFailure: (error: unknown) => void) {
   const queryClient = useQueryClient()
-  const cache = (saved: WorkflowDefinitionV2Wire) => {
+  const cache = (saved: WorkflowDefinitionWire) => {
     settled()
     queryClient.setQueryData(queryKeys.workflows.definition(saved.id), saved)
     void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
@@ -200,7 +200,7 @@ function LifecycleDialogs({ workflow, dialog, onClose, onArchive, archiving, dup
 export function WorkflowLifecycleMenu({ workflow, variant, onChanged, onFailure }: {
   workflow: LifecycleWorkflow
   variant: "row" | "header"
-  onChanged?: (definition: WorkflowDefinitionV2Wire) => void
+  onChanged?: (definition: WorkflowDefinitionWire) => void
   onFailure: (error: unknown) => void
 }) {
   const [dialog, setDialog] = useState<"archive" | "duplicate" | null>(null)

@@ -1,4 +1,4 @@
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 
 /**
  * The one write helper this surface needs, passed in rather than imported, so the
@@ -15,15 +15,15 @@ export function createWorkflowLifecycleApi({ workflowWrite }: WorkflowLifecycleH
   const workflow = (id: string) => `/api/workflows/${encodeURIComponent(id)}`
   return {
     setWorkflowEnabledV2: (id: string, enabled: boolean, expectedRevision: number) =>
-      workflowWrite<WorkflowDefinitionV2Wire>(`${workflow(id)}/${enabled ? "enable" : "disable"}`, "POST", { expectedRevision }),
+      workflowWrite<WorkflowDefinitionWire>(`${workflow(id)}/${enabled ? "enable" : "disable"}`, "POST", { expectedRevision }),
     /** Archive and unarchive. Unarchiving always returns the Workflow disabled —
      *  the pre-archive state is not stored, and coming back live would re-arm its
      *  triggers without anyone asking. */
     setWorkflowRetiredV2: (id: string, retired: boolean, expectedRevision: number) =>
-      workflowWrite<WorkflowDefinitionV2Wire>(`${workflow(id)}/${retired ? "retire" : "unretire"}`, "POST", { expectedRevision }),
+      workflowWrite<WorkflowDefinitionWire>(`${workflow(id)}/${retired ? "retire" : "unretire"}`, "POST", { expectedRevision }),
     /** Copies the graph under a new ID, disabled, at revision 1. The copy carries
      *  no history and no retirement, so a duplicate of an archived Workflow is live. */
     duplicateWorkflowV2: (sourceId: string, input: { id: string; title: string }) =>
-      workflowWrite<WorkflowDefinitionV2Wire>(`${workflow(sourceId)}/duplicate`, "POST", input),
+      workflowWrite<WorkflowDefinitionWire>(`${workflow(sourceId)}/duplicate`, "POST", input),
   }
 }

@@ -17,6 +17,7 @@ const onboarding = {
   todoPrefixFrozen: true,
   portalName: "Portal",
   operatorName: "Operator",
+  operatorEmoji: null,
 }
 
 function testQueryClient() {

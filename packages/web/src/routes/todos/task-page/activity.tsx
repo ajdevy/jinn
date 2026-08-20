@@ -12,7 +12,7 @@ import {
 import { commentAuthorLabel, operatorSafeTodoError } from "@/lib/todos"
 import { stripMarkdown } from "@/lib/strip-markdown"
 import { MarkdownView } from "@/components/markdown-view"
-import { EmployeeAvatar } from "@/components/ui/employee-avatar"
+import { EmployeeAvatar, OPERATOR_DEFAULT_EMOJI } from "@/components/ui/employee-avatar"
 import { buildCommentThread, type CommentThreadNode } from "../comment-thread"
 import { commentHeadRequest, mergeCommentPages } from "./comment-window"
 import { displayNameOf, formatRelativeTime } from "../util"
@@ -85,9 +85,11 @@ export function stripCommentMarkers(body: string): string {
   }).join("\n")
 }
 
+/** Operator comments avatar as the reserved "operator" actor, not an employee. */
 function avatarFor(comment: WorkItemCommentWire): string {
   return comment.authorKind === "operator" ? "operator" : comment.author
 }
+
 
 function commentAuthor(comment: WorkItemCommentWire, byName: Map<string, Employee>): string {
   if (comment.authorKind === "operator") return "You"
@@ -172,11 +174,7 @@ function CommentBlock({
   return (
     <div className={`pb-1 pt-3 ${reply ? "ml-[30px]" : ""}`} data-testid={`activity-comment-${comment.id}`}>
       <div className="flex items-center gap-2">
-        {comment.authorKind === "operator" ? (
-          <span className="grid size-[22px] flex-none place-items-center rounded-full bg-[var(--fill-secondary)] text-[12px]">🌈</span>
-        ) : (
-          <EmployeeAvatar name={avatarFor(comment)} size={22} fontSize={12} className="bg-[var(--fill-secondary)]" />
-        )}
+        <EmployeeAvatar name={avatarFor(comment)} fallback={comment.authorKind === "operator" ? OPERATOR_DEFAULT_EMOJI : undefined} size={22} fontSize={12} className="bg-[var(--fill-secondary)]" />
         <span className="text-[13px] font-semibold text-[var(--text-secondary)]">{commentAuthor(comment, byName)}</span>
         <span className="text-[11px] text-[var(--text-quaternary)]">{formatRelativeTime(comment.createdAt)}</span>
         {comment.editedAt && !tombstoned && <span className="text-[11px] text-[var(--text-quaternary)]">(edited)</span>}

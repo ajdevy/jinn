@@ -1,4 +1,30 @@
 import { authFetch } from "@/lib/auth"
+// Type-only, and it has to stay that way: `workflows/model.ts` value-imports
+// `node:util/types` and the web build carries no Node polyfills.
+import type {
+  Binding as WorkflowBindingWire,
+  ConditionPredicate as WorkflowPredicateWire,
+  JsonValue as JsonValueWire,
+  WorkflowApprovalRecord as WorkflowApprovalWire,
+  WorkflowAttemptStatus as WorkflowAttemptStatusWire,
+  WorkflowAttemptWire,
+  WorkflowChildRunSummary as WorkflowChildRunWire,
+  WorkflowDefinition as WorkflowDefinitionWire,
+  WorkflowDefinitionSummary as WorkflowDefinitionSummaryWire,
+  WorkflowError as WorkflowRunErrorWire,
+  WorkflowNode as WorkflowNodeWire,
+  WorkflowNodeOutput as WorkflowNodeOutputWire,
+  WorkflowNodeRunRecord as WorkflowNodeRunWire,
+  WorkflowNodeRunStatus as WorkflowNodeRunStatusWire,
+  WorkflowOutputSchema as WorkflowOutputSchemaWire,
+  WorkflowRunDetailUnprojectedWire,
+  WorkflowRunDetailWire,
+  WorkflowRunLeanWire,
+  WorkflowRunStatus as WorkflowRunStatusWire,
+  WorkflowRunSummary as WorkflowRunSummaryWire,
+  WorkflowTriggerKind as WorkflowTriggerKindWire,
+  WorkflowValidationIssue as WorkflowIssueWire,
+} from "@jinn/workflow-wire"
 import type {
   CreateNoteInput,
   NoteDocumentResponse,
@@ -221,6 +247,26 @@ async function put<T>(path: string, body: unknown, origin?: WriteOriginWire): Pr
   return res.json();
 }
 
+/** The `issues` array on a workflow error envelope is untrusted input, so the
+ *  entries that lack the two fields every renderer reads are dropped rather than
+ *  asserted into shape. Deliberately a local read and not an import of
+ *  `parseWorkflowIssues()` from `workflows/issues.ts`: that module is runtime
+ *  code, and nothing runtime crosses from the gateway package into the bundle. */
+function workflowIssues(value: unknown[]): WorkflowIssueWire[] {
+  return value.flatMap((entry): WorkflowIssueWire[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const { code, message, nodeId, edgeId, path } = entry as Record<string, unknown>;
+    if (typeof code !== "string" || typeof message !== "string") return [];
+    return [{
+      code,
+      message,
+      ...(typeof nodeId === "string" ? { nodeId } : {}),
+      ...(typeof edgeId === "string" ? { edgeId } : {}),
+      ...(typeof path === "string" ? { path } : {}),
+    }];
+  });
+}
+
 /** Workflow writes keep the server's structured validation issues intact. */
 async function workflowWrite<T>(path: string, method: "POST" | "PUT", body: unknown): Promise<T> {
   const res = await authFetch(path, {
@@ -234,7 +280,7 @@ async function workflowWrite<T>(path: string, method: "POST" | "PUT", body: unkn
   const message = typeof payload.message === "string" ? payload.message : `API error: ${res.status}`;
   const code = typeof payload.code === "string" ? payload.code : undefined;
   if (Array.isArray(payload.issues)) {
-    throw new WorkflowValidationApiError(res.status, message, code, payload.issues as WorkflowIssueV2Wire[]);
+    throw new WorkflowValidationApiError(res.status, message, code, workflowIssues(payload.issues));
   }
   throw new ApiError(res.status, message, code);
 }
@@ -362,200 +408,49 @@ export interface EngineLimitsResponse {
   engines: Record<string, EngineLimitEngineSnapshot>;
 }
 
-/* ── Read-only Workflow definitions ───────────────────────────────────────── */
-
-export interface WorkflowDefinitionSummaryV2Wire {
-  id: string
-  title: string
-  description: string | null
-  revision: number
-  enabled: boolean
-  retiredAt: string | null
-  createdAt: string
-  updatedAt: string
+/* ── Workflow wire types ──────────────────────────────────────────────────
+ * Derived from the canonical schemas, never restated. The gateway has no
+ * serializer — `json()` is a bare `JSON.stringify` of what the repository
+ * returned — so those types ARE the wire contract, and a copy kept by hand here
+ * is drift with a delay on it. Re-exported under this file's `*Wire` naming so
+ * the workflow surfaces keep importing their types from one place. */
+export type {
+  JsonValueWire,
+  WorkflowApprovalWire,
+  WorkflowBindingWire,
+  WorkflowPredicateWire,
+  WorkflowAttemptStatusWire,
+  WorkflowAttemptWire,
+  WorkflowChildRunWire,
+  WorkflowDefinitionWire,
+  WorkflowDefinitionSummaryWire,
+  WorkflowRunErrorWire,
+  WorkflowNodeWire,
+  WorkflowNodeOutputWire,
+  WorkflowNodeRunWire,
+  WorkflowNodeRunStatusWire,
+  WorkflowOutputSchemaWire,
+  WorkflowRunDetailUnprojectedWire,
+  WorkflowRunDetailWire,
+  WorkflowRunLeanWire,
+  WorkflowRunStatusWire,
+  WorkflowRunSummaryWire,
+  WorkflowTriggerKindWire,
+  WorkflowIssueWire,
 }
 
-export interface WorkflowDefinitionV2Wire {
-  schemaVersion: 1
-  id: string
-  title: string
-  description?: string
-  revision: number
-  enabled: boolean
-  retiredAt?: string
-  createdAt: string
-  updatedAt: string
-  inputs?: Array<Record<string, unknown>>
-  nodes: Array<{
-    id: string
-    type: "trigger" | "employee" | "workflow-call" | "condition" | "merge" | "approval" | "wait" | "end"
-    name: string
-    config: Record<string, unknown>
-  }>
-  edges: Array<{
-    id: string
-    from: { nodeId: string; port: string }
-    to: { nodeId: string; port: "input" }
-  }>
-  ui: { positions: Record<string, { x: number; y: number }>; layout?: "manual" }
-}
-
-/** One server validation verdict — the client renders these, never re-derives them. */
-export interface WorkflowIssueV2Wire {
-  code: string
-  message: string
-  nodeId?: string
-  edgeId?: string
-  path?: string
-}
-
-/** A 422 from the workflow API carrying structured validation issues. */
+/** A workflow API error carrying structured validation issues. Not only a 422:
+ *  `failure()` in the gateway attaches `issues` to whatever status the error
+ *  maps to, which is also 403, 404, 409 and 500. */
 export class WorkflowValidationApiError extends ApiError {
-  readonly issues: WorkflowIssueV2Wire[]
+  readonly issues: WorkflowIssueWire[]
 
-  constructor(status: number, message: string, code: string | undefined, issues: WorkflowIssueV2Wire[]) {
+  constructor(status: number, message: string, code: string | undefined, issues: WorkflowIssueWire[]) {
     super(status, message, code)
     this.name = "WorkflowValidationApiError"
     this.issues = issues
   }
 }
-
-/* ── Workflow runs (v2) ───────────────────────────────────────────────────── */
-
-export type WorkflowRunStatusV2 = "pending" | "running" | "waiting" | "completed" | "failed" | "cancelled"
-export type WorkflowNodeRunStatusV2 =
-  | "pending" | "ready" | "dispatching" | "running" | "waiting"
-  | "completed" | "failed" | "skipped" | "cancelled"
-export type WorkflowAttemptStatusV2 = "dispatching" | "running" | "completed" | "failed" | "timed-out" | "cancelled"
-export type WorkflowTriggerKindV2 = "manual" | "schedule" | "event" | "todo-status" | "workflow-call"
-
-export interface WorkflowRunErrorV2Wire {
-  code: string
-  message: string
-  retryable: boolean
-  nodeId?: string
-  attempt?: number
-}
-
-export interface WorkflowNodeOutputV2Wire {
-  text: string
-  fields: Record<string, unknown>
-  employeeId?: string
-  engine?: string
-  model?: string
-  sessionId?: string
-}
-
-export interface WorkflowRunSummaryV2Wire {
-  id: string
-  workflowId: string
-  workflowTitle: string
-  definitionRevision: number
-  status: WorkflowRunStatusV2
-  trigger: { nodeId: string; kind: WorkflowTriggerKindV2 }
-  startedAt: string
-  endedAt: string | null
-  currentOrFailingNode: {
-    nodeId: string
-    label: string
-    employeeId: string | null
-    state: "current" | "failing"
-  } | null
-}
-
-export interface WorkflowNodeRunV2Wire {
-  runId: string
-  nodeId: string
-  nodeType: WorkflowDefinitionV2Wire["nodes"][number]["type"]
-  status: WorkflowNodeRunStatusV2
-  activated: boolean
-  /** What the node was handed: the single activated upstream output, or the run
-   *  input when the node fans in from several. The attempts do not repeat it. */
-  input?: unknown
-  resolvedConfig?: Record<string, unknown>
-  output?: WorkflowNodeOutputV2Wire
-  error?: WorkflowRunErrorV2Wire
-  resumeAt?: string
-  startedAt?: string
-  endedAt?: string
-}
-
-export interface WorkflowChildRunV2Wire {
-  runId: string
-  workflowId: string
-  nodeId: string
-  itemIndex?: number
-  status: WorkflowRunStatusV2
-  startedAt: string
-  endedAt?: string
-  endOutput?: Record<string, unknown>; sessionId?: string
-  error?: WorkflowRunErrorV2Wire
-}
-
-export interface WorkflowAttemptV2Wire {
-  runId: string
-  nodeId: string
-  attempt: number
-  sessionId?: string
-  status: WorkflowAttemptStatusV2
-  resolvedConfig?: {
-    employeeId: string
-    engine: string
-    model?: string
-    effort?: "low" | "medium" | "high" | "xhigh"; substitutedFrom?: { engine: string; reason: string }
-  }
-  /** The final composed prompt handed to the session (interpolated + contract
-   *  block). Only `?view=full` carries it. */
-  promptText?: string
-  output?: WorkflowNodeOutputV2Wire
-  error?: WorkflowRunErrorV2Wire
-  startedAt: string
-  endedAt?: string
-  remindersSent: number
-  nextReminderAt?: string
-  extensions: number
-  lastExtensionReason?: string
-  pendingOutputError?: string
-}
-
-export interface WorkflowApprovalV2Wire {
-  runId: string
-  nodeId: string
-  status: "pending" | "approved" | "rejected"
-  requestedAt: string
-  approverRef?: string
-  decidedAt?: string
-  decidedBy?: string
-  decision?: "approve" | "reject"
-  reason?: string
-}
-
-export interface WorkflowRunDetailV2Wire {
-  id: string
-  workflowId: string
-  workflowTitle: string
-  definitionRevision: number
-  /** Definition snapshot at start time — the server sends the full stored
-   *  definition, including saved canvas positions when the workflow had them. */
-  definition: Pick<WorkflowDefinitionV2Wire, "nodes" | "edges"> & { ui?: WorkflowDefinitionV2Wire["ui"] }
-  status: WorkflowRunStatusV2
-  revision: number
-  spendUsd: number
-  trigger: { nodeId: string; kind: WorkflowTriggerKindV2 }
-  startedAt: string
-  endedAt?: string
-  error?: WorkflowRunErrorV2Wire
-  nodeRuns: WorkflowNodeRunV2Wire[]
-  attempts: WorkflowAttemptV2Wire[]
-  approvals: WorkflowApprovalV2Wire[]
-  childRuns: WorkflowChildRunV2Wire[]
-}
-
-/** What the run route returns without `?view=full`: everything needed to judge
- *  run state, minus the definition snapshot and the attempt prompts. Both of
- *  those are immutable once written, so the run page polls this and carries the
- *  fat halves forward from the one snapshot it fetched. */
-export type WorkflowRunLeanV2Wire = Omit<WorkflowRunDetailV2Wire, "definition">
 
 export type WorkItemStatusWire =
   | "backlog" | "assigned" | "executing" | "in_review" | "done" | "blocked" | "escalated" | "cancelled"
@@ -818,41 +713,43 @@ export const api = {
   getFeatures: () => get<{ notesEnabled: boolean; staleChat: StaleChatPolicy }>("/api/features"),
   getStatus: () => get<Record<string, unknown>>("/api/status"),
   listWorkflowDefinitionsV2: (cursor?: string, retired?: boolean) =>
-    get<{ items: WorkflowDefinitionSummaryV2Wire[]; nextCursor: string | null }>(`/api/workflows?${new URLSearchParams({ ...(cursor ? { cursor } : {}), ...(retired ? { retired: "true" } : {}) })}`),
+    get<{ items: WorkflowDefinitionSummaryWire[]; nextCursor: string | null }>(`/api/workflows?${new URLSearchParams({ ...(cursor ? { cursor } : {}), ...(retired ? { retired: "true" } : {}) })}`),
   getWorkflowDefinitionV2: (id: string) =>
-    get<WorkflowDefinitionV2Wire>(`/api/workflows/${encodeURIComponent(id)}`),
+    get<WorkflowDefinitionWire>(`/api/workflows/${encodeURIComponent(id)}`),
   listWorkflowRunsV2: (id: string, limit = 50) =>
-    get<{ items: WorkflowRunSummaryV2Wire[]; nextCursor: string | null }>(
+    get<{ items: WorkflowRunSummaryWire[]; nextCursor: string | null }>(
       `/api/workflows/${encodeURIComponent(id)}/runs?limit=${limit}`,
     ),
   /** The polled shape: no definition snapshot, no attempt prompts. */
   getWorkflowRunV2: (id: string, runId: string) =>
-    get<WorkflowRunLeanV2Wire>(
+    get<WorkflowRunLeanWire>(
       `/api/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`,
     ),
   /** The snapshot the run canvas needs to draw the graph at the revision the run
    *  started on, plus the prompts the inspector shows. Fetched once per run, and
    *  again only when a node is opened whose prompt the snapshot predates. */
   getWorkflowRunFullV2: (id: string, runId: string) =>
-    get<WorkflowRunDetailV2Wire>(
+    get<WorkflowRunDetailWire>(
       `/api/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}?view=full`,
     ),
   createWorkflowV2: (input: { id: string; title: string; description?: string }) =>
-    workflowWrite<WorkflowDefinitionV2Wire>("/api/workflows", "POST", input),
-  saveWorkflowDefinitionV2: (id: string, definition: WorkflowDefinitionV2Wire, expectedRevision: number) =>
-    workflowWrite<WorkflowDefinitionV2Wire>(
+    workflowWrite<WorkflowDefinitionWire>("/api/workflows", "POST", input),
+  saveWorkflowDefinitionV2: (id: string, definition: WorkflowDefinitionWire, expectedRevision: number) =>
+    workflowWrite<WorkflowDefinitionWire>(
       `/api/workflows/${encodeURIComponent(id)}`, "PUT", { definition, expectedRevision },
     ),
   ...createWorkflowLifecycleApi({ workflowWrite }),
+  /** Unprojected, like every workflow write route: the body carries
+   *  `attempts[].input` and no `spendUsd`. See ICI-1190. */
   startWorkflowRunV2: (id: string) =>
-    post<WorkflowRunDetailV2Wire>(`/api/workflows/${encodeURIComponent(id)}/runs`, { input: {} }),
+    post<WorkflowRunDetailUnprojectedWire>(`/api/workflows/${encodeURIComponent(id)}/runs`, { input: {} }),
   decideWorkflowApprovalV2: (
     id: string,
     runId: string,
     nodeId: string,
     body: { decision: "approve" | "reject"; expectedRevision: number; reason?: string; choice?: string },
   ) =>
-    post<WorkflowRunDetailV2Wire>(
+    post<WorkflowRunDetailUnprojectedWire>(
       `/api/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/approval`,
       body,
     ),
@@ -949,9 +846,9 @@ export const api = {
   getLogs: (n?: number) =>
     get<{ lines: string[] }>(`/api/logs${n ? `?n=${n}` : ""}`),
   getOnboarding: () =>
-    get<{ needed: boolean; onboarded: boolean; sessionsCount: number; hasEmployees: boolean; companyName: string | null; companyPrefix: string | null; todoPrefix: string | null; todoPrefixFrozen: boolean; portalName: string | null; operatorName: string | null }>("/api/onboarding"),
-  completeOnboarding: (data: { companyName?: string; companyPrefix?: string | null; portalName?: string; operatorName?: string; language?: string; engine?: string; model?: string; effortLevel?: string }) =>
-    post<{ status: string; portal: { companyName?: string; companyPrefix?: string; portalName?: string; operatorName?: string; language?: string } }>("/api/onboarding", data),
+    get<{ needed: boolean; onboarded: boolean; sessionsCount: number; hasEmployees: boolean; companyName: string | null; companyPrefix: string | null; todoPrefix: string | null; todoPrefixFrozen: boolean; portalName: string | null; operatorName: string | null; operatorEmoji: string | null }>("/api/onboarding"),
+  completeOnboarding: (data: { companyName?: string; companyPrefix?: string | null; portalName?: string; operatorName?: string; operatorEmoji?: string; language?: string; engine?: string; model?: string; effortLevel?: string }) =>
+    post<{ status: string; portal: { companyName?: string; companyPrefix?: string; portalName?: string; operatorName?: string; operatorEmoji?: string; language?: string } }>("/api/onboarding", data),
   sttStatus: () =>
     get<{ available: boolean; model: string | null; downloading: boolean; progress: number; languages: string[] }>("/api/stt/status"),
   sttDownload: () =>

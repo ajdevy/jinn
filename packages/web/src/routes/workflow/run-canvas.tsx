@@ -2,7 +2,7 @@ import "@xyflow/react/dist/style.css"
 import { useMemo } from "react"
 import { Background, BackgroundVariant, Panel, ReactFlow, useReactFlow } from "@xyflow/react"
 import { Maximize, Minus, Plus } from "lucide-react"
-import type { WorkflowAttemptV2Wire, WorkflowNodeRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowAttemptWire, WorkflowNodeRunWire, WorkflowRunDetailWire } from "@/lib/api"
 import { editorEdgeTypes } from "./editor/edge"
 import {
   toFlowEdges,
@@ -21,7 +21,7 @@ import { deriveNodeStatus, isLiveRunStatus, iterationRounds } from "./run-suppor
  *  error lane). Keep this in step with `edgeActivated` in runner.ts. */
 export function edgeTaken(
   sourceType: string | undefined,
-  sourceRun: WorkflowNodeRunV2Wire | undefined,
+  sourceRun: WorkflowNodeRunWire | undefined,
   port: string,
 ): boolean {
   if (!sourceRun?.activated) return false
@@ -40,12 +40,12 @@ export function edgeTaken(
 }
 
 function buildGraph(
-  detail: WorkflowRunDetailV2Wire,
+  detail: WorkflowRunDetailWire,
   selectedNodeId: string | null,
 ): { nodes: EditorNode[]; edges: EditorEdge[] } {
   const nodeRuns = new Map(detail.nodeRuns.map((nodeRun) => [nodeRun.nodeId, nodeRun]))
   const nodeTypes = new Map(detail.definition.nodes.map((node) => [node.id, node.type]))
-  const attemptsByNode = new Map<string, WorkflowAttemptV2Wire[]>()
+  const attemptsByNode = new Map<string, WorkflowAttemptWire[]>()
   for (const attempt of detail.attempts) {
     const list = attemptsByNode.get(attempt.nodeId) ?? []
     list.push(attempt)
@@ -146,7 +146,7 @@ export function RunCanvas({
   selectedNodeId,
   onSelectNode,
 }: {
-  detail: WorkflowRunDetailV2Wire
+  detail: WorkflowRunDetailWire
   selectedNodeId: string | null
   onSelectNode: (nodeId: string | null) => void
 }) {

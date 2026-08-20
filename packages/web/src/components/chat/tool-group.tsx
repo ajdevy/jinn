@@ -47,6 +47,15 @@ interface ToolEntry {
   index: number
 }
 
+/** Stable across the group's re-renders, including the calls that carry no id. */
+function toolChipKey(entry: ToolEntry): string {
+  return entry.msg.id || `${entry.msg.toolCall}-${entry.index}`
+}
+
+/** Which rail a chip entered on: the live arrival rail, or the reader opening a
+ *  group that had already settled. */
+type ChipEnter = 'chip' | 'expand'
+
 /** The first ten, plus the running one when it sits deeper than that — a long
  *  pile still has to show what it is doing right now. */
 function visibleToolEntries(msgs: Message[], activeIndex: number, showAll: boolean): ToolEntry[] {
@@ -56,22 +65,22 @@ function visibleToolEntries(msgs: Message[], activeIndex: number, showAll: boole
   return indexed.slice(0, 10)
 }
 
-function ToolChip({ entry, activeIndex, arrival, entering }: {
+function ToolChip({ entry, activeIndex, arrival, enter }: {
   entry: ToolEntry
   activeIndex: number
   arrival: number | undefined
-  entering: boolean
+  enter: ChipEnter | undefined
 }) {
   const { msg, index } = entry
   const status = isToolDone(msg) ? 'done' : index === activeIndex ? 'running' : 'queued'
   const ToolGlyph = toolGlyphForName(msg.toolCall || '')
   return (
     <div
-      data-tool-enter={entering ? 'chip' : undefined}
-      style={entering ? arriveDelay(arrival) : undefined}
+      data-tool-enter={enter}
+      style={enter ? arriveDelay(arrival) : undefined}
       className={cn(
         'inline-flex min-h-9 max-w-full items-center gap-1.5 px-2.5 py-1 text-left',
-        entering && 'tool-arrive',
+        enter && 'tool-arrive',
       )}
     >
       <span className="grid size-4 shrink-0 place-items-center">
@@ -85,30 +94,48 @@ function ToolChip({ entry, activeIndex, arrival, entering }: {
   )
 }
 
-function ToolChipList({ msgs, activeIndex, showAll, onShowAll, arrivals, isEntering }: {
+/** The chips the reader's own expansion animates in: the ones the group held
+ *  when it opened. Latched at mount, so an already-open group cannot restart the
+ *  stagger, and a call appended into one rides the live arrival rail instead. */
+function useExpandedChips(entries: ToolEntry[], expanding: boolean): ReadonlySet<string> {
+  const opened = useRef<ReadonlySet<string> | null>(null)
+  if (!opened.current) opened.current = new Set(expanding ? entries.map(toolChipKey) : [])
+  return opened.current
+}
+
+function ToolChipList({ msgs, activeIndex, showAll, onShowAll, arrivals, isEntering, expanding }: {
   msgs: Message[]
   activeIndex: number
   showAll: boolean
   onShowAll: () => void
   arrivals: Map<string, number>
   isEntering: (id: string | undefined) => boolean
+  /** The reader just opened this group. False when the list comes back with a
+   *  windowed row that was already open — that is not an entrance. */
+  expanding: boolean
 }) {
   const entries = visibleToolEntries(msgs, activeIndex, showAll)
+  const expandedChips = useExpandedChips(entries, expanding)
   const hiddenToolCount = Math.max(0, msgs.length - entries.length)
   return (
     <div
       className="mt-1.5 flex max-w-[min(620px,calc(100vw_-_var(--space-6)))] flex-col items-start gap-1 pl-1"
       data-testid="tool-group-list"
     >
-      {entries.map((entry) => (
-        <ToolChip
-          key={entry.msg.id || `${entry.msg.toolCall}-${entry.index}`}
-          entry={entry}
-          activeIndex={activeIndex}
-          arrival={arrivals.get(entry.msg.id ?? '')}
-          entering={isEntering(entry.msg.id)}
-        />
-      ))}
+      {entries.map((entry, position) => {
+        const live = isEntering(entry.msg.id)
+        return (
+          <ToolChip
+            key={toolChipKey(entry)}
+            entry={entry}
+            activeIndex={activeIndex}
+            // A live call keeps the slot the arrival rail gave it; a chip the
+            // reader just revealed staggers by its place in the opened list.
+            arrival={live ? arrivals.get(entry.msg.id ?? '') : position}
+            enter={live ? 'chip' : expandedChips.has(toolChipKey(entry)) ? 'expand' : undefined}
+          />
+        )
+      })}
       {hiddenToolCount > 0 && (
         <button
           type="button"
@@ -187,6 +214,10 @@ export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
   const [expanded, setExpanded] = usePersistentExpansion(`tools:${groupId}`, false)
   const [showAllTools, setShowAllTools] = usePersistentExpansion(`tools-all:${groupId}`, false)
   const arrivingId = useGroupArrival(msgs, isEntering)
+  // Whether the reader opened the group here. The expansion outlives the row, so
+  // a windowed row scrolling back into view restores an open group without
+  // re-opening it, and an entrance it already played must not play again.
+  const openedHere = useRef(false)
 
   return (
     // Share the assistant text gutter (.assistant-msg-row → space-3 / space-8 @lg)
@@ -196,7 +227,10 @@ export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
         count={msgs.length}
         running={isActive && !msgs.every(isToolDone)}
         expanded={expanded}
-        onToggle={() => setExpanded(!expanded)}
+        onToggle={() => {
+          openedHere.current = !expanded
+          setExpanded(!expanded)
+        }}
         entering={arrivingId !== undefined}
         arrival={arrivals.get(arrivingId ?? '')}
       />
@@ -208,6 +242,7 @@ export function ToolGroup({ msgs, isActive, groupId, arrivals, isEntering }: {
           onShowAll={() => setShowAllTools(true)}
           arrivals={arrivals}
           isEntering={isEntering}
+          expanding={openedHere.current}
         />
       )}
     </div>

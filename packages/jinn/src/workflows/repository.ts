@@ -41,10 +41,8 @@ export { WorkflowRepositoryError };
 export interface CreateWorkflowInput { id: string; title: string; description?: string }
 export interface DefinitionListQuery { cursor?: string; limit?: number; enabled?: boolean; retired?: boolean }
 export interface CursorPage<T> { items: T[]; nextCursor: string | null }
-export interface WorkflowDefinitionSummary {
-  id: string; title: string; description: string | null; revision: number; enabled: boolean;
-  retiredAt: string | null; createdAt: string; updatedAt: string;
-}
+import type { WorkflowDefinitionSummary, WorkflowRunSummary } from './wire.js';
+export type { WorkflowDefinitionSummary, WorkflowRunSummary };
 
 export interface CreateRunInput {
   workflowId: string; input: Record<string, JsonValue>;
@@ -60,14 +58,7 @@ export interface RunListQuery {
   triggerKind?: WorkflowRunRecord['trigger']['kind']; startedFrom?: string; startedTo?: string; text?: string;
 }
 
-export interface WorkflowRunSummary {
-  id: string; workflowId: string; workflowTitle: string; definitionRevision: number; status: WorkflowRunStatus;
-  trigger: { nodeId: string; kind: WorkflowRunRecord['trigger']['kind'] };
-  startedAt: string; endedAt: string | null;
-  currentOrFailingNode: {
-    nodeId: string; label: string; employeeId: string | null; state: 'current' | 'failing';
-  } | null;
-}
+
 
 export interface WorkflowRunTransaction {
   setRunStatus(status: WorkflowRunStatus, patch?: {

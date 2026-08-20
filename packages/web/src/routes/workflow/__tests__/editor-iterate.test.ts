@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { outputPorts } from "../editor/ports"
 import { createEditorStore } from "../editor/store"
 
@@ -11,7 +11,7 @@ import { createEditorStore } from "../editor/store"
 
 const iterate = { maxRounds: 2, continueWhile: [{ left: { source: "node", nodeId: "loop", path: "fields.last.verdict" }, operator: "equals", right: { source: "fixed", value: "rework" } }] }
 
-function definition(loopConfig: Record<string, unknown>): WorkflowDefinitionV2Wire {
+function definition(loopConfig: Record<string, unknown>): WorkflowDefinitionWire {
   return {
     schemaVersion: 1, id: "loop-flow", title: "Loop", revision: 1, enabled: false,
     createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
@@ -26,7 +26,7 @@ function definition(loopConfig: Record<string, unknown>): WorkflowDefinitionV2Wi
       { id: "e2", from: { nodeId: "loop", port: "success" }, to: { nodeId: "shipped", port: "input" } },
       { id: "e3", from: { nodeId: "loop", port: "exhausted" }, to: { nodeId: "escalated", port: "input" } },
     ],
-  } as WorkflowDefinitionV2Wire
+  } as WorkflowDefinitionWire
 }
 
 const call = { workflowId: { source: "fixed", value: "body-flow" }, concurrency: 1 }
@@ -51,12 +51,12 @@ describe("authoring an iterating Workflow Call", () => {
   it("keeps the exhausted wire when the loop is edited, and drops it only when iteration is turned off", () => {
     const store = createEditorStore(definition({ ...call, iterate }))
 
-    store.getState().updateNodeConfig("loop", { ...call, iterate: { ...iterate, maxRounds: 3 } })
+    store.getState().replaceNode(loopNode({ ...call, iterate: { ...iterate, maxRounds: 3 } }))
     expect(edgeIds(store)).toContain("e3")
 
     // Turning iteration off removes the port, so its wire goes with it — the
     // existing Condition-case behaviour, now that the port set is dynamic.
-    store.getState().updateNodeConfig("loop", call)
+    store.getState().replaceNode(loopNode(call))
     expect(edgeIds(store)).not.toContain("e3")
     expect(edgeIds(store)).toContain("e2")
   })

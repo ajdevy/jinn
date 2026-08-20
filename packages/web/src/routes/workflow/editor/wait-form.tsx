@@ -1,5 +1,8 @@
 import { useEffect, useId, useState } from "react"
 import { Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
+import type { WorkflowNodeOfType } from "./ports"
+
+type WaitConfig = WorkflowNodeOfType<"wait">["config"]
 
 const MIN_MINUTES = 1
 const MAX_MINUTES = 43_200
@@ -13,7 +16,7 @@ const WAIT_MODES = [
   { value: "todo-comment", label: "Until a Todo comment" },
 ]
 
-function defaultWaitConfig(mode: string): Record<string, unknown> {
+function defaultWaitConfig(mode: string): WaitConfig {
   switch (mode) {
     case "until": return { mode: "until", timestamp: { source: "fixed", value: "" } }
     case "todo-comment": return { mode: "todo-comment", timeoutMinutes: TODO_COMMENT_MINUTES }
@@ -88,8 +91,9 @@ function TodoCommentFields({ minutes, onChange }: { minutes: unknown; onChange: 
   )
 }
 
-export function WaitForm({ node, update }: FormProps) {
-  const config = node.config as { mode?: string; minutes?: number; timeoutMinutes?: number; timestamp?: unknown }
+export function WaitForm({ node, update }: FormProps<WorkflowNodeOfType<"wait">>) {
+  const config = node.config
+  const set = (next: WaitConfig) => update({ ...node, config: next })
   // Read-only for any other mode on purpose: every control below writes a whole
   // new config, so a mode this form cannot render would be downgraded into a
   // duration on first touch. Handling a mode is what earns it controls.
@@ -105,22 +109,22 @@ export function WaitForm({ node, update }: FormProps) {
     <>
       <PickerField
         label="Wait"
-        value={config.mode ?? "duration"}
-        onChange={(next) => update(defaultWaitConfig(next))}
+        value={config.mode}
+        onChange={(next) => set(defaultWaitConfig(next))}
         options={WAIT_MODES}
       />
       {config.mode === "duration" && (
         <MinutesField
           label="Minutes"
           value={config.minutes}
-          onChange={(minutes) => update({ mode: "duration", minutes })}
+          onChange={(minutes) => set({ mode: "duration", minutes })}
         />
       )}
       {config.mode === "until" && (
         <Field label="Timestamp (ISO)">
           <TextInput
             value={fixedText(config.timestamp)}
-            onChange={(event) => update({ mode: "until", timestamp: { source: "fixed", value: event.target.value } })}
+            onChange={(event) => set({ mode: "until", timestamp: { source: "fixed", value: event.target.value } })}
             placeholder="2026-08-01T09:00:00Z"
             style={{ fontFamily: "var(--font-code)" }}
           />
@@ -129,7 +133,7 @@ export function WaitForm({ node, update }: FormProps) {
       {config.mode === "todo-comment" && (
         <TodoCommentFields
           minutes={config.timeoutMinutes}
-          onChange={(timeoutMinutes) => update({ mode: "todo-comment", timeoutMinutes })}
+          onChange={(timeoutMinutes) => set({ mode: "todo-comment", timeoutMinutes })}
         />
       )}
     </>

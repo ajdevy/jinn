@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
-import type { WorkflowChildRunV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowChildRunWire, WorkflowRunDetailWire } from "@/lib/api"
 import { FieldsTable } from "./run-fields"
 import { Section, StatusLine, iterationRounds } from "./run-support"
 
@@ -13,7 +13,7 @@ import { Section, StatusLine, iterationRounds } from "./run-support"
  * 3 said something round 1 did not.
  */
 
-function RoundRow({ child, label }: { child: WorkflowChildRunV2Wire; label: string }) {
+function RoundRow({ child, label }: { child: WorkflowChildRunWire; label: string }) {
   const output = child.endOutput ?? {}
   return (
     <div className="border-b border-[var(--separator)] last:border-b-0">
@@ -53,7 +53,7 @@ function RoundRow({ child, label }: { child: WorkflowChildRunV2Wire; label: stri
   )
 }
 
-export function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
+export function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailWire; nodeId: string }) {
   const children = (detail.childRuns ?? []).filter((child) => child.nodeId === nodeId).sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
   const rounds = iterationRounds(detail.nodeRuns?.find((node) => node.nodeId === nodeId))
   if (children.length === 0) return null

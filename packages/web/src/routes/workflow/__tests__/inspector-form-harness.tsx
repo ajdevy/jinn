@@ -3,16 +3,16 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect } from "vitest"
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
-import type { WorkflowNodeWire } from "../editor/ports"
+import type { WorkflowNodeOfType, WorkflowNodeWire } from "../editor/ports"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 
 /* Shared rig for the approval and wait inspector specs: one node in a store,
    the Inspector rendered over it, and the gateway contracts each form's saved
    config has to satisfy. */
 
-const definition: WorkflowDefinitionV2Wire = {
+const definition: WorkflowDefinitionWire = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",
@@ -28,7 +28,7 @@ const definition: WorkflowDefinitionV2Wire = {
 function renderNode(node: WorkflowNodeWire) {
   const initial = structuredClone(definition)
   initial.nodes = [node]
-  initial.ui.positions = { [node.id]: { x: 0, y: 0 } }
+  initial.ui = { positions: { [node.id]: { x: 0, y: 0 } } }
   const store = createEditorStore(initial)
   store.getState().selectNode(node.id)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -42,12 +42,19 @@ function renderNode(node: WorkflowNodeWire) {
   return store
 }
 
-export function renderApproval(config: Record<string, unknown>) {
+export function renderApproval(config: WorkflowNodeOfType<"approval">["config"]) {
   return renderNode({ id: "gate", type: "approval", name: "Gate", config })
 }
 
-export function renderWait(config: Record<string, unknown>) {
+export function renderWait(config: WorkflowNodeOfType<"wait">["config"]) {
   return renderNode({ id: "hold", type: "wait", name: "Ask operator", config })
+}
+
+/** A wait mode this build's schema does not model. A gateway ahead of the web
+ *  bundle can serve one, and the form's contract is to leave it untouched — so
+ *  the spec has to construct what the config union deliberately cannot express. */
+export function renderUnhandledWait(config: Record<string, unknown>) {
+  return renderNode({ id: "hold", type: "wait", name: "Ask operator", config } as unknown as WorkflowNodeWire)
 }
 
 export function nodeConfig(store: ReturnType<typeof createEditorStore>) {

@@ -1,5 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { WorkflowNodeWire } from "./ports"
+import { fixedBinding, type StringBinding, type WorkflowNodeWire } from "./ports"
 
 /* ── tiny form primitives (Ledger-styled) ─────────────────────────────────── */
 
@@ -60,21 +60,16 @@ export const CLEAR = "__none__"
 
 /* ── binding helpers: plain text ⇄ fixed bindings ─────────────────────────── */
 
-export type BindingWire = { source?: unknown; value?: unknown; path?: unknown; nodeId?: unknown }
-
-export function fixedText(value: unknown): string {
-  const binding = value as BindingWire | undefined
-  return binding?.source === "fixed" && typeof binding.value === "string" ? binding.value : ""
+/** The picker's text for a binding: the literal someone typed, or empty when the
+ *  binding points at run data and there is nothing to show in a text box. */
+export function fixedText(binding: StringBinding | undefined): string {
+  return (binding && fixedBinding(binding)) ?? ""
 }
 
-export function withFixed(config: Record<string, unknown>, key: string, text: string, keepEmpty = false): Record<string, unknown> {
-  const next = { ...config }
-  if (!text && !keepEmpty) delete next[key]
-  else next[key] = { source: "fixed", value: text }
-  return next
-}
-
-export interface FormProps {
-  node: WorkflowNodeWire
-  update: (config: Record<string, unknown>) => void
+export interface FormProps<N extends WorkflowNodeWire = WorkflowNodeWire> {
+  node: N
+  /** Takes the whole edited node rather than a bare config: `type` and `config`
+   *  are one choice in the schema, and only moving them together stops a config
+   *  being written onto an arm it does not belong to. */
+  update: (node: N) => void
 }
