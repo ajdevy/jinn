@@ -3,12 +3,10 @@ import type { ServerResponse } from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Employee, ModelRegistry, WorkflowAttemptCommand } from "../../shared/types.js";
-import { openWorkflowDatabase } from "../../workflows/repository-migrations.js";
-import { WorkflowRepository } from "../../workflows/repository.js";
-import { WorkflowService } from "../../workflows/service.js";
 import type { WorkflowSessionExecutor } from "../../workflows/session-executor.js";
+import type { ApiContext } from "../api.js";
 import {
   CALLER_SESSION_CAPABILITY_HEADER,
   CALLER_SESSION_HEADER,
@@ -16,8 +14,31 @@ import {
   TOOL_CALL_HEADER_VALUE,
   ensureSessionCapability,
 } from "../../mcp/identity.js";
-import { createSession } from "../../sessions/registry.js";
-import { handleApiRequest, type ApiContext } from "../api.js";
+
+// paths.js freezes JINN_HOME as it is imported, so the home is redirected here,
+// at module scope, and everything that reaches it is imported dynamically below.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-session-started-run-api-home-"));
+process.env.JINN_HOME = home;
+
+type Api = typeof import("../api.js");
+type Registry = typeof import("../../sessions/registry.js");
+type Migrations = typeof import("../../workflows/repository-migrations.js");
+type Repository = typeof import("../../workflows/repository.js");
+type Service = typeof import("../../workflows/service.js");
+
+let handleApiRequest: Api["handleApiRequest"];
+let createSession: Registry["createSession"];
+let openWorkflowDatabase: Migrations["openWorkflowDatabase"];
+let WorkflowRepository: Repository["WorkflowRepository"];
+let WorkflowService: Service["WorkflowService"];
+
+beforeAll(async () => {
+  ({ handleApiRequest } = await import("../api.js"));
+  ({ createSession } = await import("../../sessions/registry.js"));
+  ({ openWorkflowDatabase } = await import("../../workflows/repository-migrations.js"));
+  ({ WorkflowRepository } = await import("../../workflows/repository.js"));
+  ({ WorkflowService } = await import("../../workflows/service.js"));
+});
 
 const employee: Employee = { name: "worker", displayName: "Worker", department: "platform", rank: "employee",
   engine: "test-engine", model: "model-a", effortLevel: "high", persona: "Executes work." };
