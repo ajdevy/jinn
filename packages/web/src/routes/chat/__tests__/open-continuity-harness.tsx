@@ -12,7 +12,7 @@ import { startTransition, useEffect, useLayoutEffect, useState } from 'react'
 import type { RefObject } from 'react'
 import { act } from '@testing-library/react'
 import { vi } from 'vitest'
-import { usePaneIdentity } from '../pane-identity'
+import { sessionBackedPaneIdentity, usePaneIdentity } from '../pane-identity'
 import { useHydrationSpinner, useRouteLoadingPresence } from '@/components/chat/chat-hydration'
 import { useLiveSession } from '@/hooks/use-live-session'
 import type { GatewayEventListener } from '@jinn/gateway-events'
@@ -40,8 +40,19 @@ export function resetFrames() {
   frames.length = 0
 }
 
-function subscribe(_listener: GatewayEventListener) {
-  return () => {}
+const paneEventListeners = new Set<GatewayEventListener>()
+
+function subscribe(listener: GatewayEventListener) {
+  paneEventListeners.add(listener)
+  return () => { paneEventListeners.delete(listener) }
+}
+
+export function emitPaneEvent(frame: Parameters<GatewayEventListener>[0]) {
+  paneEventListeners.forEach((listener) => listener(frame))
+}
+
+export function resetPaneEvents() {
+  paneEventListeners.clear()
 }
 
 export function transcript(id: string, rows: number) {
@@ -53,13 +64,38 @@ export function transcript(id: string, rows: number) {
   }))
 }
 
-function Pane({ sessionId, onScreen = true }: { sessionId: string | null; onScreen?: boolean }) {
+function Pane({
+  sessionId,
+  onScreen = true,
+  observable = false,
+}: {
+  sessionId: string | null
+  onScreen?: boolean
+  observable?: boolean
+}) {
   const { messages, hydrating, streamingText } = useLiveSession(sessionId, { subscribe })
   const spinner = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
   useEffect(() => {
     if (onScreen) frames.push({ sessionId, content: messages.length > 0, spinner })
   })
-  return null
+  if (!observable || !sessionId) return null
+  return (
+    <output
+      data-testid={`pane-${sessionId}`}
+      data-messages={JSON.stringify(messages)}
+      data-stream={streamingText}
+    />
+  )
+}
+
+/** The real live-session wiring for arbitrary session-backed panes. Keys come
+ * from pane identity rather than array position, so sibling removal cannot
+ * replace a streaming hook instance. */
+export function MultiPaneSurface({ sessionIds }: { sessionIds: string[] }) {
+  return sessionIds.map((sessionId) => {
+    const identity = sessionBackedPaneIdentity(sessionId)
+    return <Pane key={identity.paneKey} sessionId={identity.sessionId} observable />
+  })
 }
 
 interface SurfaceProps {

@@ -13,12 +13,13 @@ import { isOpenSelectionInbound, useCommittedSelection } from './selection-commi
  * replaced; a switch keeps the outgoing transcript up until the incoming one can
  * paint. `selection-commit.ts` owns that lag and explains both halves.
  *
- * The pane is keyed so that selecting a *different* session tears the old one
- * down — keep-alive panes stacked their WebSocket subscriptions and raced each
- * other. A composer that creates a session is not a different conversation
- * though: it is the same one acquiring an id, and remounting there threw the
- * transcript away mid-send. So a pane adopts the id its own first send produced
- * and keeps the key it already had.
+ * This hook owns only the URL-backed primary pane. Selecting a *different*
+ * primary session tears the old pane down. Session-backed grid companions do
+ * not use this hook: their identity is the session id, and the working-set
+ * invariant guarantees that id can appear only once. A composer that creates a
+ * session is not a different conversation though: it is the same one acquiring
+ * an id, and remounting there threw the transcript away mid-send. So the primary
+ * pane adopts the id its own first send produced and keeps its existing key.
  *
  * Both the key and the handoff key off the ADOPTED session rather than the
  * committed one, because the URL lands a frame late: react-router wraps
@@ -46,6 +47,17 @@ export interface PaneIdentity {
   adoptSession: (sessionId: string, pending?: Message) => void
   /** The user asked for a blank composer — give them a fresh pane. */
   startComposer: () => void
+}
+
+export interface SessionBackedPaneIdentity {
+  paneKey: string
+  sessionId: string
+}
+
+/** Secondary panes cannot compose a new chat or adopt an id. Their required
+ * session id is both the React identity and the live-event ownership boundary. */
+export function sessionBackedPaneIdentity(sessionId: string): SessionBackedPaneIdentity {
+  return { paneKey: sessionId, sessionId }
 }
 
 /** What the route knows about a bare `/` that may still be resolving. */
