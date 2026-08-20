@@ -1,5 +1,6 @@
 import { isProxy } from 'node:util/types';
 import { z } from 'zod';
+import { nodeFallbackSchema } from './engine-chain.js';
 import { triggerConfigSchema } from './trigger-config-schema.js';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -154,9 +155,8 @@ const employeeNodeSchema = z.strictObject({
     prompt: promptSchema,
     /** Continue the engine session of a completed attempt of `nodeId` instead of dispatching cold; naming this node itself continues its own previous run for the same Todo. Its `prompt` replaces the one above whenever a continuation is found, so it carries the delta rather than the whole brief. */
     continueFrom: z.strictObject({ nodeId: nodeIdSchema, prompt: promptSchema }).optional(),
-    engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(),
-    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(),
-    timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
+    engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(), fallback: nodeFallbackSchema.optional(),
+    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
   }),
 });
 const workflowCallNodeSchema = z.strictObject({

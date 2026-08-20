@@ -229,7 +229,6 @@ describe("Todo surface render cost", () => {
   })
 
   it("leaves the board cards alone when unrelated page state changes", async () => {
-    localStorage.setItem("jinn-todos-view", "board")
     const { unmount } = renderBoard()
     await screen.findByTestId("board-card-PLA-0")
     const cards = document.querySelectorAll("[data-board-card]").length

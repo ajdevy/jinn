@@ -16,6 +16,7 @@ import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { useStreamingFormat } from './streaming-format'
 import { CollapsibleUserText } from './collapsible-user-text'
+import { SendFailureRow } from './send-failure-row'
 import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
@@ -650,22 +651,6 @@ export function AssistantRowShell({ transcript, entering, children }: { transcri
         )}
         {children}
       </div>
-    </div>
-  )
-}
-
-/* ── SendFailureRow — recovery affordance under a failed bubble ─ */
-
-/** `Not delivered · Retry`, right-aligned under the bubble that failed. The
- *  label is far under the coarse-pointer target, so `.send-retry-btn` carries
- *  the padding that reaches it. `reason` is the transport error, kept out of the
- *  copy but reachable rather than discarded. */
-function SendFailureRow({ reason, onRetry }: { reason?: string; onRetry?: () => void }) {
-  return (
-    <div className="send-failure-row mt-0.5 flex items-center gap-1 px-1 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]" title={reason}>
-      <span>Not delivered</span>
-      <span aria-hidden="true">·</span>
-      <button type="button" onClick={onRetry} disabled={!onRetry} className="send-retry-btn inline-flex items-center justify-center border-none bg-transparent px-1 text-[var(--system-red)] cursor-pointer disabled:cursor-default disabled:opacity-40">Retry</button>
     </div>
   )
 }

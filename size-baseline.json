@@ -154,7 +154,7 @@
       "lines": 422
     },
     "packages/jinn/src/engines/__tests__/codex.test.ts": {
-      "lines": 865
+      "lines": 811
     },
     "packages/jinn/src/engines/__tests__/grok.test.ts": {
       "lines": 779
@@ -197,7 +197,7 @@
       ]
     },
     "packages/jinn/src/engines/codex.ts": {
-      "lines": 1094,
+      "lines": 1065,
       "exempt": [
         "complexity",
         "max-depth",
@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5784,
+      "lines": 5781,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1414,
+      "lines": 1404,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1243,7 +1243,7 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 350,
+      "lines": 306,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1510,7 +1510,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1244,
+      "lines": 1225,
       "exempt": [
         "complexity"
       ]
@@ -1672,7 +1672,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1675,
+      "lines": 1657,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1690,7 +1690,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 911
+      "lines": 874
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 340,
@@ -1705,7 +1705,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 1093,
+      "lines": 964,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1784,7 +1784,7 @@
       ]
     },
     "packages/web/src/routes/todos/pickers/picker-contents.tsx": {
-      "lines": 369,
+      "lines": 365,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1845,7 +1845,6 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/props-rail.tsx": {
-      "lines": 303,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1914,7 +1913,7 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 1135,
+      "lines": 1071,
       "exempt": [
         "complexity",
         "max-lines-per-function"

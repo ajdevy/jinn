@@ -138,3 +138,43 @@ describe("saveConfigAtomic", () => {
     expectPosixMode(configPath, 0o600);
   });
 });
+
+describe("validateConfigShape — engine fallback chains", () => {
+  it("accepts an ordered chain of known engines and an explicitly empty one", () => {
+    expect(validateConfigShape({ engines: { claude: { fallback: ["codex", "grok"] } } })).toEqual([]);
+    expect(validateConfigShape({ engines: { claude: { fallback: [] } } })).toEqual([]);
+  });
+
+  it("names the path, the bad value and the known engines when a chain names an unknown engine", () => {
+    const problems = validateConfigShape({ engines: { claude: { fallback: ["gpt4"] } } });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("engines.claude.fallback[0]");
+    expect(problems[0]).toContain('"gpt4"');
+    expect(problems[0]).toContain("claude, codex, antigravity, grok, pi, hermes");
+  });
+
+  it("refuses a self-referencing chain, naming the path", () => {
+    const problems = validateConfigShape({ engines: { claude: { fallback: ["claude"] } } });
+    expect(problems).toEqual(["engines.claude.fallback must not name claude itself"]);
+  });
+
+  it("refuses a chain that is not a list, and one with a non-string member", () => {
+    expect(validateConfigShape({ engines: { claude: { fallback: "codex" } } }))
+      .toEqual(["engines.claude.fallback must be a list of engine names (got string)"]);
+    expect(validateConfigShape({ engines: { claude: { fallback: [3] } } }))
+      .toEqual(["engines.claude.fallback[0] must be a string (got number)"]);
+  });
+
+  it("accepts a cycle across engines — the runtime walker's visited set handles those", () => {
+    expect(validateConfigShape({
+      engines: { claude: { fallback: ["codex"] }, codex: { fallback: ["claude"] } },
+    })).toEqual([]);
+  });
+
+  it("reports nothing for a config carrying no fallback key at all", () => {
+    expect(validateConfigShape({
+      engines: { default: "claude", claude: { bin: "claude", model: "opus" }, codex: { bin: "codex", model: "gpt-5.5" } },
+      sessions: { rateLimitStrategy: "fallback", fallbackEngine: "codex" },
+    })).toEqual([]);
+  });
+});

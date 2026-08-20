@@ -266,6 +266,7 @@ engines:
     bin: claude
     model: opus
     effortLevel: medium
+    fallback: [codex, grok]
   codex:
     bin: codex
     model: gpt-5.5
@@ -290,6 +291,8 @@ logging:
 ```
 
 - **Engines** select CLI binaries and defaults; `engines.default` controls new sessions.
+- **Fallback chains** — `engines.<name>.fallback` names the engines to try, in order of preference, when that one cannot serve a turn. Two engines may name each other; an engine may not name itself.
+- **`sessions.rateLimitStrategy` and `sessions.fallbackEngine` are deprecated** in favour of `engines.claude.fallback`. They still work: the loader maps them forward and warns once.
 - **Models** form an extensible per-engine capability registry. CLI discovery can replace fallback entries at runtime.
 - **MCP servers** are optional; enable `mcp.gateway` for the built-in company tools.
 - **Cron, employees, and skills** live in `~/.jinn/cron/jobs.json`, `~/.jinn/org/`, and `~/.jinn/skills/`.

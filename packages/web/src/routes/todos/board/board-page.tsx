@@ -9,7 +9,6 @@ import {
   deriveNeedsYou,
   filtersFromSearchParams,
   filtersToSearchParams,
-  groupHistory,
   matchesDueFilter,
   operatorSafeTodoError,
   rankBetween,
@@ -30,8 +29,6 @@ import { TodoFilterSheet } from "../todo-filter-sheet"
 import { NeedsYouView } from "../needs-you-view"
 import { NewTodoDialog } from "../new-todo-dialog"
 import { TodoList } from "../list/todo-list"
-import { TodosViewToggle } from "../todos-view-toggle"
-import { loadTodoViewPreference, saveTodoViewPreference, type TodoView } from "../todos-view-pref"
 import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
 import { BoardColumn, DragSlot } from "./column"
 import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail"
@@ -58,11 +55,10 @@ import { useBoardScroll } from "./use-board-scroll"
  * drag (rank within a column, legal status moves across), board-scoped data.
  * The task-page takeover is stage B; mobile polish + cutover are stage C. */
 
-type MobileSegment = "active" | "attention" | "closed"
 const NOOP = () => {}
 
-/** ONE container per breakpoint (never both mounted with CSS hiding one —
- *  duplicate controls break a11y queries and double state). */
+/** The one breakpoint the Todos dash reads: the phone gets the grouped list,
+ *  the desktop the columns. No `window` — SSR, jsdom — reads as desktop. */
 const MOBILE_QUERY = "(max-width: 700px)"
 function useIsBoardMobile(): boolean {
   const [mobile, setMobile] = useState(
@@ -103,7 +99,6 @@ export default function TodoBoardPage() {
   const key = boardKey(board)
   const navigationType = useNavigationType()
   const navigate = useNavigate()
-  const [view, setView] = useState<TodoView>(loadTodoViewPreference)
   const [searchParams, setSearchParams] = useSearchParams()
   // Columns are the status dimension, so `status` narrows WHICH columns exist
   // rather than filtering within one (useBoardData gates the queries).
@@ -111,6 +106,8 @@ export default function TodoBoardPage() {
   const now = useMemo(() => Date.now(), [filters.date, filters.due])
 
   const isAttention = board.kind === "attention"
+  // The viewport picks the view — grouped list on the phone, columns on the
+  // desktop — so there is nothing for the operator to toggle or to remember.
   const mobile = useIsBoardMobile()
   const data = useBoardData(board, filters, now, !isAttention)
   const departments = useDepartments()
@@ -384,15 +381,9 @@ export default function TodoBoardPage() {
   // A URL naming a closed status asked for closed work — never one tap short.
   const closedFilter = CLOSED_STATUSES.some((status) => status === filters.status)
   const [closedOpen, setClosedOpen] = useState(closedFilter)
-  const [segment, setSegment] = useState<MobileSegment>(closedFilter ? "closed" : "active")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
-  const chooseView = useCallback((next: TodoView) => {
-    setView(next)
-    saveTodoViewPreference(next)
-  }, [])
   useEffect(() => {
     setClosedOpen(closedFilter)
-    setSegment(closedFilter ? "closed" : "active")
     setMobileFilterOpen(false)
   }, [key, closedFilter])
 
@@ -459,20 +450,6 @@ export default function TodoBoardPage() {
   const blockedTotal = countByStatus.blocked ?? 0
   const escalatedTotal = countByStatus.escalated ?? 0
   const closedTotal = CLOSED_STATUSES.reduce((sum, status) => sum + (countByStatus[status] ?? 0), 0)
-  const attentionSegmentItems = useMemo(
-    () =>
-      [...(itemsByStatus.blocked ?? []), ...(itemsByStatus.escalated ?? []),
-        ...PIPELINE_STATUSES.flatMap((s) => (itemsByStatus[s] ?? []).filter((item) => item.approvalState === "pending"))],
-    [itemsByStatus],
-  )
-  // §8: the mobile Closed segment shows done/cancelled grouped by DATE (the
-  // rows' own discs carry which) — the desktop rail's status groups stay
-  // desktop-only.
-  const closedHistory = useMemo(
-    () => groupHistory([...(itemsByStatus.done ?? []), ...(itemsByStatus.cancelled ?? [])], now),
-    [itemsByStatus, now],
-  )
-
   const visibleStatuses: WorkItemStatusWire[] = useMemo(() => {
     const exceptions = EXCEPTION_STATUSES.filter(
       (status) =>
@@ -574,7 +551,6 @@ export default function TodoBoardPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
                 <BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />
-                {!isAttention && <TodosViewToggle view={view} onChange={chooseView} />}
               </div>
               <div className="mt-1 flex items-center gap-2 text-[13px] text-[var(--text-tertiary)]">
                 {deptSummary && (
@@ -639,48 +615,28 @@ export default function TodoBoardPage() {
             </div>
           )}
 
-          {/* Mobile segments (§8): Active · Attention · Closed. The desktop
-              filter chips fold into the Active segment's filter glyph — the
-              raised Active pill carries it, and re-tapping the selected pill
-              opens the filter sheet (the mobile filtering entry point,
-              Stage-A review F5). */}
+          {/* The phone's filtering entry: the desktop chip row folds into one
+              pill that opens the same filter grammar in a sheet. */}
           {!isAttention && mobile && (
-            <div hidden={view !== "board"} className="mt-4 flex gap-2 overflow-x-auto" role="tablist" aria-label="Board segments">
-              {(["active", "attention", "closed"] as const).map((seg) => {
-                const count = seg === "active" ? data.openTotal : seg === "attention" ? blockedTotal + escalatedTotal : closedTotal
-                const label = seg === "active" ? "Active" : seg === "attention" ? "Attention" : "Closed"
-                const on = segment === seg
-                const filtersOn = activeFilterCount(filters) > 0 || !!filters.q
-                return (
-                  <button
-                    key={seg}
-                    type="button"
-                    role="tab"
-                    aria-selected={on}
-                    data-testid={`board-segment-${seg}`}
-                    aria-label={seg === "active" ? `Active — tap again to filter` : undefined}
-                    onClick={() => {
-                      if (seg === "active" && segment === "active") setMobileFilterOpen(true)
-                      else setSegment(seg)
-                    }}
-                    className={`flex h-[34px] flex-none items-center gap-[7px] rounded-[17px] px-3.5 text-[14px] font-semibold ${
-                      on ? "bg-[var(--bg-secondary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
-                    }`}
-                    style={on ? { boxShadow: "var(--shadow-ambient), var(--shadow-subtle), var(--inset-shine)" } : undefined}
-                  >
-                    {seg === "active" && (
-                      <ListFilter
-                        size={13}
-                        strokeWidth={2.2}
-                        aria-hidden
-                        className={filtersOn ? "text-[var(--accent)]" : undefined}
-                      />
-                    )}
-                    {label}
-                    <span className="text-[12px] font-medium tabular-nums text-[var(--text-quaternary)]">{count}</span>
-                  </button>
-                )
-              })}
+            <div className="mt-4">
+              <button
+                type="button"
+                data-testid="todo-mobile-filters"
+                onClick={() => setMobileFilterOpen(true)}
+                className="focus-ring flex h-[34px] flex-none items-center gap-[7px] rounded-[17px] bg-[var(--bg-secondary)] px-3.5 text-[14px] font-semibold text-[var(--text-primary)] outline-none"
+                style={{ boxShadow: "var(--shadow-ambient), var(--shadow-subtle), var(--inset-shine)" }}
+              >
+                <ListFilter
+                  size={13}
+                  strokeWidth={2.2}
+                  aria-hidden
+                  className={filterCount > 0 ? "text-[var(--accent)]" : undefined}
+                />
+                Filters
+                {filterCount > 0 && (
+                  <span className="text-[12px] font-medium tabular-nums text-[var(--text-quaternary)]">{filterCount}</span>
+                )}
+              </button>
             </div>
           )}
         </header>
@@ -715,10 +671,13 @@ export default function TodoBoardPage() {
           </div>
         ) : (
           <>
+          {/* Both containers stay mounted and one is hidden: the scroll
+              position is put back per board, so unmounting the other half
+              across a rotation would drop the reader where they were. */}
           <div
             ref={listScrollRef}
             onScroll={onListScroll}
-            hidden={view !== "list"}
+            hidden={!mobile}
             data-testid="todo-list-scroll"
             data-scrollable
             className="min-h-0 flex-1 overflow-y-auto"
@@ -755,13 +714,12 @@ export default function TodoBoardPage() {
           <div
             ref={boardScrollRef}
             onScroll={onBoardScroll}
-            hidden={view !== "board"}
+            hidden={mobile}
             data-testid="todo-board-scroll"
             data-scrollable
             className="min-h-0 flex-1 overflow-auto"
           >
-            {!mobile ? (
-            data.isError ? (
+            {data.isError ? (
               <BoardErrorCard error={data.error} />
             ) : data.isLoading ? (
               <BoardSkeleton />
@@ -791,89 +749,6 @@ export default function TodoBoardPage() {
               ) : (
                 <ClosedRail count={closedTotal} onExpand={() => setClosedOpen(true)} />
               ))}
-            </div>
-            )
-            ) : (
-            <div className="flex flex-col gap-[18px] px-4 pb-24 pt-2">
-              {segment === "active" && (
-                data.isError ? (
-                  <BoardErrorCard error={data.error} />
-                ) : data.isLoading ? (
-                  <GroupSkeleton />
-                ) : filteredEmpty ? (
-                  <FilteredEmptyCard count={filterCount} onClear={clearAllFilters} />
-                ) : (
-                  visibleStatuses.map((status) => columnFor(status))
-                )
-              )}
-              {segment === "attention" && (
-                <div className="flex flex-col">
-                  {attentionSegmentItems.length === 0 ? (
-                    <EmptyCaption text="All quiet." />
-                  ) : (
-                    attentionSegmentItems.map((item) => (
-                      <BoardCard
-                        key={item.id}
-                        item={item}
-                        enrichment={enrichmentById.get(item.id)}
-                        byName={byName}
-                        expanded={false}
-                        onToggleTree={toggleTree}
-                        onOpen={onOpen}
-                        onOpenChild={onOpen}
-                        onAddSubTask={NOOP}
-                      />
-                    ))
-                  )}
-                </div>
-              )}
-              {segment === "closed" && (
-                filteredEmpty ? <FilteredEmptyCard count={filterCount} onClear={clearAllFilters} />
-                : closedHistory.length === 0 ? <EmptyCaption text="Nothing closed yet." />
-                : (
-                  <>
-                    {closedHistory.map((group) => (
-                      <section key={group.bucket} data-testid={`board-closed-${group.bucket}`}>
-                        <div className="flex items-center gap-2 px-0.5 pb-0.5 text-[13px] font-semibold text-[var(--text-secondary)]">
-                          {group.label}
-                          <span className="text-[12px] font-normal tabular-nums text-[var(--text-quaternary)]">
-                            {group.items.length}
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          {group.items.map((item) => (
-                            <BoardCard
-                              key={item.id}
-                              item={item}
-                              enrichment={enrichmentById.get(item.id)}
-                              byName={byName}
-                              expanded={false}
-                              onToggleTree={toggleTree}
-                              onOpen={onOpen}
-                              onOpenChild={onOpen}
-                              onAddSubTask={NOOP}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    ))}
-                    {CLOSED_STATUSES.filter((status) => data.columns[status]?.hasMore).map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        data-testid={`board-show-more-${status}`}
-                        onClick={data.columns[status]?.loadMore ?? (() => {})}
-                        disabled={data.columns[status]?.loadingMore ?? false}
-                        className="focus-ring min-h-11 rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] px-3 text-left text-[12px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)]"
-                      >
-                        {(data.columns[status]?.loadingMore ?? false)
-                          ? "Loading…"
-                          : `Show more ${status === "done" ? "done" : "cancelled"}`}
-                      </button>
-                    ))}
-                  </>
-                )
-              )}
             </div>
             )}
           </div>
@@ -953,10 +828,6 @@ export default function TodoBoardPage() {
 
 function Dot() {
   return <span aria-hidden className="size-[2.5px] rounded-full bg-[var(--text-quaternary)]" />
-}
-
-function EmptyCaption({ text }: { text: string }) {
-  return <div className="px-2 py-6 text-[13px] text-[var(--text-tertiary)]">{text}</div>
 }
 
 /** The grouped-list skeleton (mobile/inbox loading) — moved here from the

@@ -467,7 +467,7 @@ export default function TaskPage() {
                   byName={byName}
                   mobile={mobile}
                   working={hasLiveSession ? working : null}
-                  onOpenPicker={pickers.setOpenPicker}
+                  rowFor={pickers.rowFor}
                 />
               )}
 
