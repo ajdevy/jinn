@@ -242,3 +242,49 @@ describe('rows that render nothing', () => {
     expect((pills[0] as HTMLElement).className).toContain('tool-arrive')
   })
 })
+
+describe('rows that carry their own arrival', () => {
+  /** A delegation block animates on its own rail — `use-live-session` mints the
+   *  arrival and `ChatBlockInline` plays `.delegation-arrival` for it. */
+  function delegation(id: string, at: number): Message {
+    return {
+      id,
+      role: 'assistant',
+      content: 'Handed off',
+      timestamp: at,
+      blocks: [{
+        id: `dg-${id}`,
+        type: 'delegation',
+        version: 1,
+        status: 'running',
+        payload: { employee: 'researcher', employeeDisplay: 'Researcher', title: 'Research', childSessionId: `c-${id}`, workItemId: `wi-${id}`, dispatchedAt: T0 },
+      }],
+    }
+  }
+
+  it('leaves the generic slots to the chip beside them', () => {
+    // Three delegations landing after a tool call would fill the batch's tail.
+    // They are already animating, so spending the slots on them buys nothing
+    // and costs the chip the only entrance it has.
+    const container = arriveLive([
+      tool('t1', 'grep'),
+      delegation('d1', T0 + 3_000),
+      delegation('d2', T0 + 4_000),
+      delegation('d3', T0 + 5_000),
+    ])
+
+    const pills = marks(container, 'group')
+    expect(pills).toHaveLength(1)
+    expect((pills[0] as HTMLElement).className).toContain('tool-arrive')
+  })
+
+  it('does not also hand them the generic message entrance', () => {
+    const arrivals = new Map([['dg-d1', { nonce: 1, delayMs: 0 }]])
+    const { container, rerender } = render(<ChatMessages messages={HISTORY} loading={false} blockArrivals={arrivals} />)
+    rerender(<ChatMessages messages={[...HISTORY, delegation('d1', T0 + 3_000)]} loading={false} blockArrivals={arrivals} />)
+
+    // Its own rail plays, and nothing plays on top of it.
+    expect(container.querySelectorAll('[data-delegation-arrival]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-msg-enter]')).toHaveLength(0)
+  })
+})

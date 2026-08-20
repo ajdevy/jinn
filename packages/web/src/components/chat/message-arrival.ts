@@ -74,18 +74,29 @@ export function renderedMessageIds(items: MessageItem[]): Set<string> {
 }
 
 /**
+ * A row whose entrance is already someone else's job. `use-live-session` mints
+ * a `LiveBlockArrival` for exactly these two block types and `ChatBlockInline`
+ * plays it, so a generic mark on top would animate the row twice.
+ */
+function hasOwnBlockArrival(message: Message): boolean {
+  return Boolean(message.blocks?.some((block) => block.type === 'delegation' || block.type === 'dispatch'))
+}
+
+/**
  * The rows of one commit that still play an entrance: the newest few, and none
  * at all under reduced motion. A catch-up reconciles on its tail because the
  * rows above it are already scrolled past by the time the transcript settles,
  * so animating them would be work the reader never sees.
  *
- * Rows that render nothing are out of the running before the cap counts: a
- * commit whose tail is a delegation's own tool call would otherwise spend every
- * slot on invisible rows and leave the chip beside them to appear instantly.
+ * Rows the transcript never shows, and rows that carry their own arrival, are
+ * out of the running before the cap counts. Either kind would otherwise spend
+ * the slots on an entrance it is not going to play here — a commit tailed by a
+ * delegation's own tool calls, or by the delegations themselves — and leave the
+ * chip beside them to appear instantly.
  */
 function animatedRows(batch: [string, Message][], rendered: Set<string>): Set<string> {
   if (prefersReducedMotion()) return new Set()
-  const visible = batch.filter(([id]) => rendered.has(id))
+  const visible = batch.filter(([id, message]) => rendered.has(id) && !hasOwnBlockArrival(message))
   return new Set(visible.slice(-LIVE_ARRIVAL_BATCH_MAX).map(([id]) => id))
 }
 

@@ -142,7 +142,11 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
       return
     }
 
+    // `closing` for the same reason the manual collapse sets it: while the
+    // animation plays the region is still visually open, and without it a click
+    // mid-fold reads the region as open and aims at a collapse already running.
     setLanding(true)
+    setClosing(true)
     scheduleFrame(frameRef, () => {
       region.style.height = `${region.offsetHeight}px`
       region.style.overflow = 'hidden'
@@ -155,6 +159,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
           setFolded(true)
           setLanded(true)
           setLanding(false)
+          setClosing(false)
           region.style.transition = ''
         }, FOLD_MS + 10)
       })

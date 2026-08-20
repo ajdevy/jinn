@@ -38,6 +38,10 @@ function stubFrames() {
   }
 }
 
+function asRect(top: number, height: number): DOMRect {
+  return { top, bottom: top + height, height, left: 0, right: 500, width: 500, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+}
+
 function mountFold() {
   const view = render(
     <div className="chat-messages-scroll">
@@ -66,6 +70,7 @@ describe('fold region toggle', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   /** Run the animation the click started all the way to its resting state. */
@@ -88,6 +93,44 @@ describe('fold region toggle', () => {
     { start: 'collapse not yet framed', arrive: (fold: Fold) => { openIt(fold); fold.click() }, expected: 'open' },
     { start: 'expand not yet framed', arrive: (fold: Fold) => { fold.click() }, expected: 'closed' },
   ]
+
+  it('from mid-auto-collapse, one click rests it open', () => {
+    // The automatic fold plays the same animation as the manual one, so a click
+    // arriving during it has to be answered the same way. Reading the region as
+    // open here aims the click at the collapse that is already running.
+    const scroller = { top: 64, bottom: 864 }
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('chat-messages-scroll')) return asRect(scroller.top, 800)
+      // Scrolled clear of the top edge, which is the only place a fold may
+      // collapse itself.
+      if (this.hasAttribute('data-fold')) return asRect(-420, 300)
+      return asRect(0, 0)
+    })
+    const view = render(
+      <div className="chat-messages-scroll">
+        <FoldRegion answered liveCompletion summary={SUMMARY}><div>evidence</div></FoldRegion>
+      </div>,
+    )
+    const fold = {
+      region: () => view.container.querySelector<HTMLElement>('[data-fold-region]')!,
+      control: () => screen.getByRole('button'),
+      click: () => fireEvent.click(screen.getByRole('button')),
+    }
+    view.rerender(
+      <div className="chat-messages-scroll">
+        <FoldRegion answered liveCompletion collapseRequested summary={SUMMARY}><div>evidence</div></FoldRegion>
+      </div>,
+    )
+    // The fold is animating and its landing timer has not run.
+    frames.flush()
+
+    fold.click()
+    settle()
+
+    expect(fold.control().getAttribute('aria-expanded')).toBe('true')
+    expect(fold.region().getAttribute('aria-hidden')).toBeNull()
+    expect(fold.region().style.height).toBe('auto')
+  })
 
   it.each(starts)('from $start, one click rests it $expected', ({ arrive, expected }) => {
     const fold = mountFold()
