@@ -7,6 +7,7 @@ import type {
 } from "@/routes/notes/types"
 import { createExperimentsApi } from "@/lib/api-experiments"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
+import type { EnginesResponse, ModelInfo } from "@/lib/engine-registry"
 import {
   isPositiveTodoVersion,
   requireWorkItemEditResult,
@@ -294,27 +295,7 @@ export interface PinsResponse {
 }
 
 // --- Model + capability registry (GET /api/engines) ---
-export interface ModelInfo {
-  id: string;
-  label: string;
-  supportsEffort: boolean;
-  effortLevels: string[];
-  contextWindow?: number;
-  /** Model is in the engine's featured set — shown by default in the picker. */
-  featured?: boolean;
-}
-export interface EngineRegistryEntry {
-  name: string;
-  available: boolean;
-  defaultModel: string;
-  effortMechanism: "claude-flag" | "codex-config" | "grok-flag" | "pi-flag" | "none";
-  models: ModelInfo[];
-  supportsPty?: boolean; // interactive PTY/CLI view (`/ws/pty`)
-}
-export interface EnginesResponse {
-  default: string;
-  engines: Record<string, EngineRegistryEntry>;
-}
+export type { EngineHealth, EngineRegistryEntry, EnginesResponse, ModelInfo } from "./engine-registry";
 
 // --- Engine quota/limit snapshots (GET /api/engine-limits) ---
 export interface EngineLimitWindow {
@@ -502,7 +483,7 @@ export interface WorkflowChildRunV2Wire {
   runId: string
   workflowId: string
   nodeId: string
-  itemIndex: number
+  itemIndex?: number
   status: WorkflowRunStatusV2
   startedAt: string
   endedAt?: string
@@ -520,7 +501,7 @@ export interface WorkflowAttemptV2Wire {
     employeeId: string
     engine: string
     model?: string
-    effort?: "low" | "medium" | "high" | "xhigh"
+    effort?: "low" | "medium" | "high" | "xhigh"; substitutedFrom?: { engine: string; reason: string }
   }
   /** The final composed prompt handed to the session (interpolated + contract
    *  block). Only `?view=full` carries it. */
@@ -871,7 +852,7 @@ export const api = {
     id: string,
     runId: string,
     nodeId: string,
-    body: { decision: "approve" | "reject"; expectedRevision: number; reason?: string },
+    body: { decision: "approve" | "reject"; expectedRevision: number; reason?: string; choice?: string },
   ) =>
     post<WorkflowRunDetailV2Wire>(
       `/api/workflows/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/approval`,

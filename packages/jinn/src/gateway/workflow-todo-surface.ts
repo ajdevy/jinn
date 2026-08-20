@@ -12,6 +12,7 @@ import {
 } from "../work-items/store.js";
 import { transition, transitionDerived, TransitionError } from "../work-items/transitions.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
+import { gateTrail, quoted, recordApprovalDecision } from "./workflow-todo-gate.js";
 import type { WorkflowError } from "../workflows/runtime.js";
 import type {
   WorkflowRevisionRequest,
@@ -90,23 +91,6 @@ function recordFailure(input: {
   });
 }
 
-function recordApprovalDecision(
-  input: Parameters<WorkflowTodoLifecycle["recordApprovalDecision"]>[0],
-): void {
-  const decision = input.decision === "approve" ? "approved" : "rejected";
-  const context = [
-    input.choice !== undefined ? `Picked option: \`${input.choice}\`.` : undefined,
-    input.note?.trim() ? `Note:\n\n${quoted(input.note.trim())}` : undefined,
-    `${gateTrail(input)}.`,
-  ].filter((part): part is string => part !== undefined).join("\n\n");
-  addComment({
-    workItemId: input.todoId,
-    author: "workflow",
-    authorKind: "system",
-    body: `**Workflow gate ${decision}** by \`${input.decidedBy}\`.\n\n${context}`,
-  });
-}
-
 function complete(input: Parameters<WorkflowTodoLifecycle["complete"]>[0]): void {
   const item = getWorkItem(input.todoId);
   if (!item) return;
@@ -162,17 +146,6 @@ function revisionCycles(todoId: string): number {
   return listApprovals(todoId).filter((approval) => approval.state === "rejected"
     && (approval.note ?? "").trim().length > 0
     && parseTodoApprovalRef(approval.ref) !== null).length;
-}
-
-/** `workflow-x` run `run_y` · gate `node_z` — the same trail on every gate note. */
-function gateTrail(input: { workflowId: string; runId: string; nodeId: string }): string {
-  return `\`${input.workflowId}\` run \`${input.runId}\` · gate \`${input.nodeId}\``;
-}
-
-/** The rejecter's own words, quoted so the next run's first phase reads feedback
- *  and not a paraphrase of it. */
-function quoted(feedback: string): string {
-  return feedback.split("\n").map((line) => `> ${line}`).join("\n");
 }
 
 /**

@@ -161,6 +161,49 @@ describe("mirroring a parked gate onto the bound Todo", () => {
   });
 });
 
+/** The same gate, but each port leads to a step that reads the decision's own words back out of it. */
+function reasonDefinition(id: string): WorkflowDefinition {
+  const reader = (nodeId: string): WorkflowNode => ({ id: nodeId, type: "employee", name: nodeId,
+    config: { employee: { source: "fixed", value: "worker" }, prompt: "Act on: {{ node.review.fields.reason }}",
+      output: { fields: {}, allowAdditionalFields: true } } });
+  return saveDefinition(id, [
+    { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
+    { id: "review", type: "approval", name: "Review", config: { description: "Approve?" } } as WorkflowNode,
+    reader("on-approve"), reader("on-reject"),
+    { id: "shipped", type: "end", name: "Shipped", config: { result: "success" } },
+    { id: "revised", type: "end", name: "Revised", config: { result: "success" } },
+  ], [
+    edge("start-review", "start", "success", "review"),
+    edge("review-approved", "review", "approved", "on-approve"),
+    edge("review-rejected", "review", "rejected", "on-reject"),
+    edge("approve-end", "on-approve", "success", "shipped"),
+    edge("reject-end", "on-reject", "success", "revised"),
+  ]);
+}
+
+describe("reading the decision's reason back into the run", () => {
+  it.each(["approve", "reject"] as const)("carries a %s reason into the gate's output fields", async (decision) => {
+    const definition = reasonDefinition(`reason-${decision}`);
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+    const decided = await service.decideApproval({ workflowId: definition.id, runId: run.id, nodeId: "review",
+      decision, decidedBy: "operator", reason: "  The staging soak was clean.  ", expectedRevision: run.revision });
+
+    expect(decided.nodeRuns.find((node) => node.nodeId === "review")?.output)
+      .toMatchObject({ fields: { port: decision === "approve" ? "approved" : "rejected",
+        reason: "The staging soak was clean." } });
+    // The whole point of putting it in `fields`: the next step can read it.
+    expect(decided.attempts.at(-1)?.promptText).toContain("Act on: The staging soak was clean.");
+  });
+
+  it("leaves no reason field when the decision carried none", async () => {
+    const definition = gateDefinition("no-reason", { description: "Approve?" });
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+    const decided = await service.decideApproval({ workflowId: definition.id, runId: run.id, nodeId: "review",
+      decision: "approve", decidedBy: "operator", expectedRevision: run.revision });
+    expect(decided.nodeRuns.find((node) => node.nodeId === "review")?.output?.fields).toEqual({ port: "approved" });
+  });
+});
+
 describe("reading the pick back into the run", () => {
   it("exposes the choice as the Approval node's output", async () => {
     const definition = gateDefinition("reads-back", { description: "Which?", options: VARIANTS });

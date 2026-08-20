@@ -166,9 +166,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   if (parts.length === 4 && method === "GET") { send(res, 200, service.listRuns(workflowId, runQuery(url))); return true; }
   if (parts.length === 4 && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true; const value = record(parsed, ["input", "idempotencyKey", "todoId"]);
+    const caller = callerSessionId(req);
     send(res, 201, await service.startManual({ workflowId, input: value.input as never,
       ...(value.idempotencyKey === undefined ? {} : { idempotencyKey: value.idempotencyKey as string }),
-      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }) })); return true;
+      ...(value.todoId === undefined ? {} : { todoId: value.todoId as string }),
+      ...(caller === undefined ? {} : { callerSessionId: caller }) })); return true;
   }
   const runId = parts[4]; if (!runId) return false;
   if (parts.length === 5 && method === "GET") {
@@ -187,10 +189,11 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "approval" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;
-    const value = record(parsed, ["decision", "reason", "expectedRevision"]);
+    const value = record(parsed, ["decision", "reason", "choice", "expectedRevision"]);
     send(res, 200, await service.decideApproval({ workflowId, runId, nodeId: parts[6]!,
-      decision: value.decision as never, expectedRevision: value.expectedRevision as number,
-      decidedBy: approvalActor(req), ...(value.reason === undefined ? {} : { reason: value.reason as string }) })); return true;
+      decision: value.decision as never, expectedRevision: value.expectedRevision as number, decidedBy: approvalActor(req),
+      ...(value.reason === undefined ? {} : { reason: value.reason as string }),
+      ...(value.choice === undefined ? {} : { choice: value.choice as string }) })); return true;
   }
   if (parts.length === 8 && parts[5] === "nodes" && parts[7] === "retry" && method === "POST") {
     const parsed = await body(req, res); if (parsed === undefined) return true;

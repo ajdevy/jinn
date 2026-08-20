@@ -130,7 +130,7 @@ describe("parseAntigravityStreamLine", () => {
 });
 
 describe("buildAntigravityHeadlessArgs", () => {
-  it("builds print-mode stream-json args and strips unrelated engine flags", () => {
+  it("builds stream-json args without the prompt-valued print flag", () => {
     expect(buildAntigravityHeadlessArgs({
       prompt: "ignored",
       cwd: "/workspace",
@@ -144,7 +144,6 @@ describe("buildAntigravityHeadlessArgs", () => {
       "--verbose",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
-      "-p",
     ]);
   });
 });

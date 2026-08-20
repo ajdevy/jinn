@@ -2,11 +2,13 @@ import { isDeepStrictEqual } from "node:util";
 import { logger } from "../shared/logger.js";
 import type { Employee, ModelRegistry, WorkflowAttemptCompletion } from "../shared/types.js";
 import { TODO_ID_PATTERN } from "../work-items/id.js";
+import { approvalDescription } from "./approval-description.js";
 import { interpolateWorkflowPrompt, resolveBinding, WorkflowBindingError, type WorkflowBindingContext } from "./bindings.js";
 import { buildNodeContract } from "./contract.js";
 import { continuationPrompt } from "./employee-continuation.js";
-import { bindingContext, resolveDispatch, resolveString } from "./node-dispatch.js";
+import { bindingContext, hasSubstitute, resolveDispatch, resolveString, type DispatchResolutionDeps } from "./node-dispatch.js";
 import { incoming, nodeRun, upstreamSessions } from "./run-graph.js";
+import { commentReplyOutput, waitDueOutput } from "./wait-comment-output.js";
 import type {
   ConditionNode,
   ConditionPredicate,
@@ -28,7 +30,7 @@ import { planStopNudge, STOP_NUDGE_TEXT } from "../sessions/stop-nudge.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type {
   ResolvedEmployeeConfig,
-  WorkflowChildRunSummary,
+  WorkflowFanoutChildSummary,
   WorkflowError,
   WorkflowNodeRunRecord,
   WorkflowRunDetail,
@@ -40,7 +42,7 @@ import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMi
   WorkflowTodoLifecycle, WorkflowTodoSessionLink } from "./todo-ports.js";
 import { topologicalOrder, validateExecutableWorkflow } from "./validation.js";
 
-export interface WorkflowRunnerOptions {
+export interface WorkflowRunnerOptions extends Pick<DispatchResolutionDeps, "engineFallback"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;
@@ -117,15 +119,15 @@ function fanoutInput(run: WorkflowRunDetail, node: WorkflowCallNode, plan: Fanou
     .map(([key, binding]) => [key, resolveBinding(binding, context)]));
 }
 
-function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowChildRunSummary[] {
-  return run.childRuns.filter((child) => child.nodeId === nodeId);
+function fanoutChildren(run: WorkflowRunDetail, nodeId: string): WorkflowFanoutChildSummary[] {
+  return run.childRuns.filter((child): child is WorkflowFanoutChildSummary => child.nodeId === nodeId && child.itemIndex !== undefined);
 }
 
-function childTerminal(child: WorkflowChildRunSummary): boolean {
+function childTerminal(child: WorkflowFanoutChildSummary): boolean {
   return ["completed", "failed", "cancelled"].includes(child.status);
 }
 
-function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowChildRunSummary[]): void {
+function validateFanoutChildren(node: WorkflowCallNode, plan: FanoutPlan, children: WorkflowFanoutChildSummary[]): void {
   if (children.some((child) => child.itemIndex >= plan.items.length)) {
     throw new Error(`Workflow Call ${node.id} has a child outside its item range.`);
   }
@@ -212,12 +214,6 @@ function mergeOutput(run: WorkflowRunDetail, nodeId: string): WorkflowNodeOutput
 function approvalRef(run: WorkflowRunDetail, node: ApprovalNode): string | undefined {
   return node.config.approver ? resolveString(node.config.approver, bindingContext(run), "Workflow approver") : undefined;
 }
-/** A parked Wait hands the operator's reply straight into downstream prompts, so
- *  a pasted essay must not become the run's whole context. */
-const MAX_WAIT_COMMENT_CHARS = 4_000;
-function boundedComment(body: string): string {
-  return body.length <= MAX_WAIT_COMMENT_CHARS ? body : `${body.slice(0, MAX_WAIT_COMMENT_CHARS)}\n… (truncated)`;
-}
 /** What a Wait node writes when it parks. `resumeAt` is the instant it stops
  *  waiting unprompted: the scheduled resume for `duration` and `until`, and the
  *  timeout ceiling for `todo-comment`, which an operator reply pre-empts. */
@@ -242,13 +238,6 @@ function waitPark(run: WorkflowRunDetail, node: WaitNode, now: string):
     throw new Error("Workflow Wait timestamp must resolve to a canonical instant.");
   }
   return { resumeAt: value };
-}
-/** A Wait that reaches its own `resumeAt`. Only `todo-comment` distinguishes
- *  the two ways it can end, and it says so on the way out. */
-function waitDueOutput(node: WorkflowNode | undefined): WorkflowNodeOutput {
-  return node?.type === "wait" && node.config.mode === "todo-comment"
-    ? { text: "", fields: { outcome: "timeout" } }
-    : { text: "", fields: {} };
 }
 function endOutput(run: WorkflowRunDetail, node: EndNode): WorkflowNodeOutput {
   let fields: Record<string, JsonValue> = {};
@@ -467,14 +456,15 @@ export class WorkflowRunner {
     const todoId = run.trigger.todoId;
     if (!todoId || !this.options.todoApprovals) return;
     const ref = todoApprovalRef(run, node.id);
+    const request = approvalDescription(run, node);
     try {
-      this.options.todoApprovals.request({ todoId, request: node.config.description, ref,
+      this.options.todoApprovals.request({ todoId, request, ref,
         ...(node.config.options ? { options: node.config.options } : {}),
         ...(approver ? { approver } : {}) });
     } catch { /* the workflow-side gate stands on its own */ }
     try {
       this.options.todoApprovals.notifyParked({ todoId, workflowId: run.workflowId, runId: run.id,
-        nodeId: node.id, request: node.config.description, ref });
+        nodeId: node.id, request, ref });
     } catch (error) {
       logger.warn(`Workflow run ${run.id} could not notify the approver of parked gate ${node.id}: `
         + `${error instanceof Error ? error.message : String(error)}`);
@@ -679,16 +669,17 @@ export class WorkflowRunner {
    *  comment is not claimed: every run parked on that Todo resumes from it, and
    *  a re-sweep is a no-op because the node is no longer `waiting`. */
   async resumeCommentWait(workflowId: string, runId: string, nodeId: string,
-    comment: { id: string; body: string }, now: string): Promise<boolean> {
+    comment: { id: string; body: string; attachments: ReadonlyArray<{ id: string; mime: string }> }, now: string,
+  ): Promise<boolean> {
     const run = this.detail(workflowId, runId);
     const runtime = nodeRun(run, nodeId);
     const authored = run.definition.nodes.find((node) => node.id === nodeId);
-    if (run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
+    const todoId = run.trigger.todoId;
+    if (!todoId || run.status !== "waiting" || authored?.type !== "wait" || authored.config.mode !== "todo-comment"
       || runtime.status !== "waiting") return false;
-    const body = boundedComment(comment.body);
+    const output = commentReplyOutput(todoId, comment);
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
-      tx.setNodeStatus(nodeId, "completed", { endedAt: now,
-        output: { text: body, fields: { outcome: "reply", commentId: comment.id, comment: body } } });
+      tx.setNodeStatus(nodeId, "completed", { endedAt: now, output });
       tx.setRunStatus("running");
     });
     this.changed(run);
@@ -772,6 +763,7 @@ export class WorkflowRunner {
     // Silence still means stop, and takes the authored route exactly as before.
     const note = input.reason?.trim();
     const feedback = input.decision === "reject" ? note ?? "" : "";
+    const gateOutput = { text: input.choice ?? "", fields: { port: status, ...(note ? { reason: note } : {}) }, ...(input.choice !== undefined ? { choice: input.choice } : {}) };
     const revising: WorkflowError | undefined = feedback && run.trigger.todoId && this.options.todoLifecycle
       ? { code: "workflow-revision-requested", nodeId: input.nodeId, retryable: false,
           message: `Workflow approval ${input.nodeId} was rejected with feedback; the Todo goes round again.` }
@@ -790,11 +782,10 @@ export class WorkflowRunner {
         // The gate was decided, not broken — `completed` on its `rejected` port.
         // The run is `cancelled`, not `failed`: a human stopped it on purpose, and
         // a failed run would reflect `blocked` onto the very Todo being re-armed.
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: "", fields: { port: status } }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("cancelled", { cancelRequestedAt: at, endedAt: at, error: revising });
       } else if (routed) {
-        tx.setNodeStatus(input.nodeId, "completed", { output: { text: input.choice ?? "", fields: { port: status },
-          ...(input.choice !== undefined ? { choice: input.choice } : {}) }, endedAt: at });
+        tx.setNodeStatus(input.nodeId, "completed", { output: gateOutput, endedAt: at });
         tx.setRunStatus("running");
       } else {
         tx.setNodeStatus(input.nodeId, "failed", { error: missingRoute, endedAt: at });
@@ -829,11 +820,11 @@ export class WorkflowRunner {
 
   private settleFailure(run: WorkflowRunDetail, attempt: typeof run.attempts[number], error: WorkflowError,
     status: "failed" | "timed-out" | "cancelled", endedAt: string, processedTurn?: number, handoff?: unknown): boolean {
-    // `error.retryable` is what decides this, not the attempt counter alone. A
-    // node's retry budget exists for attempts that never landed; spending it on
-    // an employee that ran and reported failure pays twice for a verdict that was
-    // already reached, and can override a phase that deliberately refused.
-    const retry = error.retryable && attempt.attempt < attempt.resolvedConfig.retry.attempts;
+    // `error.retryable` is what decides this, not the attempt counter alone. A node's retry budget exists for
+    // attempts that never landed; spending it on an employee that ran and reported failure pays twice for a verdict
+    // that was already reached, and can override a phase that deliberately refused. A substitution spends none of it:
+    // the budget governs asking the SAME engine again, and an engine with no allowance left never answered at all.
+    const retry = (error.retryable && attempt.attempt < attempt.resolvedConfig.retry.attempts) || hasSubstitute(run, attempt, error, this.options);
     const routed = !retry && run.definition.edges.some((edge) => edge.from.nodeId === attempt.nodeId && edge.from.port === "error");
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       if (processedTurn !== undefined) {

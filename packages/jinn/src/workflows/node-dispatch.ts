@@ -1,9 +1,12 @@
 import type { Employee, ModelRegistry } from "../shared/types.js";
 import { interpolateWorkflowPrompt, resolveBinding, type WorkflowBindingContext } from "./bindings.js";
 import { continuationPrompt, resolveEmployeeContinuation } from "./employee-continuation.js";
+import { readEngineHealth, recordEngineUnavailable } from "../shared/engine-health.js";
+import { engineAvailabilityFailure, selectSubstituteEngine, type EngineChainSource, type EngineSubstitution,
+  type SubstituteDeps } from "./engine-chain.js";
 import type { EmployeeNode } from "./model.js";
 import type { WorkflowRepository } from "./repository.js";
-import type { ResolvedEmployeeConfig, WorkflowRunDetail } from "./runtime.js";
+import type { ResolvedEmployeeConfig, WorkflowError, WorkflowRunDetail } from "./runtime.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import type { WorkflowTodoDispatchOverride } from "./todo-ports.js";
 
@@ -23,6 +26,10 @@ export interface DispatchResolutionDeps {
   repository: WorkflowRepository;
   executor: Pick<WorkflowSessionExecutor, "resumableEngineSession">;
   todoDispatch?: WorkflowTodoDispatchOverride;
+  /** The configured `engines.<name>.fallback` chains, so an attempt whose engine
+   *  could not serve the turn re-dispatches on one that can. Absent = no chains,
+   *  and a run that freezes on the failure exactly as it did before. */
+  engineFallback?: EngineChainSource;
 }
 
 export function bindingContext(run: WorkflowRunDetail): WorkflowBindingContext {
@@ -105,6 +112,72 @@ function resolveEffort(
   return effort;
 }
 
+/** The walk's dependencies with the live health reading filled in. The store is
+ *  gateway-side and global, so unlike the chain source there is nothing upstream
+ *  has to supply — and both callers of the walk read it the same way. */
+function substituteDeps(options: DispatchResolutionDeps): SubstituteDeps {
+  return { ...options, engineHealth: readEngineHealth };
+}
+
+/** What the failure that settled an attempt says about the engine that actually
+ *  ran it — the stand-in on a substituted attempt, not the engine it stood in
+ *  for. Recorded here rather than inside the walk because `hasSubstitute` asks
+ *  that walk repeatedly at the retry boundary, and one failure is one
+ *  observation. */
+function recordAttemptHealth(attempt: WorkflowRunDetail["attempts"][number] | undefined): void {
+  if (!attempt) return;
+  const availability = engineAvailabilityFailure(attempt.error);
+  if (!availability) return;
+  recordEngineUnavailable(attempt.resolvedConfig.engine, availability.reason, availability.resetsAt);
+}
+
+/**
+ * What this attempt actually runs on, and whether that is something other than
+ * the employee's own defaults.
+ *
+ * PLA-149: the engine the node resolved to may be the very one that could not
+ * serve this node's last attempt. When a chain covers for it, the attempt runs
+ * on the stand-in instead — on THAT engine's own default model, since it is not
+ * registered for the first's, and never with an effort the employee configured
+ * for an engine it is no longer on.
+ */
+function dispatchTarget(
+  run: WorkflowRunDetail,
+  node: EmployeeNode,
+  employee: Employee,
+  pinned: { engine: string | undefined; model: string | undefined },
+  options: DispatchResolutionDeps,
+): { engine: string; model: string; modelInfo: ModelInfo; pinned: boolean; substitutedFrom?: EngineSubstitution } {
+  const base = resolveTarget(pinned, employee, options.models);
+  const failed = run.attempts.filter((attempt) => attempt.nodeId === node.id).at(-1);
+  recordAttemptHealth(failed);
+  const substitutedFrom = selectSubstituteEngine(run, node.id, base.engine, failed?.error, substituteDeps(options));
+  const own = Boolean(pinned.engine || pinned.model);
+  if (!substitutedFrom) return { ...base, pinned: own };
+  const stood = resolveTarget({ engine: substitutedFrom.engine, model: undefined }, employee, options.models);
+  return { ...stood, pinned: true, substitutedFrom };
+}
+
+/** What the next walk covers for: the engine this node's own precedence resolved
+ *  to, which on an already-substituted attempt is the one it stood in for rather
+ *  than the stand-in. */
+function substitutionBase(attempt: WorkflowRunDetail["attempts"][number]): string {
+  return attempt.resolvedConfig.substitutedFrom?.engine ?? attempt.resolvedConfig.engine;
+}
+
+/** Whether a chain would carry this node's next attempt past the failure that
+ *  just settled — the retry boundary's half of the same question `dispatchTarget`
+ *  answers, asked through the same walk so the two cannot disagree about whether
+ *  a run is out of options. */
+export function hasSubstitute(
+  run: WorkflowRunDetail,
+  attempt: WorkflowRunDetail["attempts"][number],
+  failure: WorkflowError,
+  options: DispatchResolutionDeps,
+): boolean {
+  return selectSubstituteEngine(run, attempt.nodeId, substitutionBase(attempt), failure, substituteDeps(options)) !== undefined;
+}
+
 export function resolveDispatch(
   run: WorkflowRunDetail,
   node: EmployeeNode,
@@ -118,9 +191,9 @@ export function resolveDispatch(
   // exists to move a Todo whose attempts keep failing onto a different engine,
   // and a workflow that pinned the failing one would otherwise defeat it.
   const override = run.trigger.todoId ? options.todoDispatch?.read(run.trigger.todoId) : undefined;
-  const pinned = pinnedSelection(node, context, override);
-  const { engine, model, modelInfo } = resolveTarget(pinned, employee, options.models);
-  const effort = resolveEffort(node, context, employee, Boolean(pinned.engine || pinned.model), modelInfo);
+  const target = dispatchTarget(run, node, employee, pinnedSelection(node, context, override), options);
+  const { engine, model, substitutedFrom } = target;
+  const effort = resolveEffort(node, context, employee, target.pinned, target.modelInfo);
   const continuedFrom = resolveEmployeeContinuation(run, node, engine, {
     repository: options.repository,
     resumableEngineSession: (id, target) => options.executor.resumableEngineSession(id, target),
@@ -129,6 +202,7 @@ export function resolveDispatch(
   interpolateWorkflowPrompt(continuationPrompt(node, Boolean(continuedFrom)), context);
   return {
     employeeId, engine, model, ...(effort ? { effort } : {}), ...(continuedFrom ? { continuedFrom } : {}),
+    ...(substitutedFrom ? { substitutedFrom: { engine: substitutedFrom.from, reason: substitutedFrom.reason } } : {}),
     retry: node.config.retry ?? { attempts: 1, delaySeconds: 0, backoff: "fixed" },
     timeoutMinutes: node.config.timeoutMinutes ?? DEFAULT_ATTEMPT_TIMEOUT_MINUTES,
   };

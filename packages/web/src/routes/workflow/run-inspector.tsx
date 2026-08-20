@@ -7,37 +7,13 @@ import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { api, type WorkflowAttemptV2Wire, type WorkflowNodeRunV2Wire, type WorkflowRunDetailV2Wire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { useTheme } from "@/routes/providers"
+import { ApprovalDecision, type ApprovalDecisionExtra } from "./approval-decision"
 import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
+import { AttemptCard } from "./run-attempt-card"
+import { FieldsTable } from "./run-fields"
 import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
-
-function formatFieldValue(value: unknown): string {
-  if (typeof value === "string") return value
-  return JSON.stringify(value) ?? String(value)
-}
-
-function FieldsTable({ fields }: { fields: Record<string, unknown> }) {
-  const entries = Object.entries(fields)
-  if (entries.length === 0) return null
-  return (
-    <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
-      {entries.map(([key, value]) => (
-        <div key={key} className="flex gap-3 border-b border-[var(--separator)] px-3 py-2 last:border-b-0">
-          <span
-            className="w-[92px] shrink-0 truncate pt-px text-[length:var(--text-caption1)] text-[var(--text-tertiary)]"
-            style={{ fontFamily: "var(--font-code)" }}
-          >
-            {key}
-          </span>
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[length:var(--text-caption1)] text-[var(--text-primary)]">
-            {formatFieldValue(value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
@@ -96,7 +72,7 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
 function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
   const children = (detail.childRuns ?? [])
     .filter((child) => child.nodeId === nodeId)
-    .sort((a, b) => a.itemIndex - b.itemIndex)
+    .sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
   if (children.length === 0) return null
   return (
     <Section title="Child runs">
@@ -108,8 +84,8 @@ function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire;
             className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
           >
             <span className="min-w-0 flex-1">
-              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                Item {child.itemIndex + 1}
+              <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+                {child.itemIndex === undefined ? child.workflowId : `Item ${child.itemIndex + 1}`}
               </span>
               <span
                 className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
@@ -184,50 +160,6 @@ function OutputSection({ output, isDark }: {
   )
 }
 
-function ladderSummary(attempt: WorkflowAttemptV2Wire): string | null {
-  const parts: string[] = []
-  const reminders = attempt.remindersSent ?? 0
-  if (reminders > 0) parts.push(reminders === 1 ? "1 reminder sent" : `${reminders} reminders sent`)
-  if (attempt.nextReminderAt) parts.push(`next reminder ${formatStarted(attempt.nextReminderAt)}`)
-  const extensions = attempt.extensions ?? 0
-  if (extensions > 0) parts.push(extensions === 1 ? "1 extension" : `${extensions} extensions`)
-  return parts.length > 0 ? parts.join(" · ") : null
-}
-
-function AttemptCard({ attempt }: { attempt: WorkflowAttemptV2Wire }) {
-  const ladder = ladderSummary(attempt)
-  return (
-    <div className="rounded-[10px] bg-[var(--fill-quaternary)] px-3 py-2.5">
-      <div className="flex items-center gap-2.5">
-        <span className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
-          Attempt {attempt.attempt}
-        </span>
-        <StatusLine status={attempt.status} />
-        <span
-          className="ml-auto text-[length:var(--text-caption1)] text-[var(--text-quaternary)] [font-variant-numeric:tabular-nums]"
-          style={{ fontFamily: "var(--font-code)" }}
-        >
-          {formatDuration(attempt.startedAt, attempt.endedAt)}
-        </span>
-      </div>
-      {attempt.error && (
-        <p className="mt-1.5 text-[length:var(--text-caption1)] text-[var(--system-red)]">{attempt.error.message}</p>
-      )}
-      {ladder && <p className="mt-1.5 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{ladder}</p>}
-      {attempt.lastExtensionReason && (
-        <p className="mt-1 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-          “{attempt.lastExtensionReason}”
-        </p>
-      )}
-      {attempt.pendingOutputError && (
-        <p className="mt-1.5 text-[length:var(--text-caption1)] text-[var(--system-orange)]">
-          Invalid output: {attempt.pendingOutputError}
-        </p>
-      )}
-    </div>
-  )
-}
-
 const SESSION_STATUS: Record<string, { label: string; color: string; pulse?: boolean }> = {
   running: { label: "Running", color: "var(--system-blue)", pulse: true },
   idle: { label: "Idle", color: "var(--text-quaternary)" },
@@ -283,53 +215,6 @@ function SessionSection({ sessionId }: { sessionId: string }) {
         {status && <SessionStatusChip status={status} />}
         <ChevronRight size={14} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
       </Link>
-    </Section>
-  )
-}
-
-function ApprovalSection({ approval, onDecide, deciding }: {
-  approval: WorkflowRunDetailV2Wire["approvals"][number]
-  onDecide: (nodeId: string, decision: "approve" | "reject") => void
-  deciding: boolean
-}) {
-  if (approval.status === "pending") {
-    return (
-      <Section title="Approval">
-        <div className="rounded-[10px] bg-[var(--fill-quaternary)] px-3 py-2.5">
-          <p className="text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
-            Requested {formatStarted(approval.requestedAt)}
-            {approval.approverRef ? ` · ${approval.approverRef}` : ""}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "approve")}
-              className="h-7 flex-1 rounded-full bg-[var(--accent)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={deciding}
-              onClick={() => onDecide(approval.nodeId, "reject")}
-              className="h-7 flex-1 rounded-full bg-[var(--fill-secondary)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--system-red)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      </Section>
-    )
-  }
-  return (
-    <Section title="Approval">
-      <Note>
-        {approval.status === "approved" ? "Approved" : "Rejected"}
-        {approval.decidedBy ? ` by ${approval.decidedBy}` : ""}
-        {approval.decidedAt ? ` · ${formatStarted(approval.decidedAt)}` : ""}
-        {approval.reason ? ` — ${approval.reason}` : ""}
-      </Note>
     </Section>
   )
 }
@@ -395,7 +280,7 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
   detail: WorkflowRunDetailV2Wire
   nodeId: string
   onClose: () => void
-  onDecide: (nodeId: string, decision: "approve" | "reject") => void
+  onDecide: (nodeId: string, decision: "approve" | "reject", extra?: ApprovalDecisionExtra) => void
   deciding: boolean
 }) {
   const { theme } = useTheme()
@@ -488,12 +373,12 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
             <>
               <FanoutSection nodeRun={nodeRun} />
               <OutputSection output={nodeRun?.output} isDark={isDark} />
-              <ChildRunsSection detail={detail} nodeId={node.id} />
             </>
           )}
+          <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
-            <ApprovalSection approval={approval} onDecide={onDecide} deciding={deciding} />
+            <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
           )}
           {/* A settled comment-wait says nothing: the node keeps its resumeAt and
               resolvedConfig after it resumes, and neither "waiting" nor "resumes"

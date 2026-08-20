@@ -4,7 +4,7 @@
  * Both the connector path (sessions/manager.ts → runSession) and the web path
  * (gateway/api.ts → runWebSession) need to:
  *   1. Detect an engine usage-limit response.
- *   2. For Claude only, optionally fall back to a different engine (default: Codex).
+ *   2. Hand the turn to the first engine in the limited one's chain that can serve one.
  *   3. Otherwise enter a "waiting" loop: sleep until the reset window, retry on the same engine,
  *      keep the session's lastActivity heartbeat fresh, and loop again if still limited.
  *   4. Bail out when the deadline passes without recovery.
@@ -30,6 +30,8 @@ import { resolveEffort } from "../shared/effort.js";
 import { effortLevelsForModel, engineAvailable, type EngineName } from "../shared/models.js";
 import { computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
 import { recordClaudeRateLimit } from "../shared/usageAwareness.js";
+import { readEngineHealth, recordEngineUnavailable, resolveHealthyFallbackEngine } from "../shared/engine-health.js";
+import { resolveEngineRunMcp } from "./engine-run-mcp.js";
 import { getSession, getMessages, updateSessionForAttempt, getEngineSessionRef, nextEngineSessionFields } from "./registry.js";
 import { runtimeSessionSource } from "./context.js";
 
@@ -50,7 +52,7 @@ export type RateLimitOutcome =
 
 export interface RateLimitHandlerHooks {
   /**
-   * Called when entering the Codex fallback branch (before the fallback engine runs).
+   * Called when entering the fallback branch (before the substitute engine runs).
    * Use this to: notify the user we're switching engines (UI message, Discord, etc.).
    */
   onFallbackStart?: (info: { resumeAt: Date | null; until: Date }) => void | Promise<void>;
@@ -127,15 +129,15 @@ export interface RateLimitHandlerOpts {
   /** Path to MCP config JSON file, if applicable to the original turn. */
   mcpConfigPath?: string;
   /** In-memory resolved MCP server set from the original turn (preserved on retry
-   *  and fallback so the payload is not silently dropped). */
+   *  so the payload is not silently dropped; a substitute engine resolves its own). */
   resolvedMcp?: ResolvedMcpConfig;
   /** Optional attachment file paths from the original turn (preserved on retry). */
   attachments?: string[];
-  /** The current jinn config (used to look up rateLimitStrategy + fallbackEngine + fallback engineConfig). */
+  /** The current jinn config (used to look up the fallback chain + the substitute's engine config). */
   config: JinnConfig;
-  /** Map of available engines (for fallback lookup). */
+  /** Map of available engines (for substitute lookup). */
   engines: Map<string, Engine>;
-  /** Optional employee record (for fallback effort + cliFlags). */
+  /** Optional employee record (for substitute effort + cliFlags). */
   employee?: Employee;
   /** The engine used for retries — the engine that returned the rate-limited result. */
   engine: Engine;
@@ -162,96 +164,95 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
 
   const engineLabel = rateLimitEngineLabel(session.engine);
 
-  // Only Claude has a global usage-awareness store to record limits against.
+  // Both chain walkers read the generic record; Claude's store answers a different question.
+  recordEngineUnavailable(session.engine, `${engineLabel} usage limit`, rateLimit.resetsAt);
   if (session.engine === "claude") recordClaudeRateLimit(rateLimit.resetsAt);
 
-  const strategy = config.sessions?.rateLimitStrategy ?? "wait";
+  // ── Branch A: hand the turn to this engine's chain ─────────────────────────
+  const isUsable = (candidate: EngineName) => engines.has(candidate) && engineAvailable(config, candidate);
+  const substituteName = resolveHealthyFallbackEngine(config, session.engine, isUsable, readEngineHealth());
+  const substituteEngine = substituteName ? engines.get(substituteName) : undefined;
+  if (substituteName && substituteEngine) {
+    const { resumeAt } = computeNextRetryDelayMs(rateLimit.resetsAt);
+    const until = resumeAt ?? new Date(Date.now() + 6 * 60 * 60_000);
+    const syncSince = new Date().toISOString();
+    const substituteLabel = rateLimitEngineLabel(substituteName);
 
-  // ── Branch A: Codex fallback ───────────────────────────────────────────────
-  if (session.engine === "claude" && strategy === "fallback") {
-    const fallbackName = config.sessions?.fallbackEngine ?? "codex";
-    const fallbackEngine = engines.get(fallbackName);
-    if (fallbackEngine && engineAvailable(config, fallbackName as EngineName)) {
-      const { resumeAt } = computeNextRetryDelayMs(rateLimit.resetsAt);
-      const until = resumeAt ?? new Date(Date.now() + 6 * 60 * 60_000);
-      const syncSince = new Date().toISOString();
+    await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until });
 
-      await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until });
+    const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
+    nextMeta.engineOverride = {
+      originalEngine: session.engine,
+      originalEngineSessionId: session.engineSessionId,
+      until: until.toISOString(),
+      syncSince,
+    };
 
-      const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-      nextMeta.engineOverride = {
-        originalEngine: "claude",
-        originalEngineSessionId: session.engineSessionId,
-        until: until.toISOString(),
-        syncSince,
-      };
-
-      const fallbackStarted = updateSessionForAttempt(session.id, attemptToken, {
-        // Claude's thread id moves to its own typed ref (the override record keeps a
-        // second copy). The mirror belongs to whichever engine is actually running, so
-        // it goes null until the fallback returns a thread id of its own.
-        ...(session.engineSessionId ? nextEngineSessionFields(session, "claude", session.engineSessionId) : {}),
-        engine: fallbackName,
-        engineSessionId: null,
-        transportMeta: nextMeta as any,
-        status: "running",
-        lastActivity: new Date().toISOString(),
-        lastError: resumeAt
-          ? `Claude usage limit — using GPT until ${resumeAt.toISOString()}`
-          : "Claude usage limit — using GPT temporarily",
-      });
-      if (!fallbackStarted) {
-        await hooks.onCancelled?.();
-        return { kind: "cancelled" };
-      }
-
-      const fallbackConfig = config.engines.codex;
-      const fallbackEffort = resolveEffort(
-        fallbackConfig,
-        session,
-        employee,
-        effortLevelsForModel(config, fallbackName, fallbackConfig.model),
-      );
-      const codexResume = getEngineSessionRef(session, fallbackName).id;
-      const history = getMessages(session.id)
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
-      const historyText = history.slice(-12).join("\n\n");
-      const fallbackPrompt = codexResume
-        ? prompt
-        : `Continue this conversation and respond to the last USER message.\n\nConversation so far:\n\n${historyText}`;
-
-      const fallbackResult = await fallbackEngine.run({
-        prompt: fallbackPrompt,
-        resumeSessionId: codexResume,
-        systemPrompt,
-        cwd: JINN_HOME,
-        bin: fallbackConfig.bin,
-        model: session.model ?? fallbackConfig.model,
-        effortLevel: fallbackEffort,
-        cliFlags: employee?.cliFlags ?? cliFlags,
-        // The fallback engine is codex (MCP-capable, Tier 1); the resolved server
-        // set is engine-agnostic (same employee) so it is valid to carry over.
-        // Claude's `mcpConfigPath` temp file is intentionally NOT passed here.
-        resolvedMcp,
-        attachments: attachments?.length ? attachments : undefined,
-        sessionId: session.id,
-        ...(hooks.onFallbackStream ? { onStream: hooks.onFallbackStream } : {}),
-      });
-
-      // Persist the fallback engine's thread id so future fallbacks can resume it —
-      // and so the mirror stops lying about which engine the id belongs to.
-      const live = getSession(session.id);
-      if (live && fallbackResult.sessionId) {
-        updateSessionForAttempt(session.id, attemptToken, nextEngineSessionFields(live, fallbackName, fallbackResult.sessionId));
-      }
-
-      await hooks.onFallbackComplete?.(fallbackResult);
-
-      return { kind: "fallback", result: fallbackResult };
+    const fallbackStarted = updateSessionForAttempt(session.id, attemptToken, {
+      // The limited engine's thread id moves to its own typed ref (the override record
+      // keeps a second copy). The mirror belongs to whichever engine is actually running,
+      // so it goes null until the substitute returns a thread id of its own.
+      ...(session.engineSessionId ? nextEngineSessionFields(session, session.engine, session.engineSessionId) : {}),
+      engine: substituteName,
+      engineSessionId: null,
+      transportMeta: nextMeta as any,
+      status: "running",
+      lastActivity: new Date().toISOString(),
+      lastError: resumeAt
+        ? `${engineLabel} usage limit — using ${substituteLabel} until ${resumeAt.toISOString()}`
+        : `${engineLabel} usage limit — using ${substituteLabel} temporarily`,
+    });
+    if (!fallbackStarted) {
+      await hooks.onCancelled?.();
+      return { kind: "cancelled" };
     }
-    // No fallback engine available — fall through to wait-and-retry.
+
+    const substituteConfig: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string } =
+      config.engines[substituteName] ?? {};
+    const substituteEffort = resolveEffort(
+      substituteConfig,
+      session,
+      employee,
+      effortLevelsForModel(config, substituteName, substituteConfig.model),
+    );
+    const substituteResume = getEngineSessionRef(session, substituteName).id;
+    const history = getMessages(session.id)
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
+    const historyText = history.slice(-12).join("\n\n");
+    const fallbackPrompt = substituteResume
+      ? prompt
+      : `Continue this conversation and respond to the last USER message.\n\nConversation so far:\n\n${historyText}`;
+
+    const fallbackResult = await substituteEngine.run({
+      prompt: fallbackPrompt,
+      resumeSessionId: substituteResume,
+      systemPrompt,
+      cwd: JINN_HOME,
+      // The substitute runs as itself: its own binary, its own configured model, and the
+      // MCP payload resolved for it — the limited engine's model would be meaningless here.
+      bin: substituteConfig.bin,
+      model: substituteConfig.model,
+      effortLevel: substituteEffort,
+      cliFlags: employee?.cliFlags ?? cliFlags,
+      ...resolveEngineRunMcp({ config, employee, engine: substituteName, sessionId: session.id }),
+      attachments: attachments?.length ? attachments : undefined,
+      sessionId: session.id,
+      ...(hooks.onFallbackStream ? { onStream: hooks.onFallbackStream } : {}),
+    });
+
+    // Persist the substitute's thread id so future fallbacks can resume it —
+    // and so the mirror stops lying about which engine the id belongs to.
+    const live = getSession(session.id);
+    if (live && fallbackResult.sessionId) {
+      updateSessionForAttempt(session.id, attemptToken, nextEngineSessionFields(live, substituteName, fallbackResult.sessionId));
+    }
+
+    await hooks.onFallbackComplete?.(fallbackResult);
+
+    return { kind: "fallback", result: fallbackResult };
   }
+  // Nothing usable in the chain — fall through to wait-and-retry.
 
   // ── Branch B: wait-and-retry on the original engine ────────────────────────
   const { delayMs, resumeAt } = computeNextRetryDelayMs(rateLimit.resetsAt);
@@ -347,9 +348,8 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       const retryRateLimit = !retryInterrupted ? detectRateLimit(retryResult) : { limited: false as const };
 
       if (retryRateLimit.limited) {
-        if (session.engine === "claude") {
-          recordClaudeRateLimit(retryRateLimit.resetsAt);
-        }
+        recordEngineUnavailable(session.engine, `${engineLabel} usage limit`, retryRateLimit.resetsAt);
+        if (session.engine === "claude") recordClaudeRateLimit(retryRateLimit.resetsAt);
         logger.info(`Session ${session.id} still rate limited (attempt ${attempt})`);
 
         const next = computeNextRetryDelayMs(retryRateLimit.resetsAt);

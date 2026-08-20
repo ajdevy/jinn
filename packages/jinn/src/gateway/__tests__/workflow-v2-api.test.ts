@@ -1,6 +1,4 @@
-import { Readable } from "node:stream";
 import http from "node:http";
-import type { ServerResponse } from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,51 +13,11 @@ import {
   CALLER_SESSION_HEADER,
   TOOL_CALL_HEADER,
   TOOL_CALL_HEADER_VALUE,
-  ensureSessionCapability,
 } from "../../mcp/identity.js";
 import { createSession } from "../../sessions/registry.js";
 import { handleApiRequest, type ApiContext } from "../api.js";
+import { rawRequest, request, response, workflowToolHeaders } from "./workflow-api-harness.js";
 import { readJsonBody } from "../http-helpers.js";
-
-function request(method: string, url: string, body?: unknown, authorized = true, contentType = "application/json",
-  extraHeaders: Record<string, string> = {}) {
-  const req = body === undefined ? Readable.from([]) : Readable.from([Buffer.from(JSON.stringify(body))]);
-  Object.assign(req, {
-    method,
-    url,
-    headers: { host: "localhost", ...(authorized ? { authorization: "Bearer test-token" } : {}),
-      "content-type": contentType, ...extraHeaders },
-  });
-  return req as unknown as Parameters<typeof handleApiRequest>[0];
-}
-
-function rawRequest(method: string, url: string, raw: string) {
-  const req = Readable.from([Buffer.from(raw)]);
-  Object.assign(req, { method, url, headers: { host: "localhost", authorization: "Bearer test-token", "content-type": "application/json" } });
-  return req as unknown as Parameters<typeof handleApiRequest>[0];
-}
-
-function response() {
-  let status = 200;
-  const chunks: Buffer[] = [];
-  const res = {
-    setHeader: vi.fn(),
-    writeHead(code: number) { status = code; return this; },
-    write(chunk?: string | Buffer) { if (chunk) chunks.push(Buffer.from(chunk)); return true; },
-    end(chunk?: string | Buffer) { if (chunk) chunks.push(Buffer.from(chunk)); },
-  } as unknown as ServerResponse;
-  return { res, read: () => ({ status, body: chunks.length
-    ? JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
-    : undefined }) };
-}
-
-function workflowToolHeaders(sessionId: string): Record<string, string> {
-  return {
-    [TOOL_CALL_HEADER]: TOOL_CALL_HEADER_VALUE,
-    [CALLER_SESSION_HEADER]: sessionId,
-    [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(sessionId),
-  };
-}
 
 describe("Workflow v2 canonical API", () => {
   it("creates and lists through the injected WorkflowService", async () => {
@@ -302,7 +260,7 @@ describe("Workflow v2 canonical API", () => {
     const context = { gatewayAuthToken: "test-token", workflowService: { retryNode }, getConfig: () => ({ gateway: {}, engines: {} }),
       connectors: new Map(), sessionManager: { getQueue: () => ({}) }, emit: vi.fn(), startTime: 1 } as unknown as ApiContext;
     const route = "/api/workflows/release-flow/runs/run_11111111-1111-4111-8111-111111111111/nodes/write/retry";
-    const unauthorized = response(); await handleApiRequest(request("POST", route, { idempotencyKey: "retry-1" }, false), unauthorized.res, context);
+    const unauthorized = response(); await handleApiRequest(request("POST", route, { idempotencyKey: "retry-1" }, { authorized: false }), unauthorized.res, context);
     expect(unauthorized.read().status).toBe(401); expect(retryNode).not.toHaveBeenCalled();
     for (const [error, status] of [
       [new WorkflowServiceError("forbidden", "Retry forbidden."), 403],
@@ -349,25 +307,6 @@ describe("Workflow v2 canonical API", () => {
     } });
   });
 
-  it("rejects approval actor spoofing before the service and maps approval authority/conflict errors", async () => {
-    const decideApproval = vi.fn();
-    const context = { gatewayAuthToken: "test-token", workflowService: { decideApproval }, getConfig: () => ({ gateway: {}, engines: {} }),
-      connectors: new Map(), sessionManager: { getQueue: () => ({}) }, emit: vi.fn(), startTime: 1 } as unknown as ApiContext;
-    const spoof = response();
-    await handleApiRequest(request("POST", "/api/workflows/release-flow/runs/run_11111111-1111-4111-8111-111111111111/nodes/review/approval",
-      { decision: "approve", decidedBy: "spoofed", expectedRevision: 1 }), spoof.res, context);
-    expect(spoof.read()).toEqual({ status: 422, body: { code: "bad-input", message: "Workflow request is invalid." } });
-    expect(decideApproval).not.toHaveBeenCalled();
-
-    for (const [code, status] of [["forbidden", 403], ["conflict", 409]] as const) {
-      decideApproval.mockRejectedValueOnce(new WorkflowServiceError(code, `${code} decision`));
-      const capture = response();
-      await handleApiRequest(request("POST", "/api/workflows/release-flow/runs/run_11111111-1111-4111-8111-111111111111/nodes/review/approval",
-        { decision: "reject", expectedRevision: 1 }), capture.res, context);
-      expect(capture.read()).toEqual({ status, body: { code, message: `${code} decision` } });
-    }
-  });
-
   it.each([
     ["not-found", 404], ["id-conflict", 409], ["revision-conflict", 409],
     ["idempotency-conflict", 409], ["bad-input", 422], ["retired", 422], ["corrupt-record", 500],
@@ -384,7 +323,7 @@ describe("Workflow v2 canonical API", () => {
     const context = { gatewayAuthToken: "test-token", workflowService: service, getConfig: () => ({ gateway: {}, engines: {} }),
       connectors: new Map(), sessionManager: { getQueue: () => ({}) }, emit: vi.fn(), startTime: 1 } as unknown as ApiContext;
     const capture = response();
-    await handleApiRequest(request("POST", "/api/workflows/events/build.finished", { fireId: "build-1", payload: {} }, false), capture.res, context);
+    await handleApiRequest(request("POST", "/api/workflows/events/build.finished", { fireId: "build-1", payload: {} }, { authorized: false }), capture.res, context);
     expect(capture.read()).toEqual({ status: 401, body: { code: "unauthorized", message: "Workflow authentication required." } });
     expect(service.fireEvent).not.toHaveBeenCalled();
   });
@@ -396,11 +335,11 @@ describe("Workflow v2 canonical API", () => {
     Object.defineProperty(context, "workflowService", {
       get() { serviceLookup(); return { createDefinition: vi.fn() }; },
     });
-    const req = request("POST", "/api/workflows", { id: "blocked-flow", title: "Blocked" }, true, "application/json", {
+    const req = request("POST", "/api/workflows", { id: "blocked-flow", title: "Blocked" }, { headers: {
       [TOOL_CALL_HEADER]: TOOL_CALL_HEADER_VALUE,
       [CALLER_SESSION_HEADER]: "spoofed-session",
       [CALLER_SESSION_CAPABILITY_HEADER]: "spoofed-capability",
-    });
+    } });
     const capture = response();
 
     await handleApiRequest(req, capture.res, context);
@@ -474,7 +413,7 @@ describe("Workflow v2 canonical API", () => {
       connectors: new Map(), sessionManager: { getQueue: () => ({}) }, emit: vi.fn(), startTime: 1 } as unknown as ApiContext;
     const capture = response();
     await handleApiRequest(request("POST", "/api/workflows/events/build.finished",
-      { fireId: "build-1", payload: {} }, true, "text/javascript"), capture.res, context);
+      { fireId: "build-1", payload: {} }, { contentType: "text/javascript" }), capture.res, context);
     expect(capture.read()).toEqual({ status: 422, body: { code: "bad-input", message: "Workflow requests require JSON content." } });
     expect(service.fireEvent).not.toHaveBeenCalled();
   });
@@ -623,8 +562,7 @@ describe("Workflow v2 canonical API", () => {
 
       const outsider = createSession({ engine: "test-engine", source: "web", sourceRef: "outsider", title: "Outsider" });
       const rejected = response();
-      await handleApiRequest(request("POST", "/api/workflows/attempts/submit", {}, true, "application/json",
-        workflowToolHeaders(outsider.id)), rejected.res, context);
+      await handleApiRequest(request("POST", "/api/workflows/attempts/submit", {}, { headers: workflowToolHeaders(outsider.id) }), rejected.res, context);
       expect(rejected.read()).toEqual({
         status: 409,
         body: { code: "not-a-workflow-attempt", message: "The caller is not a running Workflow attempt." },
@@ -656,7 +594,7 @@ describe("Workflow v2 canonical API", () => {
 
       const invalid = response();
       await handleApiRequest(request("POST", "/api/workflows/attempts/submit",
-        { fields: {} }, true, "application/json", workflowToolHeaders(attemptSessionId)), invalid.res, context);
+        { fields: {} }, { headers: workflowToolHeaders(attemptSessionId) }), invalid.res, context);
       expect(invalid.read()).toEqual({
         status: 422,
         body: { code: "missing-field", message: "Required output field \"result\" is missing." },
@@ -664,7 +602,7 @@ describe("Workflow v2 canonical API", () => {
 
       const extended = response();
       await handleApiRequest(request("POST", "/api/workflows/attempts/extend",
-        { reason: "Waiting on review" }, true, "application/json", workflowToolHeaders(attemptSessionId)), extended.res, context);
+        { reason: "Waiting on review" }, { headers: workflowToolHeaders(attemptSessionId) }), extended.res, context);
       expect(extended.read()).toEqual({ status: 200, body: { ok: true } });
       expect(repository.findAttemptBySessionId(attemptSessionId)).toMatchObject({
         remindersSent: 0,
@@ -676,15 +614,13 @@ describe("Workflow v2 canonical API", () => {
 
       const submitted = response();
       await handleApiRequest(request("POST", "/api/workflows/attempts/submit",
-        { fields: { result: "published" }, summary: "Done." }, true, "application/json",
-        workflowToolHeaders(attemptSessionId)), submitted.res, context);
+        { fields: { result: "published" }, summary: "Done." }, { headers: workflowToolHeaders(attemptSessionId) }), submitted.res, context);
       expect(submitted.read()).toEqual({ status: 200, body: { ok: true } });
       expect(service.getRun(saved.id, run.id)).toMatchObject({ status: "completed" });
 
       const duplicate = response();
       await handleApiRequest(request("POST", "/api/workflows/attempts/submit",
-        { fields: { result: "again" } }, true, "application/json",
-        workflowToolHeaders(attemptSessionId)), duplicate.res, context);
+        { fields: { result: "again" } }, { headers: workflowToolHeaders(attemptSessionId) }), duplicate.res, context);
       expect(duplicate.read()).toMatchObject({ status: 409, body: { code: "already-submitted" } });
     } finally {
       service.dispose();

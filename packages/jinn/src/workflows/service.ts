@@ -4,6 +4,7 @@ import { TODO_ID_PATTERN } from "../work-items/id.js";
 import type { WorkflowTodoEventFeed } from "../work-items/workflow-event-feed.js";
 import { workflowIdSchema, type JsonValue, type WorkflowDefinition, type WorkflowId } from "./model.js";
 import { boundedRecord, callerIdentity, fail } from "./service-input.js";
+import { assertCallableCaller, callerForSession } from "./session-caller.js";
 import { settleTodoRun } from "./todo-run-ledger.js";
 import {
   WorkflowRepositoryError,
@@ -38,6 +39,10 @@ export interface StartWorkflowRunInput {
   /** Bind this manual run to an existing Todo, exactly as a `todo-status`
    *  trigger would — its gates mirror onto that Todo. Omit for an unbound run. */
   todoId?: string;
+  /** The session asking for the run. When it turns out to be a live Workflow
+   *  attempt the run is guarded and parented like a Workflow Call; every other
+   *  session — an operator, a cron run — starts an unparented run as before. */
+  callerSessionId?: string;
 }
 export interface RerunWorkflowInput {
   workflowId: string;
@@ -88,9 +93,9 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 /** The Todos side of a comment-wait: the earliest live operator comment on a
  *  Todo written strictly inside the window between the park and its deadline. */
 export interface WorkflowTodoCommentFeed {
-  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string } | undefined;
+  firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string; attachments: ReadonlyArray<{ id: string; mime: string }> } | undefined;
 }
-export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions"> {
+export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;
@@ -178,35 +183,6 @@ export class WorkflowService {
     }, delay);
     this.wakeTimer.unref?.();
   }
-  private validateCaller(targetWorkflowId: string, caller: WorkflowCallInput["caller"]): void {
-    let current = this.options.repository.getRun(caller.workflowId, caller.runId)
-      ?? fail("bad-input", "Workflow caller run was not found.");
-    const authored = current.definition.nodes.find((node) => node.id === caller.nodeId);
-    const runtime = current.nodeRuns.find((node) => node.nodeId === caller.nodeId);
-    const attempt = current.attempts.filter((item) => item.nodeId === caller.nodeId).at(-1);
-    const activeEmployee = authored?.type === "employee" && attempt && ["dispatching", "running"].includes(attempt.status);
-    const activeWorkflowCall = authored?.type === "workflow-call" && runtime?.status === "running";
-    if (!runtime?.activated || (!activeEmployee && !activeWorkflowCall)) {
-      fail("bad-input", "Workflow caller node is not an active invocation.");
-    }
-    const seen = new Set<string>();
-    for (let depth = 0; depth < 128; depth += 1) {
-      if (current.cancelRequestedAt) fail("bad-input", "Workflow caller run is being cancelled.");
-      if (current.workflowId === targetWorkflowId) fail("bad-input", "Workflow call recursion is not allowed.");
-      if (seen.has(current.id)) fail("bad-input", "Workflow caller ancestry contains a cycle.");
-      seen.add(current.id);
-      if (current.trigger.kind !== "workflow-call") return;
-      const parent = current.trigger.payload.caller;
-      if (!callerIdentity(parent)) fail("bad-input", "Workflow caller ancestry is invalid.");
-      current = this.options.repository.getRun(parent.workflowId, parent.runId)
-        ?? fail("bad-input", "Workflow caller ancestry was not found.");
-      if (!current.definition.nodes.some((node) => node.id === parent.nodeId
-        && (node.type === "employee" || node.type === "workflow-call"))) {
-        fail("bad-input", "Workflow caller ancestry is invalid.");
-      }
-    }
-    fail("bad-input", "Workflow caller ancestry is too deep.");
-  }
 
   dispose(): void {
     this.disposed = true;
@@ -278,9 +254,11 @@ export class WorkflowService {
     assertExecutableWorkflow(definition);
     const trigger = definition.nodes.find((node) => node.type === "trigger" && node.config.kind === "manual");
     if (!trigger) fail("bad-input", "Workflow does not have an enabled manual trigger.");
+    const caller = callerForSession(this.options.repository, input.callerSessionId);
+    if (caller) assertCallableCaller(this.options.repository, definition.id, caller);
     const created = this.options.repository.createRun({ workflowId: definition.id,
       input: boundedRecord(input.input, "Workflow input"),
-      trigger: { nodeId: trigger.id, kind: "manual", payload: {}, ...(input.todoId ? { todoId: input.todoId } : {}) },
+      trigger: { nodeId: trigger.id, kind: "manual", payload: caller ? { caller } : {}, ...(input.todoId ? { todoId: input.todoId } : {}) },
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}) });
     const detail = this.requiredRun(definition.id, created.id);
     return detail.status === "pending" ? this.runner.start(created.id) : detail;
@@ -310,7 +288,7 @@ export class WorkflowService {
     if (!definition?.enabled || !validateExecutableWorkflow(definition).ok || targets.length !== 1) {
       fail("bad-input", "Workflow target must have one enabled executable workflow-call trigger.");
     }
-    this.validateCaller(definition.id, input.caller);
+    assertCallableCaller(this.options.repository, definition.id, input.caller);
     const created = this.options.repository.createRun({ workflowId: definition.id,
       input: value, trigger: { nodeId: targets[0]!.id, kind: "workflow-call",
         payload: { caller: input.caller, ...(input.itemIndex === undefined ? {} : { itemIndex: input.itemIndex }) },
@@ -336,7 +314,7 @@ export class WorkflowService {
     this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus(run.status, { cancelRequestedAt: requestedAt }));
     run = this.requiredRun(input.workflowId, input.runId); this.runChanged(run);
     const children = run.definition.nodes
-      .filter((node) => node.type === "workflow-call")
+      .filter((node) => node.type === "workflow-call" || node.type === "employee")
       .flatMap((node) => this.options.repository.listChildRuns(run.id, node.id))
       .filter((child) => !["completed", "failed", "cancelled"].includes(child.status));
     await Promise.allSettled(children.map((child) => this.cancelRun({

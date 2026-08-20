@@ -82,7 +82,7 @@ export function buildAntigravityHeadlessArgs(opts: EngineRunOpts): string[] {
   args.push("--dangerously-skip-permissions");
   args.push(...(opts.cliFlags ?? []).filter((flag) => flag !== "--chrome"));
   args.push("--input-format", "stream-json");
-  args.push("--output-format", "stream-json", "-p");
+  args.push("--output-format", "stream-json");
   return args;
 }
 

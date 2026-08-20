@@ -1,155 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/**
- * codex.ts spawns the codex CLI via node:child_process `spawn`. The parsing
- * pipeline (processJsonlLine), the final-result assembly, the systemPrompt
- * injection, and usage extraction are all private to CodexEngine, so we exercise
- * them through the smallest available seam: a fake ChildProcess whose stdout we
- * drive line-by-line. No real process is ever spawned.
- */
-
-// A controllable fake ChildProcess. Each spawn() pushes one here and records the
-// args it was called with, so tests can assert on what got passed to the CLI and
-// drive stdout/stderr/close deterministically.
-interface FakeProc {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
-  stdin: { end: () => void };
-  exitCode: number | null;
-  killed: boolean;
-  kill: (sig?: string) => boolean;
-  pid: number;
-  on: (event: string, cb: (...a: any[]) => void) => FakeProc;
-  _handlers: Record<string, (...a: any[]) => void>;
-  /** Feed a chunk of stdout (may contain partial lines). */
-  emitStdout: (s: string) => void;
-  emitStderr: (s: string) => void;
-  /** Fire the "close" event with an exit code. */
-  close: (code: number | null) => void;
-}
-
-interface SpawnCall {
-  bin: string;
-  args: string[];
-  opts: unknown;
-  proc: FakeProc;
-}
-
-const spawnCalls: SpawnCall[] = [];
-
-function makeFakeProc(): FakeProc {
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
-  const handlers: Record<string, (...a: any[]) => void> = {};
-  const p: FakeProc = {
-    stdout,
-    stderr,
-    stdin: { end: () => {} },
-    exitCode: null,
-    killed: false,
-    pid: 4242,
-    kill: () => true,
-    _handlers: handlers,
-    on(event, cb) {
-      handlers[event] = cb;
-      return p;
-    },
-    emitStdout(s) {
-      stdout.emit("data", Buffer.from(s));
-    },
-    emitStderr(s) {
-      stderr.emit("data", Buffer.from(s));
-    },
-    close(code) {
-      p.exitCode = code;
-      handlers["close"]?.(code);
-    },
-  };
-  return p;
-}
-
 vi.mock("node:child_process", () => ({
-  spawn: vi.fn((bin: string, args: string[], opts: unknown) => {
-    const proc = makeFakeProc();
-    spawnCalls.push({ bin, args, opts, proc });
-    return proc;
-  }),
+  spawn: vi.fn((bin: string, args: string[], opts: unknown) => recordSpawn(bin, args, opts)),
 }));
 
-import { CodexEngine, type CodexEngineOpts } from "../codex.js";
-import type { StreamDelta, EngineResult } from "../../shared/types.js";
+import { CodexEngine } from "../codex.js";
+import type { EngineResult, StreamDelta } from "../../shared/types.js";
 import { costOfUsage } from "../../shared/model-pricing.js";
 import { expectPosixMode } from "../../shared/test-support/posix-mode.js";
+import {
+  agentMessage,
+  cmdEnd,
+  cmdStart,
+  errorItem,
+  flush,
+  recordSpawn,
+  resetSpawnCalls,
+  runWith,
+  sleep,
+  spawnCalls,
+  threadStarted,
+  turnCompleted,
+  turnFailed,
+} from "./helpers/codex-run.js";
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// JSONL line builders mirroring the codex CLI `--json` event shapes.
-const threadStarted = (id: string) => JSON.stringify({ type: "thread.started", thread_id: id });
-const agentMessage = (text: string) =>
-  JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } });
-const turnCompleted = (usage: Record<string, unknown>) =>
-  JSON.stringify({ type: "turn.completed", usage });
-const turnFailed = (message: string) =>
-  JSON.stringify({ type: "turn.failed", error: { message } });
-const errorItem = (message: string) =>
-  JSON.stringify({ type: "item.completed", item: { type: "error", message } });
-const cmdStart = (id: string, command: string) =>
-  JSON.stringify({ type: "item.started", item: { type: "command_execution", id, command } });
-const cmdEnd = (command: string, exit_code: number, output: string) =>
-  JSON.stringify({
-    type: "item.completed",
-    item: { type: "command_execution", command, exit_code, aggregated_output: output },
-  });
-
-/**
- * Drive a full run: kick off engine.run, feed stdout lines, then close.
- * Returns the resolved EngineResult and the deltas captured via onStream.
- */
-async function runWith(
-  opts: Record<string, unknown>,
-  stdoutLines: string[],
-  {
-    closeCode = 0,
-    trailingNoNewline,
-    engineOpts,
-  }: { closeCode?: number | null; trailingNoNewline?: string; engineOpts?: CodexEngineOpts } = {},
-): Promise<{ result: EngineResult; deltas: StreamDelta[]; call: SpawnCall }> {
-  const deltas: StreamDelta[] = [];
-  const safeEngineOpts = {
-    codexSessionsDir: fs.mkdtempSync(path.join(os.tmpdir(), "codex-test-sessions-")),
-    ...engineOpts,
-  };
-  const engine = new CodexEngine(safeEngineOpts);
-  const promise = engine.run({
-    prompt: "hello",
-    cwd: "/tmp",
-    onStream: (d: StreamDelta) => deltas.push(d),
-    ...opts,
-  } as any);
-
-  await flush();
-  const call = spawnCalls[spawnCalls.length - 1];
-  expect(call).toBeDefined();
-
-  // Feed each complete line (with newline). Multiple lines in one chunk is fine.
-  if (stdoutLines.length) call.proc.emitStdout(stdoutLines.join("\n") + "\n");
-  // Optionally leave a trailing line WITHOUT a newline to exercise the
-  // close-time lineBuf flush.
-  if (trailingNoNewline) call.proc.emitStdout(trailingNoNewline);
-
-  call.proc.close(closeCode);
-  const result = await promise;
-  return { result, deltas, call };
-}
-
-beforeEach(() => {
-  spawnCalls.length = 0;
-});
+beforeEach(resetSpawnCalls);
 
 describe("CodexEngine — JSONL stream parsing into deltas", () => {
   it("maps an agent_message item to a text delta via onStream", async () => {
@@ -861,5 +739,73 @@ describe("CodexEngine — process lifecycle", () => {
     call.proc.close(null);
     await flush();
     expect(resolved?.error).toBe("Interrupted: new message");
+  });
+});
+
+describe("CodexEngine — reset time on a quota failure", () => {
+  /** A rollout carrying one `token_count` with the account's rate-limit snapshot. */
+  function rolloutWithRateLimits(threadId: string, resetsAt: number): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-quota-"));
+    const dir = path.join(root, "2026", "08", "19");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `rollout-2026-08-19T00-00-00-${threadId}.jsonl`),
+      [
+        JSON.stringify({ type: "session_meta", payload: { id: threadId } }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            rate_limits: {
+              limit_id: "codex",
+              primary: { used_percent: 100, window_minutes: 10_080, resets_at: resetsAt },
+              secondary: null,
+            },
+          },
+        }),
+        "",
+      ].join("\n"),
+    );
+    return root;
+  }
+
+  it("prefers the reset codex stated in its rate_limits snapshot", async () => {
+    const resetsAt = 1_787_200_992;
+    const root = rolloutWithRateLimits("thread-quota", resetsAt);
+    const { result } = await runWith(
+      {},
+      [
+        threadStarted("thread-quota"),
+        turnFailed("You've hit your usage limit. Try again at 2026-08-19T18:30:00.000Z."),
+      ],
+      { engineOpts: { codexSessionsDir: root } },
+    );
+    expect(result.rateLimit).toEqual({ status: "rejected", resetsAt });
+  });
+
+  it("falls back to the reset stated in the error prose", async () => {
+    const { result } = await runWith(
+      {},
+      [
+        threadStarted("thread-prose"),
+        turnFailed("You've hit your usage limit. Try again at 2026-08-19T18:30:00.000Z."),
+      ],
+      { engineOpts: { codexSessionsDir: fs.mkdtempSync(path.join(os.tmpdir(), "codex-prose-")) } },
+    );
+    expect(result.rateLimit).toEqual({
+      status: "rejected",
+      resetsAt: Math.floor(Date.parse("2026-08-19T18:30:00.000Z") / 1000),
+    });
+  });
+
+  it("never invents a reset when neither source states one", async () => {
+    const { result } = await runWith({}, [threadStarted("thread-bare"), turnFailed("429 rate limit exceeded")]);
+    expect(result.rateLimit).toEqual({ status: "rejected" });
+    expect(result.rateLimit?.resetsAt).toBeUndefined();
+  });
+
+  it("leaves an ordinary failure unmarked", async () => {
+    const { result } = await runWith({}, [threadStarted("thread-plain"), turnFailed("the build step exited with code 1")]);
+    expect(result.rateLimit).toBeUndefined();
   });
 });

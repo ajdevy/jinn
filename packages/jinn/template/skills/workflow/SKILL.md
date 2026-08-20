@@ -56,7 +56,7 @@ Its payload carries `todoId`, `fromStatus`, `toStatus`, `source`, `department`, 
 
 An Approval node creates a native pending approval on the run. The resolved routed owner cannot decide their own approval, while a hierarchy root/COO is exempt. Reviewers should avoid approving work they personally executed. Use `decide_workflow_approval`. Route unclear authority to the manager/COO.
 
-Give an Approval node `options` (2 to 8 unique labels) to ask for a CHOICE rather than a yes/no — "which of these three variants ships". On a Todo-bound run the options mirror onto that Todo's approval, so the pick happens on the Todos surface; approving without picking one of them is refused rather than defaulted. Read the pick downstream as `{{ node.<approvalNodeId>.choice }}`, typically from a Condition.
+Give an Approval node `options` (2 to 8 unique labels) to ask for a CHOICE rather than a yes/no — "which of these three variants ships". On a Todo-bound run the options mirror onto that Todo's approval, so the pick can happen on either surface and whichever one decides it settles both; approving without picking one of them is refused rather than defaulted. Read the pick downstream as `{{ node.<approvalNodeId>.choice }}`, typically from a Condition, and the decider's reason as `{{ node.<approvalNodeId>.fields.reason }}`.
 
 ```json
 { "description": "Which variant ships?", "options": ["variant-a", "variant-b", "variant-c"] }

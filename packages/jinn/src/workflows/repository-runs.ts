@@ -27,7 +27,7 @@ const resolvedSchema = z.strictObject({
   employeeId: z.string(), engine: z.string(), model: z.string().optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
   retry: z.strictObject({ attempts: z.number().int().min(1), delaySeconds: z.number().int().nonnegative(), backoff: z.enum(['fixed', 'exponential']) }),
-  timeoutMinutes: z.number().int().positive().optional(), continuedFrom: z.strictObject({ sessionId: z.string(), engineSessionId: z.string() }).optional(),
+  timeoutMinutes: z.number().int().positive().optional(), continuedFrom: z.strictObject({ sessionId: z.string(), engineSessionId: z.string() }).optional(), substitutedFrom: z.strictObject({ engine: z.string(), reason: z.string() }).optional(),
 });
 const triggerSchema = z.strictObject({
   nodeId: z.string(), kind: z.enum(['manual', 'schedule', 'event', 'todo-status', 'workflow-call']),
@@ -258,7 +258,7 @@ export function readRunDetail(db: WorkflowSqliteConnection, workflowId: string, 
     repositoryError('corrupt-record', `Workflow run ${run.id} has foreign history rows.`);
   }
   const childRuns = run.definition.nodes
-    .filter((node) => node.type === 'workflow-call')
+    .filter((node) => node.type === 'workflow-call' || node.type === 'employee')
     .flatMap((node) => readRunsByCaller(db, run.id, node.id));
   return { ...run, nodeRuns, attempts, approvals, childRuns };
 }
@@ -270,10 +270,9 @@ export function readRunsByCaller(
 ): WorkflowChildRunSummary[] {
   let rows: RunRow[];
   try {
-    rows = db.prepare(`SELECT * FROM workflow_runs
-      WHERE json_extract(trigger_json, '$.kind') = 'workflow-call'
-        AND json_extract(trigger_json, '$.payload.caller.runId') = ?
-        AND json_extract(trigger_json, '$.payload.caller.nodeId') = ?
+    // Only manual and workflow-call payloads are ours to write, so a `caller` under any other kind is the fire's own data.
+    rows = db.prepare(`SELECT * FROM workflow_runs WHERE json_extract(trigger_json, '$.kind') IN ('manual', 'workflow-call')
+        AND json_extract(trigger_json, '$.payload.caller.runId') = ? AND json_extract(trigger_json, '$.payload.caller.nodeId') = ?
       ORDER BY json_extract(trigger_json, '$.payload.itemIndex'), started_at, id`).all(parentRunId, nodeId) as RunRow[];
   } catch (error) {
     if (error instanceof Error && /malformed JSON/i.test(error.message)) {
@@ -285,16 +284,17 @@ export function readRunsByCaller(
   return rows.map((row) => {
     const run = decodeRun(row);
     const itemIndex = run.trigger.payload.itemIndex;
-    if (!Number.isInteger(itemIndex) || (itemIndex as number) < 0 || seen.has(itemIndex as number)) {
+    // An index means one item of a fan-out batch; a direct call and a session-started run are single spawns and carry none.
+    if (itemIndex !== undefined && (!Number.isInteger(itemIndex) || (itemIndex as number) < 0 || seen.has(itemIndex as number))) {
       repositoryError('corrupt-record', `Workflow child runs for ${parentRunId}:${nodeId} have invalid item indexes.`);
     }
-    seen.add(itemIndex as number);
+    if (itemIndex !== undefined) seen.add(itemIndex as number);
     const end = orderedNodes(db, run).find((candidate) => candidate.nodeType === 'end' && candidate.status === 'completed');
     return {
       runId: run.id,
       workflowId: run.workflowId,
       nodeId,
-      itemIndex: itemIndex as number,
+      ...(itemIndex === undefined ? {} : { itemIndex: itemIndex as number }),
       status: run.status,
       startedAt: run.startedAt,
       ...(run.endedAt ? { endedAt: run.endedAt } : {}),
