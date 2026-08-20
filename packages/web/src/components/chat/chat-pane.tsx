@@ -78,8 +78,7 @@ interface ChatPaneProps {
 export type { FreshChatSourceSession }
 
 export function ChatPane({
-  sessionId,
-  onFocus,
+  sessionId, isActive, onFocus,
   onSessionCreated,
   onSessionMetaChange,
   onRefresh,
@@ -474,8 +473,8 @@ export function ChatPane({
         background: 'var(--bg)',
         position: 'relative',
       }}
-      data-chat-pane-session={sessionId ?? 'new'}
-      onClick={onFocus}
+      data-chat-pane-session={sessionId ?? 'new'} data-chat-pane-active={String(isActive)}
+      onClick={onFocus} onFocusCapture={onFocus}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -581,7 +580,7 @@ export function ChatPane({
 
       {/* Input — chat-style composer for every view, including CLI (the PTY engine
           accepts attachments + the prompt is injected into xterm via bracketed-paste). */}
-      <ChatInput sessionId={sessionId}
+      <ChatInput sessionId={sessionId} isActive={isActive}
         disabled={false}
         loading={loading}
         onSend={handleSend}

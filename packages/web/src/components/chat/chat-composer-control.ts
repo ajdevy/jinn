@@ -13,26 +13,31 @@ export type ComposerCommandResult =
 
 export interface ChatComposerControl {
   sessionId: string
+  isActive(): boolean
   isVisible(): boolean
   execute(command: ComposerCommand): ComposerCommandResult | Promise<ComposerCommandResult>
 }
 
 interface RegisteredControl { token: symbol; control: ChatComposerControl }
-let current: RegisteredControl | null = null
+const mounted: RegisteredControl[] = []
 
 /** Tokenized cleanup prevents an old pane from unregistering its replacement. */
 export function registerChatComposerControl(control: ChatComposerControl): () => void {
   const token = Symbol("chat-composer")
-  current = { token, control }
-  return () => { if (current?.token === token) current = null }
+  mounted.push({ token, control })
+  return () => {
+    const index = mounted.findIndex((entry) => entry.token === token)
+    if (index >= 0) mounted.splice(index, 1)
+  }
 }
 
 export function activeChatComposerControl(): ChatComposerControl | null {
-  return current?.control ?? null
+  return mounted.findLast((entry) => entry.control.isActive())?.control ?? null
 }
 
 interface ComposerControlOptions {
   sessionId: string | null
+  isActive: boolean
   textareaRef: RefObject<HTMLTextAreaElement | null>
   disabledRef: RefObject<boolean>
   submittingRef: RefObject<boolean>
@@ -105,6 +110,7 @@ export function useChatComposerControl(options: ComposerControlOptions): void {
     const sessionId = options.sessionId
     return registerChatComposerControl({
       sessionId,
+      isActive: () => latest.current.isActive,
       isVisible: () => visible(latest.current),
       execute: (command) => execute(latest.current, command),
     })

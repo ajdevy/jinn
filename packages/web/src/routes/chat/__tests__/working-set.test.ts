@@ -6,6 +6,7 @@ import {
   focusWorkingSetSession,
   loadPersistedWorkingSet,
   persistWorkingSet,
+  replaceFocusedWorkingSetSession,
   removeWorkingSetSession,
   reorderWorkingSetSession,
   restoreWorkingSet,
@@ -56,6 +57,15 @@ describe('chat working set', () => {
     expect(next.sessionIds).toEqual(['b', 'c'])
     expect(next.focusedId).toBe('c')
     expect(next.focusHistory).toEqual(['b', 'c'])
+  })
+
+  it('replaces the focused slot for ordinary navigation without growing the grid', () => {
+    let state = createWorkingSet(['a', 'b', 'c'], 'b')
+    state = replaceFocusedWorkingSetSession(state, 'outside')
+
+    expect(state.sessionIds).toEqual(['a', 'outside', 'c'])
+    expect(state.focusedId).toBe('outside')
+    expect(state.focusHistory.at(-1)).toBe('outside')
   })
 
   it('round-trips persistence and drops sessions that no longer exist', () => {

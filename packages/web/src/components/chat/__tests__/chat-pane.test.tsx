@@ -59,19 +59,22 @@ const liveSessionDefaults: LiveSessionMockState = {
 let liveSessionState: LiveSessionMockState
 let composerOnSend: ((message: string) => Promise<boolean>) | null
 let messagesOnRetry: ((message: string) => void) | null
+let composerActive: boolean | undefined
 
 vi.mock('@/hooks/use-live-session', () => ({
   useLiveSession: () => liveSessionState,
 }))
 
 vi.mock('@/components/chat/chat-input', () => ({
-  ChatInput: ({ selectorSlot, statusSlot, onSend }: {
+  ChatInput: ({ selectorSlot, statusSlot, onSend, isActive }: {
     selectorSlot?: React.ReactNode
     statusSlot?: React.ReactNode
     onSend: (message: string) => Promise<boolean>
+    isActive?: boolean
   }) => {
     composerOnSend = onSend
-    return <div data-testid="chat-input">{selectorSlot}{statusSlot}</div>
+    composerActive = isActive
+    return <div data-testid="chat-input" data-active={String(isActive)}>{selectorSlot}{statusSlot}</div>
   },
 }))
 
@@ -141,7 +144,18 @@ describe('ChatPane', () => {
     apiMocks.sendMessage.mockResolvedValue({})
     composerOnSend = null
     messagesOnRetry = null
+    composerActive = undefined
     localStorage.clear()
+  })
+
+  it('makes focus state real at the pane and composer boundaries', () => {
+    const onFocus = vi.fn()
+    const { container } = renderPane({ isActive: false, onFocus })
+
+    expect(container.querySelector('[data-chat-pane-active="false"]')).toBeTruthy()
+    expect(composerActive).toBe(false)
+    fireEvent.focusIn(screen.getByTestId('chat-input'))
+    expect(onFocus).toHaveBeenCalledOnce()
   })
 
   it('returns failed delivery while retaining the optimistic bubble and retry path', async () => {

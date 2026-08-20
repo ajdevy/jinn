@@ -13,7 +13,7 @@ interface PersistedWorkingSet {
   focusHistory: string[]
 }
 
-const WORKING_SET_STORAGE_KEY = 'jinn-chat-working-set'
+export const WORKING_SET_STORAGE_KEY = 'jinn-chat-working-set'
 
 type WorkingSetStorage = Pick<Storage, 'getItem' | 'setItem'>
 
@@ -115,6 +115,31 @@ export function removeWorkingSetSession(
     ? focusHistory.at(-1) ?? null
     : state.focusedId
   return normalize(sessionIds, focusedId, focusHistory)
+}
+
+/** Replace the URL-owned pane without growing the working set. Ordinary
+ * browser navigation uses this; explicit add actions use addWorkingSetSession. */
+export function replaceFocusedWorkingSetSession(
+  state: ChatWorkingSet,
+  rawSessionId: string,
+): ChatWorkingSet {
+  const sessionId = rawSessionId.trim()
+  if (!sessionId) return state
+  if (state.sessionIds.includes(sessionId)) {
+    return focusWorkingSetSession(state, sessionId)
+  }
+  if (!state.focusedId) return createWorkingSet([sessionId], sessionId)
+
+  const focusedIndex = state.sessionIds.indexOf(state.focusedId)
+  if (focusedIndex < 0) return createWorkingSet([...state.sessionIds, sessionId], sessionId)
+
+  const sessionIds = [...state.sessionIds]
+  sessionIds[focusedIndex] = sessionId
+  return normalize(
+    sessionIds,
+    sessionId,
+    [...state.focusHistory.filter((id) => id !== state.focusedId), sessionId],
+  )
 }
 
 export function reorderWorkingSetSession(

@@ -1152,7 +1152,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1074,
+      "lines": 1071,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1168,7 +1168,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 638,
+      "lines": 637,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1563,7 +1563,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1086,
+      "lines": 1078,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
