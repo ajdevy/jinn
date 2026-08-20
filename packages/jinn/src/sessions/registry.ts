@@ -1444,7 +1444,7 @@ export function recoverStaleSessions(): number {
   return result.changes;
 }
 
-/** Settle workflow attempts whose engine process was lost with the old gateway. */
+/** Settle workflow attempts whose engine process was lost with the old gateway. The cause is stamped over any same-turn marker — that turn died with the gateway, it did not end on a message — and is what lets the runtime replace the attempt rather than spend its retry budget (see workflows/restart-redispatch.ts). */
 export function recoverStaleWorkflowAttemptSessions(): number {
   const database = initDb();
   const now = new Date().toISOString();
@@ -1470,8 +1470,8 @@ export function recoverStaleWorkflowAttemptSessions(): number {
         attempt_outcome = 'interrupted',
         attempt_terminal_version = 1,
         attempt_turn = MAX(attempt_turn, 1),
-        attempt_interruption_cause = NULL,
-        attempt_interruption_turn = NULL,
+        attempt_interruption_cause = 'gateway-restart',
+        attempt_interruption_turn = MAX(attempt_turn, 1),
         last_activity = ?,
         last_error = 'Interrupted: gateway restarted while workflow attempt was running'
       WHERE status = 'running'

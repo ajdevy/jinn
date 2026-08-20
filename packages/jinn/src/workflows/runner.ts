@@ -19,7 +19,8 @@ import type {
   WorkflowNode,
   WorkflowNodeOutput,
 } from "./model.js";
-import { dispatchFailure, interruptedAttemptFailure, workflowError } from "./failure.js";
+import { dispatchFailure, interruptedAttemptFailure, RESTART_INTERRUPTED, workflowError } from "./failure.js";
+import { openRestartReplacement, restartExhaustedFailure, restartsOn } from "./restart-redispatch.js";
 import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
 import { fanoutConcurrencyRecord } from "./capacity.js";
 import { predicatesHold } from "./predicates.js";
@@ -534,14 +535,17 @@ export class WorkflowRunner {
     // informative keeps that status for the rest of the run.
     if (firstPhase) this.reflect(run, "executing", node.id);
     this.changed(run);
+    await this.sendAttempt(run, node.id, attempt.attempt);
+  }
+
+  /** Hand a created attempt to the executor, settling it as a dispatch failure if the executor refuses it. */
+  private async sendAttempt(run: WorkflowRunDetail, nodeId: string, attemptNumber: number): Promise<void> {
     try {
-      await this.recoverDispatching(run.workflowId, run.id, node.id, attempt.attempt);
+      await this.recoverDispatching(run.workflowId, run.id, nodeId, attemptNumber);
     } catch (error) {
       const current = this.detail(run.workflowId, run.id);
-      const endedAt = this.now();
-      const failure = dispatchFailure(error, node.id, attempt.attempt);
-      const stored = current.attempts.find((item) => item.nodeId === node.id && item.attempt === attempt.attempt)!;
-      this.settleFailure(current, stored, failure, "failed", endedAt);
+      const stored = current.attempts.find((item) => item.nodeId === nodeId && item.attempt === attemptNumber)!;
+      this.settleFailure(current, stored, dispatchFailure(error, nodeId, attemptNumber), "failed", this.now());
     }
   }
 
@@ -685,9 +689,7 @@ export class WorkflowRunner {
     const run = this.detail(workflowId, runId);
     const attempt = run.attempts.find((item) => item.nodeId === nodeId && item.attempt === attemptNumber);
     if (!attempt || attempt.status !== "running") return false;
-    const error: WorkflowError = { code: "workflow-timeout", message: "Workflow attempt timed out.", retryable: true,
-      nodeId, attempt: attemptNumber };
-    this.settleFailure(run, attempt, error, "timed-out", at);
+    this.settleFailure(run, attempt, { code: "workflow-timeout", message: "Workflow attempt timed out.", retryable: true, nodeId, attempt: attemptNumber }, "timed-out", at);
     return true;
   }
 
@@ -738,8 +740,7 @@ export class WorkflowRunner {
       : undefined;
     const routed = !revising
       && run.definition.edges.some((edge) => edge.from.nodeId === input.nodeId && edge.from.port === status);
-    const missingRoute: WorkflowError = { code: "workflow-approval-route-missing",
-      message: `Workflow approval ${input.nodeId} has no ${status} route.`, retryable: false, nodeId: input.nodeId };
+    const missingRoute: WorkflowError = { code: "workflow-approval-route-missing", message: `Workflow approval ${input.nodeId} has no ${status} route.`, retryable: false, nodeId: input.nodeId };
     const gateOutput = { text: input.choice ?? "", fields: { port: status, ...(note ? { reason: note } : {}) }, ...(input.choice !== undefined ? { choice: input.choice } : {}) };
     this.options.repository.mutateRun(run.id, input.expectedRevision, (tx) => {
       const pending = run.approvals.find((approval) => approval.nodeId === input.nodeId)!;
@@ -793,7 +794,9 @@ export class WorkflowRunner {
     // attempts that never landed; spending it on an employee that ran and reported failure pays twice for a verdict
     // that was already reached, and can override a phase that deliberately refused. A substitution spends none of it:
     // the budget governs asking the SAME engine again, and an engine with no allowance left never answered at all.
-    const retry = (error.retryable && attempt.attempt < attempt.resolvedConfig.retry.attempts) || hasSubstitute(run, attempt, error, this.options);
+    // A gateway restart is not one of this node's attempts at the work, so the replacements it forced are discounted first.
+    const retry = (error.retryable && attempt.attempt - restartsOn(run, attempt.nodeId) < attempt.resolvedConfig.retry.attempts)
+      || hasSubstitute(run, attempt, error, this.options);
     const routed = !retry && run.definition.edges.some((edge) => edge.from.nodeId === attempt.nodeId && edge.from.port === "error");
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       if (processedTurn !== undefined) {
@@ -962,9 +965,7 @@ export class WorkflowRunner {
     const node = run.definition.nodes.find((candidate): candidate is EmployeeNode => candidate.id === attempt.nodeId && candidate.type === "employee");
     if (!node) return false;
     const cancellation = event.outcome === "interrupted" && run.cancelRequestedAt
-      ? { code: "workflow-cancelled", message: event.error ?? "Workflow run cancelled.", retryable: false,
-          nodeId: attempt.nodeId, attempt: attempt.attempt } satisfies WorkflowError
-      : undefined;
+      ? { code: "workflow-cancelled", message: event.error ?? "Workflow run cancelled.", retryable: false, nodeId: attempt.nodeId, attempt: attempt.attempt } satisfies WorkflowError : undefined;
     const userMessageTurnEnd = event.outcome === "interrupted"
       && event.interruptionCause === "user-message"
       && !run.cancelRequestedAt;
@@ -985,7 +986,7 @@ export class WorkflowRunner {
       }
     } else if (!userMessageTurnEnd) {
       failure = event.outcome === "interrupted"
-        ? interruptedAttemptFailure(event.error ?? "Workflow attempt was interrupted.", attempt.nodeId, attempt.attempt)
+        ? interruptedAttemptFailure(event.error ?? "Workflow attempt was interrupted.", attempt.nodeId, attempt.attempt, event.interruptionCause)
         : workflowError(event.error ?? `Workflow attempt was ${event.outcome}.`, attempt.nodeId, attempt.attempt);
     }
     const endedAt = event.completedAt;
@@ -1006,19 +1007,18 @@ export class WorkflowRunner {
       }
       const state = this.options.executor.attemptState(event.sessionId);
       if ((state?.runningChildren ?? 0) > 0) return true;
-      const noOutput: WorkflowError = {
-        code: "workflow-no-output",
-        message: "Workflow attempt ended without submitting output.",
-        retryable: true,
-        nodeId: attempt.nodeId,
-        attempt: attempt.attempt,
-      };
+      const noOutput: WorkflowError = { code: "workflow-no-output", message: "Workflow attempt ended without submitting output.", retryable: true, nodeId: attempt.nodeId, attempt: attempt.attempt };
       const routed = this.settleFailure(run, attempt, noOutput, "failed", endedAt, event.turn);
       if (routed) await this.advance(run.workflowId, run.id);
       return true;
     }
     if (!output && !cancellation) {
-      const routed = this.settleFailure(run, attempt, failure!,
+      const replacement = failure!.code === RESTART_INTERRUPTED
+        ? openRestartReplacement({ ...this.options, prompt: (continued) => composeEmployeePrompt(run, node, continued) },
+          run, attempt, failure!, event) : null;
+      if (replacement !== null) { this.changed(run); await this.sendAttempt(run, attempt.nodeId, replacement); return true; }
+      const routed = this.settleFailure(run, attempt, failure!.code === RESTART_INTERRUPTED
+        ? restartExhaustedFailure(attempt.nodeId, attempt.attempt, restartsOn(run, attempt.nodeId) + 1) : failure!,
         event.outcome === "interrupted" ? "cancelled" : "failed", endedAt, event.turn);
       if (routed) await this.advance(run.workflowId, run.id);
       return true;
@@ -1026,10 +1026,10 @@ export class WorkflowRunner {
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       tx.setAttemptReminder(attempt.nodeId, attempt.attempt, { lastProcessedTurn: event.turn });
       if (cancellation) {
-        tx.settleAttempt(attempt.nodeId, attempt.attempt, {
-          status: "cancelled", sessionId: event.sessionId, error: cancellation, endedAt,
-        });
+        tx.settleAttempt(attempt.nodeId, attempt.attempt, { status: "cancelled", sessionId: event.sessionId, error: cancellation, endedAt });
         tx.setNodeStatus(attempt.nodeId, "cancelled", { error: cancellation, endedAt });
+        // A cancel the gateway died inside of has no drain left to finish it, so the last node going terminal settles the run itself.
+        if (!run.nodeRuns.some((item) => item.nodeId !== attempt.nodeId && item.activated && !terminalNode(item))) tx.setRunStatus("cancelled", { endedAt });
       } else if (output) {
         tx.settleAttempt(attempt.nodeId, attempt.attempt, { status: "completed", sessionId: event.sessionId, output, endedAt });
         tx.setNodeStatus(attempt.nodeId, "completed", { output, endedAt });
