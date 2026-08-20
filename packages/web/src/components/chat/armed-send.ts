@@ -23,4 +23,3 @@ export function resolveTranscriptLanding(armed: boolean, transcript: string): Tr
   if (!armed) return "fill"
   return transcript.trim().length > 0 ? "send" : "disarm"
 }
-

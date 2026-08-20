@@ -24,4 +24,3 @@ describe("the mounted composer control", () => {
     expect(activeChatComposerControl()).toBeNull()
   })
 })
-

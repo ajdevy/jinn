@@ -66,4 +66,3 @@ export const CHAT_COMPOSER_TOOLS: readonly TalkTool[] = [
     execute: (args) => textCommand("draft-and-send", args),
   },
 ]
-
