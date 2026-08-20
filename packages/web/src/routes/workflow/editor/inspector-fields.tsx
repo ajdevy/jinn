@@ -4,13 +4,14 @@ import type { WorkflowNodeWire } from "./ports"
 /* ── tiny form primitives (Ledger-styled) ─────────────────────────────────── */
 
 /* Editor fields separate by fill, not by a hairline: no resting border, a fill one
-   step up from the panel so the field still reads, and focus carried by the ring. */
+   step up from the panel so the field still reads, and focus carried by the ring.
+   34px is the floor every inspector field shares, so 390px stays tappable. */
 export function TextInput(props: React.ComponentProps<"input">) {
   const { className = "", ...rest } = props
   return (
     <input
       {...rest}
-      className={`h-8 w-full rounded-[var(--radius-md)] bg-[var(--fill-secondary)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${className}`}
+      className={`h-[34px] w-full rounded-[var(--radius-md)] bg-[var(--fill-secondary)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${className}`}
     />
   )
 }
@@ -26,7 +27,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
-const TRIGGER_CLASS = "border-0 bg-[var(--fill-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+const TRIGGER_CLASS = "min-h-[34px] border-0 bg-[var(--fill-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
 
 export function PickerField({
   label, value, onChange, options, placeholder,

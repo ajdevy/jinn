@@ -1,123 +1,17 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
+import { fireEvent, screen } from "@testing-library/react"
 import { beforeAll, describe, expect, it } from "vitest"
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
-import { Inspector } from "../editor/inspector"
-import type { WorkflowNodeWire } from "../editor/ports"
-import { createEditorStore, EditorStoreContext } from "../editor/store"
+import {
+  choose,
+  expectValidApprovalConfig,
+  expectValidWaitConfig,
+  installInspectorDomPolyfills,
+  nodeConfig,
+  renderApproval,
+  renderWait,
+} from "./inspector-form-harness"
 
-const definition: WorkflowDefinitionV2Wire = {
-  schemaVersion: 1,
-  id: "morning-digest",
-  title: "Morning Digest",
-  revision: 3,
-  enabled: false,
-  createdAt: "2026-07-23T08:00:00.000Z",
-  updatedAt: "2026-07-23T08:00:00.000Z",
-  nodes: [],
-  edges: [],
-  ui: { positions: {} },
-}
-
-function renderNode(node: WorkflowNodeWire) {
-  const initial = structuredClone(definition)
-  initial.nodes = [node]
-  initial.ui.positions = { [node.id]: { x: 0, y: 0 } }
-  const store = createEditorStore(initial)
-  store.getState().selectNode(node.id)
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={client}>
-      <EditorStoreContext.Provider value={store}>
-        <Inspector />
-      </EditorStoreContext.Provider>
-    </QueryClientProvider>,
-  )
-  return store
-}
-
-function renderApproval(config: Record<string, unknown>) {
-  return renderNode({ id: "gate", type: "approval", name: "Gate", config })
-}
-
-function renderWait(config: Record<string, unknown>) {
-  return renderNode({ id: "hold", type: "wait", name: "Ask operator", config })
-}
-
-function nodeConfig(store: ReturnType<typeof createEditorStore>) {
-  return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
-}
-
-async function choose(label: string, option: string) {
-  await userEvent.click(screen.getByRole("combobox", { name: label }))
-  await userEvent.click(await screen.findByRole("option", { name: option }))
-}
-
-/* The gateway package is not a dependency of the web app, so these restate the
- * contracts the forms have to satisfy: `approvalNodeSchema` and
- * `waitConfigSchema` in packages/jinn/src/workflows/model.ts. A config that
- * fails one of them is a definition the gateway would refuse to save. */
-
-function expectValidApprovalConfig(config: Record<string, unknown>) {
-  expect(Object.keys(config).every((key) => ["description", "approver", "operatorOnly", "options"].includes(key))).toBe(true)
-  expect(typeof config.description).toBe("string")
-  if (!("options" in config)) return
-  const options = config.options as unknown
-  expect(Array.isArray(options)).toBe(true)
-  const labels = options as unknown[]
-  expect(labels.length).toBeGreaterThanOrEqual(2)
-  expect(labels.length).toBeLessThanOrEqual(8)
-  for (const label of labels) {
-    expect(typeof label).toBe("string")
-    expect((label as string).length).toBeGreaterThanOrEqual(1)
-    expect((label as string).length).toBeLessThanOrEqual(80)
-  }
-  expect(new Set(labels).size).toBe(labels.length)
-}
-
-function expectMinutesInRange(value: unknown) {
-  expect(Number.isInteger(value)).toBe(true)
-  expect(value as number).toBeGreaterThanOrEqual(1)
-  expect(value as number).toBeLessThanOrEqual(43_200)
-}
-
-function expectValidWaitConfig(config: Record<string, unknown>) {
-  const keys = Object.keys(config).sort()
-  if (config.mode === "duration") {
-    expect(keys).toEqual(["minutes", "mode"])
-    expectMinutesInRange(config.minutes)
-  } else if (config.mode === "todo-comment") {
-    expect(keys).toEqual(["mode", "timeoutMinutes"])
-    expectMinutesInRange(config.timeoutMinutes)
-  } else {
-    expect(config.mode).toBe("until")
-    expect(keys).toEqual(["mode", "timestamp"])
-    expect(config.timestamp).toMatchObject({ source: "fixed" })
-  }
-}
-
-beforeAll(() => {
-  const proto = Element.prototype as unknown as Record<string, unknown>
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!window.matchMedia) {
-    window.matchMedia = (query: string) =>
-      ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      }) as MediaQueryList
-  }
-})
+beforeAll(installInspectorDomPolyfills)
 
 describe("approval inspector operator-only gate", () => {
   it("reserves the gate and drops any approver, since the two contradict", () => {
@@ -158,6 +52,24 @@ describe("approval inspector fixed choices", () => {
 
     expect(screen.getByText("Use a unique label.")).toBeTruthy()
     expect(nodeConfig(store).options).toEqual(["Rewrite it", "Patch it"])
+  })
+
+  it("treats a label that only differs by surrounding space as a duplicate", () => {
+    const store = renderApproval({ description: "Which?", options: ["Rewrite it", "Patch it"] })
+
+    fireEvent.change(screen.getByLabelText("Choice 1"), { target: { value: "  Patch it  " } })
+
+    expect(screen.getByText("Use a unique label.")).toBeTruthy()
+    expect(nodeConfig(store).options).toEqual(["Rewrite it", "Patch it"])
+  })
+
+  it("commits a label trimmed, the way the gateway stores it", () => {
+    const store = renderApproval({ description: "Which?", options: ["Rewrite it", "Patch it"] })
+
+    fireEvent.change(screen.getByLabelText("Choice 1"), { target: { value: "  Ship it  " } })
+
+    expect(nodeConfig(store).options).toEqual(["Ship it", "Patch it"])
+    expectValidApprovalConfig(nodeConfig(store))
   })
 
   it("blocks an emptied label inline without committing it", () => {
@@ -237,13 +149,23 @@ describe("wait inspector modes", () => {
     expectValidWaitConfig(nodeConfig(store))
   })
 
-  it("clamps an edited timeout into the range the gateway takes", () => {
+  it("blocks a timeout past the range inline without committing it", () => {
     const store = renderWait({ mode: "todo-comment", timeoutMinutes: 10_080 })
 
-    fireEvent.change(screen.getByLabelText("Timeout (minutes)"), { target: { value: "90000" } })
+    fireEvent.change(screen.getByLabelText("Timeout (minutes)"), { target: { value: "43201" } })
 
-    expect(nodeConfig(store)).toEqual({ mode: "todo-comment", timeoutMinutes: 43_200 })
+    expect(screen.getByText("Enter between 1 and 43200 minutes.")).toBeTruthy()
+    expect(nodeConfig(store)).toEqual({ mode: "todo-comment", timeoutMinutes: 10_080 })
     expectValidWaitConfig(nodeConfig(store))
+  })
+
+  it("blocks a zero timeout inline instead of substituting the default", () => {
+    const store = renderWait({ mode: "todo-comment", timeoutMinutes: 10_080 })
+
+    fireEvent.change(screen.getByLabelText("Timeout (minutes)"), { target: { value: "0" } })
+
+    expect(screen.getByText("Enter between 1 and 43200 minutes.")).toBeTruthy()
+    expect(nodeConfig(store)).toEqual({ mode: "todo-comment", timeoutMinutes: 10_080 })
   })
 
   it("stays valid switching from a Todo comment to a duration and back", async () => {
@@ -271,6 +193,16 @@ describe("wait inspector modes", () => {
     expect(screen.queryByLabelText("Timestamp (ISO)")).toBeNull()
     expect(nodeConfig(store)).toEqual(config)
     expect(store.getState().serial).toBe(0)
+  })
+
+  it("keeps an unhandled mode intact while an unrelated field is edited", () => {
+    const config = { mode: "signal", channel: "deploys" }
+    const store = renderWait(config)
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Await the deploy signal" } })
+
+    expect(store.getState().nodes[0]!.data.node.name).toBe("Await the deploy signal")
+    expect(nodeConfig(store)).toEqual(config)
   })
 
   it("keeps the timeout input at a 34px tap target", () => {

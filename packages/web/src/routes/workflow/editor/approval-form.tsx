@@ -17,10 +17,14 @@ function storedChoices(config: Record<string, unknown>): string[] | null {
   return options as string[]
 }
 
+/* The gateway trims every label before it validates them, so " A " and "A" are
+   the same label to it. Compare trimmed or the editor calls a duplicate unique
+   and the save the operator never doubted comes back rejected. */
 function choiceError(value: string, siblings: string[]): string | null {
-  if (!value.trim()) return "Give every choice a label."
-  if (value.length > MAX_CHOICE_LENGTH) return `Keep a choice to ${MAX_CHOICE_LENGTH} characters or fewer.`
-  if (siblings.includes(value)) return "Use a unique label."
+  const label = value.trim()
+  if (!label) return "Give every choice a label."
+  if (label.length > MAX_CHOICE_LENGTH) return `Keep a choice to ${MAX_CHOICE_LENGTH} characters or fewer.`
+  if (siblings.some((sibling) => sibling.trim() === label)) return "Use a unique label."
   return null
 }
 
@@ -35,13 +39,14 @@ function ChoiceRow({ index, value, siblings, onChange, onRemove, removable }: {
   const [draft, setDraft] = useState(value)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => setDraft(value), [value])
+  // Keeps a trailing space from being swallowed mid-word by the trimmed commit.
+  useEffect(() => setDraft((current) => (current.trim() === value ? current : value)), [value])
 
   const change = (next: string) => {
     setDraft(next)
     const message = choiceError(next, siblings)
     setError(message)
-    if (!message) onChange(next)
+    if (!message) onChange(next.trim())
   }
 
   return (

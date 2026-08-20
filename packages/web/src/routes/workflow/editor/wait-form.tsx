@@ -1,5 +1,7 @@
+import { useEffect, useId, useState } from "react"
 import { Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
 
+const MIN_MINUTES = 1
 const MAX_MINUTES = 43_200
 /** The gateway's own default for a Todo-comment wait: a conversation on a Todo
  *  gets a working week to happen in. */
@@ -19,34 +21,66 @@ function defaultWaitConfig(mode: string): Record<string, unknown> {
   }
 }
 
-/** Both wait minutes share the gateway's 1..43200 range, so an out-of-range or
- *  half-typed entry lands on the nearest value the schema takes. */
-function MinutesField({ label, value, fallback, onChange }: {
+/* Both wait minutes share the gateway's 1..43200 range. Clamping an out-of-range
+   entry to the nearest legal value saves a number nobody typed, so an invalid
+   entry stays in the field and says why instead of reaching the config. */
+function minutesError(raw: string): string | null {
+  if (!raw.trim()) return "Enter a number of minutes."
+  const minutes = Number(raw)
+  if (!Number.isInteger(minutes)) return "Enter a whole number of minutes."
+  if (minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
+    return `Enter between ${MIN_MINUTES} and ${MAX_MINUTES} minutes.`
+  }
+  return null
+}
+
+function MinutesField({ label, value, onChange }: {
   label: string
   value: unknown
-  fallback: number
   onChange: (minutes: number) => void
 }) {
+  const stored = typeof value === "number" ? String(value) : ""
+  const [draft, setDraft] = useState(stored)
+  const [error, setError] = useState<string | null>(null)
+  const errorId = useId()
+
+  // Only follow the config when it moved somewhere the field is not already.
+  useEffect(() => setDraft((current) => (Number(current) === value ? current : stored)), [value, stored])
+
+  const change = (next: string) => {
+    setDraft(next)
+    const message = minutesError(next)
+    setError(message)
+    if (!message) onChange(Number(next))
+  }
+
   return (
-    <Field label={label}>
-      <TextInput
-        className="min-h-[34px]"
-        type="number"
-        min={1}
-        max={MAX_MINUTES}
-        value={typeof value === "number" ? String(value) : ""}
-        onChange={(event) => onChange(
-          Math.max(1, Math.min(MAX_MINUTES, Math.round(Number(event.target.value)) || fallback)),
-        )}
-      />
-    </Field>
+    <div>
+      <Field label={label}>
+        <TextInput
+          className="min-h-[34px]"
+          type="number"
+          min={MIN_MINUTES}
+          max={MAX_MINUTES}
+          value={draft}
+          onChange={(event) => change(event.target.value)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+        />
+      </Field>
+      {error && (
+        <p id={errorId} className="mt-1 text-[length:var(--text-caption2)] text-[var(--system-red)]">
+          {error}
+        </p>
+      )}
+    </div>
   )
 }
 
 function TodoCommentFields({ minutes, onChange }: { minutes: unknown; onChange: (minutes: number) => void }) {
   return (
     <>
-      <MinutesField label="Timeout (minutes)" value={minutes} fallback={TODO_COMMENT_MINUTES} onChange={onChange} />
+      <MinutesField label="Timeout (minutes)" value={minutes} onChange={onChange} />
       <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
         Resumes as soon as you comment on the run’s Todo. The timeout is the ceiling, not a schedule.
       </p>
@@ -79,7 +113,6 @@ export function WaitForm({ node, update }: FormProps) {
         <MinutesField
           label="Minutes"
           value={config.minutes}
-          fallback={1}
           onChange={(minutes) => update({ mode: "duration", minutes })}
         />
       )}
