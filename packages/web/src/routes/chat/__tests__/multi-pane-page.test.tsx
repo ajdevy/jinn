@@ -217,7 +217,7 @@ describe('the routed multi-pane surface', () => {
     expect(localStorage.getItem(WORKING_SET_STORAGE_KEY)).toBe(dropState)
   })
 
-  it('keeps the original live pane mounted when the working set grows from one to two', async () => {
+  it('adds a second pane from the header action while keeping the original pane mounted', async () => {
     localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
       version: 1,
       sessionIds: ['a'],
@@ -228,8 +228,8 @@ describe('the routed multi-pane surface', () => {
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
     const originalPane = pane('a')
 
-    const surface = document.querySelector<HTMLElement>('[data-chat-grid-drop-surface]')!
-    fireEvent.drop(surface, { dataTransfer: sessionTransfer('b') })
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add chat to grid' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Title b' }))
 
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
     expect(pane('a')).toBe(originalPane)
@@ -238,6 +238,12 @@ describe('the routed multi-pane surface', () => {
   it('mounts only the active pane on mobile while fixed chips switch the route-backed transcript', async () => {
     window.innerWidth = 390
     window.innerHeight = 844
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: ['a', 'b'],
+      focusedId: 'a',
+      focusHistory: ['a', 'b'],
+    }))
     renderRoute()
 
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
@@ -245,9 +251,9 @@ describe('the routed multi-pane surface', () => {
     const chipOrder = () => Array.from(document.querySelectorAll('[data-mobile-working-set-chip]')).map((node) => node.getAttribute('data-mobile-working-set-chip'))
     expect(chipOrder()).toEqual(sessionIds)
 
-    fireEvent.click(await screen.findByRole('button', { name: /Title c/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Title d/ }))
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
-    await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
+    await waitFor(() => expect(pane('d').textContent).toContain('transcript-d'))
     expect(chipOrder()).toEqual(sessionIds)
     expect(document.querySelector('[data-chat-pane-session="a"]')).toBeNull()
   })

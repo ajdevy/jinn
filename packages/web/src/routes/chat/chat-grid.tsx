@@ -42,7 +42,7 @@ function PaneFrame({ sessionId, active, singlePane, onFocus, onRemove, paneRef, 
             event.stopPropagation()
             onRemove(sessionId)
           }}
-          className="absolute right-[var(--space-2)] top-[var(--space-2)] z-20 grid size-7 place-items-center rounded-full border-0 bg-[var(--fill-tertiary)] text-[var(--text-secondary)] shadow-none hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
+          className="absolute right-[var(--space-2)] top-[58px] z-20 grid size-7 place-items-center rounded-full border-0 bg-[var(--fill-tertiary)] text-[var(--text-secondary)] shadow-none hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
         >
           <X size={14} />
         </button>

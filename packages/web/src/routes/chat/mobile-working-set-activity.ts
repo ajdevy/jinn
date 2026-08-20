@@ -42,11 +42,17 @@ function textContent(value: unknown): string {
 export function mobileWorkingSetIds(
   memberIds: readonly string[],
   sessions: ReadonlyArray<{ id?: unknown }>,
+  previousIds: readonly string[] = [],
 ): string[] {
   const ids: string[] = []
+  const availableIds = new Set([
+    ...memberIds,
+    ...sessions.map((session) => String(session.id ?? '')).filter(Boolean),
+  ])
   const add = (id: string) => {
     if (id && !ids.includes(id) && ids.length < 4) ids.push(id)
   }
+  previousIds.filter((id) => availableIds.has(id)).forEach(add)
   memberIds.forEach(add)
   sessions.forEach((session) => add(String(session.id ?? '')))
   return ids

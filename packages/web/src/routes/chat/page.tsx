@@ -939,7 +939,7 @@ function ChatPage() {
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
-            grid={gridSessionIds.length > 1 ? { sessions: sessionsQuery.data ?? [], memberIds: gridSessionIds, onAdd: gridAdd.addPane } : undefined}
+            grid={gridSessionIds.length > 0 ? { sessions: sessionsQuery.data ?? [], memberIds: gridSessionIds, onAdd: gridAdd.addPane } : undefined}
             moreMenu={moreMenu}
             mobileWorkingSet={mobileWorkingSet}
             copiedField={copiedField}

@@ -19,6 +19,19 @@ describe('mobile working-set activity', () => {
     expect(mobileWorkingSetIds(['a', 'c'], sessions)).toEqual(['a', 'c', 'd', 'b'])
   })
 
+  it('retains filled slot identities when navigation replaces a working-set member', () => {
+    const sessions = [
+      { id: 'a' },
+      { id: 'b' },
+      { id: 'c' },
+      { id: 'd' },
+      { id: 'e' },
+    ]
+    const before = mobileWorkingSetIds(['a', 'b'], sessions)
+
+    expect(mobileWorkingSetIds(['d', 'b'], sessions, before)).toEqual(before)
+  })
+
   it('cross-fades once per message while appending streamed chunks without duplication', () => {
     const initial: Record<string, MobileWorkingSetActivity> = {}
     const first = reduceMobileWorkingSetActivity(initial, ['a', 'b'], 'a', {

@@ -75,6 +75,7 @@ describe('live chat grid', () => {
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
     expect(screen.getByTestId('content-c').getAttribute('data-active')).toBe('true')
     expect(screen.getByTestId('chat-grid').getAttribute('data-columns')).toBe('2')
+    expect(screen.getByRole('button', { name: 'Close d' }).className).toContain('top-[58px]')
 
     fireEvent.click(screen.getByTestId('pane-b'))
     expect(onFocus).toHaveBeenCalledWith('b')
