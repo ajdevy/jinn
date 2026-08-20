@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -59,5 +59,42 @@ describe("listCommentAttachments", () => {
     comments.tombstoneComment(comment.id, OPERATOR);
 
     expect(commentAttachments.listCommentAttachments(comment.id)).toEqual([{ id: row.id, mime: "image/png" }]);
+  });
+});
+
+describe("announceAttachment", () => {
+  afterEach(() => commentAttachments.setTodoAttachmentListener(null));
+
+  /** The reply race: the comment row commits and notifies BEFORE any of its
+   *  uploads exist, so a parked Wait swept off the comment alone harvests an
+   *  empty list. Each committed upload has to say so, or nothing ever re-wakes
+   *  the sweep and the run keeps a reply it never actually received. */
+  it("announces every committed attachment, so a late upload can re-wake the sweep", () => {
+    const item = store.createWorkItem({ title: "late upload" });
+    const comment = comments.addComment({ workItemId: item.id, body: "Files coming.", ...OPERATOR });
+    const seen: Array<{ id: string; commentId: string | null }> = [];
+    commentAttachments.setTodoAttachmentListener((attachment) => {
+      seen.push({ id: attachment.id, commentId: attachment.commentId });
+    });
+
+    const first = attachments.addAttachment({ workItemId: item.id, commentId: comment.id, filename: "one.png",
+      mime: "image/png", stagedPath: stage("one"), uploader: OPERATOR });
+    const second = attachments.addAttachment({ workItemId: item.id, commentId: comment.id, filename: "two.png",
+      mime: "image/png", stagedPath: stage("two"), uploader: OPERATOR });
+
+    expect(seen).toEqual([
+      { id: first.id, commentId: comment.id },
+      { id: second.id, commentId: comment.id },
+    ]);
+  });
+
+  it("hands the stored row back, and survives a listener that throws", () => {
+    const item = store.createWorkItem({ title: "rude listener" });
+    commentAttachments.setTodoAttachmentListener(() => { throw new Error("subscriber blew up"); });
+
+    const row = attachments.addAttachment({ workItemId: item.id, filename: "kept.txt", mime: "text/plain",
+      stagedPath: stage("kept"), uploader: OPERATOR });
+
+    expect(attachments.getAttachment(row.id)?.filename).toBe("kept.txt");
   });
 });

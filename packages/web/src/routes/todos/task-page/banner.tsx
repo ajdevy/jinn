@@ -262,7 +262,7 @@ export function TaskBanner({
               data-testid="task-banner-approve"
               disabled={approveDisabled}
               onClick={() => onApprove(choice ?? undefined)}
-              className="focus-ring inline-flex min-h-8 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold outline-none transition-transform hover:scale-[0.98] disabled:opacity-40"
+              className="focus-ring inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold outline-none transition-transform hover:scale-[0.98] disabled:opacity-40 sm:min-h-8"
               style={{
                 background: "color-mix(in srgb, var(--system-green) 16%, transparent)",
                 color: "var(--system-green)",

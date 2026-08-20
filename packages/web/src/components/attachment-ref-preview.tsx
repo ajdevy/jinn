@@ -52,7 +52,7 @@ function AttachmentRefThumbnail({
       data-testid={`attachment-ref-thumb-${attachment.attachmentId}`}
       aria-label={`Preview ${kindLabel(attachment.mime)} attachment`}
       onClick={(event) => onOpen(event.currentTarget)}
-      className="focus-ring block overflow-hidden rounded-[12px] bg-[var(--fill-tertiary)] outline-none transition-colors hover:bg-[var(--fill-secondary)]"
+      className="focus-ring grid min-h-[34px] min-w-[34px] place-items-center overflow-hidden rounded-[12px] bg-[var(--fill-tertiary)] outline-none transition-colors hover:bg-[var(--fill-secondary)]"
     >
       <img
         src={`${url}?thumb=1`}
