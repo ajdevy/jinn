@@ -1,9 +1,9 @@
 import { PassThrough } from "node:stream";
 
 /**
- * The fake child process the pi suites drive `spawn` with. Shared by
- * pi.test.ts (lifecycle, prompt delivery) and pi-mcp-attach.test.ts, which both
- * need the same captured argv/env and the same scripted stdout.
+ * The fake child process pi.test.ts drives `spawn` with. It sits in its own
+ * module only because inlining it puts that suite at 343 lines, over the size
+ * ratchet's 300-line cap — there is no second caller yet.
  */
 export interface FakeProc {
   stdout: PassThrough;
