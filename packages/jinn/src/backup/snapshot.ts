@@ -74,9 +74,13 @@ export async function createSnapshot(
   const instanceRoot = path.join(root, target.name);
   const finalPath = path.join(instanceRoot, snapshotDateStamp(createdAt));
   const temporary = path.join(instanceRoot, `.tmp-${process.pid}-${crypto.randomUUID()}`);
-  fs.mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(temporary, { mode: 0o700 });
   try {
+    // Inside the try: creating these can fail on its own - a stale file sitting
+    // where an instance directory belongs, a full or read-only disk - and that
+    // has to become this target's failed report, not a throw that abandons
+    // every target queued behind it.
+    fs.mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(temporary, { mode: 0o700 });
     const bytes = await writeSnapshotInto(temporary, target, codec, createdAt);
     fs.rmSync(finalPath, { recursive: true, force: true });
     fs.renameSync(temporary, finalPath);

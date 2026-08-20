@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { resolveArchiveCodec, type ArchiveCodecId } from "./codec.js";
+import path from "node:path";
+import { resolveArchiveCodec, type ArchiveCodec, type ArchiveCodecId } from "./codec.js";
 import { pruneSnapshots, type PruneResult } from "./retention.js";
 import { createSnapshot, type SnapshotReport } from "./snapshot.js";
 import { resolveBackupTargets } from "./targets.js";
@@ -14,6 +15,8 @@ export interface BackupRunOptions {
   retentionDays?: number;
   maxTotalBytes?: number;
   registryPath?: string;
+  /** Overrides codec resolution. Both branches ship, so both must be drivable. */
+  codec?: ArchiveCodec;
 }
 
 export interface BackupRunResult {
@@ -33,16 +36,34 @@ export interface BackupRunResult {
  * Pruning happens either way - the run that cannot write is exactly the one
  * where an unbounded pile of old snapshots would fill the disk.
  */
+/** A target that failed before createSnapshot could report on itself. */
+function failedTarget(name: string, root: string, error: unknown): SnapshotReport {
+  return {
+    name,
+    status: "failed",
+    bytes: 0,
+    path: path.join(root, name),
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 export async function runBackupRun(options: BackupRunOptions): Promise<BackupRunResult> {
   fs.mkdirSync(options.root, { recursive: true, mode: 0o700 });
   try { fs.chmodSync(options.root, 0o700); } catch { /* Windows has no POSIX modes */ }
 
-  const codec = resolveArchiveCodec();
+  const codec = options.codec ?? resolveArchiveCodec();
   const targets: SnapshotReport[] = [];
   let unreadableRegistry: unknown;
   try {
     for (const target of resolveBackupTargets({ registryPath: options.registryPath })) {
-      targets.push(await createSnapshot(target, options.root, options.now, codec));
+      // Every target is caught here as well as inside createSnapshot, so target
+      // independence holds structurally rather than depending on that function
+      // never throwing.
+      try {
+        targets.push(await createSnapshot(target, options.root, options.now, codec));
+      } catch (error) {
+        targets.push(failedTarget(target.name, options.root, error));
+      }
     }
   } catch (error) {
     unreadableRegistry = error;

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveBin } from "../shared/resolve-bin.js";
@@ -40,6 +40,86 @@ function failed(name: string, code: number | null, stderr: string): Error {
 }
 
 /**
+ * Settles an archive promise exactly once.
+ *
+ * Success needs every part to finish - tar, the compressor and the file - not
+ * just the file to close: resolving on the file alone reports a half-written
+ * archive as a good one.
+ */
+function settleOnce(parts: number, cleanup: () => void, resolve: () => void, reject: (error: Error) => void) {
+  let settled = false;
+  let pending = parts;
+  return {
+    fail(error: Error): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    },
+    finished(): void {
+      pending -= 1;
+      if (pending > 0 || settled) return;
+      settled = true;
+      resolve();
+    },
+  };
+}
+
+interface ArchivePipeline {
+  tar: ChildProcess;
+  compressor: ChildProcess;
+  output: fs.WriteStream;
+  hash: crypto.Hash;
+  result: ArchiveResult;
+  codec: ArchiveCodec;
+}
+
+type Settlement = ReturnType<typeof settleOnce>;
+
+function wireArchive(parts: ArchivePipeline, settle: Settlement): void {
+  const { tar, compressor, output, hash, result, codec } = parts;
+  let tarErrors = "";
+  let codecErrors = "";
+  let archiveFullyRead = false;
+  const truncated = (): Error =>
+    new Error(`${codec.id} stopped reading before the archive was complete: ${codecErrors.trim() || "broken pipe"}`);
+
+  tar.stderr!.on("data", (chunk: Buffer) => { tarErrors += chunk.toString(); });
+  compressor.stderr!.on("data", (chunk: Buffer) => { codecErrors += chunk.toString(); });
+  tar.stdout!.on("data", (chunk: Buffer) => { result.uncompressedBytes += chunk.length; });
+  tar.stdout!.on("end", () => { archiveFullyRead = true; });
+  compressor.stdout!.on("data", (chunk: Buffer) => {
+    result.compressedBytes += chunk.length;
+    hash.update(chunk);
+  });
+
+  for (const [name, child] of [["tar", tar], ["compressor", compressor]] as const) {
+    child.on("error", (error) => settle.fail(new Error(`${name} could not be started: ${error.message}`)));
+  }
+  tar.on("close", (code) => { if (code === 0) settle.finished(); else settle.fail(failed("tar", code, tarErrors)); });
+  compressor.on("close", (code) => {
+    if (code !== 0) return settle.fail(failed(codec.id, code, codecErrors));
+    // The compressor cannot finish before tar's output ends, because that end
+    // is its own EOF. Reaching here first means it stopped reading early, so
+    // the archive is short - and once Node unpipes a broken destination, tar
+    // blocks on a stream nothing drains and its exit code never arrives.
+    if (!archiveFullyRead) return settle.fail(truncated());
+    settle.finished();
+  });
+  output.on("error", settle.fail);
+  output.on("close", settle.finished);
+
+  // An unhandled EPIPE on the pipe into a compressor that has already exited
+  // takes the whole process down, turning one bad target into a dead run.
+  const pipeError = (error: NodeJS.ErrnoException): void =>
+    settle.fail(error.code === "EPIPE" ? truncated() : error);
+  tar.stdout!.on("error", pipeError);
+  compressor.stdin!.on("error", pipeError);
+  tar.stdout!.pipe(compressor.stdin!);
+  compressor.stdout!.pipe(output);
+}
+
+/**
  * Streams `tar` into the codec and straight to disk, so a multi-gigabyte home
  * never lands in memory, and counts both sides of the pipe on the way past -
  * uncompressed bytes are what tells the operator a home is growing, compressed
@@ -53,41 +133,17 @@ export function createHomeArchive(home: string, destination: string, codec: Arch
     const output = fs.createWriteStream(destination, { mode: 0o600 });
     const hash = crypto.createHash("sha256");
     const result: ArchiveResult = { uncompressedBytes: 0, compressedBytes: 0, sha256: "" };
-    let tarErrors = "";
-    let codecErrors = "";
-    let settled = false;
 
-    const fail = (error: Error): void => {
-      if (settled) return;
-      settled = true;
+    const settle = settleOnce(3, () => {
       tar.kill();
       compressor.kill();
-      reject(error);
-    };
-
-    tar.stderr.on("data", (chunk: Buffer) => { tarErrors += chunk.toString(); });
-    compressor.stderr.on("data", (chunk: Buffer) => { codecErrors += chunk.toString(); });
-    tar.stdout.on("data", (chunk: Buffer) => { result.uncompressedBytes += chunk.length; });
-    compressor.stdout.on("data", (chunk: Buffer) => {
-      result.compressedBytes += chunk.length;
-      hash.update(chunk);
-    });
-
-    for (const [name, child] of [["tar", tar], ["compressor", compressor]] as const) {
-      child.on("error", (error) => fail(new Error(`${name} could not be started: ${error.message}`)));
-    }
-    tar.on("close", (code) => { if (code !== 0) fail(failed("tar", code, tarErrors)); });
-    compressor.on("close", (code) => { if (code !== 0) fail(failed(codec.id, code, codecErrors)); });
-    output.on("error", fail);
-    output.on("close", () => {
-      if (settled) return;
-      settled = true;
+      output.destroy();
+    }, () => {
       result.sha256 = hash.digest("hex");
       resolve(result);
-    });
+    }, reject);
 
-    tar.stdout.pipe(compressor.stdin);
-    compressor.stdout.pipe(output);
+    wireArchive({ tar, compressor, output, hash, result, codec }, settle);
   });
 }
 

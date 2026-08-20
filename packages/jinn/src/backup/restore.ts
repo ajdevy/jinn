@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { extractHomeArchive } from "./archive.js";
+import { ARCHIVE_INCLUDES, extractHomeArchive } from "./archive.js";
 import { codecForId } from "./codec.js";
 import { readManifest, verifyManifest, type BackupManifest } from "./manifest.js";
 import { REGISTRY_DB_FILE } from "./snapshot.js";
@@ -48,6 +48,15 @@ export async function restoreSnapshot(options: RestoreOptions): Promise<RestoreR
 
   const archiveName = manifest.files.find((file) => file.path.startsWith("home."))?.path;
   if (!archiveName) throw new Error("snapshot manifest names no home archive");
+
+  // tar overwrites what it carries but removes nothing, so restoring over a
+  // populated home would leave files the snapshot does not have and produce a
+  // merge of two states. Everything inside the archive's remit is cleared
+  // first; anything outside it - workflows/, plugins/, the rest of sessions/ -
+  // is not this command's to delete.
+  for (const entry of ARCHIVE_INCLUDES) {
+    fs.rmSync(path.join(options.home, entry), { recursive: true, force: true });
+  }
   await extractHomeArchive(path.join(options.snapshot, archiveName), options.home, codecForId(manifest.codec));
 
   const registry = manifest.files.find((file) => file.path === REGISTRY_DB_FILE);

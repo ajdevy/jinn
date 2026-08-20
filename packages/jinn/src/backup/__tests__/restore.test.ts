@@ -82,6 +82,24 @@ describe("restoreSnapshot", () => {
     expect(fs.readFileSync(path.join(restored, "config.yaml"), "utf8")).toBe(HOME_CONTENT["config.yaml"]);
   });
 
+  it("leaves nothing of the old home behind when restoring over it with --force", async () => {
+    const root = tempDir();
+    const { home, snapshot } = await snapshotOf(root);
+    const restored = path.join(tempDir(), "home");
+    fs.mkdirSync(path.join(restored, "knowledge"), { recursive: true });
+    fs.writeFileSync(path.join(restored, "knowledge", "stale.md"), "not in the snapshot\n");
+    fs.writeFileSync(path.join(restored, "config.yaml"), "port: 1\n");
+
+    await restoreSnapshot({ snapshot, home: restored, force: true });
+
+    // A file the snapshot does not have must not survive the restore, or the
+    // result is a merge of two homes rather than a copy of one.
+    expect(fs.existsSync(path.join(restored, "knowledge", "stale.md"))).toBe(false);
+    for (const relative of Object.keys(HOME_CONTENT)) {
+      expect(sha(path.join(restored, relative)), relative).toBe(sha(path.join(home, relative)));
+    }
+  });
+
   it("refuses a home that still looks like a running instance", async () => {
     const root = tempDir();
     const { snapshot } = await snapshotOf(root);
