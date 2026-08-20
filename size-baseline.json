@@ -1954,7 +1954,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 485,
+      "lines": 442,
       "exempt": [
         "complexity",
         "max-lines-per-function"
