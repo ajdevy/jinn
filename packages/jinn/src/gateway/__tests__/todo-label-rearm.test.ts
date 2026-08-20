@@ -193,6 +193,45 @@ describe("a label that lands after the status move", () => {
     expect(sealed.state).toBe("processed");
   });
 
+  it("keeps the label-refused definition drainable even when another definition on the same status ran", async () => {
+    arm("open-lane", { status: "assigned" });
+    arm("gated-lane", { status: "assigned", label: "shared-build" });
+    labels.createLabel({ name: "shared-build" });
+    const item = store.createWorkItem({ title: "two lanes, one event", source: "human" });
+    transitions.transition(item.id, "assigned", "operator", { human: true });
+
+    await drain();
+    expect(startsFor("open-lane")).toBe(1);
+    expect(startsFor("gated-lane")).toBe(0);
+
+    // One event, two definitions: closing it on the one that ran would seal the
+    // other forever. Only the definitions the label refused go back in.
+    labels.addWorkItemLabels(item.id, ["shared-build"], "operator");
+    await drain();
+
+    expect(startsFor("gated-lane")).toBe(1);
+    // ...and the one that already ran does not run a second time.
+    expect(startsFor("open-lane")).toBe(1);
+  });
+
+  it("seals a Todo a non-label filter ALSO refused, rather than reading it as a label race", async () => {
+    arm("root-lane", { status: "assigned", label: "root-build", rootOnly: true });
+    labels.createLabel({ name: "root-build" });
+    const parent = store.createWorkItem({ title: "parent", source: "human" });
+    const child = store.createWorkItem({ title: "child", source: "human", parentId: parent.id });
+    transitions.transition(child.id, "assigned", "operator", { human: true });
+
+    await drain();
+
+    // The label is missing AND the Todo is a child. Being a child is a decision no
+    // label can change, so the event is closed on it, naming that filter.
+    expect(claim(child.id)).toMatchObject({ state: "processed" });
+    expect(claim(child.id).outcomes).toContain("rootOnly filter does not match");
+    labels.addWorkItemLabels(child.id, ["root-build"], "operator");
+    await drain();
+    expect(startsFor("root-lane")).toBe(0);
+  });
+
   it("seals an event a filter OTHER than label refused, so satisfying that filter later fires nothing", async () => {
     arm("intake-lane", { status: "assigned", unlabeled: true });
     labels.createLabel({ name: "chore" });
