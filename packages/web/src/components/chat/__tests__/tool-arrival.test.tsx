@@ -200,3 +200,45 @@ describe('reduced motion', () => {
     expect(marks(container, 'chip')).toHaveLength(0)
   })
 })
+
+describe('rows that render nothing', () => {
+  /** The block that renders a handoff; its own `delegate_task` calls are then
+   *  dropped by grouping and never reach the DOM. */
+  const handoff: Message = {
+    id: 'h1',
+    role: 'assistant',
+    content: 'Handed off',
+    timestamp: T0 + 2_000,
+    blocks: [{
+      id: 'dg-1',
+      type: 'delegation',
+      version: 1,
+      status: 'running',
+      payload: {
+        employee: 'researcher',
+        employeeDisplay: 'Researcher',
+        title: 'Research the issue',
+        childSessionId: 'child-1',
+        workItemId: 'wi-1',
+        dispatchedAt: T0,
+      },
+    }],
+  }
+
+  it('does not let them spend the arrival slots the visible chip needs', () => {
+    // Three dropped rows arriving after the tool call fill the batch's tail. A
+    // cap counted on raw messages hands every slot to rows with no DOM, and the
+    // chip beside them — the one the reader is actually watching — pops in.
+    const container = arriveLive([
+      tool('t1', 'grep'),
+      handoff,
+      tool('d1', 'delegate_task'),
+      tool('d2', 'delegate_task'),
+      tool('d3', 'delegate_task'),
+    ])
+
+    const pills = marks(container, 'group')
+    expect(pills).toHaveLength(1)
+    expect((pills[0] as HTMLElement).className).toContain('tool-arrive')
+  })
+})

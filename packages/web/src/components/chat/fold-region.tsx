@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, Settings } from 'lucide-react'
-import { ANCHOR_WINDOW_MS, anchorScrollDuring, canAnchorFold } from './fold-anchor'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { ANCHOR_WINDOW_MS, anchorScrollDuring, canAnchorFold, foldIsAboveViewport } from './fold-anchor'
+import { FoldSummaryLine, type FoldSummaryData } from './fold-summary'
 
 /**
  * The post-turn fold: once the user moves on from an answered turn, EVERYTHING
@@ -15,49 +15,59 @@ import { ANCHOR_WINDOW_MS, anchorScrollDuring, canAnchorFold } from './fold-anch
  * delta, so the answer stays pixel-fixed in the viewport while the evidence
  * folds away or comes back. `prefers-reduced-motion` swaps instantly with a
  * single compensation.
+ *
+ * And a send is not a reason to move anything: the next ask only files away a
+ * region that has already scrolled off the top, where the collapse costs the
+ * reader no pixel at all. What is on screen stays as they left it.
  */
-
-export interface FoldSummaryData {
-  durationMs: number | null
-  tools: number
-  teammates: number
-  /** Interim prose messages the model wrote on the way to the answer. */
-  updates: number
-}
-
-export function formatWorkDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return ''
-  if (ms < 1_000) return '<1s'
-  const seconds = Math.max(0, Math.round(ms / 1000))
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
-}
-
-export function foldSummaryWords(summary: FoldSummaryData): string[] {
-  const duration = summary.durationMs === null ? '' : formatWorkDuration(summary.durationMs)
-  const words = duration ? [`Worked for ${duration}`] : []
-  if (summary.tools > 0) words.push(`${summary.tools} tool${summary.tools === 1 ? '' : 's'}`)
-  if (summary.teammates > 0) words.push(`${summary.teammates} teammate${summary.teammates === 1 ? '' : 's'}`)
-  if (summary.updates > 0) words.push(`${summary.updates} update${summary.updates === 1 ? '' : 's'}`)
-  return words
-}
 
 const FOLD_MS = 420
 
+/** Held so an interrupted toggle can drop the frame it has not run yet. */
+type FrameRef = { current: number | undefined }
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+}
+
+function scheduleFrame(ref: FrameRef, run: () => void): void {
+  ref.current = requestAnimationFrame(() => {
+    ref.current = undefined
+    run()
+  })
+}
+
+function cancelPendingFrame(ref: FrameRef): void {
+  if (ref.current !== undefined) cancelAnimationFrame(ref.current)
+  ref.current = undefined
+}
+
+/**
+ * Hold everything below `wrap` pixel-fixed across a height change this commit
+ * already made — the paths that swap instantly instead of animating into it.
+ *
+ * It yields the same way the anchor loop does: finding the scroller somewhere
+ * else means the reader is mid-drag, or the browser's own overflow-anchor has
+ * already done this job. Writing on top of either is what makes a swipe stick.
+ */
+function compensateNextFrame(scroller: Element | null, wrap: Element, bottom0: number): void {
+  if (!scroller) return
+  const from = scroller.scrollTop
+  requestAnimationFrame(() => {
+    if (Math.abs(scroller.scrollTop - from) > 1) return
+    const delta = wrap.getBoundingClientRect().bottom - bottom0
+    if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
+  })
 }
 
 interface FoldRegionProps {
   /** Whether the turn already produced its final answer (fold-eligible). */
   answered: boolean
   /** The final answer arrived while this chat was mounted. Start open so the
-   *  work remains visible until the user sends the next message. */
+   *  work remains visible until the user scrolls past it. */
   liveCompletion?: boolean
-  /** Variant B trigger: a later user message now exists after this answer. */
+  /** A later user message now exists after this answer. A request, not an
+   *  order: the region declines it while any of it is still on screen. */
   collapseRequested?: boolean
   summary: FoldSummaryData
   /** Whether this region plays the anchored live-fold choreography. False for
@@ -71,20 +81,19 @@ interface FoldRegionProps {
 }
 
 export function FoldRegion({ answered, liveCompletion = false, collapseRequested = false, summary, animated = true, windowed = false, children }: FoldRegionProps) {
-  // Historical turns rest folded; a live completion stays open until its next
-  // user message. `liveCompletion` distinguishes those cases on first mount.
+  // Historical turns rest folded; a live completion stays open until the reader
+  // scrolls past it. `liveCompletion` distinguishes those cases on first mount.
   const startsAnswered = answered && !liveCompletion
   const [folded, setFolded] = useState(startsAnswered)
   const [landed, setLanded] = useState(startsAnswered)
-  // The summary line does NOT exist until the fold begins — mounting it at
-  // answer time would push the answer down at the stream→final swap and break
-  // the structural-parity guarantee. It appears at fold start (fading in) and
-  // persists from then on.
+  // The ledger line does NOT arrive in the answer's own commit — mounting it
+  // there would push the answer down at the stream→final swap and break the
+  // structural-parity guarantee. It follows a commit later, compensated.
   const [summaryVisible, setSummaryVisible] = useState(startsAnswered)
   const [landing, setLanding] = useState(false)
-  // True while the manual collapse animation plays: the region is still
-  // visually open (folded stays false until the animation lands) but the
-  // control already reads as closed.
+  // True while the collapse animation plays: the region is still visually open
+  // (folded stays false until the animation lands) but the control already
+  // reads as closed.
   const [closing, setClosing] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const regionRef = useRef<HTMLDivElement | null>(null)
@@ -92,52 +101,57 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
   foldedRef.current = folded
   const animatedRef = useRef(animated)
   animatedRef.current = animated
-  const closingRef = useRef(closing)
-  closingRef.current = closing
-  const manualTimerRef = useRef<number | undefined>(undefined)
+  const foldTimerRef = useRef<number | undefined>(undefined)
+  const frameRef = useRef<number | undefined>(undefined)
   const anchorCancelRef = useRef<(() => void) | null>(null)
 
-  // Live fold: the evidence files away only when the user sends the next ask.
+  // Every answered region owes the reader a control — the one left open because
+  // its answer landed live most of all, since nothing else will put it away.
+  useEffect(() => {
+    if (!answered || summaryVisible) return
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const bottom0 = wrap.getBoundingClientRect().bottom
+    setSummaryVisible(true)
+    setLanding(true)
+    compensateNextFrame(wrap.closest('.chat-messages-scroll'), wrap, bottom0)
+  }, [answered, summaryVisible])
+
+  // Live fold: the evidence files away on the next ask, and only from above the
+  // reader's viewport. A region with any part of it on screen keeps the state
+  // the reader left it in, for good.
   useEffect(() => {
     if (!collapseRequested || foldedRef.current) return
 
     const region = regionRef.current
     const wrap = wrapRef.current
-    if (!region || !wrap) {
-      setFolded(true)
-      setLanded(true)
-      setSummaryVisible(true)
-      return
-    }
+    if (!region || !wrap) return
     const scroller = wrap.closest('.chat-messages-scroll')
+    if (!scroller) return
+    if (!foldIsAboveViewport(wrap.getBoundingClientRect(), scroller.getBoundingClientRect())) return
 
-    if (prefersReducedMotion() || !animatedRef.current || !canAnchorFold(scroller?.scrollTop ?? 0, region.offsetHeight)) {
-      const bottom0 = wrap.getBoundingClientRect().bottom
+    cancelPendingFrame(frameRef)
+    window.clearTimeout(foldTimerRef.current)
+    anchorCancelRef.current?.()
+
+    const bottom0 = wrap.getBoundingClientRect().bottom
+    if (prefersReducedMotion() || !animatedRef.current || !canAnchorFold(scroller.scrollTop, region.offsetHeight)) {
       setFolded(true)
       setLanded(true)
-      setSummaryVisible(true)
-      requestAnimationFrame(() => {
-        if (!scroller) return
-        const delta = wrap.getBoundingClientRect().bottom - bottom0
-        if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
-      })
+      compensateNextFrame(scroller, wrap, bottom0)
       return
     }
 
-    // Anchor reference captured BEFORE the summary mounts, so its insertion
-    // is compensated along with the region collapse.
-    const bottom0 = wrap.getBoundingClientRect().bottom
     setLanding(true)
-    setSummaryVisible(true)
-    requestAnimationFrame(() => {
+    scheduleFrame(frameRef, () => {
       region.style.height = `${region.offsetHeight}px`
       region.style.overflow = 'hidden'
-      requestAnimationFrame(() => {
+      scheduleFrame(frameRef, () => {
         region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
         region.style.height = '0px'
         region.style.opacity = '0'
         anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS, { referenceBottom: bottom0 })
-        window.setTimeout(() => {
+        foldTimerRef.current = window.setTimeout(() => {
           setFolded(true)
           setLanded(true)
           setLanding(false)
@@ -147,9 +161,10 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
     })
   }, [collapseRequested])
 
-  // A stale manual timer or anchor loop must not outlive the component.
+  // A stale timer, frame or anchor loop must not outlive the component.
   useEffect(() => () => {
-    window.clearTimeout(manualTimerRef.current)
+    window.clearTimeout(foldTimerRef.current)
+    cancelPendingFrame(frameRef)
     anchorCancelRef.current?.()
   }, [])
 
@@ -167,15 +182,19 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
   // Manual toggle: BOTH directions play the same 420ms height+opacity
   // choreography, scroll-anchored on the wrap so the summary row under the
   // pointer and the answer below stay pixel-fixed while the evidence grows or
-  // folds above them. Interruptible: a click mid-animation cancels the
-  // pending timer and stale anchor loop and re-targets from the current
-  // height.
+  // folds above them. Interruptible: a click mid-animation re-targets from the
+  // current height, and one click always reaches the opposite state.
   const toggle = () => {
     const region = regionRef.current
     const wrap = wrapRef.current
     if (!region || !wrap) return
     const scroller = wrap.closest('.chat-messages-scroll')
-    window.clearTimeout(manualTimerRef.current)
+    // Whatever was in flight loses — the frame it has not run yet, the timer
+    // that would commit its end state, and its anchor loop. Leave any of the
+    // three alive and the loser's timer lands after the winner's, resting the
+    // region in the state nobody asked for.
+    cancelPendingFrame(frameRef)
+    window.clearTimeout(foldTimerRef.current)
     anchorCancelRef.current?.()
     const isOpen = !folded && !closing
 
@@ -190,33 +209,28 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
         region.style.opacity = ''
         region.style.overflow = ''
       }
-      requestAnimationFrame(() => {
-        if (!scroller) return
-        const delta = wrap.getBoundingClientRect().bottom - bottom0
-        if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
-      })
+      compensateNextFrame(scroller, wrap, bottom0)
       return
     }
 
     if (!isOpen) {
-      // Expand — from the current height (0 at rest, mid-value when a
+      // Expand — from the current height (0 at rest, a mid-value when a
       // collapse gets interrupted) up to the content height.
       setClosing(false)
       setFolded(false)
       region.style.overflow = 'hidden'
-      requestAnimationFrame(() => {
+      scheduleFrame(frameRef, () => {
         region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
         region.style.height = `${region.scrollHeight}px`
         region.style.opacity = '1'
         anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS)
-        manualTimerRef.current = window.setTimeout(() => {
-          // Guard: only unclamp if the user hasn't re-collapsed mid-animation.
-          if (!foldedRef.current && !closingRef.current && region) {
-            region.style.transition = ''
-            region.style.height = 'auto'
-            region.style.opacity = ''
-            region.style.overflow = ''
-          }
+        foldTimerRef.current = window.setTimeout(() => {
+          // Rest at `auto`. A clamped pixel height would freeze the region at
+          // whatever the content measured the moment it opened.
+          region.style.transition = ''
+          region.style.height = 'auto'
+          region.style.opacity = ''
+          region.style.overflow = ''
         }, FOLD_MS + 20)
       })
     } else {
@@ -226,12 +240,12 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
       setClosing(true)
       region.style.overflow = 'hidden'
       region.style.height = `${region.offsetHeight}px`
-      requestAnimationFrame(() => {
+      scheduleFrame(frameRef, () => {
         region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
         region.style.height = '0px'
         region.style.opacity = '0'
         anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS)
-        manualTimerRef.current = window.setTimeout(() => {
+        foldTimerRef.current = window.setTimeout(() => {
           setFolded(true)
           setClosing(false)
           region.style.transition = ''
@@ -240,56 +254,17 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
     }
   }
 
-  const words = foldSummaryWords(summary)
-  const closed = folded || closing
-
   return (
     <div ref={wrapRef} data-fold data-folded={folded || undefined}>
       <div ref={regionRef} data-fold-region inert={folded || undefined} aria-hidden={folded || undefined}>{folded && windowed ? null : children}</div>
-      {/* The summary carries its OWN after-user inset: an answered region
-          rests directly under the user bubble (everything between the ask and
-          the answer is inside it), and the items' role-switch spacers fold
-          away with the evidence — without this the ledger line sits flush
-          under the accent bubble. Constant in both states, so toggling and
-          the item set changing mid-turn never shift layout through it. */}
       {summaryVisible && (
-        <div data-fold-summary-inset aria-hidden="true" className="h-[var(--space-6)]" />
-      )}
-      {summaryVisible && (
-        <div className="assistant-msg-row min-w-0">
-          <button
-            type="button"
-            data-fold-summary
-            style={landing ? { animation: 'jinn-comm-rise 260ms var(--ease-smooth) 140ms both' } : undefined}
-            aria-expanded={!closed}
-            aria-label={`${words.join(', ')}. ${closed ? 'Show the work' : 'Hide the work'}.`}
-            onClick={toggle}
-            className="-ml-1.5 flex min-h-8 w-full cursor-pointer items-center gap-[var(--space-2)] rounded-[8px] border-none bg-transparent py-[3px] pl-1.5 pr-2 text-left font-[inherit] text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-tertiary)] transition-colors duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)]"
-          >
-            <Settings
-              size={13}
-              strokeWidth={2}
-              aria-hidden="true"
-              className={`shrink-0 text-[var(--text-quaternary)] transition-transform duration-[420ms] ease-[var(--ease-smooth)] ${landed ? 'rotate-90' : 'rotate-0'}`}
-            />
-            <span className="flex min-w-0 items-center gap-[7px]">
-              {words.map((word, index) => (
-                <Fragment key={index}>
-                  {index > 0 && (
-                    <span aria-hidden="true" className="size-[2.5px] shrink-0 rounded-full bg-[var(--text-quaternary)] opacity-45" />
-                  )}
-                  <span className="truncate [font-variant-numeric:tabular-nums]">{word}</span>
-                </Fragment>
-              ))}
-            </span>
-            <ChevronDown
-              size={12}
-              strokeWidth={2.5}
-              aria-hidden="true"
-              className={`ml-0.5 shrink-0 text-[var(--text-quaternary)] transition-transform duration-200 ease-[var(--ease-smooth)] ${closed ? 'rotate-0' : 'rotate-180'}`}
-            />
-          </button>
-        </div>
+        <FoldSummaryLine
+          summary={summary}
+          closed={folded || closing}
+          landed={landed}
+          arriving={landing}
+          onToggle={toggle}
+        />
       )}
     </div>
   )

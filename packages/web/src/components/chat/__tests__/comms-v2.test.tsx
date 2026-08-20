@@ -9,11 +9,11 @@ import {
   finalAnswerIndices,
   groupMessages,
   partitionForFold,
-  shouldFoldAfterNextAsk,
+  hasLaterAsk,
   turnSpacerClass,
 } from '../chat-messages'
 import { BURST_WINDOW_MS, formatBurstRange } from '../callback-burst'
-import { formatWorkDuration, foldSummaryWords } from '../fold-region'
+import { formatWorkDuration, foldSummaryWords } from '../fold-summary'
 import type { Message } from '@/lib/conversations'
 
 vi.mock('@/lib/api', () => ({
@@ -581,14 +581,14 @@ describe('fold region boundary (turn structure)', () => {
     })
   })
 
-  it('gates a live fold on a later user message', () => {
+  it('nominates a fold for collapse once a later user message exists', () => {
     const answered: Message[] = [
       { id: 'u1', role: 'user', content: 'Go.', timestamp: T0 },
       { id: 't1', role: 'assistant', content: 'Used grep', timestamp: T0 + 1_000, toolCall: 'grep' },
       { id: 'a1', role: 'assistant', content: 'All done.', timestamp: T0 + 2_000 },
     ]
-    expect(shouldFoldAfterNextAsk(answered, 2)).toBe(false)
-    expect(shouldFoldAfterNextAsk([
+    expect(hasLaterAsk(answered, 2)).toBe(false)
+    expect(hasLaterAsk([
       ...answered,
       { id: 'u2', role: 'user', content: 'Next.', timestamp: T0 + 3_000 },
     ], 2)).toBe(true)
@@ -624,7 +624,7 @@ describe('fold region boundary (turn structure)', () => {
     expect(inset.compareDocumentPosition(summaryRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('creates the region at final response and collapses it only on the next ask', () => {
+  it('creates the region at final response and leaves it open under the reader', () => {
     const running: Message[] = [
       { id: 'u1', role: 'user', content: 'Go.', timestamp: T0 },
       { id: 'p1', role: 'assistant', content: 'On it, delegating now.', timestamp: T0 + 1_000 },
@@ -679,14 +679,14 @@ describe('fold region boundary (turn structure)', () => {
     expect(screen.getByText('On it, delegating now.')).toBeTruthy()
     expect(screen.getByText('All wired up.')).toBeTruthy()
     expect(region.getAttribute('aria-hidden')).toBeNull()
-    expect(container.querySelector('[data-fold-summary]')).toBeNull()
+    // The ledger line is there in BOTH states: an open region has a way back.
+    expect(container.querySelector('[data-fold-summary]')?.getAttribute('aria-expanded')).toBe('true')
 
-    // Variant B keeps the just-answered turn open while the user is reading.
+    // The just-answered turn stays open while the user is reading.
     act(() => vi.advanceTimersByTime(3_000))
     expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBeNull()
-    expect(container.querySelector('[data-fold-summary]')).toBeNull()
 
-    // The next user message is the only live auto-fold trigger.
+    // It declines: a send moves nothing on screen. Off-screen folds do collapse — see fold-send-stability.test.tsx.
     rerender(
       <ChatMessages
         messages={[
@@ -699,8 +699,8 @@ describe('fold region boundary (turn structure)', () => {
       />,
     )
     act(() => vi.advanceTimersByTime(1_200))
-    expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBe('true')
-    expect(screen.getByRole('button', { name: /Worked for 5s, 1 tool, 1 teammate\. Show the work\./ })).toBeTruthy()
+    expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBeNull()
+    expect(screen.getByRole('button', { name: /Worked for 5s, 1 tool, 1 teammate\. Hide the work\./ })).toBeTruthy()
   })
 
   it('keeps the current answered turn open without live-completion provenance', () => {
@@ -719,7 +719,7 @@ describe('fold region boundary (turn structure)', () => {
     act(() => vi.advanceTimersByTime(3_000))
 
     expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBeNull()
-    expect(container.querySelector('[data-fold-summary]')).toBeNull()
+    expect(container.querySelector('[data-fold-summary]')?.getAttribute('aria-expanded')).toBe('true')
   })
 })
 

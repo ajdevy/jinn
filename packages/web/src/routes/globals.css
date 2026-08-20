@@ -855,7 +855,10 @@ h1, h2, h3, h4, h5, h6 {
   animation: jinn-msg-send-in var(--duration-base) var(--ease-smooth) backwards;
   transform-origin: 100% 100%;
 }
-.assistant-transcript[data-msg-enter] {
+/* The bubble is the fallback target: a row that is all blocks — a
+   company-activity card, a task list — has no transcript to carry the mark. */
+.assistant-transcript[data-msg-enter],
+.assistant-msg-bubble[data-msg-enter] {
   animation: jinn-msg-receive-in var(--duration-slow) var(--ease-smooth) backwards;
 }
 @keyframes jinn-msg-send-in { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: none; } }
