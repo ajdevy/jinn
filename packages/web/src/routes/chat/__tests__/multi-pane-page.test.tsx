@@ -127,7 +127,11 @@ function sessionTransfer(sessionId: string): DataTransfer {
 }
 
 describe('the routed multi-pane surface', () => {
+  const desktopWidth = 1440
+
   beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: desktopWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 900 })
     localStorage.clear()
     gateway.listeners.clear()
     apiMocks.sendMessage.mockClear()
@@ -229,5 +233,55 @@ describe('the routed multi-pane surface', () => {
 
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
     expect(pane('a')).toBe(originalPane)
+  })
+
+  it('mounts only the active pane on mobile while fixed chips switch the route-backed transcript', async () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+    renderRoute()
+
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
+    expect(pane('a').textContent).toContain('transcript-a')
+    const chipOrder = () => Array.from(document.querySelectorAll('[data-mobile-working-set-chip]')).map((node) => node.getAttribute('data-mobile-working-set-chip'))
+    expect(chipOrder()).toEqual(sessionIds)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Title c/ }))
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
+    await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
+    expect(chipOrder()).toEqual(sessionIds)
+    expect(document.querySelector('[data-chat-pane-session="a"]')).toBeNull()
+  })
+
+  it('updates a background mobile chip in place without touching the active transcript', async () => {
+    window.innerWidth = 390
+    window.innerHeight = 844
+    renderRoute()
+
+    await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+    const activeBefore = pane('a').textContent
+    const chipsBefore = sessionIds.map((id) => document.querySelector(`[data-mobile-working-set-chip="${id}"]`))
+
+    emit('session:delta', { sessionId: 'c', type: 'text', content: 'background-mobile' })
+
+    await waitFor(() => expect(document.querySelector('[data-mobile-working-set-chip="c"] [data-mobile-working-set-preview]')?.textContent).toContain('Background-mobile'))
+    expect(sessionIds.map((id) => document.querySelector(`[data-mobile-working-set-chip="${id}"]`))).toEqual(chipsBefore)
+    expect(pane('a').textContent).toBe(activeBefore)
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1)
+  })
+
+  it('reacts to desktop-to-phone resize without discarding persisted members or the focused pane', async () => {
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    fireEvent.click(pane('c'))
+    await waitFor(() => expect(pane('c').getAttribute('data-chat-pane-active')).toBe('true'))
+
+    act(() => {
+      window.innerWidth = 1000
+      window.dispatchEvent(new Event('resize'))
+    })
+
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
+    expect(pane('c')).toBeDefined()
+    expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(sessionIds)
   })
 })

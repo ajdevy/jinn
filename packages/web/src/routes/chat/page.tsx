@@ -33,6 +33,8 @@ import { useChatGridAdd } from './use-chat-grid-add'
 import { ChatPageHeader } from './chat-page-header'
 import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
+import { useChatGridState } from './use-chat-grid-state'
+import { useMobileWorkingSet } from './use-mobile-working-set'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
 const FileView = lazy(() =>
@@ -111,19 +113,8 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const workingSet = useChatWorkingSet(committedId, sessionsQuery.data)
-  // The committed URL selection can land one render before the working-set
-  // reconciliation effect. Present the same replacement synchronously so the
-  // stable grid never mounts both the outgoing and incoming primary panes.
-  const gridSessionIds = useMemo(() => {
-    if (!committedId || workingSet.state.sessionIds.includes(committedId)) return workingSet.state.sessionIds
-    if (workingSet.state.focusedId && workingSet.state.sessionIds.includes(workingSet.state.focusedId)) {
-      return workingSet.state.sessionIds.map((sessionId) => sessionId === workingSet.state.focusedId ? committedId : sessionId)
-    }
-    return [...workingSet.state.sessionIds, committedId]
-  }, [committedId, workingSet.state.focusedId, workingSet.state.sessionIds])
-  const focusedSessionId = committedId
-    ? (!workingSet.state.sessionIds.includes(committedId) ? committedId : workingSet.state.focusedId ?? committedId)
-    : null
+  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data ?? [] })
+  const { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
@@ -317,6 +308,10 @@ function ChatPage() {
       handleSelect(sessionId, { navigateMobile: false })
     }
   }, [handleSelect, workingSet])
+
+  const handleMobileWorkingSetSelect = useCallback((sessionId: string) => {
+    handleSelect(sessionId, { navigateMobile: false })
+  }, [handleSelect])
 
   const gridAdd = useChatGridAdd(workingSet.add, selectedId, handleSelect)
 
@@ -877,7 +872,10 @@ function ChatPage() {
   // The conversation title — slim inline title (desktop) / centered nav-bar title
   // (mobile thread). "New chat" on a fresh composer, else nothing until meta loads.
   const headerTitle = sessionMeta?.title?.trim() || (focusedSessionId ? '' : 'New chat')
-
+  const mobileWorkingSet = useMobileWorkingSet({
+    sessionIds: mobileSessionIds, activeId: focusedSessionId, sessions: sessionsQuery.data ?? [],
+    subscribe, connectionSeq, onSelect: handleMobileWorkingSetSelect,
+  })
   const onMobileList = mobileView === 'sidebar'
   return (
     <FileOpenContext.Provider value={openFile}>
@@ -943,6 +941,7 @@ function ChatPage() {
             onNew={handleNewChat}
             grid={gridSessionIds.length > 1 ? { sessions: sessionsQuery.data ?? [], memberIds: gridSessionIds, onAdd: gridAdd.addPane } : undefined}
             moreMenu={moreMenu}
+            mobileWorkingSet={mobileWorkingSet}
             copiedField={copiedField}
           />
 
@@ -972,6 +971,7 @@ function ChatPage() {
             {...gridAdd.drop.handlers}
             className={cn(
             "relative flex-1 overflow-hidden flex flex-col",
+            "mobile-working-set-thread",
             mobileView === 'sidebar' ? 'hidden lg:flex' : 'flex'
           )}>
             {/* File tab → render the in-app file viewer inside the same bounded
@@ -984,7 +984,7 @@ function ChatPage() {
               </Suspense>
             ) : awaitingOpen ? <div className="flex-1" /> : (
               <MultiChatGrid
-                sessionIds={gridSessionIds}
+                sessionIds={mountedSessionIds}
                 focusedId={focusedSessionId}
                 primary={{
                   paneKey,
@@ -996,7 +996,7 @@ function ChatPage() {
                   focusTrigger: paneState.focusTriggerFor(committedId),
                   delegatedActivity: focusedDelegatedActivity,
                 }}
-                viewport={{ width: typeof window === 'undefined' ? 1440 : window.innerWidth, height: typeof window === 'undefined' ? 900 : window.innerHeight }}
+                viewport={viewport}
                 onFocus={handleFocusPane}
                 onRemove={handleRemovePane}
                 metaById={paneState.metaById}

@@ -27,6 +27,8 @@ export interface ChatHeaderPillsProps {
   addGridPane?: ReactNode
   /** Existing "more" (…) menu element, rendered as the last pill control. */
   moreMenu?: ReactNode
+  /** Mobile Variant C: four fixed working-set chips replace the title/compose track. */
+  mobileWorkingSet?: ReactNode
 
   /** Retained for callers; the in-header tab switcher UI was removed. */
   tabs?: ChatTab[]
@@ -56,6 +58,7 @@ export function ChatHeaderPills({
   onNew,
   addGridPane,
   moreMenu,
+  mobileWorkingSet,
 }: ChatHeaderPillsProps) {
   return (
     <>
@@ -138,13 +141,17 @@ export function ChatHeaderPills({
                 <ChevronLeft size={24} className="shrink-0" />
               </button>
             )}
-            <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
-              {title}
-            </span>
+            {mobileWorkingSet ?? (
+              <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
+                {title}
+              </span>
+            )}
             <div className="flex shrink-0 items-center">
-              <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
-                <SquarePen size={18} />
-              </PillButton>
+              {!mobileWorkingSet ? (
+                <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
+                  <SquarePen size={18} />
+                </PillButton>
+              ) : null}
               {moreMenu}
             </div>
           </div>

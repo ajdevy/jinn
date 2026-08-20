@@ -265,18 +265,20 @@ export function StatusDot({
   pulse = false,
   className,
   title,
+  ...rest
 }: {
   color: string
   pulse?: boolean
   className?: string
   title?: string
-}) {
+} & React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       className={cn("shrink-0 rounded-full", pulse && "animate-sidebar-pulse", className)}
       title={title}
       role={title ? "img" : undefined}
       aria-label={title}
+      {...rest}
       style={{
         background: color,
         boxShadow: pulse ? `0 0 8px ${color}` : "none",

@@ -896,6 +896,15 @@ h1, h2, h3, h4, h5, h6 {
    resting state, so the transform is gone once it finishes and the transcript's
    ancestor is not left promoted underneath a scroll. */
 [data-chat-pane-session] { animation: jinn-chat-open var(--duration-base) var(--ease-smooth); }
+
+@keyframes jinn-mobile-chat-crossfade { from { opacity: 0; } }
+@keyframes jinn-mobile-preview-in { from { opacity: 0; } }
+
+@media (max-width: 1023px) {
+  .mobile-working-set-thread [data-chat-pane-session] {
+    animation-name: jinn-mobile-chat-crossfade;
+  }
+}
 @keyframes jinn-chat-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   [data-chat-pane-session] { animation: none; }
