@@ -2,29 +2,15 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { resolveJinnHome } from "./home.js";
+import { resolveHomeIdentity, resolveJinnHome } from "./home.js";
 import { resolveInstancesRegistryPath } from "../instances/directory.js";
 import { resolveSttModelsDir } from "../stt/model-store.js";
 import { resolveSttSettingsPath } from "../stt/settings-store.js";
 
-export { resolveJinnHome } from "./home.js";
+export { resolveHomeIdentity, resolveJinnHome } from "./home.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-export function resolveHomeIdentity(home: string): string {
-  const absolute = path.resolve(home);
-  try {
-    return fs.realpathSync.native(absolute);
-  } catch {
-    const parent = path.dirname(absolute);
-    try {
-      return path.join(fs.realpathSync.native(parent), path.basename(absolute));
-    } catch {
-      return absolute;
-    }
-  }
-}
 
 /**
  * Fail closed if a test run resolves to a real, non-temp JINN_HOME.

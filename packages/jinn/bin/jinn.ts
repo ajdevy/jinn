@@ -8,6 +8,7 @@ import { assertNativeRuntime, repairNodePtySpawnHelper } from "../src/shared/run
 import { loadInstances } from "../src/instances/directory.js";
 import { resolveInstanceHome } from "../src/instances/create.js";
 import { assertContainerPrimaryCommand } from "../src/cli/container-contract.js";
+import { retargetInstanceEnv } from "../src/shared/sandbox-env.js";
 
 const program = new Command();
 program
@@ -36,8 +37,10 @@ program.hook("preAction", (thisCommand, actionCommand) => {
   // (Homebrew's default) left it at 0644. No-op on a healthy install.
   repairNodePtySpawnHelper();
   if (opts.instance) {
-    process.env.JINN_INSTANCE = opts.instance;
-    process.env.JINN_HOME = resolveInstanceHome(opts.instance, loadInstances(), os.homedir());
+    retargetInstanceEnv({
+      home: resolveInstanceHome(opts.instance, loadInstances(), os.homedir()),
+      instance: opts.instance,
+    });
   }
 });
 

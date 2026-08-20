@@ -403,7 +403,7 @@
       ]
     },
     "packages/jinn/src/gateway/lifecycle.ts": {
-      "lines": 750,
+      "lines": 725,
       "exempt": [
         "complexity",
         "max-depth",
