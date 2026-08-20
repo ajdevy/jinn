@@ -20,6 +20,10 @@ export interface FireWorkflowEventInput {
 
 interface IndexedTrigger { definition: WorkflowDefinition; trigger: TriggerNode }
 interface ScheduleIndex extends IndexedTrigger { task: ScheduledTask }
+interface FilteredTrigger extends IndexedTrigger { mismatch: string | undefined }
+/** Definition id to the newer event that superseded this one for that definition. */
+type SupersededBy = ReadonlyMap<string, string>;
+const NOTHING_SUPERSEDED: SupersededBy = new Map();
 function bad(message: string): never { throw new WorkflowRepositoryError("bad-input", message); }
 function payload(value: unknown): Record<string, JsonValue> {
   const parsed = jsonValueSchema.safeParse(value);
@@ -101,9 +105,34 @@ export class WorkflowTriggerService {
 
   async recoverTodoEvents(): Promise<number> {
     if (this.todos.size === 0) return 0;
+    const pending = this.feed.listPendingEvents(500);
+    const superseded = this.supersededDefinitions(pending);
     let count = 0;
-    for (const event of this.feed.listPendingEvents(500)) count += await this.fireTodo(event);
+    for (const event of pending) count += await this.fireTodo(event, superseded.get(event.id) ?? NOTHING_SUPERSEDED);
     return count;
+  }
+
+  /** A Todo whose label stood down leaves a backlog of unclaimed events behind,
+   *  and restoring the label makes all of them qualify at once — six runs on one
+   *  Todo in half a minute. For each (Todo, definition) only the newest
+   *  qualifying event runs. `listPendingEvents` hands them back oldest first, so
+   *  walking backwards makes the first sighting of a key the winner. */
+  private supersededDefinitions(pending: ReadonlyArray<WorkflowTodoStatusEvent>): Map<string, Map<string, string>> {
+    const winners = new Map<string, string>();
+    const superseded = new Map<string, Map<string, string>>();
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      const event = pending[index]!;
+      for (const item of this.todos.get(event.toStatus) ?? []) {
+        if (todoMismatch(item.trigger, event) !== undefined) continue;
+        const key = `${event.workItemId}\u0000${item.definition.id}`;
+        const winner = winners.get(key);
+        if (winner === undefined) { winners.set(key, event.id); continue; }
+        const forEvent = superseded.get(event.id) ?? new Map<string, string>();
+        forEvent.set(item.definition.id, winner);
+        superseded.set(event.id, forEvent);
+      }
+    }
+    return superseded;
   }
 
   private enabledDefinitions(): WorkflowDefinition[] {
@@ -139,22 +168,17 @@ export class WorkflowTriggerService {
     await this.start(indexed.definition, indexed.trigger, fireId, { scheduledAt: fireId }, `schedule:${fireId}`);
   }
 
-  private async fireTodo(event: WorkflowTodoStatusEvent): Promise<number> {
-    const candidates = (this.todos.get(event.toStatus) ?? [])
+  private async fireTodo(event: WorkflowTodoStatusEvent, superseded: SupersededBy): Promise<number> {
+    const candidates: FilteredTrigger[] = (this.todos.get(event.toStatus) ?? [])
       .map((item) => ({ ...item, mismatch: todoMismatch(item.trigger, event) }));
-    const indexed = candidates.filter((item) => item.mismatch === undefined);
+    // Drop the superseded definitions BEFORE the claim: the claim stores the ids
+    // a lease takeover replays from, so one we have decided not to run must
+    // never be written into it.
+    const indexed = candidates.filter((item) => item.mismatch === undefined && !superseded.has(item.definition.id));
     const claim = this.feed.claimEvent(event.id, indexed.map((item) => item.definition.id));
     if (claim.state !== "acquired") return 0;
     const allowed = new Set(claim.definitionIds);
-    // Record WHY a candidate did not run: a filtered-out Todo event otherwise
-    // completes silently, which is indistinguishable from a broken trigger.
-    const outcomes: WorkflowTodoEventClaimOutcome[] = candidates
-      .filter((item) => item.mismatch !== undefined)
-      .map((item) => {
-        const detail = `Todo event ${event.id} suppressed: ${item.mismatch}.`;
-        logger.info(`Workflow ${item.definition.id}: ${detail}`);
-        return { workflowId: item.definition.id, outcome: "suppressed" as const, detail };
-      });
+    const outcomes = this.declinedOutcomes(event, candidates, superseded);
     const labels = event.item.labels.map((label) => label.name);
     const runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
     // Claim the TODO, not just the event: the event claim stops this event being
@@ -188,6 +212,29 @@ export class WorkflowTriggerService {
       this.feed.completeEvent(event.id, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
     } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
+  }
+
+  /** Record WHY a candidate did not run. A Todo event that a filter refused, or
+   *  that a newer event superseded, otherwise completes silently, which is
+   *  indistinguishable from a broken trigger. */
+  private declinedOutcomes(event: WorkflowTodoStatusEvent, candidates: ReadonlyArray<FilteredTrigger>,
+    superseded: SupersededBy): WorkflowTodoEventClaimOutcome[] {
+    const outcomes: WorkflowTodoEventClaimOutcome[] = [];
+    for (const item of candidates) {
+      const workflowId = item.definition.id;
+      const winner = superseded.get(workflowId);
+      let declined: WorkflowTodoEventClaimOutcome | undefined;
+      if (item.mismatch !== undefined) {
+        declined = { workflowId, outcome: "suppressed", detail: `Todo event ${event.id} suppressed: ${item.mismatch}.` };
+      } else if (winner !== undefined) {
+        declined = { workflowId, outcome: "superseded",
+          detail: `Todo event ${event.id} superseded by ${winner}, a newer ${event.toStatus} event on ${event.workItemId}.` };
+      }
+      if (declined === undefined) continue;
+      logger.info(`Workflow ${workflowId}: ${declined.detail}`);
+      outcomes.push(declined);
+    }
+    return outcomes;
   }
 
   /** Refuse every candidate that survived the filters for the same reason, and
