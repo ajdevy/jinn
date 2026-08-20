@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5764,
+      "lines": 5761,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1049,7 +1049,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1075,
+      "lines": 1060,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1392,
+      "lines": 1349,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1243,7 +1243,6 @@
       ]
     },
     "packages/web/src/components/chat/message-markdown.tsx": {
-      "lines": 343,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1672,7 +1671,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1633,
+      "lines": 1615,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1913,14 +1912,14 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 773,
+      "lines": 753,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/workflow/editor/node-card.tsx": {
-      "lines": 357,
+      "lines": 341,
       "exempt": [
         "complexity"
       ]
@@ -1954,7 +1953,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 420,
+      "lines": 387,
       "exempt": [
         "complexity",
         "max-lines-per-function"

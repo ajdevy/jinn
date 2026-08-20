@@ -1,3 +1,4 @@
+import type { JsonValueWire, WorkflowBindingWire } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { fixedBinding, type StringBinding, type WorkflowNodeWire } from "./ports"
 
@@ -64,6 +65,27 @@ export const CLEAR = "__none__"
  *  binding points at run data and there is nothing to show in a text box. */
 export function fixedText(binding: StringBinding | undefined): string {
   return (binding && fixedBinding(binding)) ?? ""
+}
+
+/** Fixed predicate values coerce sensibly: true/false → boolean, numerics → number. */
+export function parseFixedValue(text: string): JsonValueWire {
+  if (text === "true") return true
+  if (text === "false") return false
+  if (text.trim() !== "" && Number.isFinite(Number(text))) return Number(text)
+  return text
+}
+
+export function parseJsonFixedValue(text: string): JsonValueWire {
+  try {
+    return JSON.parse(text) as JsonValueWire
+  } catch {
+    return text
+  }
+}
+
+export function fixedValueText(value: WorkflowBindingWire<JsonValueWire> | undefined): string {
+  if (value?.source !== "fixed") return ""
+  return typeof value.value === "string" ? value.value : JSON.stringify(value.value ?? "")
 }
 
 export interface FormProps<N extends WorkflowNodeWire = WorkflowNodeWire> {
