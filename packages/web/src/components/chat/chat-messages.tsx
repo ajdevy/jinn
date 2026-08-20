@@ -21,6 +21,8 @@ import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
 import { TranscriptExpansionProvider, useTranscriptExpansionStore } from './transcript-expansion'
+import { ThinkingIndicator } from './thinking-indicator'
+import { turnSpacerClass } from './turn-spacer'
 import {
   applyTranscriptAnchor,
   captureVirtualAnchor,
@@ -35,6 +37,7 @@ import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
+export { turnSpacerClass } from './turn-spacer'
 
 /* ── Tool grouping ──────────────────────────────────────── */
 
@@ -611,20 +614,6 @@ function shouldShowTimestamp(messages: Message[], index: number): boolean {
   return gap > 5 * 60 * 1000
 }
 
-/* ── Role-switch spacer ─────────────────────────────────── */
-
-// One source of truth for the gap above a row, computed from the previous
-// message's role. The streaming container uses the SAME function as the final
-// row that replaces it, so the swap is a pure text-node replacement — zero
-// movement by construction.
-export function turnSpacerClass(prevRole: Message['role'], role: Message['role']): string {
-  // The switch AFTER a user message gets extra headroom (24px): the accent
-  // bubble's fill weight optically eats a plain 16px gap before the reply.
-  if (prevRole === 'user' && role !== 'user') return 'h-[var(--space-6)]'
-  if (prevRole !== role) return 'h-[var(--space-4)]'
-  return 'h-[var(--space-1)]'
-}
-
 /* ── Shared assistant row shell ─────────────────────────── */
 
 // ONE shell, used byte-identically by the streaming container and the final
@@ -738,15 +727,19 @@ export interface RowMeta {
   prevRole: Message['role'] | null
   /** The user message a retry on this row would resend. */
   prevUserText: string
+  /** This row closes its engine segment: it is the answer the reader acts on. */
+  isFinalAnswer: boolean
 }
 
 export function buildRowMeta(messages: Message[]): RowMeta[] {
+  const answers = finalAnswerIndices(messages)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
       showTimestamp: shouldShowTimestamp(messages, i),
       prevRole: i > 0 ? messages[i - 1].role : null,
       prevUserText: lastUserText,
+      isFinalAnswer: answers[i] === i,
     }
     if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
     return meta
@@ -761,6 +754,7 @@ interface MessageRowProps {
   showTimestamp: boolean
   prevRole: Message['role'] | null
   prevUserText: string
+  isFinalAnswer: boolean
   loading?: boolean
   onRetry?: (text: string, media?: MediaAttachment[]) => void
   onPeek?: (peek: CommsPeekData) => void
@@ -773,7 +767,7 @@ interface MessageRowProps {
   virtualized?: boolean
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, isFinalAnswer, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
   const media = messageMedia(msg)
@@ -911,8 +905,10 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
           {/* Media attachments */}
           {media.length > 0 && <MessageMedia media={media} isUser={false} />}
 
-          {/* Subtle action row — copy + retry (no avatars, full-width preserved) */}
-          {textContent && (
+          {/* Copy / read aloud / retry, once per turn: the answer the reader acts
+              on carries it, and the interim prose the fold puts away reserves no
+              band for one it never shows. */}
+          {textContent && isFinalAnswer && (
             <MessageActions
               id={msg.id || `idx-${i}`}
               text={textContent}
@@ -928,9 +924,11 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
 
 /* ── StreamingBubble — always re-renders on every token ── */
 
-// Structural parity rule: the streaming row shares the final row's prefix,
-// shell and action-row footprint. The caret and controls swap below the answer,
-// so a bottom-pinned stream→final replacement does not move its first line.
+// Structural parity rule: the streaming row shares the final row's prefix, shell
+// and action-row footprint. Mid-stream it IS the presumptive answer, so it
+// reserves the band the answer will carry and a bottom-pinned stream→final swap
+// cannot move its first line. A stream that resolves into interim prose keeps no
+// band, and only because more content landed under it.
 function StreamingBubble({ streamingText, prevMessage, startedAt }: {
   streamingText: string
   prevMessage?: Message
@@ -1242,6 +1240,7 @@ export function ChatMessages({
         showTimestamp={meta.showTimestamp}
         prevRole={meta.prevRole}
         prevUserText={meta.prevUserText}
+        isFinalAnswer={meta.isFinalAnswer}
         loading={loading}
         onRetry={retry}
         onPeek={onPeek}
@@ -1319,18 +1318,7 @@ export function ChatMessages({
           {/* Running indicator — pre-first-token only; once streamingText arrives the
               caret carries the "live" signal, so suppress this to avoid a double cue. */}
           {loading && messages.length > 0 && !streamingText && (
-            // Share the assistant text gutter (space-3 mobile / space-8 @lg) so the
-            // indicator lines up flush with the messages and tool cards.
-            <div className="assistant-msg-row mt-[var(--space-1)]">
-              {/* No inner inset — the dot/label sit flush at the assistant-msg-row
-                  gutter, sharing the same leading edge as assistant prose. */}
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-[jinn-pulse_1.4s_infinite] shrink-0" />
-                <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
-                  Thinking
-                </span>
-              </div>
-            </div>
+            <ThinkingIndicator prevRole={messages[messages.length - 1].role} />
           )}
 
           {footer && (
