@@ -49,7 +49,7 @@ describe("the merged feed model", () => {
     // A clock-driven resume has to read as the wait ending, not as the raw kind
     // falling through the table as "availability resumed".
     expect(whisperOf(event("e", "availability_resumed", "t", { detail: { engine: "claude", source: "stated" } })).text)
-      .toBe("picked it back up — the claude window had reopened")
+      .toBe("claude window reopened, stated")
   })
 
   it("leaves inline HTML comments and fenced examples intact", () => {

@@ -42,12 +42,16 @@ const WHISPERS: Record<string, WhisperRule> = {
     text: `held the dispatch${typeof detail.guard === "string" ? ` — ${detail.guard}` : ""}`,
     tinted: true,
   }),
-  // The counterpart to the hold above, and it has to name the wait it ended:
-  // "resumed" alone reads as somebody having stepped in, which is the one thing
-  // that did not happen.
+  // The counterpart to the hold above: the window that ended the wait, and the
+  // answer that decided when. The window leads instead of a verb because
+  // "resumed" behind an actor reads as somebody having stepped in, which is the
+  // one thing that did not happen — and because this line clips at 390px, where
+  // a lead-in would push the source past the ellipsis. The comma is load-bearing
+  // for the same reason: " · " measured 297px into a 295px box.
   availability_resumed: (detail) => ({
     Icon: RotateCw,
-    text: `picked it back up — the ${typeof detail.engine === "string" ? `${detail.engine} ` : ""}window had reopened`,
+    text: `${typeof detail.engine === "string" ? `${detail.engine} ` : ""}window reopened${
+      typeof detail.source === "string" ? `, ${detail.source}` : ""}`,
   }),
   note: (detail) => {
     if (typeof detail.assignee === "string") return { Icon: Pencil, text: `assigned ${detail.assignee}` }
