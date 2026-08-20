@@ -4,6 +4,7 @@
  * size budget; `types.ts` re-exports `JinnConfig` so every existing importer is
  * unaffected.
  */
+import type { EngineName } from "./models.js";
 import type { RealtimeConfig, SttConfig, TalkConfig } from "./voice.js";
 import type {
   ConnectorInstance,
@@ -11,12 +12,22 @@ import type {
   DiscordConnectorConfig,
   McpGlobalConfig,
   ModelsConfig,
-  PortalConfig,
   SlackConnectorConfig,
   TelegramConnectorConfig,
   WebConnectorConfig,
   WhatsAppConnectorConfig,
 } from "./types.js";
+
+export interface PortalConfig {
+  companyName?: string;
+  companyPrefix?: string;
+  portalName?: string;
+  operatorName?: string;
+  operatorEmoji?: string;
+  language?: string;
+  onboarded?: boolean;
+  setupComplete?: boolean;
+}
 
 export interface JinnConfig {
   jinn?: { version?: string };
@@ -44,7 +55,7 @@ export interface JinnConfig {
     userHeader?: string | string[];
   };
   engines: {
-    default: "claude" | "codex" | "antigravity" | "grok" | "pi" | "hermes";
+    default: EngineName;
     claude: {
       bin: string;
       model: string;
@@ -62,16 +73,21 @@ export interface JinnConfig {
        *  unanswered wedges the session. Set false to require a human in the
        *  CLI/xterm view; the turn then fails on the stall backstop instead. */
       autoApproveSafetyPrompts?: boolean;
+      /** Engines to try instead, in order of preference, when this one cannot serve a
+       *  turn. An engine may not name itself, but two engines may name each other:
+       *  cycles are tolerated at runtime by the walker's visited set. Absent = no
+       *  fallback, which is also what an explicit [] says. */
+      fallback?: EngineName[];
     };
-    codex: { bin: string; model: string; effortLevel?: string; childEffortOverride?: string };
+    codex: { bin: string; model: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
     /** Antigravity (`agy`) engine. `bin` is optional — resolved dynamically
      *  (PATH + common install dirs) when absent. agy ignores model/effort flags
      *  today, so those fields are forward-looking. */
-    antigravity?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
-    grok?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
-    pi?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
+    antigravity?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
+    grok?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
+    pi?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
     /** Hermes (`hermes` CLI) engine. `bin` optional — PATH-resolved. No effort. */
-    hermes?: { bin?: string; model?: string };
+    hermes?: { bin?: string; model?: string; fallback?: EngineName[] };
   };
   /** Optional model + capability registry. When absent, synthesized from engines.<name>.model. */
   models?: ModelsConfig;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { ChatMessages } from '../chat-messages'
+import { ChatMessages, turnSpacerClass } from '../chat-messages'
 import type { Message } from '@/lib/conversations'
 
 /**
@@ -38,5 +38,36 @@ describe('Thinking indicator alignment', () => {
     }
 
     expect(insetting).toEqual([])
+  })
+})
+
+/**
+ * The indicator opens where the reply that replaces it will sit. It shares the
+ * transcript's one turn spacer, so a user message is followed by the same 24px
+ * of headroom whether the answer has landed yet or not — and the transcript
+ * does not jump when it does.
+ */
+describe('Thinking indicator turn spacer', () => {
+  function spacerFor(messages: Message[]): string {
+    render(
+      <MemoryRouter>
+        <ChatMessages messages={messages} loading />
+      </MemoryRouter>,
+    )
+    const row = screen.getByText('Thinking').closest('.assistant-msg-row')!
+    expect(row.className).not.toContain('mt-[var(--space-1)]')
+    return row.parentElement!.firstElementChild!.className
+  }
+
+  it('opens on the assistant headroom after a user message', () => {
+    expect(spacerFor([{ id: 'u1', role: 'user', content: 'Hi', timestamp: 1 }]))
+      .toBe(turnSpacerClass('user', 'assistant'))
+  })
+
+  it('stays tight after an assistant row, like the next assistant row would', () => {
+    expect(spacerFor([
+      { id: 'u1', role: 'user', content: 'Hi', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'One moment.', timestamp: 2 },
+    ])).toBe(turnSpacerClass('assistant', 'assistant'))
   })
 })

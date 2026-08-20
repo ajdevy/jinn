@@ -22,6 +22,10 @@ export interface ResolvedEmployeeConfig {
   /** The completed attempt session whose engine thread this attempt continues.
    *  Absent means the attempt was dispatched cold. */
   continuedFrom?: { sessionId: string; engineSessionId: string };
+  /** The engine this node's own precedence resolved to, when it could not serve
+   *  the turn and a fallback chain covered for it. Absent means `engine` is what
+   *  the node asked for. */
+  substitutedFrom?: { engine: string; reason: string };
 }
 
 export interface WorkflowError {
@@ -116,13 +120,17 @@ export interface WorkflowChildRunSummary {
   runId: string;
   workflowId: string;
   nodeId: string;
-  itemIndex: number;
+  /** Absent on a run an attempt session started: that is a single spawn, not one item of a batch. */
+  itemIndex?: number;
   status: WorkflowRunStatus;
   startedAt: string;
   endedAt?: string;
   endOutput?: Record<string, JsonValue>;
   error?: WorkflowError;
 }
+
+/** A Workflow Call child, which is always one item of its node's batch. */
+export type WorkflowFanoutChildSummary = WorkflowChildRunSummary & { itemIndex: number };
 
 export interface WorkflowRunDetail extends WorkflowRunRecord {
   nodeRuns: WorkflowNodeRunRecord[];

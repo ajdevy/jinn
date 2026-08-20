@@ -1,5 +1,6 @@
 import { isProxy } from 'node:util/types';
 import { z } from 'zod';
+import { nodeFallbackSchema } from './engine-chain.js';
 import { triggerConfigSchema } from './trigger-config-schema.js';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -126,7 +127,7 @@ export type Binding<T extends JsonValue = JsonValue> =
   | (Omit<Extract<InferredBinding, { source: 'fixed' }>, 'value'> & { value: T })
   | Exclude<InferredBinding, { source: 'fixed' }>;
 const workflowOutputFieldSchema = z.strictObject({
-  type: z.enum(['string', 'number', 'boolean', 'string[]']),
+  type: z.enum(['string', 'number', 'boolean', 'string[]', 'attachment', 'attachment[]']),
   required: z.boolean(),
   description: z.string().optional(),
 });
@@ -154,9 +155,8 @@ const employeeNodeSchema = z.strictObject({
     prompt: promptSchema,
     /** Continue the engine session of a completed attempt of `nodeId` instead of dispatching cold; naming this node itself continues its own previous run for the same Todo. Its `prompt` replaces the one above whenever a continuation is found, so it carries the delta rather than the whole brief. */
     continueFrom: z.strictObject({ nodeId: nodeIdSchema, prompt: promptSchema }).optional(),
-    engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(),
-    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(),
-    timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
+    engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(), fallback: nodeFallbackSchema.optional(),
+    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
   }),
 });
 const workflowCallNodeSchema = z.strictObject({
@@ -215,10 +215,10 @@ const approvalNodeSchema = z.strictObject({
     // approve a pipeline the COO started — fine for ordinary gates, a
     // governance hole for one that authorizes something irreversible.
     operatorOnly: z.boolean().optional(),
-    // Variant-picking: the labels are mirrored onto the bound Todo's approval
-    // and the pick is read back as `{{ node.<id>.choice }}`. Deliberately fixed
-    // labels, not bindings — a gate the operator reads must not shift under it.
-    options: z.array(z.string().min(1).max(80)).min(2).max(8)
+    // Variant-picking: the labels mirror onto the bound Todo's approval and the
+    // pick reads back as `{{ node.<id>.choice }}`. Fixed labels, not bindings, and
+    // trimmed as the mirror trims — two spellings is a gate neither door can decide.
+    options: z.array(z.string().trim().min(1).max(80)).min(2).max(8)
       .refine((values) => new Set(values).size === values.length, 'Approval options must be unique').optional(),
   }).refine((config) => !(config.operatorOnly && config.approver !== undefined),
     'An operator-only approval cannot also name an approver.'),

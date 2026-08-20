@@ -154,10 +154,11 @@ describe('chat sidebar pinned floating', () => {
     expect(shouldFloatPinned({ id: 's3', source: 'web', sourceRef: 'web:3' }, new Set())).toBe(false)
   })
 
-  it('never floats cron sessions — Scheduled paginates by loaded-count offsets', () => {
+  it('floats pinned cron sessions too — the sidebar no longer paginates a Scheduled group', () => {
     const pinned = new Set(['c1', 'c2'])
-    expect(shouldFloatPinned({ id: 'c1', source: 'cron', sourceRef: 'cron:daily' }, pinned)).toBe(false)
-    expect(shouldFloatPinned({ id: 'c2', source: 'web', sourceRef: 'cron:daily' }, pinned)).toBe(false)
+    expect(shouldFloatPinned({ id: 'c1', source: 'cron', sourceRef: 'cron:daily' }, pinned)).toBe(true)
+    expect(shouldFloatPinned({ id: 'c2', source: 'web', sourceRef: 'cron:daily' }, pinned)).toBe(true)
+    expect(shouldFloatPinned({ id: 'c3', source: 'cron', sourceRef: 'cron:daily' }, new Set())).toBe(false)
   })
 })
 

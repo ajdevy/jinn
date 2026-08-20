@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.30.1] - 2026-08-18
+
+### ✨ Features
+- **Talk natural controls and voice replies.** Talk gains verified interactive controls, durable voice approvals, session persistence, multi-topic memory, and semantic screen context so that it can accurately describe what is currently open and act on voice commands.
+- **Plugins contribution areas and JSX transpilation.** Plugins can declare contribution areas across sixteen host verbs, and client components can be authored in JSX with automatic runtime transpilation.
+
+### ⚡ Performance
+- **Native scroll anchoring and image pre-measuring.** Chat transcripts measure incoming media upfront to reserve layout dimensions without content jumping, opening chats directly at the bottom without overriding user scroll gestures.
+
+### 🐛 Fixes
+- **Bolt unhandled rejections silenced during startup.** Immediate background auth token verification is disabled on Slack connector instantiation, preventing unhandled promise rejections on offline or deferred boot paths.
+- **Workflow-bound Todo approval door.** Prevents duplicate approval paths by closing the workflow-side approval door on Todo-bound runs.
+- **Platform CI compatibility on Linux and Windows.** Aligned POSIX-specific maintainer scripts, glibc feature macros for C helpers, and pnpm action setup across CI verification jobs.
+
 ## [0.30.0] - 2026-08-15
 
 ### ✨ Features

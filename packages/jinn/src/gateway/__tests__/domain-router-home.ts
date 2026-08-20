@@ -30,6 +30,9 @@ export const SESSIONS_DB = path.join(
   "registry.db",
 );
 
+/** The session the seeded run spawned — run rows link to it. */
+export const RUN_SESSION_ID = "3f2b8c1e-9a44-4d7b-8b1a-5c0e7d216f90";
+
 export const JOBS = [
   { id: "nightly", name: "Nightly", enabled: true, schedule: "0 3 * * *", employee: "ops", prompt: "Run." },
 ];
@@ -52,7 +55,7 @@ export function seedHome(): void {
   fs.writeFileSync(home.cronJobs, JSON.stringify(JOBS));
   fs.writeFileSync(
     path.join(home.cronRuns, "nightly.jsonl"),
-    JSON.stringify({ timestamp: "2026-08-01T03:00:00.000Z", status: "success", result: "ok" }) + "\n",
+    JSON.stringify({ timestamp: "2026-08-01T03:00:00.000Z", status: "success", sessionId: RUN_SESSION_ID, result: "ok" }) + "\n",
   );
   fs.writeFileSync(
     path.join(home.org, "platform", "worker.yaml"),

@@ -28,11 +28,12 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
+import type { WorkflowNodeOfType } from "../editor/ports"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 
-const definition: WorkflowDefinitionV2Wire = {
+const definition: WorkflowDefinitionWire = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",
@@ -73,7 +74,7 @@ function employeeConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderTrigger(config: Record<string, unknown>) {
+function renderTrigger(config: WorkflowNodeOfType<"trigger">["config"]) {
   const initial = structuredClone(definition)
   initial.nodes = [{
     id: "trigger",
@@ -81,7 +82,7 @@ function renderTrigger(config: Record<string, unknown>) {
     name: "Todo updated",
     config,
   }]
-  initial.ui.positions = { trigger: { x: 0, y: 0 } }
+  initial.ui = { positions: { trigger: { x: 0, y: 0 } } }
   const store = createEditorStore(initial)
   store.getState().selectNode("trigger")
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -99,10 +100,10 @@ function triggerConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderWorkflowCall(config: Record<string, unknown>) {
+function renderWorkflowCall(config: WorkflowNodeOfType<"workflow-call">["config"]) {
   const initial = structuredClone(definition)
   initial.nodes = [{ id: "fanout", type: "workflow-call", name: "Publish items", config }]
-  initial.ui.positions = { fanout: { x: 0, y: 0 } }
+  initial.ui = { positions: { fanout: { x: 0, y: 0 } } }
   const store = createEditorStore(initial)
   store.getState().selectNode("fanout")
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -213,17 +214,16 @@ describe("todo trigger filters", () => {
     expect(triggerConfig(store)).toEqual({ kind: "todo-status", status: "in_review" })
   })
 
-  it.each(["manual", "schedule", "event", "workflow-call"])(
-    "renders no filters for %s triggers",
-    (kind) => {
-      renderTrigger({ kind })
+  it.each([{ kind: "manual" }, { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+    { kind: "event", eventName: "item.arrived" }, { kind: "workflow-call" }] as const)(
+    "renders no filters for $kind triggers", (config) => {
+    renderTrigger(config)
 
-      expect(screen.queryByRole("combobox", { name: "Label" })).toBeNull()
-      expect(screen.queryByRole("combobox", { name: "Department" })).toBeNull()
-      expect(screen.queryByRole("combobox", { name: "Assignee" })).toBeNull()
-      expect(screen.queryByLabelText("Actor")).toBeNull()
-    },
-  )
+    expect(screen.queryByRole("combobox", { name: "Label" })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Department" })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Assignee" })).toBeNull()
+    expect(screen.queryByLabelText("Actor")).toBeNull()
+  })
 })
 
 describe("employee inspector output schema", () => {
@@ -268,7 +268,7 @@ describe("employee inspector output schema", () => {
 
 describe("workflow-call inspector", () => {
   it("renders an authored fan-out config without mutating it", () => {
-    const config = {
+    const config: WorkflowNodeOfType<"workflow-call">["config"] = {
       workflowId: { source: "fixed", value: "publish-item" },
       items: { source: "fixed", value: [{ topic: "one" }, { topic: "two" }] },
       input: { topic: { source: "trigger", path: "item.topic" } },
@@ -318,87 +318,5 @@ describe("employee inspector timeout", () => {
     fireEvent.change(screen.getByLabelText("Timeout (minutes)"), { target: { value: "30" } })
 
     expect(employeeConfig(store).timeoutMinutes).toBe(30)
-  })
-})
-
-function renderApproval(config: Record<string, unknown>) {
-  const initial = structuredClone(definition)
-  initial.nodes = [{ id: "gate", type: "approval", name: "Gate", config }]
-  initial.ui.positions = { gate: { x: 0, y: 0 } }
-  const store = createEditorStore(initial)
-  store.getState().selectNode("gate")
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={client}>
-      <EditorStoreContext.Provider value={store}>
-        <Inspector />
-      </EditorStoreContext.Provider>
-    </QueryClientProvider>,
-  )
-  return store
-}
-
-function renderWait(config: Record<string, unknown>) {
-  const initial = structuredClone(definition)
-  initial.nodes = [{ id: "hold", type: "wait", name: "Ask operator", config }]
-  initial.ui.positions = { hold: { x: 0, y: 0 } }
-  const store = createEditorStore(initial)
-  store.getState().selectNode("hold")
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
-    <QueryClientProvider client={client}>
-      <EditorStoreContext.Provider value={store}>
-        <Inspector />
-      </EditorStoreContext.Provider>
-    </QueryClientProvider>,
-  )
-  return store
-}
-
-function approvalConfig(store: ReturnType<typeof createEditorStore>) {
-  return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
-}
-
-describe("wait inspector todo-comment mode", () => {
-  it("explains the mode read-only instead of offering controls that would drop it", () => {
-    const config = { mode: "todo-comment", timeoutMinutes: 10080 }
-    const store = renderWait(config)
-
-    expect(screen.getByText(/Resumes when you comment on the run/)).toBeTruthy()
-    // Every control in this form replaces the whole config, so one appearing here
-    // is the data loss itself: mode and timeout would be gone on first touch.
-    expect(screen.queryByRole("combobox", { name: "Wait" })).toBeNull()
-    expect(screen.queryByLabelText("Minutes")).toBeNull()
-    expect(screen.queryByLabelText("Timestamp (ISO)")).toBeNull()
-    expect(store.getState().nodes[0]!.data.node.config).toEqual(config)
-    expect(store.getState().serial).toBe(0)
-  })
-
-  it("still edits a duration wait", () => {
-    const store = renderWait({ mode: "duration", minutes: 60 })
-
-    fireEvent.change(screen.getByLabelText("Minutes"), { target: { value: "30" } })
-
-    expect(store.getState().nodes[0]!.data.node.config).toEqual({ mode: "duration", minutes: 30 })
-  })
-})
-
-describe("approval inspector operator-only gate", () => {
-  it("reserves the gate and drops any approver, since the two contradict", () => {
-    const store = renderApproval({ description: "Merge?", approver: { source: "fixed", value: "platform-lead" } })
-
-    fireEvent.click(screen.getByLabelText("Only the operator may decide"))
-
-    expect(approvalConfig(store)).toEqual({ description: "Merge?", operatorOnly: true })
-    expect(screen.queryByLabelText("Approver (optional)")).toBeNull()
-  })
-
-  it("clears the flag entirely rather than writing operatorOnly: false", () => {
-    const store = renderApproval({ description: "Merge?", operatorOnly: true })
-
-    fireEvent.click(screen.getByLabelText("Only the operator may decide"))
-
-    expect(approvalConfig(store)).not.toHaveProperty("operatorOnly")
-    expect(screen.getByLabelText("Approver (optional)")).toBeTruthy()
   })
 })

@@ -11,7 +11,7 @@ import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
   getModelRegistry,
   invalidateModelRegistry,
-  type PtyViewEngineName,
+  type EngineName, type PtyViewEngineName,
   refreshAntigravityModels,
   refreshClaudeModels,
   refreshCodexModels,
@@ -29,7 +29,7 @@ import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
 import { enforcePtyIdleCap, PtyLifecycleManager, type PtyLifecycleOpts } from "../engines/pty-lifecycle.js";
 import { CodexEngine, startCodexSessionHomeSweeps } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
-import { AntigravityEngine } from "../engines/antigravity.js";
+import { createAntigravityEnginePair } from "../engines/antigravity-runtime.js";
 import { PiEngine } from "../engines/pi.js";
 import { GrokEngine } from "../engines/grok.js";
 import { GrokInteractiveEngine } from "../engines/grok-interactive.js";
@@ -42,7 +42,8 @@ import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthTo
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
 import { setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
-import { firstOperatorCommentAfter, setTodoCommentListener } from "../work-items/comments.js";
+import { firstOperatorCommentAfter } from "../work-items/comments.js";
+import { watchTodoReplies } from "./todo-reply-sweep.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
 import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
@@ -664,14 +665,13 @@ export async function startGateway(
   });
   const codexInteractiveEngine = new CodexInteractiveEngine(codexLifecycle);
 
-  // Antigravity (`agy`) — PTY-interactive engine. One instance both runs turns
-  // and backs the xterm view (agy has no headless mode), so it needs its own
-  // PTY lifecycle manager.
+  // Antigravity mirrors Codex/Grok: supported stream-JSON print mode owns queued
+  // work turns, while a separate PTY instance backs the dashboard terminal.
   antigravityLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
   });
-  const antigravityEngine = new AntigravityEngine(antigravityLifecycle);
+  const { work: antigravityEngine, pty: antigravityInteractiveEngine } = createAntigravityEnginePair(antigravityLifecycle);
   grokLifecycle = createPtyLifecycle({
     onAdopt: () => refreshPtyPids(),
     onCleanup: () => refreshPtyPids(),
@@ -683,7 +683,7 @@ export async function startGateway(
   });
   const hermesInteractiveEngine = new HermesInteractiveEngine(hermesLifecycle);
   const piEngine = new PiEngine();
-  logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
+  logger.info("Engines initialized: claude (interactive PTY), codex (headless + interactive PTY), antigravity (headless + interactive PTY), grok (headless + interactive PTY), hermes (headless + interactive PTY), pi");
 
   const codexEngine = new CodexEngine();
   const grokEngine = new GrokEngine();
@@ -705,7 +705,7 @@ export async function startGateway(
   const ptyViewEngines: Record<PtyViewEngineName, Engine & PtyViewEngine> = {
     claude: interactiveClaudeEngine,
     codex: codexInteractiveEngine,
-    antigravity: antigravityEngine,
+    antigravity: antigravityInteractiveEngine,
     grok: grokInteractiveEngine,
     hermes: hermesInteractiveEngine,
   };
@@ -788,12 +788,12 @@ export async function startGateway(
     executor: new WorkflowSessionExecutor(sessionManager, (id) => { const session = getSession(id); if (!session) return null;
       const finalText = [...getMessages(id)].reverse().find((message) => message.role === "assistant")?.content; return { session, ...(finalText ? { finalText } : {}) }; }),
     employees: () => employeeRegistry, models: () => getModelRegistry(currentConfig),
-    // A parked gate on a Todo-bound run is decided from Todos, not Workflows.
-    // Employee-routed gates also wake that employee's live session.
+    // A parked gate on a Todo-bound run is mirrored onto that Todo; whichever
+    // door decides it settles both. Employee-routed gates wake that employee.
     todoApprovals: workflowTodoApprovals(({ todoId, request, ref, options, approver }) => {
       requestApproval(todoId, { request, ref, ...(options ? { options } : {}), ...(approver ? { target: approver } : {}), actor: "workflow" });
     }),
-    todoSessions: workflowTodoSessions(), todoDispatch: workflowTodoDispatch(),
+    todoSessions: workflowTodoSessions(), todoDispatch: workflowTodoDispatch(), engineFallback: { chainFor: (engine: string) => currentConfig.engines[engine as EngineName]?.fallback ?? [] },
     // A parked Wait node listens for the operator's reply on the bound Todo.
     todoComments: { firstOperatorCommentAfter },
     sessionSpend: getSessionSpend, activeEngineSessions: () => sessionsHoldingEngineCapacity(listSessions(), apiContext).length,
@@ -965,17 +965,7 @@ export async function startGateway(
     });
   });
 
-  // The live half of a parked todo-comment Wait; `recover` on boot is the
-  // backstop. Filtered to the operator rather than kicked bare like the status
-  // listener, because every employee and system comment would otherwise sweep
-  // the run table — and a workflow's own comment could kick the sweep that
-  // wrote it.
-  setTodoCommentListener((comment) => {
-    if (comment.authorKind !== "operator" || comment.author !== "operator") return;
-    void workflowService.recover(new Date().toISOString()).catch((error) => {
-      logger.warn(`Workflow Todo comment recovery failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
-  });
+  const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
   // The other half of the Todo-first approval loop: a gate decided on the Todo
   // resolves the workflow node that mirrored it, carrying the picked option.
@@ -1291,6 +1281,7 @@ export async function startGateway(
     codexEngine.killAll();
     codexInteractiveEngine.killAll();
     antigravityEngine.killAll();
+    antigravityInteractiveEngine.killAll();
     grokEngine.killAll();
     grokInteractiveEngine.killAll();
     hermesEngine.killAll();
@@ -1323,7 +1314,7 @@ export async function startGateway(
     // Stop cron scheduler
     stopScheduler();
     setTodoStatusChangeListener(null);
-    setTodoCommentListener(null);
+    stopReplyWatch();
     setTodoApprovalDecisionListener(null);
 
     // Stop connectors

@@ -15,11 +15,13 @@ import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { useStreamingFormat } from './streaming-format'
-import { CollapsibleUserText } from './collapsible-user-text'
+import { UserMessageRow } from './user-message-row'
 import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
 import { TranscriptExpansionProvider, useTranscriptExpansionStore } from './transcript-expansion'
+import { ThinkingIndicator } from './thinking-indicator'
+import { turnSpacerClass } from './turn-spacer'
 import {
   applyTranscriptAnchor,
   captureVirtualAnchor,
@@ -30,10 +32,13 @@ import {
   type VirtualAnchor,
 } from './transcript-virtualizer'
 import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
+import { formatTimestamp, shouldShowTimestamp, TimestampDivider, validTimestamp } from './message-timestamps'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
+export { TimestampDivider } from './message-timestamps'
 export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
+export { turnSpacerClass } from './turn-spacer'
 
 /* ── Tool grouping ──────────────────────────────────────── */
 
@@ -352,10 +357,6 @@ function itemHasActiveDelegation(item: MessageItem): boolean {
   ))
 }
 
-function validTimestamp(value: number): number | null {
-  return Number.isFinite(value) && value > 0 ? value : null
-}
-
 /** Locate the durable start of the engine segment closed by `answerIndex`.
  * The initiating user starts the first segment. After a completed reply, a
  * callback/relay starts the next one; callbacks that arrive before any reply
@@ -585,59 +586,12 @@ export function partitionForFold(
   return groups
 }
 
-/* ── Timestamp formatting ──────────────────────────────── */
-
-function formatTimestamp(ts: number): string {
-  if (validTimestamp(ts) === null) return ''
-  const now = new Date()
-  const date = new Date(ts)
-  const isToday = now.toDateString() === date.toDateString()
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  const isYesterday = yesterday.toDateString() === date.toDateString()
-  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-
-  if (isToday) return `Today ${time}`
-  if (isYesterday) return `Yesterday ${time}`
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ` ${time}`
-}
-
-function shouldShowTimestamp(messages: Message[], index: number): boolean {
-  if (validTimestamp(messages[index]?.timestamp) === null) return false
-  if (index === 0) return true
-  if (validTimestamp(messages[index - 1]?.timestamp) === null) return false
-  const gap = messages[index].timestamp - messages[index - 1].timestamp
-  return gap > 5 * 60 * 1000
-}
-
-/* ── Role-switch spacer ─────────────────────────────────── */
-
-// One source of truth for the gap above a row, computed from the previous
-// message's role. The streaming container uses the SAME function as the final
-// row that replaces it, so the swap is a pure text-node replacement — zero
-// movement by construction.
-export function turnSpacerClass(prevRole: Message['role'], role: Message['role']): string {
-  // The switch AFTER a user message gets extra headroom (24px): the accent
-  // bubble's fill weight optically eats a plain 16px gap before the reply.
-  if (prevRole === 'user' && role !== 'user') return 'h-[var(--space-6)]'
-  if (prevRole !== role) return 'h-[var(--space-4)]'
-  return 'h-[var(--space-1)]'
-}
-
 /* ── Shared assistant row shell ─────────────────────────── */
 
 // ONE shell, used byte-identically by the streaming container and the final
 // MessageRow that replaces it. The structural-parity guarantee (the swap can
 // never move the text) holds because both sides render THIS component — no
 // hand-copied class strings that can drift apart.
-
-export function TimestampDivider({ label }: { label: string }) {
-  return (
-    <div className="text-center py-[var(--space-3)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-      {label}
-    </div>
-  )
-}
 
 export function AssistantRowShell({ transcript, entering, children }: { transcript?: React.ReactNode; entering?: boolean; children?: React.ReactNode }) {
   return (
@@ -650,22 +604,6 @@ export function AssistantRowShell({ transcript, entering, children }: { transcri
         )}
         {children}
       </div>
-    </div>
-  )
-}
-
-/* ── SendFailureRow — recovery affordance under a failed bubble ─ */
-
-/** `Not delivered · Retry`, right-aligned under the bubble that failed. The
- *  label is far under the coarse-pointer target, so `.send-retry-btn` carries
- *  the padding that reaches it. `reason` is the transport error, kept out of the
- *  copy but reachable rather than discarded. */
-function SendFailureRow({ reason, onRetry }: { reason?: string; onRetry?: () => void }) {
-  return (
-    <div className="send-failure-row mt-0.5 flex items-center gap-1 px-1 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]" title={reason}>
-      <span>Not delivered</span>
-      <span aria-hidden="true">·</span>
-      <button type="button" onClick={onRetry} disabled={!onRetry} className="send-retry-btn inline-flex items-center justify-center border-none bg-transparent px-1 text-[var(--system-red)] cursor-pointer disabled:cursor-default disabled:opacity-40">Retry</button>
     </div>
   )
 }
@@ -753,15 +691,19 @@ export interface RowMeta {
   prevRole: Message['role'] | null
   /** The user message a retry on this row would resend. */
   prevUserText: string
+  /** This row closes its engine segment: it is the answer the reader acts on. */
+  isFinalAnswer: boolean
 }
 
 export function buildRowMeta(messages: Message[]): RowMeta[] {
+  const answers = finalAnswerIndices(messages)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
       showTimestamp: shouldShowTimestamp(messages, i),
       prevRole: i > 0 ? messages[i - 1].role : null,
       prevUserText: lastUserText,
+      isFinalAnswer: answers[i] === i,
     }
     if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
     return meta
@@ -776,6 +718,7 @@ interface MessageRowProps {
   showTimestamp: boolean
   prevRole: Message['role'] | null
   prevUserText: string
+  isFinalAnswer: boolean
   loading?: boolean
   onRetry?: (text: string, media?: MediaAttachment[]) => void
   onPeek?: (peek: CommsPeekData) => void
@@ -788,7 +731,7 @@ interface MessageRowProps {
   virtualized?: boolean
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, isFinalAnswer, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
   const media = messageMedia(msg)
@@ -822,8 +765,13 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
   })
   if (isBlockFallbackText) textContent = ''
 
-  // Memoize the expensive formatting — re-runs only when textContent changes
-  const formattedContent = useMemo(() => formatMessage(textContent), [textContent])
+  // Memoize the expensive formatting — re-runs only when textContent changes.
+  // User bubbles render tight lines (a single Enter is a line break, not a
+  // paragraph); assistant markdown keeps its paragraph rhythm.
+  const formattedContent = useMemo(
+    () => formatMessage(textContent, isUser ? { tightLines: true } : undefined),
+    [textContent, isUser],
+  )
 
   // Memoize timestamp formatting — avoids Date allocations on every parent re-render
   const formattedTimestamp = useMemo(() => formatTimestamp(msg.timestamp), [msg.timestamp])
@@ -884,22 +832,15 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
 
       {/* User message */}
       {isUser && (
-        <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
-          {textContent && (
-            <div data-send-state={msg.sendState} data-msg-enter={entering || undefined} className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-body)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
-              <CollapsibleUserText messageId={msg.id || `idx-${i}`}>{formattedContent}</CollapsibleUserText>
-            </div>
-          )}
-          {media.length > 0 && (
-            <div data-send-state={msg.sendState} className="user-msg-bubble">
-              <MessageMedia media={media} isUser={true} />
-            </div>
-          )}
-          {msg.sendState === 'failed' && (
-            // Resend what was SENT, not the url-stripped display text — the send path supersedes the failed row by content, and an attachment-only failure retries on its media.
-            <SendFailureRow reason={msg.sendError} onRetry={onRetry && (msg.content || media.length > 0) ? () => onRetry(msg.content, msg.media) : undefined} />
-          )}
-        </div>
+        <UserMessageRow
+          msg={msg}
+          messageId={msg.id || `idx-${i}`}
+          text={textContent}
+          content={formattedContent}
+          media={media}
+          entering={entering}
+          onRetry={onRetry}
+        />
       )}
 
       {/* Assistant message — same shell as the streaming container. */}
@@ -921,8 +862,10 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
           {/* Media attachments */}
           {media.length > 0 && <MessageMedia media={media} isUser={false} />}
 
-          {/* Subtle action row — copy + retry (no avatars, full-width preserved) */}
-          {textContent && (
+          {/* Copy / read aloud / retry, once per turn: the answer the reader acts
+              on carries it, and the interim prose the fold puts away reserves no
+              band for one it never shows. */}
+          {textContent && isFinalAnswer && (
             <MessageActions
               id={msg.id || `idx-${i}`}
               text={textContent}
@@ -938,9 +881,11 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
 
 /* ── StreamingBubble — always re-renders on every token ── */
 
-// Structural parity rule: the streaming row shares the final row's prefix,
-// shell and action-row footprint. The caret and controls swap below the answer,
-// so a bottom-pinned stream→final replacement does not move its first line.
+// Structural parity rule: the streaming row shares the final row's prefix, shell
+// and action-row footprint. Mid-stream it IS the presumptive answer, so it
+// reserves the band the answer will carry and a bottom-pinned stream→final swap
+// cannot move its first line. A stream that resolves into interim prose keeps no
+// band, and only because more content landed under it.
 function StreamingBubble({ streamingText, prevMessage, startedAt }: {
   streamingText: string
   prevMessage?: Message
@@ -1252,6 +1197,7 @@ export function ChatMessages({
         showTimestamp={meta.showTimestamp}
         prevRole={meta.prevRole}
         prevUserText={meta.prevUserText}
+        isFinalAnswer={meta.isFinalAnswer}
         loading={loading}
         onRetry={retry}
         onPeek={onPeek}
@@ -1329,18 +1275,7 @@ export function ChatMessages({
           {/* Running indicator — pre-first-token only; once streamingText arrives the
               caret carries the "live" signal, so suppress this to avoid a double cue. */}
           {loading && messages.length > 0 && !streamingText && (
-            // Share the assistant text gutter (space-3 mobile / space-8 @lg) so the
-            // indicator lines up flush with the messages and tool cards.
-            <div className="assistant-msg-row mt-[var(--space-1)]">
-              {/* No inner inset — the dot/label sit flush at the assistant-msg-row
-                  gutter, sharing the same leading edge as assistant prose. */}
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-[jinn-pulse_1.4s_infinite] shrink-0" />
-                <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
-                  Thinking
-                </span>
-              </div>
-            </div>
+            <ThinkingIndicator prevRole={messages[messages.length - 1].role} />
           )}
 
           {footer && (

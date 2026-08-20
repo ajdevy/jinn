@@ -172,6 +172,36 @@ describe("engine session refs", () => {
     expect(reg.getEngineSessionRef(midOverride, "claude").id).toBe("claude-native-1");
   });
 
+  it("reverts a codex-primary session to its own parked thread once the override window passes", async () => {
+    const { maybeRevertEngineOverride } = await import("../manager.js");
+    const s = reg.createSession({ engine: "codex", source: "web", sourceRef: "web:codex-override" });
+    reg.recordEngineSessionId(s.id, "codex", "codex-native-1");
+
+    // The state the rate-limit fallback writes when codex rolls to claude, with a
+    // window that has already closed.
+    reg.updateSession(s.id, {
+      engine: "claude",
+      engineSessionId: null,
+      transportMeta: {
+        engineOverride: {
+          originalEngine: "codex",
+          originalEngineSessionId: "codex-native-1",
+          until: "2020-01-01T00:00:00.000Z",
+          syncSince: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+    reg.recordEngineSessionId(s.id, "claude", "claude-substitute-1");
+
+    const reverted = maybeRevertEngineOverride(reg.getSession(s.id)!);
+
+    expect(reverted.engine).toBe("codex");
+    expect(reverted.engineSessionId).toBe("codex-native-1");
+    // The substitute's own thread stays parked under its ref, and the spent record goes.
+    expect(reg.getEngineSessionRef(reverted, "claude").id).toBe("claude-substitute-1");
+    expect(reverted.transportMeta?.engineOverride).toBeUndefined();
+  });
+
   it("does not resume a saved Grok native session when switching back with a different Grok model", () => {
     const s = reg.createSession({
       engine: "grok",

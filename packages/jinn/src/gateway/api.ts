@@ -19,6 +19,7 @@ import {
   refreshHermesModels,
   refreshPiModels,
 } from "../shared/models.js";
+import { withEngineHealth } from "../shared/engine-health.js";
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
 import { maybeRevertEngineOverride, type SessionManager } from "../sessions/manager.js";
@@ -290,7 +291,7 @@ import {
 } from "./pairing-challenge.js";
 import { scheduleOnLoadTailSync, transcriptEntryText } from "./external-turns.js";
 import { handleTalkApi } from "./talk-api.js";
-import { onboardingNeeded, applyEngineChoice } from "./onboarding-policy.js";
+import { onboardingNeeded, applyEngineChoice, personalizeOperatingManual } from "./onboarding-policy.js";
 import {
   CONTAINER_RESTART_UNSUPPORTED_MESSAGE,
   restartDetached,
@@ -1897,12 +1898,9 @@ export async function handleApiRequest(
         // availability stays consistent with /api/engines instead of drifting.
         engines: {
           default: config.engines.default,
-          ...Object.fromEntries(
-            Object.entries(getModelRegistry(config)).map(([name, entry]) => [
-              name,
-              { model: entry.defaultModel, available: entry.available },
-            ]),
-          ),
+          ...Object.fromEntries(Object.entries(withEngineHealth(getModelRegistry(config))).map(([name, entry]) => [
+            name, { model: entry.defaultModel, available: entry.available, health: entry.health },
+          ])),
         },
         sessions: { total: countSessions(), running, active: running },
         connectors,
@@ -5063,8 +5061,7 @@ export async function handleApiRequest(
     // when no `models:` block is configured.
     if (method === "GET" && pathname === "/api/engines") {
       const config = context.getConfig();
-      const registry = getModelRegistry(config);
-      return json(res, { default: config.engines.default, engines: registry });
+      return json(res, { default: config.engines.default, engines: withEngineHealth(getModelRegistry(config)) });
     }
 
     // POST /api/engines/refresh — re-run dynamic model discovery and return the
@@ -5081,7 +5078,7 @@ export async function handleApiRequest(
         refreshHermesModels(config),
       ]);
       context.emit("engines:updated", {});
-      return json(res, { default: config.engines.default, engines: getModelRegistry(config) });
+      return json(res, { default: config.engines.default, engines: withEngineHealth(getModelRegistry(config)) });
     }
 
     // GET /api/engine-limits — live/snapshot quota windows and static capability
@@ -5360,6 +5357,7 @@ export async function handleApiRequest(
         todoPrefixFrozen: false,
         portalName: config.portal?.portalName ?? null,
         operatorName: config.portal?.operatorName ?? null,
+        operatorEmoji: config.portal?.operatorEmoji ?? null,
       });
     }
 
@@ -5368,7 +5366,7 @@ export async function handleApiRequest(
       const _parsed = await readJsonBody(req, res);
       if (!_parsed.ok) return;
       const body = _parsed.body as any;
-      const { companyName, companyPrefix, portalName, operatorName, language, engine, model, effortLevel } = body;
+      const { companyName, companyPrefix, portalName, operatorName, operatorEmoji, language, engine, model, effortLevel } = body;
       const config = context.getConfig();
       // Todos v2: prefixes are per-namespace and never freeze — a changed company
       // prefix mints future Todos under its own sequence. Only validity is checked.
@@ -5401,6 +5399,7 @@ export async function handleApiRequest(
           ...(companyPrefix !== undefined && { companyPrefix: companyPrefix || undefined }),
           ...(portalName !== undefined && { portalName: portalName || undefined }),
           ...(operatorName !== undefined && { operatorName: operatorName || undefined }),
+          ...(operatorEmoji !== undefined && { operatorEmoji: operatorEmoji || undefined }),
           ...(language !== undefined && { language: language || undefined }),
         },
       };
@@ -5412,35 +5411,13 @@ export async function handleApiRequest(
       context.reloadConfig?.();
       logger.info(`Onboarding: company configured=${companyName !== undefined}, portal name="${portalName}", operator="${operatorName}", language="${language}"`);
 
-      const effectiveName = portalName || "Jinn";
-      const languageSection = language && language !== "English"
-        ? `\n\n## Language\nAlways respond in ${language}. All communication with the user must be in ${language}.`
-        : "";
-
-      // Personalize the operating manual with the chosen COO name + language.
-      // The shipped identity line is bold, e.g.
-      //   "You are **Jinn**, a personal AI assistant and COO of an AI organization."
-      // (The previous CLAUDE.md regex expected unbolded "...the COO of the user's
-      // AI organization." and never matched, so the rename silently no-op'd.)
-      const personalizeManual = (filePath: string) => {
-        let md = fs.readFileSync(filePath, "utf-8");
-        // Replace just the bold name token; `[^*]+` supports multi-word names.
-        md = md.replace(/^You are \*\*[^*]+\*\*/m, `You are **${effectiveName}**`);
-        // Reset any prior language section, then append the new one if needed.
-        md = md.replace(/\n\n## Language\nAlways respond in .+\. All communication with the user must be in .+\./m, "");
-        if (languageSection) md = md.trimEnd() + languageSection + "\n";
-        fs.writeFileSync(filePath, md);
-      };
-
-      // CLAUDE.md is canonical. AGENTS.md is normally a symlink → CLAUDE.md, so we
-      // edit CLAUDE.md directly and skip the symlink (avoids double-processing the
-      // same file). Only the rare non-symlink fallback copy is personalized too.
-      const claudeMdPath = path.join(JINN_HOME, "CLAUDE.md");
-      if (fs.existsSync(claudeMdPath)) personalizeManual(claudeMdPath);
-
-      const agentsMdPath = path.join(JINN_HOME, "AGENTS.md");
-      if (fs.existsSync(agentsMdPath) && !fs.lstatSync(agentsMdPath).isSymbolicLink()) {
-        personalizeManual(agentsMdPath);
+      // Partial posts (e.g. just an operator emoji) must not rewrite the manual:
+      // omitted fields would reset the name to "Jinn" and drop the language section.
+      if (portalName !== undefined || language !== undefined) {
+        personalizeOperatingManual(JINN_HOME, {
+          portalName: updated.portal.portalName,
+          language: updated.portal.language,
+        });
       }
       return json(res, { status: "ok", portal: updated.portal });
     }

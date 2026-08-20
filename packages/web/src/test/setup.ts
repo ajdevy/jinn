@@ -1,3 +1,12 @@
+import { configure } from "@testing-library/react";
+
+/* `findBy*` and `waitFor` give up after 1s by default, which measures the
+ * machine more than the app: under a full monorepo run — several vitest pools,
+ * often beside a sibling worktree's suite — a render that takes 200ms idle can
+ * miss that window, and the suite reports "unable to find" for an element that
+ * arrived moments later. */
+configure({ asyncUtilTimeout: 5000 });
+
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>();
   return {

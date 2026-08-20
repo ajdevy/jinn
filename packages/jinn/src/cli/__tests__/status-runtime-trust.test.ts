@@ -38,7 +38,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  fs.rmSync(home, { recursive: true, force: true });
+  try {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
   if (previousJinnHome === undefined) delete process.env.JINN_HOME;
   else process.env.JINN_HOME = previousJinnHome;
   vi.unstubAllGlobals();

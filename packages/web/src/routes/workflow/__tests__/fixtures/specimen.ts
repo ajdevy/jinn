@@ -1,4 +1,10 @@
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
+
+/** `ui` is optional on the wire — a workflow created through the API carries no
+ *  `ui` key at all — but every specimen here is authored with one, and the tests
+ *  read its positions back. */
+type WorkflowUiWire = NonNullable<WorkflowDefinitionWire["ui"]>
+type PlacedWorkflowWire = WorkflowDefinitionWire & { ui: WorkflowUiWire }
 
 const BRANCHES = ["intake", "triage", "review", "escalate", "archive"] as const
 /** The first three branches carry a follow-up wait; the last two go straight to the join. */
@@ -9,14 +15,14 @@ const HEAD = ["normalize", "dedupe", "enrich", "score", "classify"] as const
 /** A 23-node graph shaped like the ones agents author through the API: a long
  *  intake chain, a five-way condition fan-out with a default lane, branches of
  *  uneven length, and one retry edge that closes a cycle. */
-export function specimen(ui: WorkflowDefinitionV2Wire["ui"]): WorkflowDefinitionV2Wire {
-  const nodes: WorkflowDefinitionV2Wire["nodes"] = [
+export function specimen(ui: WorkflowUiWire): PlacedWorkflowWire {
+  const nodes: WorkflowDefinitionWire["nodes"] = [
     { id: "trigger", type: "trigger", name: "Item arrives", config: { kind: "manual" } },
     ...HEAD.map((id) => ({
       id,
       type: "employee" as const,
       name: id,
-      config: { employee: { source: "fixed", value: "a-lead" }, prompt: "Do the step." },
+      config: { employee: { source: "fixed" as const, value: "a-lead" }, prompt: "Do the step." },
     })),
     {
       id: "router",
@@ -32,7 +38,7 @@ export function specimen(ui: WorkflowDefinitionV2Wire["ui"]): WorkflowDefinition
         id: `${branch}-work`,
         type: "employee" as const,
         name: `${branch} work`,
-        config: { employee: { source: "fixed", value: "a-lead" }, prompt: "Handle it." },
+        config: { employee: { source: "fixed" as const, value: "a-lead" }, prompt: "Handle it." },
       },
       { id: `${branch}-check`, type: "approval" as const, name: `${branch} check`, config: { description: "" } },
     ]),
@@ -40,7 +46,7 @@ export function specimen(ui: WorkflowDefinitionV2Wire["ui"]): WorkflowDefinition
       id: `${branch}-followup`,
       type: "wait" as const,
       name: `${branch} follow-up`,
-      config: { mode: "duration", minutes: 60 },
+      config: { mode: "duration" as const, minutes: 60 },
     })),
     { id: "join", type: "merge", name: "Join", config: { mode: "wait-all" } },
     { id: "finalize", type: "employee", name: "Finalize", config: { employee: { source: "fixed", value: "a-lead" }, prompt: "Wrap up." } },
@@ -48,7 +54,7 @@ export function specimen(ui: WorkflowDefinitionV2Wire["ui"]): WorkflowDefinition
   ]
 
   const chain = ["trigger", ...HEAD, "router"]
-  const edges: WorkflowDefinitionV2Wire["edges"] = [
+  const edges: WorkflowDefinitionWire["edges"] = [
     ...chain.slice(0, -1).map((from, index) => ({
       id: `chain-${index + 1}`,
       from: { nodeId: from, port: "success" },
@@ -93,7 +99,7 @@ export function specimen(ui: WorkflowDefinitionV2Wire["ui"]): WorkflowDefinition
 
 /** What an agent writes: a fixed 200px pitch snaked across rows, blind to the
  *  edges — and narrower than the 224px card, so the cards collide. */
-export function snakePositions(definition: WorkflowDefinitionV2Wire): Record<string, { x: number; y: number }> {
+export function snakePositions(definition: WorkflowDefinitionWire): Record<string, { x: number; y: number }> {
   const perRow = 12
   return Object.fromEntries(
     definition.nodes.map((node, index) => [

@@ -26,6 +26,7 @@ export const queryKeys = {
   },
   workflows: {
     all: ['workflows'] as const,
+    list: (retired: boolean) => ['workflows', 'list', retired] as const,
     definition: (id: string) => ['workflows', 'definition', id] as const,
     runs: (id: string) => ['workflows', 'runs', id] as const,
     run: (id: string, runId: string) => ['workflows', 'runs', id, runId] as const,

@@ -37,9 +37,12 @@ beforeAll(async () => {
   (await import("../../shared/db.js")).initDb();
 });
 
-afterAll(() => {
+afterAll(async () => {
   vi.unstubAllGlobals();
-  fs.rmSync(home, { recursive: true, force: true });
+  (await import("../../shared/db.js")).__closeDbForTest();
+  try {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
 });
 
 function request(method: string, url: string, body?: unknown, authorized = true) {

@@ -59,7 +59,9 @@ beforeEach(() => {
 afterAll(async () => {
   gatewayChild.kill("SIGKILL");
   await new Promise<void>((resolve) => gatewayChild.once("exit", () => resolve()));
-  fs.rmSync(tmpHome, { recursive: true, force: true });
+  try {
+    fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {}
   if (previousJinnHome === undefined) delete process.env.JINN_HOME;
   else process.env.JINN_HOME = previousJinnHome;
 });

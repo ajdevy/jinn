@@ -17,6 +17,7 @@ export interface JinnSettings {
   iconBgHidden: boolean
   emojiOnly: boolean
   operatorName: string | null
+  operatorEmoji: string | null
   language: string
   /** The floating Talk orb. Off until something is there for it to talk to. */
   talkOrb: boolean
@@ -37,6 +38,7 @@ export const DEFAULTS: JinnSettings = {
   iconBgHidden: false,
   emojiOnly: false,
   operatorName: null,
+  operatorEmoji: null,
   language: "English",
   talkOrb: false,
   talkOrbVariant: "mist",

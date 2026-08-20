@@ -31,6 +31,25 @@ describe("workflow node completion contract", () => {
     expect(contract).toContain("call the `workflow_submit_output` tool with these fields");
   });
 
+  it("tells the employee how to produce an attachment ref, only when one is declared", () => {
+    const withAttachment = buildNodeContract(employeeNode({
+      fields: { shot: { type: "attachment", required: true }, notes: { type: "attachment[]", required: false } },
+      allowAdditionalFields: false,
+    }), []);
+
+    expect(withAttachment).toContain("| `shot` | attachment | yes |  |");
+    expect(withAttachment).toContain("| `notes` | attachment[] | no |  |");
+    expect(withAttachment).toContain("attach_to_work_item");
+    expect(withAttachment).toContain("attachment:<TODO-ID>:<attachment-id>:<mime>");
+
+    const withoutAttachment = buildNodeContract(employeeNode({
+      fields: { title: { type: "string", required: true } },
+      allowAdditionalFields: false,
+    }), []);
+
+    expect(withoutAttachment).not.toContain("attach_to_work_item");
+  });
+
   it("omits the field table when no structured output schema is declared", () => {
     const contract = buildNodeContract(employeeNode(), []);
 

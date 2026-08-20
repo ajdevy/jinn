@@ -704,16 +704,6 @@ export interface ConnectorInstance {
   [key: string]: unknown;
 }
 
-export interface PortalConfig {
-  companyName?: string;
-  companyPrefix?: string;
-  portalName?: string;
-  operatorName?: string;
-  language?: string;
-  onboarded?: boolean;
-  setupComplete?: boolean;
-}
-
 /**
  * Model + capability registry.
  *
@@ -844,4 +834,4 @@ export interface EngineModelsConfig {
 /** `models:` block keyed by engine name (claude | codex | antigravity | grok | pi). */
 export type ModelsConfig = Record<string, EngineModelsConfig>;
 
-export type { JinnConfig } from "./config-types.js";
+export type { JinnConfig, PortalConfig } from "./config-types.js";

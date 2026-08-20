@@ -242,7 +242,7 @@ function main() {
   }
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-migration-check-"))
   try {
-    createBundle({ repoRoot, packageRoot, outputDir: temp, rationale, ...args })
+    createBundle({ repoRoot, packageRoot, outputDir: temp, rationale, ...args, allowEmpty: true })
     if (!equalDirectories(outputDir, temp)) throw new Error(`bundle ${args.version} is out of date; run migration:generate`)
     process.stdout.write(`migration bundle ${args.version} is current\n`)
   } finally {

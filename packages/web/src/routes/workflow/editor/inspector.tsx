@@ -3,65 +3,17 @@ import { useQuery } from "@tanstack/react-query"
 import { useShallow } from "zustand/react/shallow"
 import { Plus, Trash2, X } from "lucide-react"
 import { api } from "@/lib/api"
+import type { JsonValueWire, WorkflowBindingWire, WorkflowPredicateWire } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { ApprovalForm } from "./approval-form"
 import { allocateConditionPort } from "./graph"
+import { CLEAR, Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
 import { NodeTypeIcon } from "./node-icons"
-import { NODE_TYPE_LABEL, type WorkflowNodeWire } from "./ports"
+import { OutputSchemaForm } from "./output-schema-form"
+import { NODE_TYPE_LABEL, type WorkflowNodeOfType, type WorkflowNodeWire } from "./ports"
 import { useEditor } from "./store"
-
-/* ── tiny form primitives (Ledger-styled, matching ui/textarea) ───────────── */
-
-function TextInput(props: React.ComponentProps<"input">) {
-  const { className = "", ...rest } = props
-  return (
-    <input
-      {...rest}
-      className={`h-8 w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-quaternary)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:border-[var(--accent)] focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] ${className}`}
-    />
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
-        {label}
-      </span>
-      {children}
-    </label>
-  )
-}
-
-function PickerField({
-  label, value, onChange, options, placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: Array<{ value: string; label: string }>
-  placeholder?: string
-}) {
-  return (
-    <Field label={label}>
-      {/* "" is a controlled empty selection — `|| undefined` would flip the
-          Select uncontrolled→controlled on first pick and warn. */}
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger aria-label={label}>
-          <SelectValue placeholder={placeholder ?? "Choose…"} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </Field>
-  )
-}
-
-const CLEAR = "__none__"
+import { WaitForm } from "./wait-form"
 
 function FilterPicker({
   label, value, onChange, options,
@@ -87,59 +39,34 @@ function FilterPicker({
   )
 }
 
-/* ── binding helpers: plain text ⇄ fixed bindings ─────────────────────────── */
-
-type BindingWire = { source?: unknown; value?: unknown; path?: unknown; nodeId?: unknown }
-
-function fixedText(value: unknown): string {
-  const binding = value as BindingWire | undefined
-  return binding?.source === "fixed" && typeof binding.value === "string" ? binding.value : ""
-}
-
-function withFixed(config: Record<string, unknown>, key: string, text: string, keepEmpty = false): Record<string, unknown> {
-  const next = { ...config }
-  if (!text && !keepEmpty) delete next[key]
-  else next[key] = { source: "fixed", value: text }
-  return next
-}
-
-function withOptionalText(config: Record<string, unknown>, key: string, value: string): Record<string, unknown> {
-  const next = { ...config }
-  if (value) next[key] = value
-  else delete next[key]
-  return next
-}
 
 /** Fixed predicate values coerce sensibly: true/false → boolean, numerics → number. */
-function parseFixedValue(text: string): unknown {
+function parseFixedValue(text: string): JsonValueWire {
   if (text === "true") return true
   if (text === "false") return false
   if (text.trim() !== "" && Number.isFinite(Number(text))) return Number(text)
   return text
 }
 
-function parseJsonFixedValue(text: string): unknown {
+function parseJsonFixedValue(text: string): JsonValueWire {
   try {
-    return JSON.parse(text) as unknown
+    return JSON.parse(text) as JsonValueWire
   } catch {
     return text
   }
 }
 
-function fixedValueText(value: unknown): string {
-  const binding = value as BindingWire | undefined
-  if (binding?.source !== "fixed") return ""
-  return typeof binding.value === "string" ? binding.value : JSON.stringify(binding.value ?? "")
+function fixedValueText(value: WorkflowBindingWire<JsonValueWire> | undefined): string {
+  if (value?.source !== "fixed") return ""
+  return typeof value.value === "string" ? value.value : JSON.stringify(value.value ?? "")
 }
 
 /* ── per-type forms ───────────────────────────────────────────────────────── */
+type TriggerConfig = WorkflowNodeOfType<"trigger">["config"]
+type TriggerKind = TriggerConfig["kind"]
+type TodoStatusTrigger = Extract<TriggerConfig, { kind: "todo-status" }>
 
-interface FormProps {
-  node: WorkflowNodeWire
-  update: (config: Record<string, unknown>) => void
-}
-
-const TRIGGER_KINDS = [
+const TRIGGER_KINDS: Array<{ value: TriggerKind; label: string }> = [
   { value: "manual", label: "Manual" },
   { value: "schedule", label: "Schedule" },
   { value: "event", label: "Event" },
@@ -149,29 +76,37 @@ const TRIGGER_KINDS = [
 
 const TODO_STATUSES = ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"]
 
-function defaultTriggerConfig(kind: string): Record<string, unknown> {
+const isTriggerKind = (value: string): value is TriggerKind =>
+  TRIGGER_KINDS.some((option) => option.value === value)
+
+function defaultTriggerConfig(kind: TriggerKind): TriggerConfig {
   switch (kind) {
     case "schedule":
       return { kind, cron: "0 9 * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }
     case "event": return { kind, eventName: "event" }
     case "todo-status": return { kind, status: "in_review" }
-    default: return { kind }
+    case "manual": return { kind }
+    case "workflow-call": return { kind }
   }
 }
 
-function TriggerForm({ node, update }: FormProps) {
-  const config = node.config as {
-    kind?: string
-    cron?: string
-    timezone?: string
-    eventName?: string
-    status?: string
-    label?: string
-    department?: string
-    assignee?: string
-    actor?: string
-  }
-  const kind = config.kind ?? "manual"
+/** An empty filter means "match any Todo", which the schema spells as an absent
+ *  key rather than an empty string. */
+function withOptionalFilter(
+  config: TodoStatusTrigger,
+  key: "label" | "department" | "assignee" | "actor",
+  value: string,
+): TodoStatusTrigger {
+  const next = { ...config }
+  if (value) next[key] = value
+  else delete next[key]
+  return next
+}
+
+function TriggerForm({ node, update }: FormProps<WorkflowNodeOfType<"trigger">>) {
+  const config = node.config
+  const kind = config.kind
+  const set = (next: TriggerConfig) => update({ ...node, config: next })
   const labels = useQuery({
     queryKey: ["labels"],
     queryFn: async () => (await api.listLabels()).labels,
@@ -189,43 +124,43 @@ function TriggerForm({ node, update }: FormProps) {
       <PickerField
         label="Fires on"
         value={kind}
-        onChange={(next) => update(defaultTriggerConfig(next))}
+        onChange={(next) => { if (isTriggerKind(next)) set(defaultTriggerConfig(next)) }}
         options={TRIGGER_KINDS}
       />
-      {kind === "schedule" && (
+      {config.kind === "schedule" && (
         <>
           <Field label="Cron">
             <TextInput
-              value={config.cron ?? ""}
-              onChange={(event) => update({ ...node.config, cron: event.target.value })}
+              value={config.cron}
+              onChange={(event) => set({ ...config, cron: event.target.value })}
               placeholder="0 9 * * *"
               style={{ fontFamily: "var(--font-code)" }}
             />
           </Field>
           <Field label="Timezone">
             <TextInput
-              value={config.timezone ?? ""}
-              onChange={(event) => update({ ...node.config, timezone: event.target.value })}
+              value={config.timezone}
+              onChange={(event) => set({ ...config, timezone: event.target.value })}
               placeholder="Europe/Sofia"
             />
           </Field>
         </>
       )}
-      {kind === "event" && (
+      {config.kind === "event" && (
         <Field label="Event name">
           <TextInput
-            value={config.eventName ?? ""}
-            onChange={(event) => update({ ...node.config, eventName: event.target.value })}
+            value={config.eventName}
+            onChange={(event) => set({ ...config, eventName: event.target.value })}
             placeholder="deploy-finished"
           />
         </Field>
       )}
-      {kind === "todo-status" && (
+      {config.kind === "todo-status" && (
         <>
           <PickerField
             label="Todo moves to"
-            value={config.status ?? "in_review"}
-            onChange={(next) => update({ ...node.config, status: next })}
+            value={config.status}
+            onChange={(next) => set({ ...config, status: next })}
             options={TODO_STATUSES.map((status) => ({ value: status, label: status }))}
           />
           <section className="space-y-3 rounded-[var(--radius-lg)] bg-[var(--fill-tertiary)] p-3">
@@ -240,20 +175,20 @@ function TriggerForm({ node, update }: FormProps) {
             <FilterPicker
               label="Label"
               value={config.label ?? ""}
-              onChange={(value) => update(withOptionalText(node.config, "label", value))}
+              onChange={(value) => set(withOptionalFilter(config, "label", value))}
               options={(labels.data ?? []).map((label) => ({ value: label.name, label: label.name }))}
             />
             <FilterPicker
               label="Department"
               value={config.department ?? ""}
-              onChange={(value) => update(withOptionalText(node.config, "department", value))}
+              onChange={(value) => set(withOptionalFilter(config, "department", value))}
               options={(org.data?.departments ?? []).map((department) => ({ value: department, label: department }))}
             />
             <div>
               <FilterPicker
                 label="Assignee"
                 value={config.assignee ?? ""}
-                onChange={(value) => update(withOptionalText(node.config, "assignee", value))}
+                onChange={(value) => set(withOptionalFilter(config, "assignee", value))}
                 options={(org.data?.employees ?? []).map((employee) => ({ value: employee.name, label: employee.name }))}
               />
               <p className="mt-1 text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
@@ -264,7 +199,7 @@ function TriggerForm({ node, update }: FormProps) {
               <TextInput
                 className="min-h-[34px]"
                 value={config.actor ?? ""}
-                onChange={(event) => update(withOptionalText(node.config, "actor", event.target.value))}
+                onChange={(event) => set(withOptionalFilter(config, "actor", event.target.value))}
                 placeholder="operator"
               />
             </Field>
@@ -275,269 +210,68 @@ function TriggerForm({ node, update }: FormProps) {
   )
 }
 
-const EFFORTS = ["low", "medium", "high", "xhigh"]
-const OUTPUT_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/
-const OUTPUT_FIELD_TYPES = ["string", "number", "boolean", "string[]"] as const
+type EmployeeConfig = WorkflowNodeOfType<"employee">["config"]
+type Effort = Extract<NonNullable<EmployeeConfig["effort"]>, { source: "fixed" }>["value"]
 
-type OutputFieldType = typeof OUTPUT_FIELD_TYPES[number]
-type OutputFieldConfig = {
-  type: OutputFieldType
-  required: boolean
-  description?: string
+const EFFORTS = ["low", "medium", "high", "xhigh"] as const satisfies readonly Effort[]
+
+/** "Default" clears the binding; every other choice is one of `EFFORTS`. */
+function withEffort(config: EmployeeConfig, choice: string): EmployeeConfig {
+  const next = { ...config }
+  delete next.effort
+  const effort = EFFORTS.find((value) => value === choice)
+  return effort === undefined ? next : { ...next, effort: { source: "fixed", value: effort } }
 }
-type OutputSchemaConfig = {
-  fields: Record<string, OutputFieldConfig>
-  allowAdditionalFields: boolean
-}
+const CUSTOM = "__custom__"
 
-function OutputFieldRow({
-  index,
-  name,
-  field,
-  existingNames,
-  onRename,
-  onChange,
-  onRemove,
-}: {
-  index: number
-  name: string
-  field: OutputFieldConfig
-  existingNames: string[]
-  onRename: (name: string) => void
-  onChange: (field: OutputFieldConfig) => void
-  onRemove: () => void
-}) {
-  const [draftName, setDraftName] = useState(name)
-  const [nameError, setNameError] = useState<string | null>(null)
-
-  useEffect(() => setDraftName(name), [name])
-
-  const changeName = (next: string) => {
-    setDraftName(next)
-    if (!OUTPUT_FIELD_NAME.test(next)) {
-      setNameError("Use letters, numbers, underscores, or hyphens; start with a letter or underscore.")
-      return
-    }
-    if (next !== name && existingNames.includes(next)) {
-      setNameError("Use a unique field name.")
-      return
-    }
-    setNameError(null)
-    if (next !== name) onRename(next)
-  }
-
-  return (
-    <div className="space-y-2 rounded-[var(--radius-lg)] bg-[var(--fill-tertiary)] p-2.5">
-      <div className="flex items-start gap-1.5">
-        <div className="min-w-0 flex-1">
-          <TextInput
-            aria-label={`Output field ${index + 1} name`}
-            value={draftName}
-            onChange={(event) => changeName(event.target.value)}
-            placeholder="result"
-            aria-invalid={nameError ? true : undefined}
-            aria-describedby={nameError ? `output-field-${index}-error` : undefined}
-            style={{ fontFamily: "var(--font-code)" }}
-          />
-          {nameError && (
-            <p id={`output-field-${index}-error`} className="mt-1 text-[length:var(--text-caption2)] text-[var(--system-red)]">
-              {nameError}
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          aria-label={`Remove output field ${name}`}
-          onClick={onRemove}
-          className="grid size-8 shrink-0 place-items-center rounded-[9px] text-[var(--text-tertiary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--system-red)]"
-        >
-          <Trash2 size={14} aria-hidden />
-        </button>
-      </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-        <PickerField
-          label="Type"
-          value={field.type}
-          onChange={(type) => onChange({ ...field, type: type as OutputFieldType })}
-          options={OUTPUT_FIELD_TYPES.map((type) => ({ value: type, label: type }))}
-        />
-        <label className="flex h-8 items-center gap-1.5 px-1 text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            aria-label={`Output field ${index + 1} required`}
-            checked={field.required}
-            onChange={(event) => onChange({ ...field, required: event.target.checked })}
-            className="size-4 accent-[var(--accent)]"
-          />
-          Required
-        </label>
-      </div>
-      <Field label="Description">
-        <TextInput
-          aria-label={`Output field ${index + 1} description`}
-          value={field.description ?? ""}
-          onChange={(event) => {
-            const description = event.target.value
-            const next = { ...field }
-            if (description) next.description = description
-            else delete next.description
-            onChange(next)
-          }}
-          placeholder="What this field contains"
-        />
-      </Field>
-    </div>
-  )
-}
-
-function OutputSchemaForm({
-  config,
-  update,
-}: {
-  config: Record<string, unknown>
-  update: (config: Record<string, unknown>) => void
-}) {
-  const output = config.output as OutputSchemaConfig | undefined
-
-  const disable = () => {
-    const next = { ...config }
-    delete next.output
-    update(next)
-  }
-
-  if (!output) {
-    return (
-      <section className="rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">Output</h3>
-            <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">No structured output</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => update({
-              ...config,
-              output: {
-                fields: { result: { type: "string", required: false } },
-                allowAdditionalFields: false,
-              },
-            })}
-            className="h-8 rounded-[9px] bg-[var(--fill-tertiary)] px-2.5 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)]"
-          >
-            Enable structured output
-          </button>
-        </div>
-      </section>
-    )
-  }
-
-  const entries = Object.entries(output.fields)
-  const setOutput = (next: OutputSchemaConfig) => update({ ...config, output: next })
-  const setField = (name: string, field: OutputFieldConfig) =>
-    setOutput({ ...output, fields: { ...output.fields, [name]: field } })
-  const renameField = (name: string, nextName: string) => {
-    const fields = Object.fromEntries(entries.map(([key, field]) => [key === name ? nextName : key, field]))
-    setOutput({ ...output, fields })
-  }
-  const removeField = (name: string) => {
-    const fields = Object.fromEntries(entries.filter(([key]) => key !== name))
-    if (Object.keys(fields).length === 0) disable()
-    else setOutput({ ...output, fields })
-  }
-  const addField = () => {
-    let name = "field"
-    let suffix = 2
-    while (Object.hasOwn(output.fields, name)) {
-      name = `field_${suffix}`
-      suffix += 1
-    }
-    setOutput({ ...output, fields: { ...output.fields, [name]: { type: "string", required: false } } })
-  }
-
-  return (
-    <section className="space-y-2.5 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">Output</h3>
-        <button
-          type="button"
-          onClick={disable}
-          className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-tertiary)] hover:text-[var(--system-red)]"
-        >
-          Disable structured output
-        </button>
-      </div>
-      {entries.map(([name, field], index) => (
-        <OutputFieldRow
-          key={name}
-          index={index}
-          name={name}
-          field={field}
-          existingNames={entries.map(([key]) => key)}
-          onRename={(nextName) => renameField(name, nextName)}
-          onChange={(nextField) => setField(name, nextField)}
-          onRemove={() => removeField(name)}
-        />
-      ))}
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={addField}
-          className="flex h-8 items-center gap-1.5 rounded-[9px] px-2 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
-        >
-          <Plus size={13} aria-hidden /> Add field
-        </button>
-        <label className="flex items-center gap-1.5 text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={output.allowAdditionalFields}
-            onChange={(event) => setOutput({ ...output, allowAdditionalFields: event.target.checked })}
-            className="size-4 accent-[var(--accent)]"
-          />
-          Allow additional fields
-        </label>
-      </div>
-    </section>
-  )
-}
-
-function EmployeeForm({ node, update }: FormProps) {
+function EmployeeForm({ node, update }: FormProps<WorkflowNodeOfType<"employee">>) {
   const org = useQuery({ queryKey: ["org"], queryFn: api.getOrg, staleTime: 60_000 })
-  const config = node.config as Record<string, unknown>
+  const config = node.config
   const employees = org.data?.employees ?? []
-  const effort = fixedText(config.effort)
+  const set = (next: EmployeeConfig) => update({ ...node, config: next })
   return (
     <>
       <PickerField
         label="Employee"
         value={fixedText(config.employee)}
-        onChange={(next) => update(withFixed(config, "employee", next, true))}
+        onChange={(next) => set({ ...config, employee: { source: "fixed", value: next } })}
         options={employees.map((employee) => ({ value: employee.name, label: employee.name }))}
         placeholder={org.isPending ? "Loading…" : "Choose employee"}
       />
       <Field label="Prompt">
         <Textarea
           rows={6}
-          value={typeof config.prompt === "string" ? config.prompt : ""}
-          onChange={(event) => update({ ...config, prompt: event.target.value })}
+          value={config.prompt}
+          onChange={(event) => set({ ...config, prompt: event.target.value })}
           placeholder="What should this employee do?"
         />
       </Field>
       <PickerField
         label="Effort"
-        value={effort || CLEAR}
-        onChange={(next) => update(withFixed(config, "effort", next === CLEAR ? "" : next))}
+        value={fixedText(config.effort) || CLEAR}
+        onChange={(next) => set(withEffort(config, next))}
         options={[{ value: CLEAR, label: "Default" }, ...EFFORTS.map((value) => ({ value, label: value }))]}
       />
-      <OutputSchemaForm config={config} update={update} />
+      <OutputSchemaForm config={config} update={set} />
       <section className="space-y-2 rounded-[var(--radius-lg)] border border-[var(--separator)] p-3">
         <h3 className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">Advanced</h3>
+        <PickerField
+          label="Fallback"
+          value={Array.isArray(config.fallback) ? CUSTOM : config.fallback === "none" ? "none" : "inherit"}
+          // A chain is only ever picked back to one of the two literals; CUSTOM is
+          // shown disabled, so `next` can be nothing else.
+          onChange={(next) => { if (next === "inherit" || next === "none") set({ ...config, fallback: next }) }}
+          // A chain authored as JSON is shown so picking here cannot silently discard it, and is unpickable because this select cannot author one.
+          options={[{ value: "inherit", label: "Inherit" }, { value: "none", label: "None" },
+            ...(Array.isArray(config.fallback) ? [{ value: CUSTOM, label: config.fallback.join(" → "), disabled: true }] : [])]}
+        />
         <Field label="Timeout (minutes)">
           <TextInput
             type="number"
             min={1}
             max={1440}
             step={1}
-            value={typeof config.timeoutMinutes === "number" ? String(config.timeoutMinutes) : ""}
+            value={config.timeoutMinutes === undefined ? "" : String(config.timeoutMinutes)}
             onChange={(event) => {
               const next = { ...config }
               if (event.target.value === "") {
@@ -545,7 +279,7 @@ function EmployeeForm({ node, update }: FormProps) {
               } else {
                 next.timeoutMinutes = Math.max(1, Math.min(1440, Math.round(Number(event.target.value))))
               }
-              update(next)
+              set(next)
             }}
             placeholder="No hard timeout"
           />
@@ -555,7 +289,14 @@ function EmployeeForm({ node, update }: FormProps) {
   )
 }
 
-const OPERATORS = ["equals", "not-equals", "exists", "not-exists", "contains", "gt", "gte", "lt", "lte", "in"]
+type WorkflowCallConfig = WorkflowNodeOfType<"workflow-call">["config"]
+type ConditionConfig = WorkflowNodeOfType<"condition">["config"]
+type ConditionCase = ConditionConfig["cases"][number]
+type Operator = WorkflowPredicateWire["operator"]
+
+const OPERATORS: Operator[] = ["equals", "not-equals", "exists", "not-exists", "contains", "gt", "gte", "lt", "lte", "in"]
+
+const isOperator = (value: string): value is Operator => OPERATORS.some((operator) => operator === value)
 const SOURCES = [
   { value: "node", label: "Node output" },
   { value: "trigger", label: "Trigger" },
@@ -564,24 +305,24 @@ const SOURCES = [
   { value: "fixed", label: "Fixed value" },
 ]
 
-type PredicateWire = { left?: BindingWire; operator?: string; right?: BindingWire }
-type CaseWire = { port: string; label?: string; all?: PredicateWire[] }
-
-function BindingEditor({
-  value, onChange, nodeIds, fixedParser = parseFixedValue,
+function BindingEditor<T extends JsonValueWire>({
+  value, onChange, nodeIds, fixedParser,
 }: {
-  value: BindingWire
-  onChange: (next: BindingWire) => void
+  value: WorkflowBindingWire<T>
+  onChange: (next: WorkflowBindingWire<T>) => void
   nodeIds: string[]
-  fixedParser?: (text: string) => unknown
+  /** Reads the typed-in text as the value this particular binding holds — the
+   *  same function supplies the empty starting value when a person switches
+   *  the source to "fixed". */
+  fixedParser: (text: string) => T
 }) {
-  const source = typeof value.source === "string" ? value.source : "node"
+  const path = value.source === "fixed" ? "" : value.path
   return (
     <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-      <Select value={source} onValueChange={(next) => {
-        if (next === "fixed") onChange({ source: "fixed", value: "" })
+      <Select value={value.source} onValueChange={(next) => {
+        if (next === "fixed") onChange({ source: "fixed", value: fixedParser("") })
         else if (next === "node") onChange({ source: "node", nodeId: nodeIds[0] ?? "", path: "text" })
-        else onChange({ source: next, path: typeof value.path === "string" && value.path ? value.path : "payload" })
+        else if (next === "input" || next === "trigger" || next === "run") onChange({ source: next, path: path || "payload" })
       }}>
         <SelectTrigger aria-label="Value source" className="h-8 w-auto min-w-[104px] flex-none">
           <SelectValue />
@@ -592,9 +333,9 @@ function BindingEditor({
           ))}
         </SelectContent>
       </Select>
-      {source === "node" && (
+      {value.source === "node" && (
         <Select
-          value={typeof value.nodeId === "string" ? value.nodeId : ""}
+          value={value.nodeId}
           onValueChange={(next) => onChange({ ...value, nodeId: next })}
         >
           <SelectTrigger aria-label="Source node" className="h-8 w-auto min-w-[96px] flex-none">
@@ -605,7 +346,7 @@ function BindingEditor({
           </SelectContent>
         </Select>
       )}
-      {source === "fixed" ? (
+      {value.source === "fixed" ? (
         <TextInput
           aria-label="Fixed value"
           value={fixedValueText(value)}
@@ -616,7 +357,7 @@ function BindingEditor({
       ) : (
         <TextInput
           aria-label="Path"
-          value={typeof value.path === "string" ? value.path : ""}
+          value={value.path}
           onChange={(event) => onChange({ ...value, path: event.target.value })}
           placeholder="fields.result"
           className="min-w-[80px] flex-1"
@@ -628,25 +369,21 @@ function BindingEditor({
 }
 
 /** A written-in number and a `fixed` binding of it mean the same thing; the control shows one shape, so an authored planner binding survives being looked at. */
-function concurrencyBinding(value: unknown): BindingWire {
-  return value !== null && typeof value === "object" ? value as BindingWire : { source: "fixed", value: value ?? 2 }
+function concurrencyBinding(value: WorkflowCallConfig["concurrency"]): WorkflowBindingWire<number> {
+  return typeof value === "number" ? { source: "fixed", value } : value
 }
 
-function WorkflowCallForm({ node, update }: FormProps) {
+function WorkflowCallForm({ node, update }: FormProps<WorkflowNodeOfType<"workflow-call">>) {
   const nodeIds = useEditor(useShallow((state) => state.nodes.map((item) => item.id))).filter((id) => id !== node.id)
-  const config = node.config as {
-    workflowId?: BindingWire
-    items?: BindingWire
-    input?: Record<string, BindingWire>
-    concurrency?: number | BindingWire
-  }
+  const config = node.config
+  const set = (next: WorkflowCallConfig) => update({ ...node, config: next })
   const input = config.input ?? {}
   const inputEntries = Object.entries(input)
-  const setInput = (next: Record<string, BindingWire>) => {
+  const setInput = (next: WorkflowCallConfig["input"] & object) => {
     const updated = { ...config }
     if (Object.keys(next).length > 0) updated.input = next
     else delete updated.input
-    update(updated)
+    set(updated)
   }
   const addInput = () => {
     let name = "item"
@@ -662,8 +399,8 @@ function WorkflowCallForm({ node, update }: FormProps) {
     <>
       <Field label="Workflow">
         <BindingEditor
-          value={config.workflowId ?? { source: "fixed", value: "" }}
-          onChange={(workflowId) => update({ ...config, workflowId })}
+          value={config.workflowId}
+          onChange={(workflowId) => set({ ...config, workflowId })}
           nodeIds={nodeIds}
           fixedParser={(text) => text}
         />
@@ -671,7 +408,7 @@ function WorkflowCallForm({ node, update }: FormProps) {
       <Field label="Concurrency">
         <BindingEditor
           value={concurrencyBinding(config.concurrency)}
-          onChange={(concurrency) => update({ ...config, concurrency })}
+          onChange={(concurrency) => set({ ...config, concurrency })}
           nodeIds={nodeIds}
           fixedParser={(text) => Math.max(1, Math.min(16, Math.round(Number(text)) || 1))}
         />
@@ -690,7 +427,7 @@ function WorkflowCallForm({ node, update }: FormProps) {
               onClick={() => {
                 const next = { ...config }
                 delete next.items
-                update(next)
+                set(next)
               }}
               className="grid size-8 shrink-0 place-items-center rounded-[9px] text-[var(--text-tertiary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--system-red)]"
               aria-label="Remove items binding"
@@ -700,7 +437,7 @@ function WorkflowCallForm({ node, update }: FormProps) {
           ) : (
             <button
               type="button"
-              onClick={() => update({ ...config, items: { source: "trigger", path: "items" } })}
+              onClick={() => set({ ...config, items: { source: "trigger", path: "items" } })}
               className="flex h-8 shrink-0 items-center gap-1 rounded-[9px] px-2 text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)] hover:bg-[var(--fill-tertiary)]"
             >
               <Plus size={12} aria-hidden /> Bind
@@ -710,7 +447,7 @@ function WorkflowCallForm({ node, update }: FormProps) {
         {config.items && (
           <BindingEditor
             value={config.items}
-            onChange={(items) => update({ ...config, items })}
+            onChange={(items) => set({ ...config, items })}
             nodeIds={nodeIds}
             fixedParser={parseJsonFixedValue}
           />
@@ -766,27 +503,27 @@ function WorkflowCallForm({ node, update }: FormProps) {
   )
 }
 
-function ConditionForm({ node, update }: FormProps) {
+function ConditionForm({ node, update }: FormProps<WorkflowNodeOfType<"condition">>) {
   // useShallow keeps the snapshot stable — a fresh array per getSnapshot call
   // loops useSyncExternalStore into React #185 and crashes the editor.
   const nodeIds = useEditor(useShallow((state) => state.nodes.map((item) => item.id))).filter((id) => id !== node.id)
-  const config = node.config as { cases?: CaseWire[]; defaultPort?: string }
-  const cases = Array.isArray(config.cases) ? config.cases : []
+  const config = node.config
+  const cases = config.cases
 
-  const setCases = (next: CaseWire[]) => update({ ...node.config, cases: next })
-  const patchCase = (index: number, patch: Partial<CaseWire>) =>
+  const setCases = (next: ConditionCase[]) => update({ ...node, config: { ...config, cases: next } })
+  const patchCase = (index: number, patch: Partial<ConditionCase>) =>
     setCases(cases.map((item, i) => (i === index ? { ...item, ...patch } : item)))
 
   return (
     <>
       {cases.map((item, index) => {
-        const predicates = Array.isArray(item.all) ? item.all : []
+        const predicates = item.all
         return (
           <div key={item.port} className="rounded-[var(--radius-lg)] bg-[var(--fill-tertiary)] p-2.5">
             <div className="mb-1.5 flex items-center gap-1.5">
               <TextInput
                 aria-label={`Route ${index + 1} label`}
-                value={item.label ?? ""}
+                value={item.label}
                 onChange={(event) => patchCase(index, { label: event.target.value })}
                 placeholder={`Route ${index + 1}`}
                 className="flex-1 bg-[var(--bg-secondary)]"
@@ -804,11 +541,12 @@ function ConditionForm({ node, update }: FormProps) {
               <div key={predicateIndex} className="mb-1.5 space-y-1">
                 <div className="flex items-center gap-1">
                   <BindingEditor
-                    value={predicate.left ?? { source: "node", nodeId: nodeIds[0] ?? "", path: "text" }}
+                    value={predicate.left}
                     onChange={(left) => patchCase(index, {
                       all: predicates.map((p, i) => (i === predicateIndex ? { ...p, left } : p)),
                     })}
                     nodeIds={nodeIds}
+                    fixedParser={parseFixedValue}
                   />
                   <button
                     type="button"
@@ -821,10 +559,10 @@ function ConditionForm({ node, update }: FormProps) {
                 </div>
                 <div className="flex gap-1">
                   <Select
-                    value={predicate.operator ?? "equals"}
-                    onValueChange={(operator) => patchCase(index, {
+                    value={predicate.operator}
+                    onValueChange={(operator) => { if (isOperator(operator)) patchCase(index, {
                       all: predicates.map((p, i) => (i === predicateIndex ? { ...p, operator } : p)),
-                    })}
+                    }) }}
                   >
                     <SelectTrigger aria-label="Operator" className="h-8 w-auto min-w-[104px] flex-none">
                       <SelectValue />
@@ -882,125 +620,25 @@ function ConditionForm({ node, update }: FormProps) {
   )
 }
 
-function ApprovalForm({ node, update }: FormProps) {
-  const config = node.config as Record<string, unknown>
-  const operatorOnly = config.operatorOnly === true
-  return (
-    <>
-      <Field label="What needs approval?">
-        <Textarea
-          rows={3}
-          value={typeof config.description === "string" ? config.description : ""}
-          onChange={(event) => update({ ...config, description: event.target.value })}
-          placeholder="Describe the decision"
-        />
-      </Field>
-      <div className="flex items-center justify-between gap-[var(--space-3)]">
-        <label
-          htmlFor="approval-operator-only"
-          className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]"
-        >
-          Only the operator may decide
-        </label>
-        <Switch
-          id="approval-operator-only"
-          checked={operatorOnly}
-          // Mutually exclusive with an approver: naming one would contradict
-          // reserving the gate, and the definition schema refuses both together.
-          onCheckedChange={(next) => {
-            const { approver: _approver, operatorOnly: _operatorOnly, ...rest } = config
-            update(next ? { ...rest, operatorOnly: true } : rest)
-          }}
-        />
-      </div>
-      <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        {operatorOnly
-          ? "Reserved for the human operator. No employee can decide it, not even the COO, and escalating it does not open it up."
-          : "Otherwise this routes up the org hierarchy, so the COO can decide it."}
-      </p>
-      {!operatorOnly && (
-        <Field label="Approver (optional)">
-          <TextInput
-            value={fixedText(config.approver)}
-            onChange={(event) => update(withFixed(config, "approver", event.target.value))}
-            placeholder="Employee who decides"
-          />
-        </Field>
-      )}
-    </>
-  )
-}
-
-function WaitForm({ node, update }: FormProps) {
-  const config = node.config as { mode?: string; minutes?: number; timeoutMinutes?: number; timestamp?: unknown }
-  // No control for this mode on purpose: every input below writes a whole new
-  // config, so touching one would drop the mode and its timeout. It is authored
-  // through MCP/JSON, and the editor must not quietly rewrite it into a duration.
-  if (config.mode === "todo-comment") {
-    return (
-      <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        Resumes when you comment on the run’s Todo
-        {typeof config.timeoutMinutes === "number" ? `, or times out after ${config.timeoutMinutes} minutes` : ""}
-        . Configured outside the editor.
-      </p>
-    )
-  }
-  const mode = config.mode === "until" ? "until" : "duration"
-  return (
-    <>
-      <PickerField
-        label="Wait"
-        value={mode}
-        onChange={(next) => update(next === "until"
-          ? { mode: "until", timestamp: { source: "fixed", value: "" } }
-          : { mode: "duration", minutes: 60 })}
-        options={[{ value: "duration", label: "For a duration" }, { value: "until", label: "Until a timestamp" }]}
-      />
-      {mode === "duration" ? (
-        <Field label="Minutes">
-          <TextInput
-            type="number"
-            min={1}
-            max={43_200}
-            value={typeof config.minutes === "number" ? String(config.minutes) : ""}
-            onChange={(event) => {
-              const minutes = Math.max(1, Math.min(43_200, Math.round(Number(event.target.value)) || 1))
-              update({ mode: "duration", minutes })
-            }}
-          />
-        </Field>
-      ) : (
-        <Field label="Timestamp (ISO)">
-          <TextInput
-            value={fixedText(config.timestamp)}
-            onChange={(event) => update({ mode: "until", timestamp: { source: "fixed", value: event.target.value } })}
-            placeholder="2026-08-01T09:00:00Z"
-            style={{ fontFamily: "var(--font-code)" }}
-          />
-        </Field>
-      )}
-    </>
-  )
-}
-
-function EndForm({ node, update }: FormProps) {
-  const config = node.config as Record<string, unknown>
+function EndForm({ node, update }: FormProps<WorkflowNodeOfType<"end">>) {
+  const config = node.config
+  const set = (next: WorkflowNodeOfType<"end">["config"]) => update({ ...node, config: next })
   return (
     <>
       <PickerField
         label="Result"
-        value={config.result === "failure" ? "failure" : "success"}
-        onChange={(next) => update({ ...config, result: next })}
+        value={config.result}
+        onChange={(next) => { if (next === "success" || next === "failure") set({ ...config, result: next }) }}
         options={[{ value: "success", label: "Success" }, { value: "failure", label: "Failure" }]}
       />
       <Field label="Message (optional)">
         <TextInput
-          value={typeof config.message === "string" ? config.message : ""}
+          value={config.message ?? ""}
           onChange={(event) => {
             const next = { ...config }
             if (event.target.value) next.message = event.target.value
             else delete next.message
-            update(next)
+            set(next)
           }}
           placeholder="Shown on the run"
         />
@@ -1031,7 +669,7 @@ function NodeForm({ node, update }: FormProps) {
 
 function InspectorBody({ node }: { node: WorkflowNodeWire }) {
   const renameNode = useEditor((state) => state.renameNode)
-  const updateNodeConfig = useEditor((state) => state.updateNodeConfig)
+  const replaceNode = useEditor((state) => state.replaceNode)
   const removeNode = useEditor((state) => state.removeNode)
   const selectNode = useEditor((state) => state.selectNode)
 
@@ -1069,7 +707,7 @@ function InspectorBody({ node }: { node: WorkflowNodeWire }) {
             }}
           />
         </Field>
-        <NodeForm node={node} update={(config) => updateNodeConfig(node.id, config)} />
+        <NodeForm node={node} update={replaceNode} />
         <p className="pt-1 text-[length:var(--text-caption2)] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)" }}>
           {node.id}
         </p>

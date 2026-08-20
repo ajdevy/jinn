@@ -1,7 +1,21 @@
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire } from "@/lib/api"
 
-export type WorkflowNodeWire = WorkflowDefinitionV2Wire["nodes"][number]
-export type WorkflowNodeTypeV2 = WorkflowNodeWire["type"]
+export type WorkflowNodeWire = WorkflowDefinitionWire["nodes"][number]
+export type WorkflowNodeType = WorkflowNodeWire["type"]
+/** One arm of the node union, picked by its `type`. */
+export type WorkflowNodeOfType<T extends WorkflowNodeType> = Extract<WorkflowNodeWire, { type: T }>
+
+/** A binding whose fixed value is a plain string — what the Employee and
+ *  Workflow-call pickers write. */
+export type StringBinding = WorkflowNodeOfType<"employee">["config"]["employee"]
+
+/** The literal someone typed into a picker, or null when the binding points at
+ *  run data instead — a caption can only show the former. Tolerates an absent
+ *  binding: the schema requires one, but a caption blanking the whole canvas is
+ *  the wrong way to report a definition that somehow arrived without it. */
+export function fixedBinding(binding: StringBinding | undefined): string | null {
+  return binding?.source === "fixed" && binding.value ? binding.value : null
+}
 
 /** Rendering metadata for one output port. Placement is a visual concern only —
  *  connection/graph validation verdicts always come from the server. */
@@ -23,25 +37,17 @@ export const COND_HEADER = 54
 export const COND_ROW = 30
 export const COND_PAD = 6
 
-interface ConditionCaseWire {
-  port?: unknown
-  label?: unknown
-}
-
+/** A case still being authored can hold an empty port, which draws no dot. */
 export function conditionCases(node: WorkflowNodeWire): Array<{ port: string; label: string }> {
-  const config = node.config as { cases?: unknown; defaultPort?: unknown }
-  const cases = Array.isArray(config.cases) ? (config.cases as ConditionCaseWire[]) : []
-  return cases
-    .filter((item) => typeof item.port === "string" && item.port.length > 0)
-    .map((item) => ({
-      port: item.port as string,
-      label: typeof item.label === "string" && item.label.trim() ? (item.label as string) : (item.port as string),
-    }))
+  if (node.type !== "condition") return []
+  return node.config.cases
+    .filter((item) => item.port.length > 0)
+    .map((item) => ({ port: item.port, label: item.label.trim() || item.port }))
 }
 
 export function conditionDefaultPort(node: WorkflowNodeWire): string {
-  const port = (node.config as { defaultPort?: unknown }).defaultPort
-  return typeof port === "string" && port.length > 0 ? port : "else"
+  const port = node.type === "condition" ? node.config.defaultPort : ""
+  return port.length > 0 ? port : "else"
 }
 
 /** Declared node box — MUST equal the rendered card (fixed heights, no estimates). */
@@ -92,17 +98,17 @@ export function outputPorts(node: WorkflowNodeWire): OutputPortSpec[] {
   }
 }
 
-export function acceptsInput(type: WorkflowNodeTypeV2): boolean {
+export function acceptsInput(type: WorkflowNodeType): boolean {
   return type !== "trigger"
 }
 
 /** Max incoming connections rendered by the input handle (merge is unbounded).
  *  A limit here is a drawing affordance, not the rule engine. */
-export function inputConnectionLimit(type: WorkflowNodeTypeV2): number | undefined {
+export function inputConnectionLimit(type: WorkflowNodeType): number | undefined {
   return type === "merge" ? undefined : 1
 }
 
-export const NODE_TYPE_LABEL: Record<WorkflowNodeTypeV2, string> = {
+export const NODE_TYPE_LABEL: Record<WorkflowNodeType, string> = {
   trigger: "Trigger",
   employee: "Employee",
   "workflow-call": "Workflow call",

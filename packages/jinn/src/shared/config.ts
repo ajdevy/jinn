@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
+import { applyLegacyFallbackMigration, validateEngineFallbackChains } from "./engine-fallback.js";
 import type { JinnConfig } from "./types.js";
 
 type ClaudeEngineConfig = JinnConfig["engines"]["claude"];
@@ -15,9 +16,10 @@ export function normalizeClaudeEngineConfig(raw: ClaudeEngineConfig): Required<P
 /**
  * Shape validation for a config.yaml document, on the way in at startup and on
  * the way out of PUT /api/config. Returns a list of problems (empty = valid).
- * Deliberately minimal: only the fields whose absence/wrong type would crash the
- * gateway at startup are checked, so configs that rely on downstream defaults
- * keep working. On the write path that minimum is exactly the right line — it
+ * Near-minimal: the fields whose absence/wrong type would crash the gateway at
+ * startup, plus the engine fallback chains — a chain naming an engine that does
+ * not exist would otherwise fail silently, by never firing. Everything else is
+ * left to downstream defaults. On the write path that line is exactly right — it
  * accepts everything the loader accepts, and nothing that would leave the
  * operator with a config.yaml the gateway can no longer boot from.
  */
@@ -72,6 +74,7 @@ export function validateConfigShape(config: unknown): string[] {
     if (typeof c.engines.claude !== "object" || c.engines.claude === null || Array.isArray(c.engines.claude)) {
       problems.push("engines.claude must be a mapping");
     }
+    problems.push(...validateEngineFallbackChains(c.engines));
   }
 
   return problems;
@@ -98,6 +101,7 @@ export function loadConfig(): JinnConfig {
   }
   const config = parsed as JinnConfig;
   config.engines.claude = normalizeClaudeEngineConfig(config.engines.claude);
+  applyLegacyFallbackMigration(config);
   applyGatewayEnvOverrides(config);
   return config;
 }

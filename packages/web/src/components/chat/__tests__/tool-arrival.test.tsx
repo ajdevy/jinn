@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ChatMessages } from '../chat-messages'
+import { ToolGroup } from '../tool-group'
+import { TranscriptExpansionProvider } from '../transcript-expansion'
 import type { Message } from '@/lib/conversations'
 
 vi.mock('@/lib/api', () => ({
@@ -32,7 +34,7 @@ function arriveLive(newMessages: Message[], atMount: Message[] = HISTORY) {
   return container
 }
 
-const marks = (container: HTMLElement, kind: 'group' | 'chip') =>
+const marks = (container: HTMLElement, kind: 'group' | 'chip' | 'expand') =>
   Array.from(container.querySelectorAll(`[data-tool-enter="${kind}"]`))
 
 /** Open the group so its chips are mounted, then deliver the batch. */
@@ -93,6 +95,78 @@ describe('tool chip stagger', () => {
     const delays = (marks(container, 'chip') as HTMLElement[])
       .map((chip) => chip.style.getPropertyValue('--arrive-delay'))
     expect(delays).toEqual(['0ms', '90ms', '180ms'])
+  })
+})
+
+/** A group nothing arrived into: every call was present at mount. Opening it is
+ *  the reader's own act, so its chips owe an entrance the live rail never gave
+ *  them. */
+function openSettledGroup(count: number) {
+  const rendered = render(<ChatMessages messages={[...HISTORY, ...tools(count, 1)]} loading={false} />)
+  fireEvent.click(screen.getByRole('button', { expanded: false }))
+  return rendered
+}
+
+/** One transcript's expansion store, shared across a row that unmounts and comes
+ *  back — what a windowed transcript does when the reader scrolls away. */
+function settledGroupInStore(store: Map<string, boolean>, count: number) {
+  return render(
+    <TranscriptExpansionProvider value={store}>
+      <ToolGroup
+        msgs={tools(count, 1)}
+        isActive={false}
+        groupId="g1"
+        arrivals={new Map()}
+        isEntering={() => false}
+      />
+    </TranscriptExpansionProvider>,
+  )
+}
+
+describe('tool chip entrance on expand', () => {
+  it('animates the chips the reader just revealed, staggered on the shared rail', () => {
+    const { container } = openSettledGroup(3)
+
+    const chips = marks(container, 'expand') as HTMLElement[]
+    expect(chips).toHaveLength(3)
+    expect(chips.map((chip) => chip.style.getPropertyValue('--arrive-delay'))).toEqual(['0ms', '90ms', '180ms'])
+    expect(chips.every((chip) => chip.className.includes('tool-arrive'))).toBe(true)
+  })
+
+  it('leaves the live rail to the calls that arrived live', () => {
+    // Opening the group must not relabel a chip the arrival rail already owns,
+    // or a live burst would enter twice on two different staggers.
+    const container = arriveIntoOpenGroup(tools(2, 2), [...HISTORY, ...tools(1, 1)])
+    expect(marks(container, 'chip')).toHaveLength(2)
+    expect(marks(container, 'expand')).toHaveLength(1)
+  })
+
+  it('does not re-run the stagger when an open group re-renders', () => {
+    const { container, rerender } = openSettledGroup(3)
+    const before = marks(container, 'expand')
+
+    rerender(<ChatMessages messages={[...HISTORY, ...tools(3, 1)]} loading={false} />)
+
+    const after = marks(container, 'expand')
+    expect(after).toHaveLength(3)
+    // Same nodes carrying the same delays: nothing remounted, so the CSS
+    // animation cannot restart under the reader.
+    expect(after.every((chip, index) => chip === before[index])).toBe(true)
+  })
+
+  it('leaves a group that comes back already open unmarked', () => {
+    const store = new Map<string, boolean>()
+    const opened = settledGroupInStore(store, 3)
+    expect(marks(opened.container, 'expand')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(marks(opened.container, 'expand')).toHaveLength(3)
+    opened.unmount()
+
+    const restored = settledGroupInStore(store, 3)
+
+    // The expansion survived the row; the entrance does not repeat with it.
+    expect(restored.container.querySelector('[data-testid="tool-group-list"]')).not.toBeNull()
+    expect(marks(restored.container, 'expand')).toHaveLength(0)
   })
 })
 

@@ -2,6 +2,7 @@ const MAX_ID_CHARS = 128;
 const MAX_SESSION_KEY_CHARS = 256;
 const SAFE_ID_RE = /^[a-z0-9][a-z0-9_.:-]{0,127}$/;
 const SAFE_CRON_SESSION_KEY_RE = /^cron:[a-z0-9_.:-]{1,180}:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const SAFE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SAFE_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const CRON_RUN_STATUSES = new Set(["success", "error", "started", "skipped", "duplicate", "expired"]);
 
@@ -15,6 +16,12 @@ function safeSessionKey(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   if (value.length === 0 || value.length > MAX_SESSION_KEY_CHARS) return undefined;
   return SAFE_CRON_SESSION_KEY_RE.test(value) ? value : undefined;
+}
+
+function safeSessionId(value: unknown): string | undefined {
+  // The runner writes `null` for a fire that never spawned a session.
+  if (typeof value !== "string") return undefined;
+  return SAFE_UUID_RE.test(value) ? value : undefined;
 }
 
 function safeStatus(value: unknown): string | undefined {
@@ -49,6 +56,8 @@ export function summarizeCronRun(run: unknown): Record<string, unknown> {
   if (finishedAt !== undefined) out.finishedAt = finishedAt;
   const sessionKey = safeSessionKey(src.sessionKey);
   if (sessionKey !== undefined) out.sessionKey = sessionKey;
+  const sessionId = safeSessionId(src.sessionId);
+  if (sessionId !== undefined) out.sessionId = sessionId;
   const status = safeStatus(src.status);
   if (status !== undefined) out.status = status;
   const exitCode = safeNumber(src.exitCode);

@@ -7,7 +7,6 @@ import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 import { THEMES } from "@/lib/themes"
 import { api } from "@/lib/api"
-import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { RemoteAccessPanel } from "@/components/auth/remote-access-panel"
@@ -20,7 +19,10 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
+import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
 import { PluginsEntry } from "./plugins/entry"
+import { EnginesSection } from "./engines/entry"
+import type { EnginesConfig } from "./engines/chain-model"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
@@ -58,16 +60,11 @@ const ACCENT_PRESETS = [
 
 interface Config {
   gateway?: { port?: number; host?: string }
-  engines?: {
-    default?: string
-    claude?: { bin?: string; model?: string; effortLevel?: string }
-    codex?: { bin?: string; model?: string; effortLevel?: string }
-    grok?: { bin?: string; model?: string; effortLevel?: string }
-  }
+  engines?: EnginesConfig
   sessions?: {
     interruptOnNewMessage?: boolean
-    rateLimitStrategy?: "wait" | "fallback"
-    fallbackEngine?: "codex"
+    rateLimitStrategy?: "wait" | "fallback" | null
+    fallbackEngine?: string | null
     staleChat?: {
       enabled?: boolean
       tokenThreshold?: number
@@ -156,7 +153,6 @@ export default function SettingsPage() {
     setPortalName,
     setPortalSubtitle,
     setOperatorName,
-    setPortalEmoji,
     setLanguage,
     setTalkOrb,
     resetAll,
@@ -175,10 +171,8 @@ export default function SettingsPage() {
   const [nameValue, setNameValue] = useState(settings.portalName ?? "")
   const [subtitleValue, setSubtitleValue] = useState(settings.portalSubtitle ?? "")
   const [operatorNameValue, setOperatorNameValue] = useState(settings.operatorName ?? "")
-  const [emojiValue, setEmojiValue] = useState(settings.portalEmoji ?? "")
   const [languageValue, setLanguageValue] = useState(settings.language ?? "English")
   const [customHex, setCustomHex] = useState(settings.accentColor ?? "")
-  const [showCooEmojiPicker, setShowCooEmojiPicker] = useState(false)
   const [claudeModelId, setClaudeModelId] = useState("")
   const [claudeModelLabel, setClaudeModelLabel] = useState("")
 
@@ -227,7 +221,6 @@ export default function SettingsPage() {
     setNameValue(settings.portalName ?? "")
     setSubtitleValue(settings.portalSubtitle ?? "")
     setOperatorNameValue(settings.operatorName ?? "")
-    setEmojiValue(settings.portalEmoji ?? "")
     setLanguageValue(settings.language ?? "English")
     setCustomHex(settings.accentColor ?? "")
   }, [
@@ -235,7 +228,6 @@ export default function SettingsPage() {
     settings.portalName,
     settings.portalSubtitle,
     settings.operatorName,
-    settings.portalEmoji,
     settings.language,
     settings.accentColor,
   ])
@@ -622,46 +614,9 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {/* Portal emoji \u2014 one control instead of the old duplicate pair
-                  (a picker section + a raw text input both writing the same
-                  setting). The button opens the searchable picker; the small
-                  field still accepts free-form marks (letters, custom glyphs). */}
-              <div>
-                <label
-                  className="block text-[length:var(--text-caption1)] text-[var(--text-tertiary)] mb-[var(--space-1)]"
-                >
-                  Portal Emoji
-                </label>
-                <div className="relative flex items-center gap-[var(--space-3)]">
-                  <button
-                    type="button"
-                    onClick={() => setShowCooEmojiPicker(!showCooEmojiPicker)}
-                    aria-label="Choose portal emoji"
-                    aria-expanded={showCooEmojiPicker}
-                    className="flex size-[44px] cursor-pointer items-center justify-center rounded-[13px] border-none bg-[var(--fill-quaternary)] text-[26px] leading-none transition-colors hover:bg-[var(--fill-tertiary)]"
-                  >
-                    {settings.portalEmoji ?? "\u{1F9DE}"}
-                  </button>
-                  <input
-                    type="text"
-                    className={cn(CONTROL_CLASS, "w-[96px] text-center")}
-                    placeholder={"\u{1F9DE}\u{FE0F}"}
-                    value={emojiValue}
-                    onChange={(e) => setEmojiValue(e.target.value)}
-                    onBlur={() => setPortalEmoji(emojiValue || null)}
-                  />
-                  {showCooEmojiPicker && (
-                    <EmojiPicker
-                      current={settings.portalEmoji ?? "\u{1F9DE}"}
-                      onSelect={(emoji) => {
-                        setPortalEmoji(emoji)
-                        setShowCooEmojiPicker(false)
-                      }}
-                      onClose={() => setShowCooEmojiPicker(false)}
-                    />
-                  )}
-                </div>
-              </div>
+              <OperatorEmojiRow />
+
+              <PortalEmojiRow />
 
               <div>
                 <label
@@ -1000,6 +955,13 @@ export default function SettingsPage() {
                 </FieldRow>
               </Section>
 
+              {/* -- Section 4b: Engines — health and fallback chains -- */}
+              <EnginesSection
+                engines={config.engines}
+                sessions={config.sessions}
+                onChange={updateConfig}
+              />
+
               {/* -- Section 5: Sessions -- */}
               <Section title="Sessions">
                 <FieldRow label="Suggest Fresh Chats">
@@ -1059,28 +1021,6 @@ export default function SettingsPage() {
                   disabled, messages are queued.
                 </div>
 
-                <div
-                  className="border-t border-[var(--separator)] mt-[var(--space-3)] pt-[var(--space-3)]"
-                />
-
-                <FieldRow label="When Claude Hits Usage Limit">
-                  <SettingsSelect
-                    value={config.sessions?.rateLimitStrategy ?? "wait"}
-                    onChange={(v) =>
-                      updateConfig(["sessions", "rateLimitStrategy"], v)
-                    }
-                    options={[
-                      { value: "wait", label: "Wait & Auto-Resume" },
-                      { value: "fallback", label: "Switch to GPT (Codex)" },
-                    ]}
-                  />
-                </FieldRow>
-                <div
-                  className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] mt-[4px]"
-                >
-                  "Wait" pauses the session and continues automatically when Claude resets.
-                  "Switch" answers immediately using GPT, then returns to Claude once the reset window passes.
-                </div>
               </Section>
 
               {/* -- Section 6: Connectors -- */}

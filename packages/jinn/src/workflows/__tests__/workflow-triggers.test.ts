@@ -327,7 +327,7 @@ describe("Workflow trigger adapters", () => {
     await service.cancelRun({ workflowId: parent.id, runId: parentRun.id, reason: "Caller finished." });
     const terminalReplay = await service.callWorkflow({ workflowId: definition.id, caller,
       input: { topic: "release" }, idempotencyKey: "x".repeat(128) });
-    expect(terminalReplay).toMatchObject({ id: first.id, revision: first.revision });
+    expect(terminalReplay).toMatchObject({ id: first.id, status: "cancelled" });
     for (const changed of [
       { workflowId: definition.id, caller, input: { topic: "changed" } },
       { workflowId: definition.id, caller: alternateCaller, input: { topic: "release" } },
