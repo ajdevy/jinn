@@ -46,8 +46,8 @@ function armedWorkflow(id: string, config: { label?: string; actor?: string } = 
 }
 
 /** A Todo the given workflow was driving when a quota window killed its attempt. */
-function parkedBy(workflowId: string | undefined, title: string): string {
-  const item = store.createWorkItem({ title, status: "executing" });
+function parkedBy(workflowId: string | undefined, title: string, status: "executing" | "assigned" = "executing"): string {
+  const item = store.createWorkItem({ title, status });
   const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: `s-${item.id}` });
   runs.closeWorkItemRun(run.id, { outcome: "rate_limited", endedAt: new Date(NOW.getTime() - 90 * 60_000).toISOString(), error: QUOTA });
   if (workflowId !== undefined) {
@@ -106,6 +106,18 @@ describe("when nothing can be re-armed", () => {
       unavailable: expect.stringContaining("no Workflow run has ever driven this Todo"),
     });
     expect(store.getWorkItem(id)?.status).toBe("executing");
+  });
+
+  it("says so when the Todo already sits at the status the trigger fires on", () => {
+    // transitions.ts no-ops a same-status move, so nothing reaches the trigger.
+    // Calling that a landing would spend this failure's one resume on it.
+    armedWorkflow("resume-standing", { label: "build" });
+    const id = parkedBy("resume-standing", "already at the arming status", "assigned");
+
+    expect(port.availabilityRearm(id, repository)).toMatchObject({
+      unavailable: expect.stringContaining("already `assigned`"),
+    });
+    expect(store.listWorkItemEvents(id).filter((e) => e.kind === "availability_resumed")).toHaveLength(0);
   });
 
   it("says so when the Workflow that drove it has since been disabled", () => {

@@ -97,7 +97,10 @@ export function sweepAvailabilityResumes(deps: AvailabilityResumeDeps): number {
   for (const item of RESUMABLE_STATUSES.flatMap((status) => listWorkItems({ status }))) {
     const due = dueForResume(item.id, now);
     if (due === undefined) continue;
-    const verdict = checkRespawnGuard(item.id, now);
+    // The sweep has already answered the question `rate_limit_cooldown` asks, and
+    // from a more specific source than its generic 30 minutes, so letting it
+    // answer again would override a reopening the engine itself named.
+    const verdict = checkRespawnGuard(item.id, now, { quotaWindowDecided: true });
     if (verdict.state === 'held') {
       recordHoldOnce(item.id, verdict, due.run.endedAt);
       continue;
@@ -193,16 +196,20 @@ function resolveReset(run: SettledRun, now: Date): Reset {
 }
 
 /**
- * The engine's own record of when it can serve again. `readEngineHealth` expires
- * a spent record to `ok`, and that IS an answer: the window the engine named has
- * closed. An `exhausted` record with no `until` named no window at all, so it
- * says nothing and the caller falls through to the cooldown floor.
+ * The engine's own record of when it can serve again.
+ *
+ * A record still inside its window names that moment, and it is the answer
+ * whether the record is `exhausted` or merely `degraded` — a degraded window is
+ * a weaker claim about the engine, not a claim about a different time.
+ * `readEngineHealth` expires a spent record to `ok` and drops its `until`, which
+ * is the engine saying the window it named has closed. A live record that named
+ * no window says nothing, so the caller falls through to the cooldown floor.
  */
 function engineReset(engine: string, now: Date): number | undefined {
   const record = readEngineHealth(now)[engine];
   if (record === undefined) return undefined;
-  if (record.state !== 'exhausted') return now.getTime();
-  return record.until === undefined ? undefined : Date.parse(record.until);
+  if (record.until !== undefined) return Date.parse(record.until);
+  return record.state === 'ok' ? now.getTime() : undefined;
 }
 
 /** Which engine served the attempt, read off the session that ran it. The run

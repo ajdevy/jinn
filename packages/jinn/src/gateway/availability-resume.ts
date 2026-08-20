@@ -35,10 +35,16 @@ export function availabilityRearm(todoId: string, repository: WorkflowRepository
 
   if (target.label !== undefined) restoreArmingLabel(todoId, target.label);
   try {
-    transition(todoId, target.status as WorkItemStatus, armingActor(target.actor), {
+    const moved = transition(todoId, target.status as WorkItemStatus, armingActor(target.actor), {
       requeue: true,
       detail: { workflowId, availabilityResume: true },
     });
+    // A Todo already sitting at that status takes no status write at all, so no
+    // event reaches the trigger and nothing re-arms. Reporting it as a landing
+    // would spend this failure's one resume on a move that never happened.
+    if (moved.event === undefined) {
+      return { unavailable: `it is already \`${target.status}\`, so a re-arm writes no status event for the trigger to fire on` };
+    }
   } catch (error) {
     if (!(error instanceof TransitionError)) throw error;
     return { unavailable: `it could not be moved to \`${target.status}\`: ${error.message}` };

@@ -32,6 +32,15 @@ export interface RespawnGuardHold {
 
 export type RespawnGuardVerdict = { state: 'allowed' } | RespawnGuardHold;
 
+export interface RespawnGuardOptions {
+  /** The caller has already settled when this quota window reopens, from a more
+   *  specific source than the clock below — the failure's own stated time, or
+   *  the engine's health record. Asking `rate_limit_cooldown` again would answer
+   *  that same question generically and override it, so it is skipped. The other
+   *  three guards read different facts and still apply. */
+  quotaWindowDecided?: boolean;
+}
+
 /** How long a quota window parks automated re-dispatch. The same grace the
  *  engine backoff already gives a rate-limited attempt. */
 export const RESPAWN_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
@@ -81,10 +90,14 @@ export type SettledRun = TodoRun & { endedAt: string };
  * makes it `auth-terminal` too. Losing that race parks the Todo behind a guard
  * only a human can clear — while the quota window clears itself.
  */
-export function checkRespawnGuard(workItemId: string, now: Date = new Date()): RespawnGuardVerdict {
+export function checkRespawnGuard(
+  workItemId: string,
+  now: Date = new Date(),
+  opts: RespawnGuardOptions = {},
+): RespawnGuardVerdict {
   const id = parseTodoId(workItemId);
   const lastSettled = lastSettledRun(listWorkItemRuns(id));
-  return rateLimitCooldown(lastSettled, now)
+  return (opts.quotaWindowDecided ? undefined : rateLimitCooldown(lastSettled, now))
     ?? blockerAuth(lastSettled)
     ?? recentSuccess(id, lastSettled, now)
     ?? activePullRequest(id, now)
