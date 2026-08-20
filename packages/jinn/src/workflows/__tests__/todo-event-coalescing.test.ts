@@ -57,6 +57,7 @@ const feed: WorkflowTodoEventFeed = {
 function event(id: string, workItemId: string, labels: string[] = []): WorkflowTodoStatusEvent {
   return {
     id, workItemId, fromStatus: "executing", toStatus: "in_review", actor: "operator", armedAsDelegate: null,
+    quotaWindowDecided: false,
     item: {
       source: "human", department: null, assignee: null,
       labels: labels.map((name) => ({ id: `lbl_${name}`, name })),

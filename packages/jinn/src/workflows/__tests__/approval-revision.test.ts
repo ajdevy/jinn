@@ -158,7 +158,7 @@ async function runToGate(definition: WorkflowDefinition, todoId: string,
   toStatus: WorkflowTodoStatusEvent["toStatus"], actor: string) {
   events += 1;
   feed.pending.push({
-    id: `wie_${events}`, workItemId: todoId, fromStatus: "backlog", toStatus, actor, armedAsDelegate: null,
+    id: `wie_${events}`, workItemId: todoId, fromStatus: "backlog", toStatus, actor, armedAsDelegate: null, quotaWindowDecided: false,
     item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
   });
   await service.recover(now.toISOString());
