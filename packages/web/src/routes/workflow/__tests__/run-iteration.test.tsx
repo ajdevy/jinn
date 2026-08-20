@@ -156,7 +156,7 @@ describe("an iterating Workflow Call in a run", () => {
   it("shows what each round returned and the session it ran in", async () => {
     serveRun(
       { status: "running", resolvedConfig: { workflowId: "body-flow", round: 2, maxRounds: 3 } },
-      [round(0, "completed", { verdict: "rework" }, "session-round-1"), round(1, "running")],
+      [round(0, "completed", { verdict: "rework" }, "session-round-1"), round(1, "running", undefined, "session-round-2")],
     )
     renderRun()
 
@@ -165,7 +165,9 @@ describe("an iterating Workflow Call in a run", () => {
 
     expect(inspector.getByText("verdict")).toBeTruthy()
     expect(inspector.getByText("rework")).toBeTruthy()
-    const session = inspector.getByRole("link", { name: "session-round-1" })
-    expect(session.getAttribute("href")).toBe("/?session=session-round-1")
+    // A round that is still running is the one an operator most wants to open, so its link is there too.
+    for (const round of ["session-round-1", "session-round-2"]) {
+      expect(inspector.getByRole("link", { name: round }).getAttribute("href")).toBe(`/?session=${round}`)
+    }
   })
 })

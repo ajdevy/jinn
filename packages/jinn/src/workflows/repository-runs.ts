@@ -263,6 +263,7 @@ export function readRunDetail(db: WorkflowSqliteConnection, workflowId: string, 
   return { ...run, nodeRuns, attempts, approvals, childRuns };
 }
 
+const CHILD_SESSION = 'SELECT session_id FROM workflow_attempts WHERE run_id = ? AND session_id IS NOT NULL ORDER BY rowid DESC LIMIT 1';
 export function readRunsByCaller(
   db: WorkflowSqliteConnection,
   parentRunId: string,
@@ -289,9 +290,11 @@ export function readRunsByCaller(
       repositoryError('corrupt-record', `Workflow child runs for ${parentRunId}:${nodeId} have invalid item indexes.`);
     }
     if (itemIndex !== undefined) seen.add(itemIndex as number);
-    const end = orderedNodes(db, run).find((candidate) => candidate.nodeType === 'end' && candidate.status === 'completed');
     const nodes = orderedNodes(db, run);
-    const session = nodes.filter((candidate) => candidate.output?.sessionId).at(-1)?.output?.sessionId;
+    const end = nodes.find((candidate) => candidate.nodeType === 'end' && candidate.status === 'completed');
+    // The session this child ran in. Only a completed node writes it into its output, so a running or failed round reads it off its attempt row.
+    const session = nodes.filter((candidate) => candidate.output?.sessionId).at(-1)?.output?.sessionId
+      ?? (db.prepare(CHILD_SESSION).get(run.id) as { session_id: string } | undefined)?.session_id;
     return {
       runId: run.id,
       workflowId: run.workflowId,
