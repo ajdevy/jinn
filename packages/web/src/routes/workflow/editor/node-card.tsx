@@ -1,9 +1,8 @@
-import { useEffect } from "react"
-import { Handle, Position, useInternalNode, useNodeConnections, useUpdateNodeInternals, type NodeProps } from "@xyflow/react"
+import { Handle, Position, useInternalNode, useNodeConnections, type NodeProps } from "@xyflow/react"
 import { Plus } from "lucide-react"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { NodeTypeMenu, useMenu } from "./add-menu"
-import { createWorkflowNode, type EditorNode } from "./graph"
+import { createWorkflowNode, workflowCallProgress, type EditorNode } from "./graph"
 import { freeCenter } from "./layout"
 import { NodeTypeIcon } from "./node-icons"
 import {
@@ -15,6 +14,7 @@ import {
   inputConnectionLimit,
   nodeBox,
   outputPorts,
+  useOutputPorts,
   type OutputPortSpec,
   type WorkflowNodeType,
   fixedBinding,
@@ -228,8 +228,9 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
   const node = data.node
   const readOnly = data.run !== undefined
   const employee = employeeName(node)
+  const ports = useOutputPorts(node)
   const caption = node.type === "workflow-call" && data.run?.workflowCall
-    ? `${data.run.workflowCall.succeeded}/${data.run.workflowCall.total} · ${statusMeta(data.run.status).label}`
+    ? `${workflowCallProgress(data.run.workflowCall)} · ${statusMeta(data.run.status).label}`
     : data.run?.waitComment
       ? `waiting for your comment on ${data.run.waitComment.todoId} · ${compactMinutes(data.run.waitComment.timeoutMinutes)}`
       : nodeCaption(node)
@@ -259,7 +260,7 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
         </span>
       </div>
       {node.type !== "trigger" && <InputHandle node={node} readOnly={readOnly} />}
-      {outputPorts(node).map((spec) => (
+      {ports.map((spec) => (
         <OutputHandle key={spec.id} nodeId={node.id} spec={spec} readOnly={readOnly} />
       ))}
     </CardShell>
@@ -269,13 +270,7 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
 function ConditionCard({ data, selected }: NodeProps<EditorNode>) {
   const node = data.node
   const readOnly = data.run !== undefined
-  const updateInternals = useUpdateNodeInternals()
-  const ports = outputPorts(node)
-  const portKey = ports.map((port) => port.id).join("\0")
-  useEffect(() => {
-    updateInternals(node.id)
-  }, [node.id, portKey, updateInternals])
-
+  const ports = useOutputPorts(node)
   const cases = conditionCases(node)
   return (
     <CardShell node={node} selected={selected ?? false} run={data.run}>

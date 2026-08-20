@@ -1010,7 +1010,7 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 370,
+      "lines": 325,
       "exempt": [
         "complexity"
       ]
@@ -1032,7 +1032,7 @@
       ]
     },
     "packages/jinn/src/workflows/repository-runs.ts": {
-      "lines": 469,
+      "lines": 431,
       "exempt": [
         "complexity"
       ]
@@ -1049,7 +1049,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1075,
+      "lines": 1060,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1076,7 +1076,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 484,
+      "lines": 481,
       "exempt": [
         "complexity"
       ]
@@ -1912,14 +1912,14 @@
       ]
     },
     "packages/web/src/routes/workflow/editor/inspector.tsx": {
-      "lines": 773,
+      "lines": 753,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/workflow/editor/node-card.tsx": {
-      "lines": 346,
+      "lines": 341,
       "exempt": [
         "complexity"
       ]
@@ -1953,7 +1953,7 @@
       ]
     },
     "packages/web/src/routes/workflow/run-inspector.tsx": {
-      "lines": 420,
+      "lines": 387,
       "exempt": [
         "complexity",
         "max-lines-per-function"

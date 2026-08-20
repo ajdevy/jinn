@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { ApprovalForm } from "./approval-form"
 import { allocateConditionPort } from "./graph"
-import { CLEAR, Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
+import { CLEAR, Field, PickerField, TextInput, fixedText, fixedValueText, parseFixedValue, parseJsonFixedValue, type FormProps } from "./inspector-fields"
+import { IterateSection } from "./inspector-iterate"
 import { NodeTypeIcon } from "./node-icons"
 import { OutputSchemaForm } from "./output-schema-form"
 import { NODE_TYPE_LABEL, type WorkflowNodeOfType, type WorkflowNodeWire } from "./ports"
@@ -37,28 +38,6 @@ function FilterPicker({
       ]}
     />
   )
-}
-
-
-/** Fixed predicate values coerce sensibly: true/false → boolean, numerics → number. */
-function parseFixedValue(text: string): JsonValueWire {
-  if (text === "true") return true
-  if (text === "false") return false
-  if (text.trim() !== "" && Number.isFinite(Number(text))) return Number(text)
-  return text
-}
-
-function parseJsonFixedValue(text: string): JsonValueWire {
-  try {
-    return JSON.parse(text) as JsonValueWire
-  } catch {
-    return text
-  }
-}
-
-function fixedValueText(value: WorkflowBindingWire<JsonValueWire> | undefined): string {
-  if (value?.source !== "fixed") return ""
-  return typeof value.value === "string" ? value.value : JSON.stringify(value.value ?? "")
 }
 
 /* ── per-type forms ───────────────────────────────────────────────────────── */
@@ -499,6 +478,7 @@ function WorkflowCallForm({ node, update }: FormProps<WorkflowNodeOfType<"workfl
           </div>
         ))}
       </section>
+      <IterateSection nodeId={node.id} config={config} update={set} />
     </>
   )
 }

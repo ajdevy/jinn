@@ -126,6 +126,9 @@ export interface WorkflowChildRunSummary {
   startedAt: string;
   endedAt?: string;
   endOutput?: Record<string, JsonValue>;
+  /** The engine session this child ran in, when it had one — what makes a single
+   *  iteration round separately readable from its caller's run detail. */
+  sessionId?: string;
   error?: WorkflowError;
 }
 

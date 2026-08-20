@@ -187,8 +187,10 @@ describe("Workflow runs started from an attempt session", () => {
       workflowId: beta.id, input: {}, callerSessionId: attemptSession(alphaRun.id),
     });
 
+    // The spawn is still running, so its session comes off its own attempt row rather than a node output.
     expect(service.getRun(alpha.id, alphaRun.id)!.childRuns).toEqual([{
       runId: betaRun.id, workflowId: beta.id, nodeId: "work", status: "running", startedAt: NOW,
+      sessionId: attemptSession(betaRun.id),
     }]);
 
     await service.cancelRun({ workflowId: alpha.id, runId: alphaRun.id, reason: "Parent stopped." });

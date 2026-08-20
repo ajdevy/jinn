@@ -25,7 +25,7 @@ import {
   todoCommentWaitTriggerIssues,
   todoTriggerFilterIssues,
   validateExecutableWorkflow,
-  workflowCallTargetIssues,
+  workflowCallSaveIssues,
   type WorkflowValidationIssue,
 } from "./validation.js";
 
@@ -221,7 +221,7 @@ export class WorkflowService {
       ...scheduleTriggerIssues(definition),
       ...todoCommentWaitTriggerIssues(definition),
       ...todoTriggerFilterIssues(definition),
-      ...workflowCallTargetIssues(definition),
+      ...workflowCallSaveIssues(definition),
     ];
     if (issues.length > 0) throw new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", issues);
     const value = this.options.repository.saveDefinition(definition, expectedRevision); this.definitionChanged(value); return value;

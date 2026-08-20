@@ -52,10 +52,7 @@ function authoredDefinition(id = 'content-flow', title = 'Content flow'): Workfl
     nodes: [
       { id: 'start', type: 'trigger', name: 'Start', config: { kind: 'manual' } },
       { id: 'event-start', type: 'trigger', name: 'Event start', config: { kind: 'event', eventName: 'content.ready' } },
-      {
-        id: 'draft', type: 'employee', name: 'Draft content',
-        config: { employee: { source: 'fixed', value: 'writer' }, prompt: 'Draft the content.' },
-      },
+      { id: 'draft', type: 'employee', name: 'Draft content', config: { employee: { source: 'fixed', value: 'writer' }, prompt: 'Draft the content.' } },
       { id: 'pause', type: 'wait', name: 'Pause', config: { mode: 'duration', minutes: 5 } },
       { id: 'approve', type: 'approval', name: 'Approve', config: { description: 'Approve the draft.' } },
       { id: 'finish', type: 'end', name: 'Finish', config: { result: 'success' } },
@@ -66,13 +63,14 @@ function authoredDefinition(id = 'content-flow', title = 'Content flow'): Workfl
 
 function calledDefinition(id = 'child-flow'): WorkflowDefinition {
   const created = repository.createDefinition({ id, title: 'Child flow' });
-  return repository.saveDefinition({
-    ...created,
+  return repository.saveDefinition({ ...created,
     nodes: [
       { id: 'start', type: 'trigger', name: 'Called', config: { kind: 'workflow-call' } },
+      { id: 'write', type: 'employee', name: 'Write', config: { employee: { source: 'fixed', value: 'writer' }, prompt: 'Write.' } },
       { id: 'finish', type: 'end', name: 'Finish', config: { result: 'success' } },
     ],
-    edges: [{ id: 'finish', from: { nodeId: 'start', port: 'success' }, to: { nodeId: 'finish', port: 'input' } }],
+    edges: [{ id: 'to-write', from: { nodeId: 'start', port: 'success' }, to: { nodeId: 'write', port: 'input' } },
+      { id: 'finish', from: { nodeId: 'write', port: 'success' }, to: { nodeId: 'finish', port: 'input' } }],
   }, created.revision);
 }
 
@@ -86,14 +84,8 @@ function createRun(overrides: Partial<CreateRunInput> = {}): WorkflowRunRecord {
 }
 
 function resolved(employeeId = 'writer'): ResolvedEmployeeConfig {
-  return {
-    employeeId,
-    engine: 'codex',
-    model: 'model-name',
-    effort: 'high',
-    retry: { attempts: 2, delaySeconds: 10, backoff: 'fixed' },
-    timeoutMinutes: 30,
-  };
+  return { employeeId, engine: 'codex', model: 'model-name', effort: 'high', timeoutMinutes: 30,
+    retry: { attempts: 2, delaySeconds: 10, backoff: 'fixed' } };
 }
 
 function expectRepositoryError(action: () => unknown, code: WorkflowRepositoryError['code']): WorkflowRepositoryError {
@@ -170,36 +162,44 @@ describe('WorkflowRepository Task 11 contract', () => {
 });
 
 describe('run creation and idempotency', () => {
-  it('lists child runs by caller in item order with their End output fields', () => {
+  it('lists child runs by caller in item order, with the End output and the session of each round', () => {
     const parentDefinition = authoredDefinition();
     const childDefinition = calledDefinition();
     const parent = repository.createRun({ workflowId: parentDefinition.id, input: {},
       trigger: { nodeId: 'start', kind: 'manual', payload: {} } });
-    const children = [2, 0, 1].map((itemIndex) => repository.createRun({
-      workflowId: childDefinition.id,
-      input: { topic: `item-${itemIndex}` },
+    const children = [2, 0, 1, 3].map((itemIndex) => repository.createRun({
+      workflowId: childDefinition.id, input: { topic: `item-${itemIndex}` },
       trigger: { nodeId: 'start', kind: 'workflow-call', payload: {
         caller: { workflowId: parent.workflowId, runId: parent.id, nodeId: 'draft' }, itemIndex,
-      } },
-      idempotencyKey: `${parent.id}:draft:${itemIndex}`,
+      } }, idempotencyKey: `${parent.id}:draft:${itemIndex}`,
     }));
+    // Round 0 is still running and round 1 failed, each with a session on its attempt and nothing in its node
+    // output; round 2 finished and carries one in its output; round 3 finished without ever dispatching.
     for (const child of children) {
       const itemIndex = child.trigger.payload.itemIndex as number;
       repository.mutateRun(child.id, child.revision, (tx) => {
         tx.setNodeStatus('start', 'completed', { activated: true, startedAt: now, endedAt: now });
-        tx.setNodeStatus('finish', 'completed', { activated: true,
-          output: { text: '', fields: { result: `done-${itemIndex}` } }, startedAt: now, endedAt: now });
+        if (itemIndex < 3) {
+          tx.createAttempt({ nodeId: 'write', resolvedConfig: resolved(), input: {} });
+          tx.settleAttempt('write', 1, { status: 'running', sessionId: `session-${itemIndex}` });
+        }
+        if (itemIndex === 0) return tx.setRunStatus('running', {});
+        if (itemIndex === 1) return tx.setRunStatus('failed', { endedAt: now, error: { code: 'engine-down', message: 'Engine down.', retryable: true } });
+        if (itemIndex === 2) {
+          tx.settleAttempt('write', 1, { status: 'completed', output: { text: '', fields: {} }, endedAt: now });
+          tx.setNodeStatus('write', 'completed', { activated: true, startedAt: now, endedAt: now, output: { text: '', fields: {}, sessionId: 'session-2' } });
+        }
+        tx.setNodeStatus('finish', 'completed', { activated: true, startedAt: now, endedAt: now, output: { text: '', fields: { result: `done-${itemIndex}` } } });
         tx.setRunStatus('completed', { endedAt: now });
       });
     }
 
-    expect(repository.listChildRuns(parent.id, 'draft')).toEqual([
-      expect.objectContaining({ itemIndex: 0, runId: children[1]!.id, workflowId: childDefinition.id,
-        status: 'completed', endOutput: { result: 'done-0' } }),
-      expect.objectContaining({ itemIndex: 1, runId: children[2]!.id, workflowId: childDefinition.id,
-        status: 'completed', endOutput: { result: 'done-1' } }),
-      expect.objectContaining({ itemIndex: 2, runId: children[0]!.id, workflowId: childDefinition.id,
-        status: 'completed', endOutput: { result: 'done-2' } }),
+    expect(repository.listChildRuns(parent.id, 'draft').map((round) => [round.itemIndex, round.runId,
+      round.workflowId, round.status, round.endOutput?.result, round.sessionId])).toEqual([
+      [0, children[1]!.id, childDefinition.id, 'running', undefined, 'session-0'],
+      [1, children[2]!.id, childDefinition.id, 'failed', undefined, 'session-1'],
+      [2, children[0]!.id, childDefinition.id, 'completed', 'done-2', 'session-2'],
+      [3, children[3]!.id, childDefinition.id, 'completed', 'done-3', undefined],
     ]);
   });
 

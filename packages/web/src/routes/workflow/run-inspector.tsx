@@ -13,6 +13,7 @@ import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, fixedBinding, type WorkflowNodeOfType, type WorkflowNodeWire } from "./editor/ports"
 import { AttemptCard } from "./run-attempt-card"
 import { FieldsTable } from "./run-fields"
+import { ChildRunsSection } from "./run-rounds"
 import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
 
 function JsonBlock({ value }: { value: unknown }) {
@@ -62,40 +63,6 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
               {row.value}
             </span>
           </div>
-        ))}
-      </div>
-    </Section>
-  )
-}
-
-function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailWire; nodeId: string }) {
-  const children = (detail.childRuns ?? [])
-    .filter((child) => child.nodeId === nodeId)
-    .sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
-  if (children.length === 0) return null
-  return (
-    <Section title="Child runs">
-      <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
-        {children.map((child) => (
-          <Link
-            key={child.runId}
-            to={`/workflow/${encodeURIComponent(child.workflowId)}/runs/${encodeURIComponent(child.runId)}`}
-            className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                {child.itemIndex === undefined ? child.workflowId : `Item ${child.itemIndex + 1}`}
-              </span>
-              <span
-                className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
-                style={{ fontFamily: "var(--font-code)" }}
-              >
-                {child.runId}
-              </span>
-            </span>
-            <StatusLine status={child.status} />
-            <ChevronRight size={14} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
-          </Link>
         ))}
       </div>
     </Section>

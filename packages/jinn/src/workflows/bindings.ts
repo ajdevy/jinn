@@ -5,7 +5,11 @@ import type { WorkflowError } from './runtime.js';
 
 export interface WorkflowBindingContext {
   input: Record<string, JsonValue>;
-  trigger: { kind: string; payload: Record<string, JsonValue>; item?: JsonValue; itemIndex?: number };
+  /** `item`/`itemIndex` are set for a fan-out child and `round`/`maxRounds` for
+   *  an iteration round, both only while a Workflow Call maps its target's
+   *  inputs — which is where a round gets told which one it is. */
+  trigger: { kind: string; payload: Record<string, JsonValue>; item?: JsonValue; itemIndex?: number;
+    round?: number; maxRounds?: number };
   nodes: Record<string, { status: string; output: WorkflowNodeOutput | null; error: WorkflowError | null }>;
   run: { id: string; startedAt: string; todoId?: string };
 }
