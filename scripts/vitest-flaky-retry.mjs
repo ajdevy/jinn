@@ -4,7 +4,6 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { report } from "./vitest-flaky-report.mjs";
 import { acquireTestSlot } from "./test-slot-gate.mjs";
 
@@ -30,7 +29,6 @@ export { formatFlakySummary } from "./vitest-flaky-report.mjs";
 
 const LABEL = "vitest-flaky-retry";
 const REPORTER_ARGS = ["--reporter=default", "--reporter=json"];
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export function buildVitestArgs({ passthrough, files = [], reportPath = null }) {
   const args = ["run", ...files, ...passthrough];
