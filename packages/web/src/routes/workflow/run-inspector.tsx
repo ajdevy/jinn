@@ -376,7 +376,13 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
           <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
-            <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
+            <ApprovalDecision
+              node={node}
+              approval={approval}
+              onDecide={onDecide}
+              deciding={deciding}
+              choice={nodeRun?.output?.choice}
+            />
           )}
           {/* A settled comment-wait says nothing: the node keeps its resumeAt and
               resolvedConfig after it resumes, and neither "waiting" nor "resumes"
