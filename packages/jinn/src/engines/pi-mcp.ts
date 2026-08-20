@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { McpServerStdioConfig, ResolvedMcpConfig } from "../shared/types.js";
 import { JINN_HOME } from "../shared/paths.js";
+import { logger } from "../shared/logger.js";
 
 const JINN_BUILTIN_SERVER = "jinn";
 const JINN_MCP_SERVER_MODULE_URL = new URL("../mcp/server.js", import.meta.url).href;
@@ -25,6 +26,19 @@ function jinnServer(resolvedMcp: ResolvedMcpConfig | undefined): McpServerStdioC
   return null;
 }
 
+/**
+ * Why pi could not wire a `jinn` server the resolver DID attach, or null when the
+ * session was never meant to carry the belt. Pi registers the company tools from a
+ * generated extension module that runs the built-in stdio server in-process, so a
+ * `jinn` entry in any other shape is one pi has no way to run.
+ */
+function unattachableJinnReason(resolvedMcp: ResolvedMcpConfig | undefined): string | null {
+  const spec = resolvedMcp?.mcpServers?.[JINN_BUILTIN_SERVER] as (McpServerStdioConfig & { url?: unknown }) | undefined;
+  if (!spec || jinnServer(resolvedMcp)) return null;
+  const shape = spec.url !== undefined ? "is URL-based" : "carries no command";
+  return `the resolved "jinn" server ${shape}, and pi can only wire the built-in stdio server as a generated extension`;
+}
+
 function safeSessionId(sessionId: string): string {
   return sessionId.replace(/[^A-Za-z0-9_.-]/g, "_");
 }
@@ -45,7 +59,13 @@ export function writePiJinnMcpExtension(
   resolvedMcp: ResolvedMcpConfig | undefined,
   sessionId: string,
 ): PiMcpExtensionHandle {
-  if (!jinnServer(resolvedMcp)) return { attached: false };
+  if (!jinnServer(resolvedMcp)) {
+    // A belt the resolver attached but pi cannot wire has to be said out loud: the
+    // turn still runs, the model just silently improvises around the missing tools.
+    const reason = unattachableJinnReason(resolvedMcp);
+    if (reason) logger.warn(`Pi engine is starting session ${sessionId} WITHOUT the jinn toolset: ${reason}`);
+    return { attached: false };
+  }
 
   const extensionDir = path.join(JINN_HOME, "tmp", "pi-mcp", safeSessionId(sessionId));
   const extensionPath = path.join(extensionDir, "jinn-mcp-extension.ts");
