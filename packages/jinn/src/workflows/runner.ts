@@ -20,7 +20,7 @@ import type {
   WorkflowNode,
   WorkflowNodeOutput,
 } from "./model.js";
-import { approvalRouteMissingFailure, cancelledRunFailure, dispatchFailure, interruptedAttemptFailure, noOutputFailure, RESTART_INTERRUPTED, timeoutFailure, workflowError } from "./failure.js";
+import { dispatchFailure, interruptedAttemptFailure, RESTART_INTERRUPTED, workflowError } from "./failure.js";
 import { openRestartReplacement, restartExhaustedFailure, restartsOn } from "./restart-redispatch.js";
 import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
 import { fanoutConcurrencyRecord } from "./capacity.js";
@@ -705,7 +705,7 @@ export class WorkflowRunner {
     const run = this.detail(workflowId, runId);
     const attempt = run.attempts.find((item) => item.nodeId === nodeId && item.attempt === attemptNumber);
     if (!attempt || attempt.status !== "running") return false;
-    this.settleFailure(run, attempt, timeoutFailure(nodeId, attemptNumber), "timed-out", at);
+    this.settleFailure(run, attempt, { code: "workflow-timeout", message: "Workflow attempt timed out.", retryable: true, nodeId, attempt: attemptNumber }, "timed-out", at);
     return true;
   }
 
@@ -756,7 +756,7 @@ export class WorkflowRunner {
       : undefined;
     const routed = !revising
       && run.definition.edges.some((edge) => edge.from.nodeId === input.nodeId && edge.from.port === status);
-    const missingRoute = approvalRouteMissingFailure(input.nodeId, status);
+    const missingRoute: WorkflowError = { code: "workflow-approval-route-missing", message: `Workflow approval ${input.nodeId} has no ${status} route.`, retryable: false, nodeId: input.nodeId };
     const gateOutput = { text: input.choice ?? "", fields: { port: status, ...(note ? { reason: note } : {}) }, ...(input.choice !== undefined ? { choice: input.choice } : {}) };
     this.options.repository.mutateRun(run.id, input.expectedRevision, (tx) => {
       const pending = run.approvals.find((approval) => approval.nodeId === input.nodeId)!;
@@ -981,7 +981,7 @@ export class WorkflowRunner {
     const node = run.definition.nodes.find((candidate): candidate is EmployeeNode => candidate.id === attempt.nodeId && candidate.type === "employee");
     if (!node) return false;
     const cancellation = event.outcome === "interrupted" && run.cancelRequestedAt
-      ? cancelledRunFailure(event.error ?? "Workflow run cancelled.", attempt.nodeId, attempt.attempt) : undefined;
+      ? { code: "workflow-cancelled", message: event.error ?? "Workflow run cancelled.", retryable: false, nodeId: attempt.nodeId, attempt: attempt.attempt } satisfies WorkflowError : undefined;
     const userMessageTurnEnd = event.outcome === "interrupted"
       && event.interruptionCause === "user-message"
       && !run.cancelRequestedAt;
@@ -1023,8 +1023,8 @@ export class WorkflowRunner {
       }
       const state = this.options.executor.attemptState(event.sessionId);
       if ((state?.runningChildren ?? 0) > 0) return true;
-      const routed = this.settleFailure(run, attempt, noOutputFailure(attempt.nodeId, attempt.attempt),
-        "failed", endedAt, event.turn);
+      const noOutput: WorkflowError = { code: "workflow-no-output", message: "Workflow attempt ended without submitting output.", retryable: true, nodeId: attempt.nodeId, attempt: attempt.attempt };
+      const routed = this.settleFailure(run, attempt, noOutput, "failed", endedAt, event.turn);
       if (routed) await this.advance(run.workflowId, run.id);
       return true;
     }
@@ -1042,10 +1042,10 @@ export class WorkflowRunner {
     this.options.repository.mutateRun(run.id, run.revision, (tx) => {
       tx.setAttemptReminder(attempt.nodeId, attempt.attempt, { lastProcessedTurn: event.turn });
       if (cancellation) {
-        tx.settleAttempt(attempt.nodeId, attempt.attempt, {
-          status: "cancelled", sessionId: event.sessionId, error: cancellation, endedAt,
-        });
+        tx.settleAttempt(attempt.nodeId, attempt.attempt, { status: "cancelled", sessionId: event.sessionId, error: cancellation, endedAt });
         tx.setNodeStatus(attempt.nodeId, "cancelled", { error: cancellation, endedAt });
+        // A cancel the gateway died inside of has no drain left to finish it, so the last node going terminal settles the run itself.
+        if (!run.nodeRuns.some((item) => item.nodeId !== attempt.nodeId && item.activated && !terminalNode(item))) tx.setRunStatus("cancelled", { endedAt });
       } else if (output) {
         tx.settleAttempt(attempt.nodeId, attempt.attempt, { status: "completed", sessionId: event.sessionId, output, endedAt });
         tx.setNodeStatus(attempt.nodeId, "completed", { output, endedAt });

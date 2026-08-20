@@ -91,35 +91,16 @@ export const RESTART_INTERRUPTED = "workflow-attempt-restart-interrupted";
  * judged, so like a timeout or a missing output block there is no verdict to
  * honour and the phase re-runs.
  *
- * A gateway restart is named apart from the rest. It is not a fault of the work
- * at all — the process the attempt lived in went away — so its replacement is
- * dispatched at once rather than parked on the node's backoff, and the count of
- * these on a node is what bounds a restart loop.
+ * The cause decides what kind of interruption it was. A gateway restart is not a
+ * fault of the work at all — the process the attempt lived in went away — so its
+ * replacement is dispatched at once rather than parked on the node's backoff,
+ * and the count of these on a node is what bounds a restart loop. An operator
+ * stopping the attempt is the opposite: a decision ABOUT this attempt, which
+ * like a submitted failure earns no retry. Only an unexplained interruption
+ * keeps the old benefit of the doubt.
  */
 export function interruptedAttemptFailure(message: string, nodeId: string, attempt: number,
   cause?: WorkflowAttemptInterruptionCause): WorkflowError {
   return { code: cause === "gateway-restart" ? RESTART_INTERRUPTED : "workflow-attempt-interrupted",
-    message, retryable: true, nodeId, attempt };
-}
-
-/** An attempt that ended its turn without ever submitting output. */
-export function noOutputFailure(nodeId: string, attempt: number): WorkflowError {
-  return { code: "workflow-no-output", message: "Workflow attempt ended without submitting output.",
-    retryable: true, nodeId, attempt };
-}
-
-/** An attempt interrupted because the operator cancelled the run out from under it. */
-export function cancelledRunFailure(message: string, nodeId: string, attempt: number): WorkflowError {
-  return { code: "workflow-cancelled", message, retryable: false, nodeId, attempt };
-}
-
-/** An attempt still running when its authored deadline passed. */
-export function timeoutFailure(nodeId: string, attempt: number): WorkflowError {
-  return { code: "workflow-timeout", message: "Workflow attempt timed out.", retryable: true, nodeId, attempt };
-}
-
-/** A decided approval whose graph has no edge for the answer it gave. */
-export function approvalRouteMissingFailure(nodeId: string, status: string): WorkflowError {
-  return { code: "workflow-approval-route-missing", retryable: false, nodeId,
-    message: `Workflow approval ${nodeId} has no ${status} route.` };
+    message, retryable: cause !== "attempt-stop", nodeId, attempt };
 }

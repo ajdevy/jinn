@@ -7,7 +7,8 @@ import type { Employee, ModelRegistry, WorkflowAttemptCommand, WorkflowAttemptCo
   WorkflowAttemptCompletionListener } from "../../shared/types.js";
 import type { SessionManager } from "../../sessions/manager.js";
 import { resumableEngineSession } from "../../sessions/attempt-continuation.js";
-import type { WorkflowDefinition } from "../model.js";
+import type { EmployeeNode, JsonValue, WorkflowDefinition } from "../model.js";
+import { resolveDispatch } from "../node-dispatch.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
@@ -78,13 +79,15 @@ let executor: RestartExecutor;
 let service: WorkflowService;
 let now: Date;
 
-/** trigger → work → end, `work` carrying the retry budget the test is about. */
-function definitionWith(id: string, attempts: number): WorkflowDefinition {
+/** trigger → work → end. Omitting `attempts` authors NO retry on the node, so
+ *  the budget is whatever node-dispatch resolves as the default. */
+function definitionWith(id: string, attempts?: number): WorkflowDefinition {
   const created = repository.createDefinition({ id, title: id });
   const saved = repository.saveDefinition({ ...created, nodes: [
     { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
     { id: "work", type: "employee", name: "work", config: { employee: { source: "fixed", value: "worker" },
-      prompt: "Run work.", retry: { attempts, delaySeconds: 0, backoff: "fixed" }, timeoutMinutes: 180 } },
+      prompt: "Run work.", timeoutMinutes: 180,
+      ...(attempts === undefined ? {} : { retry: { attempts, delaySeconds: 0, backoff: "fixed" as const } }) } },
     { id: "done", type: "end", name: "Done", config: { result: "success" } },
   ], edges: [
     { id: "start-work", from: { nodeId: "start", port: "success" }, to: { nodeId: "work", port: "input" } },
@@ -102,7 +105,7 @@ function attemptsOf(definition: WorkflowDefinition, runId: string) {
  * them — the state a boot actually finds. `engineSessionId` is the thread that
  * session still holds; omit it for one that holds nothing resumable.
  */
-async function orphanRunningAttempt(definition: WorkflowDefinition, attempts: number, engineSessionId?: string):
+async function orphanRunningAttempt(definition: WorkflowDefinition, engineSessionId?: string):
 Promise<{ runId: string; sessionId: string }> {
   const registry = await import("../../sessions/registry.js");
   const created = repository.createRun({ workflowId: definition.id, input: {},
@@ -116,13 +119,18 @@ Promise<{ runId: string; sessionId: string }> {
   });
   registry.updateSession(session.id, { status: "running" });
   if (engineSessionId) registry.recordEngineSessionId(session.id, "test-engine", engineSessionId);
-  const config = { employeeId: "worker", engine: "test-engine", model: "test-model", effort: "high" as const,
-    retry: { attempts, delaySeconds: 0, backoff: "fixed" as const }, timeoutMinutes: 180 };
   const detail = repository.getRun(definition.id, created.id)!;
+  // Resolved by the real dispatcher, so an unconfigured node carries exactly the
+  // budget node-dispatch gives it rather than one the fixture made up.
+  const config = resolveDispatch(detail, detail.definition.nodes.find((item) => item.id === "work") as EmployeeNode, {
+    repository, executor: executor as unknown as WorkflowSessionExecutor,
+    employees: () => new Map([[employee.name, employee]]), models: () => models,
+  });
   repository.mutateRun(detail.id, detail.revision, (tx) => {
     tx.setRunStatus("running");
     tx.setNodeStatus("start", "completed", { activated: true, startedAt: now.toISOString(), endedAt: now.toISOString() });
-    tx.setNodeStatus("work", "running", { activated: true, resolvedConfig: config, input: {}, startedAt: now.toISOString() });
+    tx.setNodeStatus("work", "running", { activated: true, input: {}, startedAt: now.toISOString(),
+      resolvedConfig: config as unknown as Record<string, JsonValue> });
     const attempt = tx.createAttempt({ nodeId: "work", resolvedConfig: config, input: {} });
     tx.settleAttempt("work", attempt.attempt, { status: "running", sessionId: session.id });
   });
@@ -159,12 +167,14 @@ afterAll(async () => {
 
 describe("Replacing a workflow attempt a gateway restart killed", () => {
   it("re-dispatches an attempt with NO retry budget left, and the run completes", async () => {
-    const definition = definitionWith("default-budget", 1);
-    const { runId, sessionId } = await orphanRunningAttempt(definition, 1, "engine-thread-1");
+    const definition = definitionWith("default-budget");
+    const { runId, sessionId } = await orphanRunningAttempt(definition, "engine-thread-1");
 
     now = new Date("2026-08-19T16:05:00.000Z");
     await reboot();
 
+    expect(service.getRun(definition.id, runId)!.attempts[0]!.resolvedConfig.retry)
+      .toEqual({ attempts: 1, delaySeconds: 0, backoff: "fixed" });
     expect(service.getRun(definition.id, runId)!.status).not.toBe("failed");
     expect(attemptsOf(definition, runId)).toEqual([
       { attempt: 1, status: "cancelled" }, { attempt: 2, status: "running" },
@@ -180,8 +190,8 @@ describe("Replacing a workflow attempt a gateway restart killed", () => {
   });
 
   it("dispatches the replacement cold when the killed session held no usable thread", async () => {
-    const definition = definitionWith("cold-replacement", 1);
-    const { runId } = await orphanRunningAttempt(definition, 1);
+    const definition = definitionWith("cold-replacement");
+    const { runId } = await orphanRunningAttempt(definition);
 
     now = new Date("2026-08-19T16:05:00.000Z");
     await reboot();
@@ -195,7 +205,7 @@ describe("Replacing a workflow attempt a gateway restart killed", () => {
 
   it("leaves the retry budget whole, so a genuine fault after the restart still retries", async () => {
     const definition = definitionWith("budget-intact", 2);
-    const { runId } = await orphanRunningAttempt(definition, 2);
+    const { runId } = await orphanRunningAttempt(definition);
 
     now = new Date("2026-08-19T16:05:00.000Z");
     await reboot();
@@ -212,8 +222,8 @@ describe("Replacing a workflow attempt a gateway restart killed", () => {
   });
 
   it("replays one terminal completion and one boot into exactly one replacement", async () => {
-    const definition = definitionWith("idempotent", 1);
-    const { runId, sessionId } = await orphanRunningAttempt(definition, 1);
+    const definition = definitionWith("idempotent");
+    const { runId, sessionId } = await orphanRunningAttempt(definition);
 
     now = new Date("2026-08-19T16:05:00.000Z");
     const registry = await import("../../sessions/registry.js");
@@ -231,7 +241,7 @@ describe("Replacing a workflow attempt a gateway restart killed", () => {
   });
 
   it("stops re-dispatching at the cap and fails the run truthfully", async () => {
-    const definition = definitionWith("restart-storm", 1);
+    const definition = definitionWith("restart-storm");
     const run = await service.startManual({ workflowId: definition.id, input: {} });
 
     for (let boot = 0; boot < 6; boot += 1) {
@@ -249,8 +259,29 @@ describe("Replacing a workflow attempt a gateway restart killed", () => {
       .toEqual(["cancelled", "cancelled", "cancelled", "cancelled"]);
   });
 
+  it("settles the RUN, not just the attempt, when the gateway died inside the cancel", async () => {
+    const definition = definitionWith("cancel-crash-window");
+    const { runId } = await orphanRunningAttempt(definition);
+    // The window cancelRun opens: `cancelRequestedAt` is durable on the run row,
+    // and the gateway dies before the drain that would have settled it.
+    const detail = repository.getRun(definition.id, runId)!;
+    repository.mutateRun(detail.id, detail.revision, (tx) => tx.setRunStatus("running", { cancelRequestedAt: now.toISOString() }));
+
+    now = new Date("2026-08-19T16:05:00.000Z");
+    await reboot();
+
+    expect(service.getRun(definition.id, runId)!.status).toBe("cancelled");
+    expect(attemptsOf(definition, runId)).toEqual([{ attempt: 1, status: "cancelled" }]);
+    expect(executor.commands).toHaveLength(0);
+
+    // And a second boot has nothing left to repair.
+    await service.recover(now.toISOString());
+    expect(attemptsOf(definition, runId)).toEqual([{ attempt: 1, status: "cancelled" }]);
+    expect(service.getRun(definition.id, runId)!.status).toBe("cancelled");
+  });
+
   it("settles cancelled, never a replacement, when the run was cancelled first", async () => {
-    const definition = definitionWith("cancel-wins", 1);
+    const definition = definitionWith("cancel-wins");
     const run = await service.startManual({ workflowId: definition.id, input: {} });
     // The restart lands mid-cancel, after `cancelRequestedAt` is durable: the
     // operator's decision owns the attempt, not the gateway that died on it.

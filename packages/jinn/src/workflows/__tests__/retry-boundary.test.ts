@@ -64,6 +64,10 @@ class FakeExecutor {
   async interrupt(nodeId: string, error: string): Promise<void> {
     await this.emit(nodeId, { outcome: "interrupted", error });
   }
+  /** An attempt the operator stopped; the session manager forces this cause. */
+  async stop(nodeId: string): Promise<void> {
+    await this.emit(nodeId, { outcome: "interrupted", interruptionCause: "attempt-stop", error: "Interrupted: stopped" });
+  }
   /** An attempt killed by a gateway restart, named as such by the boot sweep. */
   async restart(nodeId: string): Promise<void> {
     await this.emit(nodeId, { outcome: "interrupted", interruptionCause: "gateway-restart",
@@ -230,6 +234,20 @@ describe("what earns a retry budget", () => {
     await executor.interrupt("work", "Interrupted: stopped");
     await service.recover(now.toISOString());
     expect(attemptsOf(definition.id, run.id)).toEqual([1, 2]);
+    expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
+  });
+
+  it("does NOT retry a forced attempt-stop — the operator decided about this attempt", async () => {
+    const definition = definitionWith("operator-stop");
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+    await executor.stop("work");
+
+    expect(service.getRun(definition.id, run.id)!.attempts[0])
+      .toMatchObject({ status: "cancelled", error: { code: "workflow-attempt-interrupted", retryable: false } });
+    // Two attempts were authored and one is untouched: a stop is a decision, and
+    // re-dispatching would overrule it.
+    await service.recover(now.toISOString());
+    expect(attemptsOf(definition.id, run.id)).toEqual([1]);
     expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
   });
 
