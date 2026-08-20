@@ -100,7 +100,10 @@ export function mapPidsToHomes(homes) {
     const gateway = readJson(path.join(home, "gateway.json"))
     if (!gateway) continue
     for (const pid of [gateway.pid, ...(gateway.ptyPids ?? [])]) {
-      if (Number.isInteger(pid)) homeByPid[pid] = home
+      // `discoverHomes` orders the default and registered homes before the
+      // throwaway scan. A stale sandbox can retain a recycled PID, so never let
+      // that later, weaker claim replace an authoritative one.
+      if (Number.isInteger(pid) && homeByPid[pid] === undefined) homeByPid[pid] = home
     }
   }
   return homeByPid
