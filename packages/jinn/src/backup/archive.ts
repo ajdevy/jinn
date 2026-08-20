@@ -120,12 +120,52 @@ function wireArchive(parts: ArchivePipeline, settle: Settlement): void {
 }
 
 /**
+ * Decodes the archive that was just written and counts what comes out.
+ *
+ * A codec that reads the whole stream and then writes only part of it leaves
+ * tar exiting 0 behind a compressor exiting 0, over a file that is neither
+ * empty nor corrupt on its face - nothing in the pipeline can tell that from a
+ * good archive. Reading it back can: an archive that does not decode to the
+ * bytes tar produced is not a backup, whatever the exit codes said.
+ */
+function readbackBytes(archive: string, codec: ArchiveCodec): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const decoder = spawn(codec.command, codec.decompressArgs, { stdio: ["pipe", "pipe", "pipe"] });
+    let bytes = 0;
+    let errors = "";
+    let settled = false;
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      decoder.kill();
+      reject(error);
+    };
+
+    decoder.stderr!.on("data", (chunk: Buffer) => { errors += chunk.toString(); });
+    decoder.stdout!.on("data", (chunk: Buffer) => { bytes += chunk.length; });
+    decoder.on("error", (error) => fail(new Error(`${codec.id} could not be started: ${error.message}`)));
+    decoder.on("close", (code) => {
+      if (code !== 0) return fail(failed(codec.id, code, errors));
+      if (settled) return;
+      settled = true;
+      resolve(bytes);
+    });
+
+    // A decoder that gives up on a damaged stream is gone before the file has
+    // finished feeding it. Its exit code is the honest report of what happened;
+    // the EPIPE behind it would only mask that, so the close handler decides.
+    decoder.stdin!.on("error", () => {});
+    fs.createReadStream(archive).on("error", fail).pipe(decoder.stdin!);
+  });
+}
+
+/**
  * Streams `tar` into the codec and straight to disk, so a multi-gigabyte home
  * never lands in memory, and counts both sides of the pipe on the way past -
  * uncompressed bytes are what tells the operator a home is growing, compressed
  * bytes are what fills the disk.
  */
-export function createHomeArchive(home: string, destination: string, codec: ArchiveCodec): Promise<ArchiveResult> {
+function streamHomeArchive(home: string, destination: string, codec: ArchiveCodec): Promise<ArchiveResult> {
   const argv = archiveArgv(home);
   return new Promise<ArchiveResult>((resolve, reject) => {
     const tar = spawn(resolveBin("tar"), argv, { stdio: ["ignore", "pipe", "pipe"] });
@@ -145,6 +185,23 @@ export function createHomeArchive(home: string, destination: string, codec: Arch
 
     wireArchive({ tar, compressor, output, hash, result, codec }, settle);
   });
+}
+
+/** Writes one home's archive and refuses to hand back one that does not decode
+ *  to everything tar put into it. */
+export async function createHomeArchive(
+  home: string,
+  destination: string,
+  codec: ArchiveCodec,
+): Promise<ArchiveResult> {
+  const result = await streamHomeArchive(home, destination, codec);
+  const decoded = await readbackBytes(destination, codec);
+  if (decoded !== result.uncompressedBytes) {
+    throw new Error(
+      `the archive ${codec.id} wrote reads back as ${decoded} of ${result.uncompressedBytes} bytes`,
+    );
+  }
+  return result;
 }
 
 /** Extracts an archive written by {@link createHomeArchive} into `home`. */

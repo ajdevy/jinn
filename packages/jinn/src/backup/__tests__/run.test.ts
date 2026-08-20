@@ -11,16 +11,38 @@ import { restoreSnapshot } from "../restore.js";
 import { runBackupRun } from "../run.js";
 import { makeHome } from "./fixture.js";
 
+/**
+ * A codec whose compressor is the Node running the suite.
+ *
+ * These fakes misbehave in ways no installed tool offers, and naming a real
+ * binary by absolute path would pin the suite to one platform's layout. Each
+ * decodes with a plain copy, so reading the archive back measures exactly what
+ * the compressor chose to write.
+ */
+const fakeCodec = (compress: string): ArchiveCodec => ({
+  id: "gzip",
+  extension: "tar.gz",
+  command: process.execPath,
+  compressArgs: ["-e", compress],
+  decompressArgs: ["-e", "process.stdin.pipe(process.stdout)"],
+});
+
 /** Consumes all of tar's output and emits nothing, so the archive lands empty
  *  while both processes still exit 0 - a full disk, without needing one. */
-const EMPTY_ARCHIVE_CODEC: ArchiveCodec = {
-  id: "gzip", extension: "tar.gz", command: "/bin/dd", compressArgs: ["of=/dev/null"], decompressArgs: ["-d", "-c"],
-};
+const EMPTY_ARCHIVE_CODEC = fakeCodec("process.stdin.resume()");
 
 /** Reads a little, then exits while tar is still writing: the classic EPIPE. */
-const EARLY_EXIT_CODEC: ArchiveCodec = {
-  id: "gzip", extension: "tar.gz", command: "/usr/bin/head", compressArgs: ["-c", "512"], decompressArgs: ["-d", "-c"],
-};
+const EARLY_EXIT_CODEC = fakeCodec("process.stdin.once('data', () => process.exit(0))");
+
+/** Reads every last byte and writes only the head of it, so tar sees a reader
+ *  that never breaks and both processes exit 0 over a gutted archive. */
+const TRUNCATED_ARCHIVE_CODEC = fakeCodec(
+  "let read = 0;"
+  + "process.stdin.on('data', (chunk) => {"
+  + "  if (read < 512) process.stdout.write(chunk.subarray(0, 512 - read));"
+  + "  read += chunk.length;"
+  + "});",
+);
 
 const scratch: string[] = [];
 const AT = new Date("2026-08-20T03:00:00.000Z");
@@ -127,7 +149,26 @@ describe("runBackupRun", () => {
     expect(result.status).toBe("failed");
     for (const target of result.targets) {
       expect(target.status, target.name).toBe("failed");
-      expect(target.error, target.name).toMatch(/is empty/);
+      expect(target.error, target.name).toMatch(/reads back as 0 of \d+ bytes/);
+      expect(fs.existsSync(target.path), target.name).toBe(false);
+    }
+  });
+
+  it("marks a target failed when its archive comes out truncated", async () => {
+    const root = tempDir();
+    const registryPath = twoHomes(root);
+
+    const result = await runBackupRun({
+      root: path.join(root, "backups"), now: AT, registryPath, codec: TRUNCATED_ARCHIVE_CODEC,
+    });
+
+    // Nothing in the pipeline can see this one: tar exits 0, the codec exits 0,
+    // and the file it left is neither empty nor corrupt on its face. Only
+    // decoding it says how much of the home actually made it in.
+    expect(result.status).toBe("failed");
+    for (const target of result.targets) {
+      expect(target.status, target.name).toBe("failed");
+      expect(target.error, target.name).toMatch(/reads back as 512 of \d+ bytes/);
       expect(fs.existsSync(target.path), target.name).toBe(false);
     }
   });

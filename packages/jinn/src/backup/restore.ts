@@ -5,6 +5,16 @@ import { codecForId } from "./codec.js";
 import { readManifest, verifyManifest, type BackupManifest } from "./manifest.js";
 import { REGISTRY_DB_FILE } from "./snapshot.js";
 
+/**
+ * The registry and the sidecars SQLite writes beside it.
+ *
+ * A snapshot carries only the checkpointed database, so a `-wal` or `-shm` left
+ * by whoever held the home before is read as the tail of whatever database
+ * turns up next - and a registry left behind by a snapshot that carries none is
+ * the previous occupant's sessions wearing the restored instance's name.
+ */
+const REGISTRY_FILES = [REGISTRY_DB_FILE, `${REGISTRY_DB_FILE}-wal`, `${REGISTRY_DB_FILE}-shm`];
+
 export interface RestoreOptions {
   snapshot: string;
   home: string;
@@ -51,11 +61,15 @@ export async function restoreSnapshot(options: RestoreOptions): Promise<RestoreR
 
   // tar overwrites what it carries but removes nothing, so restoring over a
   // populated home would leave files the snapshot does not have and produce a
-  // merge of two states. Everything inside the archive's remit is cleared
-  // first; anything outside it - workflows/, plugins/, the rest of sessions/ -
-  // is not this command's to delete.
+  // merge of two states. Everything this command restores is cleared first -
+  // the archive's own entries, and the registry it writes by hand afterwards;
+  // anything outside that - workflows/, plugins/, the rest of sessions/ - is
+  // not this command's to delete.
   for (const entry of ARCHIVE_INCLUDES) {
     fs.rmSync(path.join(options.home, entry), { recursive: true, force: true });
+  }
+  for (const name of REGISTRY_FILES) {
+    fs.rmSync(path.join(options.home, "sessions", name), { force: true });
   }
   await extractHomeArchive(path.join(options.snapshot, archiveName), options.home, codecForId(manifest.codec));
 
