@@ -1,5 +1,4 @@
-import { fixedText } from "./bindings"
-import { Field, PickerField, TextInput, type FormProps } from "./form-fields"
+import { Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
 
 const MAX_MINUTES = 43_200
 /** The gateway's own default for a Todo-comment wait: a conversation on a Todo

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { fixedText, withFixed } from "./bindings"
-import { Field, TextInput, type FormProps } from "./form-fields"
+import { Field, TextInput, fixedText, withFixed, type FormProps } from "./inspector-fields"
 
 // The gateway takes 2-8 unique labels of at most 80 characters. An invalid
 // label stays in the row it was typed into and never reaches the config, so
