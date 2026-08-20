@@ -17,7 +17,7 @@ import { editorEdgeTypes } from "./edge"
 import { editorNodeTypes } from "./node-card"
 import { Inspector } from "./inspector"
 import { DND_MIME, MobileAddNode, NodePalette } from "./palette"
-import type { WorkflowNodeTypeV2 } from "./ports"
+import type { WorkflowNodeType } from "./ports"
 import { useEditor, useEditorApi, type EditorState, type EditorStoreApi } from "./store"
 
 /** Dumb autosave: debounce edits, map store → wire definition, PUT with
@@ -225,7 +225,7 @@ function Canvas() {
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
-      const type = event.dataTransfer.getData(DND_MIME) as WorkflowNodeTypeV2 | ""
+      const type = event.dataTransfer.getData(DND_MIME) as WorkflowNodeType | ""
       if (!type) return
       event.preventDefault()
       store.getState().addNodeAt(type, screenToFlowPosition({ x: event.clientX, y: event.clientY }))

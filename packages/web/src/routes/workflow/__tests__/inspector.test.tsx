@@ -28,11 +28,17 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowDefinitionV2Wire } from "@/lib/api"
+import type { WorkflowDefinitionWire, WorkflowNodeWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 
-const definition: WorkflowDefinitionV2Wire = {
+/** The config one node arm accepts. Each render helper below stands up a single
+ *  node, so its config is that arm's — not a loose bag of keys. */
+type NodeConfig<T extends WorkflowNodeWire["type"]> = Extract<WorkflowNodeWire, { type: T }>["config"]
+
+/** `ui` is optional on the wire; this fixture is authored with one and the
+ *  helpers below rewrite its positions. */
+const definition: WorkflowDefinitionWire & { ui: NonNullable<WorkflowDefinitionWire["ui"]> } = {
   schemaVersion: 1,
   id: "morning-digest",
   title: "Morning Digest",
@@ -73,7 +79,7 @@ function employeeConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderTrigger(config: Record<string, unknown>) {
+function renderTrigger(config: NodeConfig<"trigger">) {
   const initial = structuredClone(definition)
   initial.nodes = [{
     id: "trigger",
@@ -99,7 +105,7 @@ function triggerConfig(store: ReturnType<typeof createEditorStore>) {
   return store.getState().nodes[0]!.data.node.config as Record<string, unknown>
 }
 
-function renderWorkflowCall(config: Record<string, unknown>) {
+function renderWorkflowCall(config: NodeConfig<"workflow-call">) {
   const initial = structuredClone(definition)
   initial.nodes = [{ id: "fanout", type: "workflow-call", name: "Publish items", config }]
   initial.ui.positions = { fanout: { x: 0, y: 0 } }
@@ -213,10 +219,15 @@ describe("todo trigger filters", () => {
     expect(triggerConfig(store)).toEqual({ kind: "todo-status", status: "in_review" })
   })
 
-  it.each(["manual", "schedule", "event", "workflow-call"])(
-    "renders no filters for %s triggers",
-    (kind) => {
-      renderTrigger({ kind })
+  it.each([
+    { kind: "manual" },
+    { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+    { kind: "event", eventName: "item.arrived" },
+    { kind: "workflow-call" },
+  ] as const)(
+    "renders no filters for $kind triggers",
+    (config) => {
+      renderTrigger(config)
 
       expect(screen.queryByRole("combobox", { name: "Label" })).toBeNull()
       expect(screen.queryByRole("combobox", { name: "Department" })).toBeNull()
@@ -268,7 +279,7 @@ describe("employee inspector output schema", () => {
 
 describe("workflow-call inspector", () => {
   it("renders an authored fan-out config without mutating it", () => {
-    const config = {
+    const config: NodeConfig<"workflow-call"> = {
       workflowId: { source: "fixed", value: "publish-item" },
       items: { source: "fixed", value: [{ topic: "one" }, { topic: "two" }] },
       input: { topic: { source: "trigger", path: "item.topic" } },

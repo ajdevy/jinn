@@ -1,12 +1,12 @@
 import { AlertTriangle, Check } from "lucide-react"
 import type {
-  WorkflowAttemptV2Wire,
-  WorkflowNodeRunStatusV2,
-  WorkflowNodeRunV2Wire,
-  WorkflowRunDetailV2Wire,
-  WorkflowRunLeanV2Wire,
-  WorkflowRunStatusV2,
-  WorkflowTriggerKindV2,
+  WorkflowAttemptWire,
+  WorkflowNodeRunStatusWire,
+  WorkflowNodeRunWire,
+  WorkflowRunDetailWire,
+  WorkflowRunLeanWire,
+  WorkflowRunStatusWire,
+  WorkflowTriggerKindWire,
 } from "@/lib/api"
 
 // One status grammar for runs, node runs, and attempts (their status unions
@@ -41,7 +41,7 @@ export function statusMeta(status: string): StatusMeta {
   return STATUS_META[status] ?? FALLBACK_META
 }
 
-export function isLiveRunStatus(status: WorkflowRunStatusV2 | undefined): boolean {
+export function isLiveRunStatus(status: WorkflowRunStatusWire | undefined): boolean {
   return status !== undefined && Boolean(STATUS_META[status]?.live)
 }
 
@@ -49,10 +49,10 @@ export function isLiveRunStatus(status: WorkflowRunStatusV2 | undefined): boolea
  *  node whose session went idle without submitting — the reminder ladder is
  *  armed (a reminder already sent or one scheduled) while the node stays
  *  formally "running". */
-export type RunNodeVisualStatus = WorkflowNodeRunStatusV2 | "waiting-submit"
+export type RunNodeVisualStatus = WorkflowNodeRunStatusWire | "waiting-submit"
 
-export function latestAttempt(attempts: WorkflowAttemptV2Wire[]): WorkflowAttemptV2Wire | undefined {
-  return attempts.reduce<WorkflowAttemptV2Wire | undefined>(
+export function latestAttempt(attempts: WorkflowAttemptWire[]): WorkflowAttemptWire | undefined {
+  return attempts.reduce<WorkflowAttemptWire | undefined>(
     (latest, attempt) => (latest === undefined || attempt.attempt > latest.attempt ? attempt : latest),
     undefined,
   )
@@ -67,12 +67,12 @@ function attemptKey(nodeId: string, attempt: number): string {
  *  lean poll into it rather than paying ~60 KB every two seconds. Prompts the
  *  snapshot did not have but the caller already holds are kept. */
 export function mergeRunDetail(
-  snapshot: WorkflowRunDetailV2Wire,
-  lean: WorkflowRunLeanV2Wire,
-): WorkflowRunDetailV2Wire {
+  snapshot: WorkflowRunDetailWire,
+  lean: WorkflowRunLeanWire,
+): WorkflowRunDetailWire {
   const prompts = new Map(
     snapshot.attempts
-      .filter((attempt): attempt is WorkflowAttemptV2Wire & { promptText: string } => attempt.promptText !== undefined)
+      .filter((attempt): attempt is WorkflowAttemptWire & { promptText: string } => attempt.promptText !== undefined)
       .map((attempt) => [attemptKey(attempt.nodeId, attempt.attempt), attempt.promptText]),
   )
   return {
@@ -88,15 +88,15 @@ export function mergeRunDetail(
 /** The open node's latest attempt when its prompt is missing — a retry minted
  *  after the page loaded its snapshot. Null when there is nothing left to fetch,
  *  which keeps the fat payload off the poll loop. */
-export function missingPromptAttempt(detail: WorkflowRunDetailV2Wire, nodeId: string): string | null {
+export function missingPromptAttempt(detail: WorkflowRunDetailWire, nodeId: string): string | null {
   const latest = latestAttempt(detail.attempts.filter((attempt) => attempt.nodeId === nodeId))
   if (!latest || latest.promptText !== undefined) return null
   return attemptKey(latest.nodeId, latest.attempt)
 }
 
 export function deriveNodeStatus(
-  nodeRun: WorkflowNodeRunV2Wire | undefined,
-  attempts: WorkflowAttemptV2Wire[],
+  nodeRun: WorkflowNodeRunWire | undefined,
+  attempts: WorkflowAttemptWire[],
 ): RunNodeVisualStatus {
   const status = nodeRun?.status ?? "pending"
   if (status !== "running") return status
@@ -107,7 +107,7 @@ export function deriveNodeStatus(
   return status
 }
 
-export const TRIGGER_KIND_LABEL: Record<WorkflowTriggerKindV2, string> = {
+export const TRIGGER_KIND_LABEL: Record<WorkflowTriggerKindWire, string> = {
   manual: "Manual",
   schedule: "Schedule",
   event: "Event",

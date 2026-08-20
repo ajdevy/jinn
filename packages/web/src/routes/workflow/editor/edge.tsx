@@ -2,7 +2,7 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyf
 import { Plus, Unlink } from "lucide-react"
 import { NodeTypeMenu, useMenu } from "./add-menu"
 import type { EditorEdge } from "./graph"
-import type { WorkflowNodeTypeV2 } from "./ports"
+import type { WorkflowNodeType } from "./ports"
 import { useEditorApi } from "./store"
 
 /** The template's insert-node-on-edge affordance: a quiet `+` riding the wire's
@@ -12,7 +12,7 @@ function EdgeInsertAffordance({ edgeId, labelX, labelY }: { edgeId: string; labe
   const store = useEditorApi()
   const menu = useMenu()
 
-  const onPick = (type: WorkflowNodeTypeV2) => {
+  const onPick = (type: WorkflowNodeType) => {
     store.getState().insertOnEdge(type, edgeId, { x: labelX, y: labelY })
     menu.setOpen(false)
   }

@@ -52,8 +52,8 @@ const definition = {
   updatedAt: "2026-07-23T08:00:00.000Z",
   nodes: [
     { id: "trigger", type: "trigger", name: "Manual", config: { kind: "manual" } },
-    { id: "writer", type: "employee", name: "Writer", config: {} },
-    { id: "gate", type: "approval", name: "Publish gate", config: {} },
+    { id: "writer", type: "employee", name: "Writer", config: { employee: { source: "fixed", value: "" }, prompt: "" } },
+    { id: "gate", type: "approval", name: "Publish gate", config: { description: "" } },
   ],
   edges: [],
   ui: { positions: {} },

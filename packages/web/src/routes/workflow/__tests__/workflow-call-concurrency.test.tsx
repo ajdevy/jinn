@@ -9,21 +9,23 @@ vi.mock("@/lib/api", () => ({
   },
 }))
 
-import type { WorkflowDefinitionV2Wire, WorkflowRunDetailV2Wire } from "@/lib/api"
+import type { WorkflowNodeWire, WorkflowRunDetailWire } from "@/lib/api"
 import { Inspector } from "../editor/inspector"
 import { createEditorStore, EditorStoreContext } from "../editor/store"
 import { RunInspector } from "../run-inspector"
 
-const PLANNED_DEGREE = { source: "node", nodeId: "plan", path: "fields.degree" }
+const PLANNED_DEGREE = { source: "node", nodeId: "plan", path: "fields.degree" } as const
 
-function renderEditor(config: Record<string, unknown>) {
+type WorkflowCallConfig = Extract<WorkflowNodeWire, { type: "workflow-call" }>["config"]
+
+function renderEditor(config: WorkflowCallConfig) {
   const store = createEditorStore({
     schemaVersion: 1, id: "publish", title: "Publish", revision: 1, enabled: false,
     createdAt: "2026-08-05T12:00:00.000Z", updatedAt: "2026-08-05T12:00:00.000Z",
     nodes: [{ id: "fanout", type: "workflow-call", name: "Publish items", config }],
     edges: [],
     ui: { positions: { fanout: { x: 0, y: 0 } } },
-  } as WorkflowDefinitionV2Wire)
+  })
   store.getState().selectNode("fanout")
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -46,7 +48,7 @@ function renderRun(resolvedConfig: Record<string, unknown>) {
     },
     nodeRuns: [{ nodeId: "fanout", status: "running", activated: true, startedAt: "2026-08-05T12:00:00.000Z", endedAt: null, resolvedConfig }],
     attempts: [], approvals: [], childRuns: [],
-  } as unknown as WorkflowRunDetailV2Wire
+  } as unknown as WorkflowRunDetailWire
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RunInspector detail={detail} nodeId="fanout" onClose={() => undefined} onDecide={() => undefined} deciding={false} />

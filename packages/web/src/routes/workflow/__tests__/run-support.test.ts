@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { WorkflowRunDetailV2Wire, WorkflowRunLeanV2Wire } from "@/lib/api"
+import type { WorkflowRunDetailWire, WorkflowRunLeanWire } from "@/lib/api"
 import { mergeRunDetail, missingPromptAttempt } from "../run-support"
 
 function attempt(nodeId: string, number: number, promptText?: string) {
@@ -16,11 +16,11 @@ const snapshot = {
   status: "running", trigger: { nodeId: "trigger", kind: "manual" },
   startedAt: "2026-07-23T08:00:00.000Z",
   nodeRuns: [], attempts: [attempt("writer", 1, "First prompt.")], approvals: [],
-} as unknown as WorkflowRunDetailV2Wire
+} as unknown as WorkflowRunDetailWire
 
-function lean(attempts: ReturnType<typeof attempt>[], overrides = {}): WorkflowRunLeanV2Wire {
+function lean(attempts: ReturnType<typeof attempt>[], overrides = {}): WorkflowRunLeanWire {
   const { definition: _snapshot, ...rest } = snapshot
-  return { ...rest, attempts, ...overrides } as unknown as WorkflowRunLeanV2Wire
+  return { ...rest, attempts, ...overrides } as unknown as WorkflowRunLeanWire
 }
 
 describe("mergeRunDetail", () => {
@@ -56,7 +56,7 @@ describe("missingPromptAttempt", () => {
   it("names the latest attempt when its prompt is missing", () => {
     const detail = { ...snapshot, attempts: [attempt("writer", 1, "First prompt."), attempt("writer", 2)] }
 
-    expect(missingPromptAttempt(detail as unknown as WorkflowRunDetailV2Wire, "writer")).toBe("writer:2")
+    expect(missingPromptAttempt(detail as unknown as WorkflowRunDetailWire, "writer")).toBe("writer:2")
   })
 
   it("is null when the latest prompt is known or the node has no attempts", () => {

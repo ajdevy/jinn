@@ -1,5 +1,5 @@
 import type { ExperimentResponse } from "@/routes/experiments/types"
-import type { WorkItemDetailWire, WorkItemFullWire, WorkflowRunSummaryV2Wire } from "@/lib/api"
+import type { WorkItemDetailWire, WorkItemFullWire, WorkflowRunSummaryWire } from "@/lib/api"
 
 /**
  * Wire shapes trimmed to what a voice model can hold and say back.
@@ -92,7 +92,7 @@ export function trimSession(raw: Record<string, unknown>, id: string): Record<st
   }
 }
 
-export function trimWorkflowRuns(runs: readonly WorkflowRunSummaryV2Wire[], limit: number): Record<string, unknown>[] {
+export function trimWorkflowRuns(runs: readonly WorkflowRunSummaryWire[], limit: number): Record<string, unknown>[] {
   return runs.slice(0, limit).map((run) => ({
     runId: run.id,
     status: run.status,

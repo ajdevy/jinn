@@ -3,12 +3,12 @@ import { Panel, useReactFlow } from "@xyflow/react"
 import { Plus, X } from "lucide-react"
 import { INSERTABLE_TYPES } from "./add-menu"
 import { NodeTypeIcon } from "./node-icons"
-import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2 } from "./ports"
+import { NODE_TYPE_LABEL, type WorkflowNodeType } from "./ports"
 import { useEditor, useEditorApi } from "./store"
 
 export const DND_MIME = "application/x-jinn-workflow-node"
 
-function usePaletteTypes(): WorkflowNodeTypeV2[] {
+function usePaletteTypes(): WorkflowNodeType[] {
   const hasTrigger = useEditor((state) => state.nodes.some((node) => node.data.node.type === "trigger"))
   return hasTrigger ? INSERTABLE_TYPES : ["trigger", ...INSERTABLE_TYPES]
 }
@@ -52,7 +52,7 @@ export function MobileAddNode() {
   const { screenToFlowPosition } = useReactFlow()
 
   const add = useCallback(
-    (type: WorkflowNodeTypeV2) => {
+    (type: WorkflowNodeType) => {
       const pane = document.querySelector(".react-flow__pane")?.getBoundingClientRect()
       const center = pane
         ? { x: pane.left + pane.width / 2, y: pane.top + pane.height / 2 }

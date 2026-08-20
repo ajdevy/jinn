@@ -5,6 +5,7 @@ import { logger } from "../shared/logger.js";
 import { getSession } from "../sessions/registry.js";
 import type { DefinitionListQuery, RunListQuery } from "../workflows/repository.js";
 import type { WorkflowRunDetail } from "../workflows/runtime.js";
+import type { WorkflowAttemptWire, WorkflowRunDetailWire, WorkflowRunLeanWire } from "../workflows/wire.js";
 import { WorkflowOutputError } from "../workflows/output.js";
 import { readJsonBody } from "./http-helpers.js";
 import { isJsonMediaType } from "./media-type.js";
@@ -117,7 +118,7 @@ function runDetailIsFull(url: URL): boolean {
  *  retry copies the first attempt's value, and the graph is acyclic so a node
  *  activates once. The node run keeps it — that is the only copy for a node type
  *  that owns no attempts — and the wire carries it once. */
-function withoutAttemptInput(detail: WorkflowRunDetail) {
+function withoutAttemptInput(detail: WorkflowRunDetail): WorkflowAttemptWire[] {
   return detail.attempts.map(({ input, ...attempt }) => attempt);
 }
 
@@ -125,12 +126,12 @@ function withoutAttemptInput(detail: WorkflowRunDetail) {
  *  the whole definition snapshot plus every interpolated prompt. The definition
  *  is still reachable through GET /api/workflows/:id, and prompts through the
  *  attempt transcript route. */
-function leanRunDetail(detail: WorkflowRunDetail, spendUsd: number) {
+function leanRunDetail(detail: WorkflowRunDetail, spendUsd: number): WorkflowRunLeanWire {
   const { definition, attempts, ...run } = detail;
   return { ...run, attempts: withoutAttemptInput(detail).map(({ promptText, ...attempt }) => attempt), spendUsd };
 }
 
-function fullRunDetail(detail: WorkflowRunDetail, spendUsd: number) {
+function fullRunDetail(detail: WorkflowRunDetail, spendUsd: number): WorkflowRunDetailWire {
   return { ...detail, attempts: withoutAttemptInput(detail), spendUsd };
 }
 

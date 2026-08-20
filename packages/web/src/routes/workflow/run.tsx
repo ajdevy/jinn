@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react"
 import { Link, useParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
-import { api, type WorkflowRunDetailV2Wire } from "@/lib/api"
+import { api, type WorkflowRunDetailWire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { RunCanvas } from "./run-canvas"
 import { RunInspector } from "./run-inspector"
@@ -29,7 +29,7 @@ export default function WorkflowRunPage() {
   const query = useQuery({
     queryKey: runKey,
     queryFn: async () => {
-      const snapshot = queryClient.getQueryData<WorkflowRunDetailV2Wire>(runKey)
+      const snapshot = queryClient.getQueryData<WorkflowRunDetailWire>(runKey)
       if (!snapshot) return api.getWorkflowRunFullV2(id, runId)
       return mergeRunDetail(snapshot, await api.getWorkflowRunV2(id, runId))
     },
@@ -50,7 +50,7 @@ export default function WorkflowRunPage() {
     queryKey: queryKeys.workflows.runPrompt(id, runId, promptGap ?? ""),
     queryFn: async () => {
       const snapshot = await api.getWorkflowRunFullV2(id, runId)
-      queryClient.setQueryData<WorkflowRunDetailV2Wire>(runKey, (current) => (
+      queryClient.setQueryData<WorkflowRunDetailWire>(runKey, (current) => (
         current ? mergeRunDetail(snapshot, current) : snapshot
       ))
       return snapshot
