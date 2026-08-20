@@ -49,6 +49,9 @@ class FakeExecutor {
     return () => { this.listeners.delete(listener); };
   }
   readTerminalCompletion(): WorkflowAttemptCompletion | null { return null; }
+  // No session registry behind these fixtures, so nothing is ever resumable and
+  // every replacement here dispatches cold.
+  resumableEngineSession(): string | null { return null; }
   attemptState(): { idle: boolean; runningChildren: number } { return { idle: true, runningChildren: 0 }; }
 
   /** An engine turn that reported an error — the one path whose only account of
@@ -56,11 +59,18 @@ class FakeExecutor {
   async failTurn(nodeId: string, error: string): Promise<void> {
     await this.emit(nodeId, { outcome: "failed", error });
   }
-  /** An attempt killed under the runtime (a gateway restart mid-attempt). */
+  /** An attempt killed under the runtime with no cause on the row — a legacy
+   *  interruption, which the classifier reads as an operator stopping it. */
   async interrupt(nodeId: string, error: string): Promise<void> {
     await this.emit(nodeId, { outcome: "interrupted", error });
   }
-  private async emit(nodeId: string, outcome: Pick<WorkflowAttemptCompletion, "outcome" | "error">): Promise<void> {
+  /** An attempt killed by a gateway restart, named as such by the boot sweep. */
+  async restart(nodeId: string): Promise<void> {
+    await this.emit(nodeId, { outcome: "interrupted", interruptionCause: "gateway-restart",
+      error: "Interrupted: gateway restarted while workflow attempt was running" });
+  }
+  private async emit(nodeId: string,
+    outcome: Pick<WorkflowAttemptCompletion, "outcome" | "error" | "interruptionCause">): Promise<void> {
     const command = this.commands.filter((item) => item.owner.nodeId === nodeId).at(-1)!;
     const event: WorkflowAttemptCompletion = {
       sessionId: `session:${nodeId}:${command.owner.attempt}`, owner: command.owner,
@@ -205,7 +215,7 @@ describe("what earns a retry budget", () => {
     expect(attemptsOf(definition.id, run.id)).toEqual([1, 2]);
   });
 
-  it("retries an attempt interrupted under the runtime", async () => {
+  it("retries an attempt interrupted with no recorded cause, and spends the budget", async () => {
     const definition = definitionWith("restart-interrupt");
     const run = await service.startManual({ workflowId: definition.id, input: {} });
     await executor.interrupt("work", "Interrupted: gateway restarted while workflow attempt was running");
@@ -214,6 +224,29 @@ describe("what earns a retry budget", () => {
       .toMatchObject({ code: "workflow-attempt-interrupted", retryable: true });
     await service.recover(now.toISOString());
     expect(attemptsOf(definition.id, run.id)).toEqual([1, 2]);
+
+    // The budget WAS spent: a stop is a decision about this attempt, so the
+    // second interruption exhausts it.
+    await executor.interrupt("work", "Interrupted: stopped");
+    await service.recover(now.toISOString());
+    expect(attemptsOf(definition.id, run.id)).toEqual([1, 2]);
+    expect(service.getRun(definition.id, run.id)!.status).toBe("failed");
+  });
+
+  it("spends NO budget on a gateway restart — it replaces the attempt instead", async () => {
+    const definition = definitionWith("gateway-restart");
+    const run = await service.startManual({ workflowId: definition.id, input: {} });
+    await executor.restart("work");
+
+    expect(service.getRun(definition.id, run.id)!.attempts[0]!.error)
+      .toMatchObject({ code: "workflow-attempt-restart-interrupted", retryable: true });
+    // Replaced at once: no backoff to wake, so no recover() in between.
+    expect(attemptsOf(definition.id, run.id)).toEqual([1, 2]);
+
+    // And the two-attempt budget is still whole for a fault that IS about the work.
+    await executor.failTurn("work", "Interactive turn failed: server_error");
+    await service.recover(now.toISOString());
+    expect(attemptsOf(definition.id, run.id)).toEqual([1, 2, 3]);
   });
 
   it("records the error as CLASSIFIED, never rewriting the flag to mean 'we retried'", async () => {
