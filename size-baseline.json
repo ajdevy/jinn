@@ -1160,7 +1160,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1384,
+      "lines": 1392,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1176,7 +1176,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1807,
+      "lines": 1781,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

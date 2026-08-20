@@ -2,13 +2,12 @@ import React, { useState } from 'react'
 import { isTodoId, TODO_ID_MENTION_SOURCE } from '@/lib/todo-id'
 import { TodoMention } from '@/components/todo-mention'
 import { ChevronDown } from 'lucide-react'
+import { CodeBlock, parseFenceLang } from '@/components/chat/message-code-block'
 import { FILE_PATH_CORE, isFilePath, renderPathLink } from '@/components/chat/message-file-link'
-import { CodeBlock, parseFenceLang } from './message-code-block'
 
-export { parseFenceLang } from './message-code-block'
-
-// chat-messages passes isFilePath on to its own callers, so it stays exported here.
+// chat-messages takes both of these through this module, so they stay exported here.
 export { isFilePath }
+export { parseFenceLang } from '@/components/chat/message-code-block'
 
 // Inline-formatter pattern, assembled from the shared FILE_PATH_CORE so the
 // bare-path alternative (capture group 9) stays identical to FILE_PATH_RE.

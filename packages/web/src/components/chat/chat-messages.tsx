@@ -15,8 +15,7 @@ import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { useStreamingFormat } from './streaming-format'
-import { CollapsibleUserText } from './collapsible-user-text'
-import { SendFailureRow } from './send-failure-row'
+import { UserMessageRow } from './user-message-row'
 import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
@@ -587,44 +586,6 @@ export function partitionForFold(
   return groups
 }
 
-/* ── Timestamp formatting ──────────────────────────────── */
-
-function formatTimestamp(ts: number): string {
-  if (validTimestamp(ts) === null) return ''
-  const now = new Date()
-  const date = new Date(ts)
-  const isToday = now.toDateString() === date.toDateString()
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  const isYesterday = yesterday.toDateString() === date.toDateString()
-  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-
-  if (isToday) return `Today ${time}`
-  if (isYesterday) return `Yesterday ${time}`
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ` ${time}`
-}
-
-function shouldShowTimestamp(messages: Message[], index: number): boolean {
-  if (validTimestamp(messages[index]?.timestamp) === null) return false
-  if (index === 0) return true
-  if (validTimestamp(messages[index - 1]?.timestamp) === null) return false
-  const gap = messages[index].timestamp - messages[index - 1].timestamp
-  return gap > 5 * 60 * 1000
-
-/* ── Role-switch spacer ─────────────────────────────────── */
-
-// One source of truth for the gap above a row, computed from the previous
-// message's role. The streaming container uses the SAME function as the final
-// row that replaces it, so the swap is a pure text-node replacement — zero
-// movement by construction.
-export function turnSpacerClass(prevRole: Message['role'], role: Message['role']): string {
-  // The switch AFTER a user message gets extra headroom (24px): the accent
-  // bubble's fill weight optically eats a plain 16px gap before the reply.
-  if (prevRole === 'user' && role !== 'user') return 'h-[var(--space-6)]'
-  if (prevRole !== role) return 'h-[var(--space-4)]'
-  return 'h-[var(--space-1)]'
-}
-
 /* ── Shared assistant row shell ─────────────────────────── */
 
 // ONE shell, used byte-identically by the streaming container and the final
@@ -871,22 +832,15 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
 
       {/* User message */}
       {isUser && (
-        <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
-          {textContent && (
-            <div data-send-state={msg.sendState} data-msg-enter={entering || undefined} className="user-msg-bubble py-[var(--space-3)] px-[var(--space-4)] rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-sm)_var(--radius-lg)] bg-[var(--accent-fill)] text-[var(--text-primary)] text-[length:var(--text-body)] font-[var(--weight-medium)] shadow-[var(--shadow-subtle)]">
-              <CollapsibleUserText messageId={msg.id || `idx-${i}`}>{formattedContent}</CollapsibleUserText>
-            </div>
-          )}
-          {media.length > 0 && (
-            <div data-send-state={msg.sendState} className="user-msg-bubble">
-              <MessageMedia media={media} isUser={true} />
-            </div>
-          )}
-          {msg.sendState === 'failed' && (
-            // Resend what was SENT, not the url-stripped display text — the send path supersedes the failed row by content, and an attachment-only failure retries on its media.
-            <SendFailureRow reason={msg.sendError} onRetry={onRetry && (msg.content || media.length > 0) ? () => onRetry(msg.content, msg.media) : undefined} />
-          )}
-        </div>
+        <UserMessageRow
+          msg={msg}
+          messageId={msg.id || `idx-${i}`}
+          text={textContent}
+          content={formattedContent}
+          media={media}
+          entering={entering}
+          onRetry={onRetry}
+        />
       )}
 
       {/* Assistant message — same shell as the streaming container. */}
