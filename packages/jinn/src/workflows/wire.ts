@@ -37,6 +37,7 @@ export type {
   WorkflowError,
   WorkflowNodeRunRecord,
   WorkflowNodeRunStatus,
+  WorkflowRunDetail,
   WorkflowRunRecord,
   WorkflowRunStatus,
 } from './runtime.js';
