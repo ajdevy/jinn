@@ -36,7 +36,7 @@ export interface WorkflowTodoStatusEvent {
 
 export interface WorkflowTodoEventClaimOutcome {
   workflowId: string;
-  outcome: 'started' | 'duplicate' | 'suppressed' | 'failed';
+  outcome: 'started' | 'duplicate' | 'suppressed' | 'superseded' | 'deferred-then-superseded' | 'failed';
   runId?: string;
   detail: string;
 }
@@ -55,6 +55,8 @@ export interface WorkflowTodoEventFeed {
    *  to judge it again, against `definitionIds` as its candidates. */
   deferEvent(eventId: string, definitionIds: string[], outcomes: WorkflowTodoEventClaimOutcome[]): void;
   releaseEvent(eventId: string): void;
+  /** Unclaimed status events, oldest first, so a caller reading a backlog
+   *  sees the order the Todo actually moved in. */
   listPendingEvents(limit?: number): WorkflowTodoStatusEvent[];
 }
 

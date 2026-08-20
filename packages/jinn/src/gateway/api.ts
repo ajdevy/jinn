@@ -3894,9 +3894,9 @@ export async function handleApiRequest(
       return json(res, { dispatchConfig: result.config });
     }
 
-    // PUT /api/work-items/:id/labels — replace the label set (operator, item
-    // creator, or assignee — the pre-slice-4 subset of edit authority). Only
-    // EXISTING labels are accepted; nothing is created implicitly.
+    // PUT /api/work-items/:id/labels — `labels` replaces the whole set, `add`/`remove`
+    // touch only what they name (operator, item creator, or assignee — the pre-slice-4
+    // subset of edit authority). Only EXISTING labels are accepted, none created implicitly.
     params = matchRoute("/api/work-items/:id/labels", pathname);
     if (method === "PUT" && params) {
       const caller = resolveWorkItemCaller(req, res, context);

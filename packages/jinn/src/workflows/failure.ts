@@ -1,4 +1,5 @@
 import type { WorkflowError } from "./runtime.js";
+import type { WorkflowAttemptInterruptionCause } from "../shared/types.js";
 import { classifyEngineFailureText, hasEngineFailureClass, type EngineFailureClass } from "../shared/engine-failure.js";
 
 /**
@@ -83,11 +84,23 @@ export function dispatchFailure(error: unknown, nodeId: string, attempt: number)
   return { code: "workflow-dispatch-failed", message: value.message, retryable: true, nodeId, attempt };
 }
 
+export const RESTART_INTERRUPTED = "workflow-attempt-restart-interrupted";
+
 /**
- * An attempt killed under the runtime — most often a gateway restart while it was
- * running. The turn was interrupted rather than judged, so like a timeout or a
- * missing output block there is no verdict to honour and the phase re-runs.
+ * An attempt killed under the runtime. The turn was interrupted rather than
+ * judged, so like a timeout or a missing output block there is no verdict to
+ * honour and the phase re-runs.
+ *
+ * The cause decides what kind of interruption it was. A gateway restart is not a
+ * fault of the work at all — the process the attempt lived in went away — so its
+ * replacement is dispatched at once rather than parked on the node's backoff,
+ * and the count of these on a node is what bounds a restart loop. An operator
+ * stopping the attempt is the opposite: a decision ABOUT this attempt, which
+ * like a submitted failure earns no retry. Only an unexplained interruption
+ * keeps the old benefit of the doubt.
  */
-export function interruptedAttemptFailure(message: string, nodeId: string, attempt: number): WorkflowError {
-  return { code: "workflow-attempt-interrupted", message, retryable: true, nodeId, attempt };
+export function interruptedAttemptFailure(message: string, nodeId: string, attempt: number,
+  cause?: WorkflowAttemptInterruptionCause): WorkflowError {
+  return { code: cause === "gateway-restart" ? RESTART_INTERRUPTED : "workflow-attempt-interrupted",
+    message, retryable: cause !== "attempt-stop", nodeId, attempt };
 }
