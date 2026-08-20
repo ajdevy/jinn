@@ -1,4 +1,5 @@
 import { authFetch } from "@/lib/auth"
+import type { TodoStopCauseWire } from "@/lib/parked"
 // Type-only, and it has to stay that way: `workflows/model.ts` value-imports
 // `node:util/types` and the web build carries no Node polyfills.
 import type {
@@ -488,7 +489,7 @@ export interface WorkItemRelationWire {
   createdAt: string
 }
 
-export interface WorkItemCompactWire {
+export interface WorkItemCompactWire extends TodoStopCauseWire {
   id: string
   /** Positive monotonic whole-row revision on CAS-capable gateways. */
   version?: number
@@ -504,8 +505,7 @@ export interface WorkItemCompactWire {
   /** Offered variants when the pending gate asks for a PICK (older gateways omit). */
   approvalOptions?: string[] | null
   approvalChoice?: string | null
-  /** The gate is reserved for the operator: no employee may decide it, not the
-   *  COO and not through escalation (older gateways omit). */
+  /** Reserved for the operator: no employee decides it, not even by escalation (older gateways omit). */
   approvalOperatorOnly?: boolean
   approvalTarget: string | null
   approvalEscalatedAt: string | null

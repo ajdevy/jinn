@@ -608,12 +608,12 @@ function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unkn
     values.push(filter.label, filter.label);
   }
   if (filter.needsAttentionFor) {
-    // Approvals live in work_item_approvals — their sole storage owner since
-    // PLA-48 dropped the shadow columns from work_items.
+    // Approvals live in work_item_approvals (their sole owner since PLA-48). An unexpired park is a
+    // clock-wait (PLA-157) so it leaves by status, never by gate; an unreadable one is not a park.
     conditions.push(
-      "(EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated')))",
+      "(EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated') AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?))))",
     );
-    values.push(filter.needsAttentionFor, filter.needsAttentionFor);
+    values.push(filter.needsAttentionFor, filter.needsAttentionFor, new Date().toISOString());
   }
   if (filter.since) {
     conditions.push('updated_at >= ?');

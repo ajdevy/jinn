@@ -9,6 +9,7 @@ import {
 } from "./id.js";
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
 import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
+import { WORK_ITEM_STOP_CAUSE_DDL } from "./stop-cause.js";
 import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { currentTableSql, sqlShape } from "./sql-shape.js";
@@ -30,27 +31,14 @@ import {
   V2_APPROVAL_WORK_ITEMS_TABLE_DDL,
 } from "./frozen-schemas.js";
 import { resolveDepartmentPrefix } from "./departments.js";
+import { CORRUPT_SESSIONS_DATABASE, isSqliteCorruption, UNSUPPORTED_PRERELEASE_TODO_DATA } from "./migrate-refusals.js";
 import { loadConfig } from "../shared/config.js";
 import { CONFIG_PATH } from "../shared/paths.js";
 
-export const UNSUPPORTED_PRERELEASE_TODO_DATA =
-  "Unsupported prerelease Todo data detected. This release cannot start or migrate it.\n" +
-  "Use the separately reviewed offline converter, or restore a supported public-version backup.";
-
-export const CORRUPT_SESSIONS_DATABASE =
-  "The session database appears to be corrupt or is not a valid SQLite file — this is NOT a Todo-data\n" +
-  "problem. Restore it from a backup (check the 'backups/' folder next to registry.db, or your most\n" +
-  "recent copy) and restart.";
+export { CORRUPT_SESSIONS_DATABASE, UNSUPPORTED_PRERELEASE_TODO_DATA } from "./migrate-refusals.js";
 
 /** File-copy backup suffix written next to the registry before a v1→v2 rebuild. */
 export const WORK_ITEMS_BACKUP_SUFFIX = ".pre-todos-v2";
-
-/** SQLite surfaces file corruption via these substrings. */
-function isSqliteCorruption(message: string): boolean {
-  return /malformed|file is not a database|not a database|disk image is malformed|database is locked.*corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(
-    message,
-  );
-}
 
 /* ── Current (v2) schema — Todos v2 slice 1 ────────────────────────────────── */
 
@@ -503,6 +491,7 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_attachments", WORK_ITEM_ATTACHMENTS_TABLE_DDL],
   ["work_item_runs", WORK_ITEM_RUNS_TABLE_DDL],
   ["work_item_blocks", WORK_ITEM_BLOCKS_DDL],
+  ["work_item_stop_cause", WORK_ITEM_STOP_CAUSE_DDL],
   ["work_item_dispatch", WORK_ITEM_DISPATCH_TABLE_DDL],
   ["work_item_create_receipts", WORK_ITEM_CREATE_RECEIPTS_TABLE_DDL],
   ["work_item_edit_receipts", WORK_ITEM_EDIT_RECEIPTS_DDL],
@@ -529,6 +518,7 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_blocks", ddl: WORK_ITEM_BLOCKS_DDL },
   { name: "work_item_dispatch", ddl: WORK_ITEM_DISPATCH_DDL },
   { name: "work_item_create_receipts", ddl: WORK_ITEM_CREATE_RECEIPTS_DDL },
+  { name: "work_item_stop_cause", ddl: WORK_ITEM_STOP_CAUSE_DDL },
 ];
 
 /**

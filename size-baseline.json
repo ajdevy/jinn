@@ -623,7 +623,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 752,
+      "lines": 749,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -914,7 +914,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 975,
+      "lines": 965,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -934,7 +934,7 @@
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 311,
+      "lines": 302,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1723,7 +1723,7 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 338,
+      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"

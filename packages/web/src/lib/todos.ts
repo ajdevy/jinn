@@ -10,6 +10,7 @@ import type {
   WorkItemSourceWire,
 } from "./api"
 import { ApiError } from "./api"
+import { isParked } from "./parked"
 export { isPositiveTodoVersion } from "./api"
 
 /** Human label for a raw status (sheet, people queue, sub-lines). */
@@ -111,17 +112,16 @@ export function rankBetween(before: number | null | undefined, after: number | n
 const DAY_MS = 24 * 60 * 60 * 1000
 
 // ── Needs-you inbox ─────────────────────────────────────────────────────────
-// The gateway owns attention routing. GET /api/work-items?needsAttentionFor=me
-// returns the caller-scoped queue newest-first; this helper only keeps the
-// compact rows that still visibly need attention if an older gateway over-returns.
+// The gateway owns attention routing (?needsAttentionFor=me); this keeps the rows that still visibly need it, since an older
+// gateway over-returns and a park runs out between refetches. A gate is asked whatever the clock says, so only status reads it.
 export type NeedsYouSet = WorkItemCompactWire[]
 
-export function needsAttention(item: WorkItemCompactWire): boolean {
-  return item.approvalState === "pending" || item.status === "escalated" || item.status === "blocked"
+export function needsAttention(item: WorkItemCompactWire, now = Date.now()): boolean {
+  return item.approvalState === "pending" || ((item.status === "escalated" || item.status === "blocked") && !isParked(item.parkedUntil, now))
 }
 
-export function deriveNeedsYou(items: WorkItemCompactWire[]): NeedsYouSet {
-  return items.filter(needsAttention)
+export function deriveNeedsYou(items: WorkItemCompactWire[], now = Date.now()): NeedsYouSet {
+  return items.filter((item) => needsAttention(item, now))
 }
 
 // ── Provenance whisper ──────────────────────────────────────────────────────

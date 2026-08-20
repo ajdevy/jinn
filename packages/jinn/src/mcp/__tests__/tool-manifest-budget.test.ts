@@ -123,9 +123,28 @@ const ATTESTED = {
   // definition" on rerun_workflow_run, whose `definition` enum is
   // `["original","current"]`. The remaining 3 fit under the unchanged ceiling —
   // Pi sits two below it, so the next addition still has to pay its own way.
-  rpc: { tokens: 5424, sha256: "91d3619df025c1caae8310453fab4d18d546922cf1c1c784d535420d0297541d" },
-  pi: { tokens: 5930, sha256: "a626d94d3e049c62ef5c4fb8c747235aeddeaf5886f9aef1894bd8bec79e1d6c" },
-  openai: { tokens: 5629, sha256: "968b132e47eee9c3ef06b953d90a085e72d6262407f144913f2340e8a97b12b2" },
+  // Rebased for `parkedUntil` and `unblockHint` on update_work_item (PLA-157) —
+  // the two fields that let a stopped Todo say whether it is waiting on a clock
+  // or on a person. They cost 39. Three redundant clauses and two tightenings
+  // bought 36 of that back:
+  //   - the field list on set_work_item_dispatch ("skills to preload,
+  //     engine/model override"), which its schema properties enumerate.
+  //   - "supports threaded replies and local attachments" on comment_work_item,
+  //     enumerated by its own `parentCommentId` and `attachments`.
+  //   - "last=0 returns the whole transcript" on read_session, said again by
+  //     `last`'s own "0=all (default 30)" one line below.
+  //   - update_work_item's own `cascade` and `acknowledgeEscalated`, said in
+  //     fewer words without losing either rule.
+  // The two employee-selection clauses look like the same kind of duplication
+  // and are NOT: exact-string tests in delegation-tools.test.ts and
+  // session-tools.test.ts pin them, so they are contract, not prose.
+  // `parkedUntil` carries no description of its own because the refusal names
+  // the format at the moment it matters. The remaining 3 are the fields' honest
+  // cost and they put Pi exactly ON the fixed ceiling: the next addition to this
+  // surface has to buy its room BEFORE it spends any.
+  rpc: { tokens: 5426, sha256: "cfc1ec37b2d780e05bfd8918657a2f369a57928b00866f9638bd3a9e1e256cf6" },
+  pi: { tokens: 5932, sha256: "b4ea785b70c1806de3f477ade7678704dc21bde239b29000a78e74c69cb948b2" },
+  openai: { tokens: 5631, sha256: "42f69af16a356e3b568fd268a223a1f2495b5195677601557835d398f8d166b5" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

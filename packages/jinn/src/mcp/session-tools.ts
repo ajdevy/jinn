@@ -227,7 +227,7 @@ export function buildSessionTools(): JinnMcpTool[] {
 
   const readSession: JinnMcpTool = {
     name: "read_session",
-    description: "Read one session status and messages in full; last=0 returns the whole transcript.",
+    description: "Read one session status and messages in full.",
     inputSchema: {
       type: "object",
       properties: {

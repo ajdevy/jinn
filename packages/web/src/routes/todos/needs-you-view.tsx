@@ -11,7 +11,7 @@ import {
 import { EmployeeChip } from "@/components/ui/employee-chip"
 import { STATUS_LABEL, effectiveMaxRounds, operatorSafeTodoError, provenanceLabel, publicWorkItemReference } from "@/lib/todos"
 import { legalTargets } from "@/lib/legal-targets"
-import { attentionKind, stateKey, type AttentionKind } from "./needs-you-support"
+import { attentionKind, stateKey, stopCauseQuote, type AttentionKind } from "./needs-you-support"
 import { ProvenanceIcon, StateCircle, StatusCircle } from "./state-glyph"
 import { rejectConsequence } from "./task-page/banner"
 import { reasonOf, rollupOf } from "./board/card"
@@ -193,7 +193,7 @@ function NeedsYouCard({
   const reason = reasonOf(item, detail)
   const quote = pending
     ? item.approvalRequest ?? "Awaiting your decision."
-    : reason
+    : stopCauseQuote(item) ?? reason
       ?? (kind === "escalated"
         ? "Escalated to you. Review the Todo and decide the next move."
         : "Blocked and waiting on a decision or missing input.")
