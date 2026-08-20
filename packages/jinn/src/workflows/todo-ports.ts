@@ -61,7 +61,7 @@ export interface WorkflowTodoLifecycle {
 /** Where a re-armed Todo has to land for the workflow's own trigger to fire it
  *  again, or the reason no re-arm can fire at all. */
 export type WorkflowRearmTarget =
-  | { status: string; actor?: string }
+  | { status: string; actor?: string; label?: string }
   | { unavailable: string };
 
 /**

@@ -1,4 +1,4 @@
-import { Bell, ChevronRight, CornerDownRight, Link2, Paperclip, Pencil, Plus, Tags } from "lucide-react"
+import { Bell, ChevronRight, CornerDownRight, Link2, Paperclip, Pencil, Plus, RotateCw, Tags } from "lucide-react"
 import type { Employee, WorkItemEventWire } from "@/lib/api"
 import { STATUS_LABEL } from "@/lib/todos"
 import { displayNameOf, formatRelativeTime } from "../util"
@@ -41,6 +41,13 @@ const WHISPERS: Record<string, WhisperRule> = {
     Icon: CornerDownRight,
     text: `held the dispatch${typeof detail.guard === "string" ? ` — ${detail.guard}` : ""}`,
     tinted: true,
+  }),
+  // The counterpart to the hold above, and it has to name the wait it ended:
+  // "resumed" alone reads as somebody having stepped in, which is the one thing
+  // that did not happen.
+  availability_resumed: (detail) => ({
+    Icon: RotateCw,
+    text: `picked it back up — the ${typeof detail.engine === "string" ? `${detail.engine} ` : ""}window had reopened`,
   }),
   note: (detail) => {
     if (typeof detail.assignee === "string") return { Icon: Pencil, text: `assigned ${detail.assignee}` }

@@ -70,7 +70,7 @@ function liveCommentsSince(workItemId: string, since: string): GuardComment[] {
 }
 
 /** A run that reached an outcome, so its `endedAt` is a fact rather than a maybe. */
-type SettledRun = TodoRun & { endedAt: string };
+export type SettledRun = TodoRun & { endedAt: string };
 
 /**
  * Whether an automated re-dispatch of this Todo should proceed.
@@ -110,7 +110,7 @@ function held(guard: RespawnGuard, reason: string): RespawnGuardHold {
   return { state: 'held', guard, reason };
 }
 
-function lastSettledRun(runs: TodoRun[]): SettledRun | undefined {
+export function lastSettledRun(runs: TodoRun[]): SettledRun | undefined {
   return runs
     .filter((run): run is SettledRun => run.endedAt !== null)
     .reduce<SettledRun | undefined>((latest, run) => (!latest || run.endedAt > latest.endedAt ? run : latest), undefined);

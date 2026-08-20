@@ -46,6 +46,10 @@ describe("the merged feed model", () => {
     expect(whisperOf(event("e", "escalated", "t", { detail: { reason: "max-rounds-exhausted" } })).text).toContain("rounds exhausted")
     // A suppressed dispatch has to name the guard, or the operator re-arms blind.
     expect(whisperOf(event("e", "respawn_guard_held", "t", { detail: { guard: "active_pr" } })).text).toContain("active_pr")
+    // A clock-driven resume has to read as the wait ending, not as the raw kind
+    // falling through the table as "availability resumed".
+    expect(whisperOf(event("e", "availability_resumed", "t", { detail: { engine: "claude", source: "stated" } })).text)
+      .toBe("picked it back up — the claude window had reopened")
   })
 
   it("leaves inline HTML comments and fenced examples intact", () => {
