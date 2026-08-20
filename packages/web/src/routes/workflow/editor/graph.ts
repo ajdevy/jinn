@@ -8,7 +8,9 @@ import { NODE_TYPE_LABEL, type WorkflowNodeTypeV2, type WorkflowNodeWire, nodeBo
 export interface NodeRunView {
   status: string
   dimmed: boolean
-  workflowCall?: { succeeded: number; total: number }
+  /** `rounds` is set when the call iterates: a round is a whole child run, so
+   *  the card counts rounds rather than folding them into one child tally. */
+  workflowCall?: { succeeded: number; total: number; rounds?: { round: number; maxRounds: number } }
   waitComment?: { todoId: string; timeoutMinutes: number }
 }
 
@@ -16,6 +18,12 @@ export interface NodeRunView {
  *  hides the edge's insert affordance. */
 export interface EdgeRunView {
   taken: boolean
+}
+
+/** What a Workflow Call card counts: rounds when it loops, children when it
+ *  fans out. */
+export function workflowCallProgress(call: NonNullable<NodeRunView["workflowCall"]>): string {
+  return call.rounds ? `Round ${call.rounds.round}/${call.rounds.maxRounds}` : `${call.succeeded}/${call.total}`
 }
 
 export type EditorNodeData = { node: WorkflowNodeWire; run?: NodeRunView }

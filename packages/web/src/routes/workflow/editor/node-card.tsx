@@ -3,7 +3,7 @@ import { Handle, Position, useInternalNode, useNodeConnections, useUpdateNodeInt
 import { Plus } from "lucide-react"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { NodeTypeMenu, useMenu } from "./add-menu"
-import { createWorkflowNode, type EditorNode } from "./graph"
+import { createWorkflowNode, workflowCallProgress, type EditorNode } from "./graph"
 import { freeCenter } from "./layout"
 import { NodeTypeIcon } from "./node-icons"
 import {
@@ -245,7 +245,7 @@ function StandardCard({ data, selected }: NodeProps<EditorNode>) {
   const readOnly = data.run !== undefined
   const employee = employeeName(node)
   const caption = node.type === "workflow-call" && data.run?.workflowCall
-    ? `${data.run.workflowCall.succeeded}/${data.run.workflowCall.total} · ${statusMeta(data.run.status).label}`
+    ? `${workflowCallProgress(data.run.workflowCall)} · ${statusMeta(data.run.status).label}`
     : data.run?.waitComment
       ? `waiting for your comment on ${data.run.waitComment.todoId} · ${compactMinutes(data.run.waitComment.timeoutMinutes)}`
       : nodeCaption(node)

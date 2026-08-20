@@ -13,7 +13,7 @@ import {
 } from "./editor/graph"
 import { tidyLayout } from "./editor/layout"
 import { editorNodeTypes } from "./editor/node-card"
-import { deriveNodeStatus, isLiveRunStatus } from "./run-support"
+import { deriveNodeStatus, isLiveRunStatus, iterationRounds } from "./run-support"
 
 /** Client mirror of the runner's edgeActivated: an edge was traversed when its
  *  source settled and routed through this port (condition/approval record the
@@ -59,6 +59,9 @@ function buildGraph(
       const outputSucceeded = nodeRun?.output?.fields?.["succeeded"]
       const outputTotal = nodeRun?.output?.fields?.["total"]
       const configuredTotal = nodeRun?.resolvedConfig?.["total"]
+      // An iterating call counts rounds; a fan-out reports none and keeps
+      // counting children.
+      const rounds = iterationRounds(nodeRun)
       const workflowCall = node.data.node.type === "workflow-call" ? {
         succeeded: typeof outputSucceeded === "number"
           ? outputSucceeded
@@ -66,6 +69,7 @@ function buildGraph(
         total: typeof outputTotal === "number"
           ? outputTotal
           : typeof configuredTotal === "number" ? configuredTotal : children.length,
+        ...(rounds ? { rounds } : {}),
       } : undefined
       const waitTodoId = nodeRun?.resolvedConfig?.["todoId"]
       const waitTimeout = nodeRun?.resolvedConfig?.["timeoutMinutes"]

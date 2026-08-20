@@ -197,3 +197,13 @@ export function ErrorNote({ message }: { message: string }) {
     </p>
   )
 }
+
+/** The round a Workflow Call node is on, when it iterates. A round is a whole
+ *  child run, so the inspector numbers rounds rather than items — and a plain
+ *  fan-out, which reports no round, keeps saying items. */
+export function iterationRounds(runtime: WorkflowNodeRunV2Wire | undefined): { round: number; maxRounds: number } | undefined {
+  // The settled output supersedes the config the last round was dispatched with.
+  const counted: Record<string, unknown> = runtime?.output?.fields ?? runtime?.resolvedConfig ?? {}
+  const { round, maxRounds } = counted
+  return typeof round === "number" && typeof maxRounds === "number" ? { round, maxRounds } : undefined
+}

@@ -12,7 +12,7 @@ import { InspectorShell } from "./editor/inspector"
 import { NodeTypeIcon } from "./editor/node-icons"
 import { NODE_TYPE_LABEL, conditionCases, conditionDefaultPort, type WorkflowNodeWire } from "./editor/ports"
 import { AttemptCard } from "./run-attempt-card"
-import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, latestAttempt } from "./run-support"
+import { ErrorNote, Note, Section, StatusLine, deriveNodeStatus, formatDuration, formatStarted, iterationRounds, latestAttempt } from "./run-support"
 
 function formatFieldValue(value: unknown): string {
   if (typeof value === "string") return value
@@ -96,12 +96,11 @@ function StepSection({ node, attempt }: { node: WorkflowNodeWire; attempt: Workf
 }
 
 function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire; nodeId: string }) {
-  const children = (detail.childRuns ?? [])
-    .filter((child) => child.nodeId === nodeId)
-    .sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
+  const children = (detail.childRuns ?? []).filter((child) => child.nodeId === nodeId).sort((a, b) => (a.itemIndex ?? -1) - (b.itemIndex ?? -1))
+  const rounds = iterationRounds(detail.nodeRuns?.find((node) => node.nodeId === nodeId))
   if (children.length === 0) return null
   return (
-    <Section title="Child runs">
+    <Section title={rounds ? `Rounds · ${rounds.round} of ${rounds.maxRounds}` : "Child runs"}>
       <div className="overflow-hidden rounded-[10px] bg-[var(--fill-quaternary)]">
         {children.map((child) => (
           <Link
@@ -110,8 +109,8 @@ function ChildRunsSection({ detail, nodeId }: { detail: WorkflowRunDetailV2Wire;
             className="flex min-h-10 items-center gap-2.5 border-b border-[var(--separator)] px-3 py-2 transition-colors last:border-b-0 hover:bg-[var(--fill-tertiary)]"
           >
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                {child.itemIndex === undefined ? child.workflowId : `Item ${child.itemIndex + 1}`}
+              <span className="block text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+                {rounds ? "Round" : "Item"} {child.itemIndex + 1}
               </span>
               <span
                 className="block truncate text-[length:var(--text-caption2)] text-[var(--text-quaternary)]"
@@ -399,9 +398,9 @@ export function RunInspector({ detail, nodeId, onClose, onDecide, deciding }: {
             <>
               <FanoutSection nodeRun={nodeRun} />
               <OutputSection output={nodeRun?.output} isDark={isDark} />
+              <ChildRunsSection detail={detail} nodeId={node.id} />
             </>
           )}
-          <ChildRunsSection detail={detail} nodeId={node.id} />
           {node.type === "condition" && <RouteSection node={node} nodeRun={nodeRun} />}
           {node.type === "approval" && approval && (
             <ApprovalDecision node={node} approval={approval} onDecide={onDecide} deciding={deciding} />
