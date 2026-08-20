@@ -5,7 +5,11 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { report } from "./vitest-flaky-report.mjs";
 import { acquireTestSlot } from "./test-slot-gate.mjs";
+
+/* Re-exported so the reporting split stays an internal detail of this script. */
+export { formatFlakySummary } from "./vitest-flaky-report.mjs";
 
 /**
  * Wraps `vitest run` so a test file that fails in CI is rerun once, and a file
@@ -124,91 +128,6 @@ export function diffRuns(firstReport, retryReport, packageDir) {
   }
 
   return { flaky, stillFailing };
-}
-
-/**
- * A hook or collection failure names no test, so the file itself is the finding
- * and its `message` is the only detail there is. Dropping it would leave an
- * entry with a filename and nothing else.
- */
-function entryDetails(entry) {
-  if (entry.tests.length > 0) {
-    return entry.tests;
-  }
-  const firstLine = entry.message.split("\n")[0].trim();
-  return [`whole file${firstLine ? `: ${firstLine}` : ""}`];
-}
-
-function formatEntries(entries) {
-  return entries.flatMap((entry) => [
-    `  ${entry.file}`,
-    ...entryDetails(entry).map((detail) => `    - ${detail}`),
-  ]);
-}
-
-function formatFlakyReport(flaky) {
-  const files = flaky.length === 1 ? "file" : "files";
-  return [
-    "",
-    `⚠ FLAKY — ${flaky.length} test ${files} failed, then passed when rerun:`,
-    ...formatEntries(flaky),
-    "",
-    "A flake is a bug to fix, not noise to ignore.",
-    "",
-  ].join("\n");
-}
-
-export function formatFlakySummary(flaky) {
-  return [
-    "## ⚠ FLAKY",
-    "",
-    "These failed on the first run and passed when rerun. A flake is a bug to fix, not noise to ignore.",
-    "",
-    ...flaky.flatMap((entry) => [
-      `- \`${entry.file}\``,
-      ...entryDetails(entry).map((detail) => `  - ${detail}`),
-    ]),
-    "",
-  ].join("\n");
-}
-
-function formatStillFailingReport(stillFailing) {
-  const files = stillFailing.length === 1 ? "file" : "files";
-  return [
-    "",
-    `✖ STILL FAILING after a rerun — ${stillFailing.length} test ${files}:`,
-    ...formatEntries(stillFailing),
-    "",
-  ].join("\n");
-}
-
-function annotate(entry, packageDir) {
-  const fromRepoRoot = path
-    .relative(repoRoot, path.resolve(packageDir, entry.file))
-    .replaceAll("\\", "/");
-  const detail = entry.tests.length > 0 ? entry.tests.join(", ") : "whole file";
-  console.log(`::warning file=${fromRepoRoot}::FLAKY — passed only on a rerun (${detail})`);
-}
-
-function appendJobSummary(markdown) {
-  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (!summaryPath) {
-    return;
-  }
-  fs.appendFileSync(summaryPath, markdown);
-}
-
-function report({ flaky, stillFailing, packageDir }) {
-  if (flaky.length > 0) {
-    console.log(formatFlakyReport(flaky));
-    for (const entry of flaky) {
-      annotate(entry, packageDir);
-    }
-    appendJobSummary(formatFlakySummary(flaky));
-  }
-  if (stillFailing.length > 0) {
-    console.log(formatStillFailingReport(stillFailing));
-  }
 }
 
 function resolveVitestBin(packageDir) {
