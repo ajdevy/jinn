@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
 import TodoBoardPage from "../board/board-page"
 import { clearBoardScrollCache } from "../board/board-route"
@@ -138,21 +138,63 @@ beforeEach(() => {
   })
 })
 
-describe("the list-first Todos surface", () => {
-  it("gives both view controls at least a 34px tap target", async () => {
-    renderTodos("/todos/b/platform")
-    await screen.findByTestId("todo-list-group-backlog")
+/** jsdom has no matchMedia; the board's ONE breakpoint is 700px, and the page
+ *  reads the view off it. Leaving it unstubbed IS the SSR/no-window case. */
+const originalMatchMedia = window.matchMedia
+let breakpointListener: ((event: MediaQueryListEvent) => void) | undefined
+function setViewport(mobile: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({
+      matches: query === "(max-width: 700px)" ? mobile : false,
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        breakpointListener = listener
+      },
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
+}
 
-    expect(screen.getByTestId("todos-view-list").classList.contains("h-9")).toBe(true)
-    expect(screen.getByTestId("todos-view-board").classList.contains("h-9")).toBe(true)
+afterEach(() => {
+  breakpointListener = undefined
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia })
+})
+
+describe("the viewport-driven Todos surface", () => {
+  it("renders the board on a desktop viewport, with no view toggle in the DOM", async () => {
+    setViewport(false)
+    rows.executing = [compact("PLA-1", "executing")]
+    renderTodos("/todos/b/platform")
+
+    await screen.findByTestId("board-card-PLA-1")
+    expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(false)
+    expect((screen.getByTestId("todo-list-scroll") as HTMLDivElement).hidden).toBe(true)
+    expect(screen.queryByTestId("todos-view-list")).toBeNull()
+    expect(screen.queryByTestId("todos-view-board")).toBeNull()
   })
 
-  it("shows the grouped list by default and keeps Closed collapsed", async () => {
+  it("renders the board when the page has no matchMedia to read (the SSR default)", async () => {
+    rows.executing = [compact("PLA-1", "executing")]
+    renderTodos("/todos/b/platform")
+
+    await screen.findByTestId("board-card-PLA-1")
+    expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(false)
+  })
+
+  it("shows the grouped list on a phone viewport, with no toggle, and keeps Closed collapsed", async () => {
+    setViewport(true)
     rows.executing = [compact("PLA-1", "executing")]
     rows.done = [compact("PLA-2", "done")]
     renderTodos("/todos/b/platform")
 
     await screen.findByTestId("todo-list-row-PLA-1")
+    expect(screen.queryByTestId("todos-view-list")).toBeNull()
+    expect(screen.queryByTestId("todos-view-board")).toBeNull()
     expect((screen.getByTestId("todo-list-scroll") as HTMLDivElement).hidden).toBe(false)
     expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(true)
     expect(screen.getByTestId("todo-list-group-needs-you")).toBeTruthy()
@@ -164,19 +206,21 @@ describe("the list-first Todos surface", () => {
     expect(screen.queryByTestId("todo-list-row-PLA-2")).toBeNull()
   })
 
-  it("switches without changing the route and reuses the stored Board choice on another board", async () => {
-    const first = renderTodos("/todos/b/platform")
-    await screen.findByTestId("todo-list-group-backlog")
-    fireEvent.click(screen.getByTestId("todos-view-board"))
+  it("flips the view live when the viewport crosses the breakpoint, without a remount", async () => {
+    setViewport(false)
+    rows.executing = [compact("PLA-1", "executing")]
+    renderTodos("/todos/b/platform")
 
+    const board = await screen.findByTestId("todo-board-scroll")
+    expect((board as HTMLDivElement).hidden).toBe(false)
+
+    act(() => breakpointListener?.({ matches: true } as MediaQueryListEvent))
+
+    await waitFor(() => expect((screen.getByTestId("todo-list-scroll") as HTMLDivElement).hidden).toBe(false))
+    expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(true)
+    // Same node either side of the flip: the page re-rendered, it did not remount.
+    expect(screen.getByTestId("todo-board-scroll")).toBe(board)
     expect(screen.getByTestId("location-probe").textContent).toBe("/todos/b/platform")
-    expect(localStorage.getItem("jinn-todos-view")).toBe("board")
-    expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(false)
-
-    first.unmount()
-    renderTodos("/todos/b/everything")
-    await waitFor(() => expect((screen.getByTestId("todo-board-scroll") as HTMLDivElement).hidden).toBe(false))
-    expect((screen.getByTestId("todos-view-board") as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true")
   })
 
   it("returns from a row to the list at its previous scroll position", async () => {

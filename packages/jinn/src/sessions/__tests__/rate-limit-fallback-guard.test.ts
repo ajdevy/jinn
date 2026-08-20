@@ -7,6 +7,9 @@ const engineAvailableMock = vi.fn<(...args: unknown[]) => boolean>();
 vi.mock("../../shared/models.js", () => ({
   engineAvailable: (...args: unknown[]) => engineAvailableMock(...args),
   effortLevelsForModel: vi.fn(() => ["low", "medium", "high"]),
+  // The chain walker's module reads both of these at load time.
+  ENGINE_NAMES: ["claude", "codex", "antigravity", "grok", "pi", "hermes"],
+  isKnownEngine: (name: string) => ["claude", "codex", "antigravity", "grok", "pi", "hermes"].includes(name),
 }));
 
 // Registry side effects — no real DB.
@@ -24,6 +27,8 @@ vi.mock("../registry.js", () => ({
     ...(session.engine === engine ? { engineSessionId: id } : {}),
   }),
 }));
+
+vi.mock("../engine-run-mcp.js", () => ({ resolveEngineRunMcp: vi.fn(() => ({})) }));
 
 const recordClaudeRateLimitMock = vi.fn();
 vi.mock("../../shared/usageAwareness.js", () => ({
@@ -47,36 +52,23 @@ vi.mock("../../shared/rateLimit.js", () => ({
   rateLimitEngineLabel: (engine: string) => engine === "codex" ? "Codex" : "Claude",
 }));
 
+import { makeSession } from "./helpers/session-fixture.js";
 import { handleRateLimit, type RateLimitHandlerOpts } from "../rate-limit-handler.js";
+import { applyLegacyFallbackMigration } from "../../shared/engine-fallback.js";
 import { computeNextRetryDelayMs, computeRateLimitDeadlineMs } from "../../shared/rateLimit.js";
 import type { Session, EngineResult } from "../../shared/types.js";
 
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "sess-1",
-    engine: "claude",
-    engineSessionId: "claude-thread-1",
-    source: "web",
-    sourceRef: "web:test",
-    connector: null,
-    sessionKey: "k",
-    replyContext: null,
-    messageId: null,
-    transportMeta: null,
-    employee: null,
-    model: "opus",
-    title: null,
-    parentSessionId: null,
-    status: "running",
-    attemptToken: "attempt-1",
-    effortLevel: null,
-    totalCost: 0,
-    totalTurns: 0,
-    createdAt: new Date().toISOString(),
-    lastActivity: new Date().toISOString(),
-    lastError: null,
-    ...overrides,
-  } as Session;
+/** A deprecated `sessions` pair, mapped onto engines.claude.fallback the way loadConfig maps it. */
+function legacyFallbackConfig(): RateLimitHandlerOpts["config"] {
+  const config = {
+    sessions: { rateLimitStrategy: "fallback", fallbackEngine: "codex" },
+    engines: {
+      claude: { bin: "claude", model: "opus" },
+      codex: { bin: "codex", model: "gpt-5.3-codex" },
+    },
+  } as unknown as RateLimitHandlerOpts["config"];
+  applyLegacyFallbackMigration(config, () => {});
+  return config;
 }
 
 function makeOpts(fallbackRun: ReturnType<typeof vi.fn>): RateLimitHandlerOpts {
@@ -88,10 +80,7 @@ function makeOpts(fallbackRun: ReturnType<typeof vi.fn>): RateLimitHandlerOpts {
     attemptToken: "attempt-1",
     prompt: "hello",
     engineConfig: { bin: "claude", model: "opus" },
-    config: {
-      sessions: { rateLimitStrategy: "fallback", fallbackEngine: "codex" },
-      engines: { codex: { bin: "codex", model: "gpt-5.3-codex" } },
-    } as unknown as RateLimitHandlerOpts["config"],
+    config: legacyFallbackConfig(),
     engines: new Map([["codex", fallbackEngine]]),
     engine: claudeEngine,
     rateLimit: { resetsAt: undefined },

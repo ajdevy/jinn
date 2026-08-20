@@ -8,6 +8,11 @@ export function resolveJinnHome(): string {
   return path.resolve(path.join(os.homedir(), `.${instance}`));
 }
 
+/** Resolve the canonical default home without applying instance overrides. */
+export function resolveDefaultJinnHome(): string {
+  return path.resolve(path.join(os.homedir(), ".jinn"));
+}
+
 /** Resolve Claude Code's config dir at call time; CLAUDE_CONFIG_DIR moves credentials,
  *  transcripts, skills and .claude.json together, so every consumer must agree on it. */
 export function resolveClaudeConfigDir(): string {

@@ -1,11 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { isIP } from "node:net";
-import os from "node:os";
 import path from "node:path";
 import type { IncomingMessage } from "node:http";
 import type { JinnConfig } from "../shared/types.js";
-import { resolveJinnInstance } from "../shared/home.js";
+import { resolveDefaultJinnHome, resolveJinnInstance } from "../shared/home.js";
 export const AUTH_COOKIE = "jinn_auth";
 export const AUTH_DEVICE_COOKIE = "jinn_device";
 export const LOCAL_BOOTSTRAP_GRANT_HEADER = "x-jinn-bootstrap-grant";
@@ -299,7 +298,7 @@ function cookieNamespace(jinnHome?: string): string {
   const home = jinnHome ?? process.env.JINN_HOME;
   if (!home) return "";
   const resolved = path.resolve(home);
-  if (resolved === path.resolve(os.homedir(), ".jinn")) return "";
+  if (resolved === resolveDefaultJinnHome()) return "";
   const base = path.basename(resolved).replace(/^\./, "");
   return base.replace(/[^A-Za-z0-9_-]/g, "") || "instance";
 }

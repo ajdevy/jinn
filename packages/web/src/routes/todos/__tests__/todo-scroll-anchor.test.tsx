@@ -259,8 +259,7 @@ describe("Todos board scroll anchoring", () => {
   it("holds the read position when cards land above the reader", async () => {
     rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
-    await screen.findByTestId("todo-list-row-PLA-1")
-    fireEvent.click(screen.getByTestId("todos-view-board"))
+    await screen.findByTestId("board-card-PLA-1")
 
     const layout = installLayout("todo-board-scroll", "data-board-card")
     layout.scrollTo(8.5 * ROW_H)
@@ -280,8 +279,7 @@ describe("Todos board scroll anchoring", () => {
   it("follows the content when the anchored card leaves the board, without snapping to an edge", async () => {
     rows.backlog = Array.from({ length: 40 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const { client } = renderBoard()
-    await screen.findByTestId("todo-list-row-PLA-1")
-    fireEvent.click(screen.getByTestId("todos-view-board"))
+    await screen.findByTestId("board-card-PLA-1")
 
     const layout = installLayout("todo-board-scroll", "data-board-card")
     layout.scrollTo(8.5 * ROW_H)

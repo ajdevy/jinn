@@ -62,3 +62,22 @@ describe("/todos route arrangement", () => {
     expect(screen.getByTestId("board-page").textContent).toBe("everything")
   })
 })
+
+// The /todos redirect must resolve at the ROUTER level (loader), never as a
+// committed <Navigate> frame — an element redirect renders null for one commit
+// and the mobile tab bar visibly flashed out on every chat → todos tap.
+describe("todosIndexLoader", () => {
+  it("redirects to the default board before anything commits", async () => {
+    const { todosIndexLoader } = await import("../board/todos-index-redirect")
+    const res = todosIndexLoader({ request: new Request("http://x/todos"), params: {}, context: {} } as never) as Response
+    expect(res instanceof Response).toBe(true)
+    expect(res.status).toBe(302)
+    expect(res.headers.get("Location")).toBe("/todos/b/my")
+  })
+
+  it("carries legacy view params to their mapped boards, keeping other filters", async () => {
+    const { todosIndexLoader } = await import("../board/todos-index-redirect")
+    const res = todosIndexLoader({ request: new Request("http://x/todos?view=needs&q=a"), params: {}, context: {} } as never) as Response
+    expect(res.headers.get("Location")).toBe("/todos/b/attention?q=a")
+  })
+})

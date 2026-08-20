@@ -19,6 +19,7 @@ import {
   refreshHermesModels,
   refreshPiModels,
 } from "../shared/models.js";
+import { withEngineHealth } from "../shared/engine-health.js";
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
 import { maybeRevertEngineOverride, type SessionManager } from "../sessions/manager.js";
@@ -1897,12 +1898,9 @@ export async function handleApiRequest(
         // availability stays consistent with /api/engines instead of drifting.
         engines: {
           default: config.engines.default,
-          ...Object.fromEntries(
-            Object.entries(getModelRegistry(config)).map(([name, entry]) => [
-              name,
-              { model: entry.defaultModel, available: entry.available },
-            ]),
-          ),
+          ...Object.fromEntries(Object.entries(withEngineHealth(getModelRegistry(config))).map(([name, entry]) => [
+            name, { model: entry.defaultModel, available: entry.available, health: entry.health },
+          ])),
         },
         sessions: { total: countSessions(), running, active: running },
         connectors,
@@ -5063,8 +5061,7 @@ export async function handleApiRequest(
     // when no `models:` block is configured.
     if (method === "GET" && pathname === "/api/engines") {
       const config = context.getConfig();
-      const registry = getModelRegistry(config);
-      return json(res, { default: config.engines.default, engines: registry });
+      return json(res, { default: config.engines.default, engines: withEngineHealth(getModelRegistry(config)) });
     }
 
     // POST /api/engines/refresh — re-run dynamic model discovery and return the
@@ -5081,7 +5078,7 @@ export async function handleApiRequest(
         refreshHermesModels(config),
       ]);
       context.emit("engines:updated", {});
-      return json(res, { default: config.engines.default, engines: getModelRegistry(config) });
+      return json(res, { default: config.engines.default, engines: withEngineHealth(getModelRegistry(config)) });
     }
 
     // GET /api/engine-limits — live/snapshot quota windows and static capability

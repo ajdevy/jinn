@@ -1,9 +1,10 @@
 import { forwardRef } from "react"
 import { ArrowUpRight, Calendar, ChevronDown, LoaderCircle, Send, UserRound } from "lucide-react"
-import type { DepartmentSummaryWire, Employee, LinkedSessionWire, WorkItemDetailWire, WorkItemLabelWire } from "@/lib/api"
+import type { DepartmentSummaryWire, Employee, LinkedSessionWire, WorkItemDetailWire } from "@/lib/api"
 import { STATUS_LABEL, effectiveMaxRounds, effectiveVerifyMode, priorityLabel } from "@/lib/todos"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { StatusCircle } from "../state-glyph"
+import { LabelChip, RemoveButton } from "./label-chip"
 import { displayNameOf, formatRelativeTime } from "../util"
 
 /* Todos v2 slice 6 — the chrome-free properties rail (design-doc §7.2/§7.3,
@@ -77,25 +78,6 @@ export function RailPriorityBars({ priority }: { priority: number }) {
   )
 }
 
-export function LabelChip({ label, onRemove }: { label: WorkItemLabelWire; onRemove?: () => void }) {
-  return (
-    <span className="flex h-[22px] items-center gap-[5px] rounded-[11px] bg-[var(--fill-tertiary)] px-[9px] text-[11.5px] font-medium text-[var(--text-secondary)]">
-      <span className="size-[5px] rounded-full" style={{ background: label.color ?? "var(--text-quaternary)" }} />
-      {label.name}
-      {onRemove && (
-        <button
-          type="button"
-          aria-label={`Remove label ${label.name}`}
-          onClick={onRemove}
-          className="focus-ring -mr-1 grid size-4 place-items-center rounded-full text-[var(--text-quaternary)] outline-none hover:text-[var(--text-secondary)]"
-        >
-          ×
-        </button>
-      )}
-    </span>
-  )
-}
-
 export function VerifyPill({ mode }: { mode: string }) {
   const tint = mode === "thorough" ? "var(--system-red)" : "var(--system-purple)"
   return (
@@ -121,6 +103,8 @@ export interface RailPickers {
     onOpen: () => void
     open: boolean
     picker: React.ReactNode
+    /** Assignee only: drops the value without opening the picker at all. */
+    onClear?: () => void
   } | undefined
 }
 
@@ -194,6 +178,16 @@ export function PropsRail({
             </>
           )}
         </RailRow>
+        {item.assignee && assigneePick?.onClear && (
+          // Sibling, not a child: the row is a button. `right-5` parks the ×
+          // clear of the row's own trailing disclosure chevron.
+          <RemoveButton
+            label="Remove assignee"
+            testId="rail-assignee-clear"
+            onClick={assigneePick.onClear}
+            className="absolute right-5 top-1/2 size-6 -translate-y-1/2 max-[700px]:size-[34px]"
+          />
+        )}
         {assigneePick?.picker}
       </div>
       {dispatcherSession ? (

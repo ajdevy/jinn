@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ChevronLeft, ChevronRight, Minus, Plus, UserRound } from "lucide-react"
+import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react"
 import {
   api,
   type DepartmentSummaryWire,
@@ -84,6 +84,17 @@ export function AssigneePickerContent({
           className="w-full rounded-full bg-[var(--fill-tertiary)] px-3 py-1.5 text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]"
         />
       </div>
+      {current !== null && (
+        <PickerRow
+          sheet={sheet}
+          label={<span className="text-[var(--text-tertiary)]">Unassign</span>}
+          onSelect={() => {
+            commit(null)
+            onDone()
+          }}
+          testId="assignee-option-unassign"
+        />
+      )}
       <div className={sheet ? "" : "max-h-[288px] overflow-y-auto"}>
         {filtered.map((employee) => (
           <PickerRow
@@ -102,21 +113,6 @@ export function AssigneePickerContent({
         ))}
         {filtered.length === 0 && <PickerNote>Nobody matches "{query.trim()}".</PickerNote>}
       </div>
-      <PickerRow
-        sheet={sheet}
-        glyph={
-          <span className="grid size-[22px] flex-none place-items-center rounded-full bg-[var(--fill-secondary)] text-[var(--text-quaternary)]">
-            <UserRound size={12} aria-hidden />
-          </span>
-        }
-        label={<span className="text-[var(--text-tertiary)]">Unassign</span>}
-        checked={current === null}
-        onSelect={() => {
-          if (current !== null) commit(null)
-          onDone()
-        }}
-        testId="assignee-option-unassign"
-      />
     </>
   )
 }

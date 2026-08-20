@@ -12,6 +12,7 @@ import type {
   JinnConfig,
 } from "./types.js";
 import { CLAUDE_LIMITS_DIR } from "./paths.js";
+import { recordExhaustedWindows } from "./engine-health.js";
 import { getModelRegistry } from "./models.js";
 import { readClaudeOAuthToken } from "./claude-models.js";
 import { resolveBin } from "./resolve-bin.js";
@@ -64,7 +65,7 @@ function baseSnapshot(config: JinnConfig, engine: string): EngineLimitEngineSnap
   };
 }
 
-function windowFromClaude(name: string, value: unknown, durationMins: number): EngineLimitWindow | undefined {
+export function windowFromClaude(name: string, value: unknown, durationMins: number): EngineLimitWindow | undefined {
   if (!isRecord(value)) return undefined;
   const resetsAt = num(value.resets_at);
   return {
@@ -76,7 +77,7 @@ function windowFromClaude(name: string, value: unknown, durationMins: number): E
   };
 }
 
-function claudeSnapshotFile(dir: string): string | null {
+export function claudeSnapshotFile(dir: string): string | null {
   try {
     const files = fs.readdirSync(dir)
       .filter((name) => name.endsWith(".json"))
@@ -169,7 +170,7 @@ export function windowsFromClaudeUsage(usage: JsonRecord): EngineLimitWindow[] {
   return windows;
 }
 
-async function fetchClaudeOAuthUsage(): Promise<JsonRecord | undefined> {
+export async function fetchClaudeOAuthUsage(): Promise<JsonRecord | undefined> {
   if (process.env.JINN_CLAUDE_USAGE_API === "off") return undefined;
   const token = await readClaudeOAuthToken();
   if (!token) return undefined;
@@ -461,7 +462,7 @@ function planWindow(name: string, windowDurationMins: number): EngineLimitWindow
 // Codex writes the same rate-limit snapshot into every `token_count` event of its
 // session rollout JSONL (snake_case), so we can read it from disk exactly like the
 // Claude statusline snapshot — no app-server spawn, no JSON-RPC race.
-function windowFromCodexRollout(name: string, value: unknown): EngineLimitWindow | undefined {
+export function windowFromCodexRollout(name: string, value: unknown): EngineLimitWindow | undefined {
   if (!isRecord(value)) return undefined;
   const durationMins = num(value.window_minutes);
   const resetsAt = num(value.resets_at);
@@ -649,9 +650,8 @@ export async function collectEngineLimits(
       engines[name] = collectUnsupported(config, name, "No limit collector is registered for this engine.");
     }
 
-    if (!LIVE_LIMIT_ENGINES.has(name) && engines[name].status === "live") {
-      engines[name].status = "snapshot";
-    }
+    if (!LIVE_LIMIT_ENGINES.has(name) && engines[name].status === "live") engines[name].status = "snapshot";
+    recordExhaustedWindows(name, engines[name].windows);
   }
 
   return { generatedAt, default: config.engines.default, engines };

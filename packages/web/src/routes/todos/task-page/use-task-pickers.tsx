@@ -211,6 +211,9 @@ export function useTaskPickers({
       return {
         onOpen: () => setOpenPicker((current) => (current === key ? null : key)),
         open: openPicker === key,
+        // The same commit lane the picker's own Unassign row uses, so a surface
+        // that clears in one tap and one that picks agree after a refetch.
+        onClear: key === "assignee" && detail.workItem.assignee ? () => patchField({ assignee: null }) : undefined,
         picker:
           !mobile && openPicker === key ? (
             <PickerPopover
@@ -226,7 +229,7 @@ export function useTaskPickers({
           ) : null,
       }
     },
-    [detail, openPicker, mobile, close, currentIndexFor, contentFor],
+    [detail, openPicker, mobile, close, currentIndexFor, contentFor, patchField],
   )
 
   /** The one mobile sheet (law 4) — rendered at page level via a portal. */

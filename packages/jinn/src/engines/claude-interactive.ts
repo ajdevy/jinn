@@ -16,6 +16,7 @@ import { neutralizeForPaste } from "../shared/skill-commands.js";
 import { buildPromptWithPlatformContext } from "./platform-context.js";
 import { extractActivityReceiptId } from "../shared/activity-receipts.js";
 import { costOfUsage } from "../shared/model-pricing.js";
+import { claudeResetsAtSeconds } from "../shared/engine-reset-times.js";
 import { writeMcpConfigFile } from "../mcp/resolver.js";
 import { parsePermissionPrompt, chooseApproval, keystrokesToSelect } from "./claude-permission-prompt.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
@@ -229,17 +230,16 @@ export function computeInteractiveCost(transcriptPath: string, model?: string, a
 }
 
 /**
- * Map a StopFailure hook payload to an EngineRateLimitInfo.
- * Returns null unless the turn failed specifically with error === "rate_limit".
- * The shape matches what ClaudeEngine produces from `rate_limit_event` JSON, so
- * detectRateLimit() / the wait-retry machinery in manager.ts work unchanged.
- * (error_details may carry a reset time, but its format is unconfirmed — left
- * unparsed; manager.ts computes a default backoff when resetsAt is absent.)
+ * Map a StopFailure payload to an EngineRateLimitInfo in the shape ClaudeEngine
+ * produces from `rate_limit_event` JSON, so detectRateLimit() and manager.ts's
+ * wait-retry machinery work unchanged. The payload never names the reset, so a
+ * rate-limit failure — and only that one — asks the account's usage source.
  */
-function rateLimitFromStopFailure(payload: HookPayload | undefined): EngineRateLimitInfo | null {
+export async function rateLimitFromStopFailure(payload: HookPayload | undefined): Promise<EngineRateLimitInfo | null> {
   if (!payload || payload.hook_event_name !== "StopFailure") return null;
   if (payload.error !== "rate_limit") return null;
-  return { status: "rejected", rateLimitType: "interactive_detected" };
+  const resetsAt = await claudeResetsAtSeconds();
+  return { status: "rejected", rateLimitType: "interactive_detected", ...(resetsAt === undefined ? {} : { resetsAt }) };
 }
 
 /**
@@ -1455,7 +1455,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     }
     // Map a StopFailure rate-limit into result.rateLimit so manager.ts's
     // wait/retry/fallback machinery engages exactly as it does for `claude -p`.
-    const rl = rateLimitFromStopFailure(resolver.stopFailure);
+    const rl = await rateLimitFromStopFailure(resolver.stopFailure);
     if (rl) result.rateLimit = rl;
     // Turn settled as an API-error failure — the CLI may still be retrying.
     // Keep listening for a late Stop so a wrong "failed" verdict self-corrects.

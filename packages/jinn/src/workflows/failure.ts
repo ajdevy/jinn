@@ -1,4 +1,5 @@
 import type { WorkflowError } from "./runtime.js";
+import { classifyEngineFailureText, hasEngineFailureClass, type EngineFailureClass } from "../shared/engine-failure.js";
 
 /**
  * How a workflow decides whether a failed attempt is worth re-dispatching.
@@ -16,32 +17,44 @@ import type { WorkflowError } from "./runtime.js";
  * an engine reporting that its turn failed, where the provider's reason exists
  * solely as prose.
  *
- * There the list is closed and anything unrecognised is terminal. Guessing
+ * There the vocabulary is closed and anything unrecognised is terminal. Guessing
  * generously spends real money on real failures, so the default is deny.
  */
-const TRANSPORT_SIGNATURES: readonly RegExp[] = [
-  // Provider fault codes, surfaced verbatim by the engines (e.g. the Claude PTY's
-  // "Interactive turn failed: server_error").
-  /\b(?:server_error|api_error|overloaded_error|overloaded)\b/i,
-  // HTTP 5xx, but only in status context — a bare "503" in a diagnostic is not a
-  // status code, and matching one would retry a genuine failure.
-  /\b(?:HTTP|status)(?:\s+code)?\s*[:=]?\s*5\d\d\b/i,
-  /\b(?:bad gateway|service unavailable|gateway time-?out|internal server error)\b/i,
-  // Socket and DNS faults from the fetch/PTY transport.
-  /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN)\b/,
-  /\b(?:socket hang up|fetch failed|network error)\b/i,
-];
 
 /**
  * Whether an engine diagnostic describes an upstream/transport fault.
  *
- * Deliberately NOT included: `rate_limit` (the session manager owns rate-limit
- * waiting, so a workflow retry on top of it is pure quota burn) and
- * `billing_error`/`invalid_request`/`permission_error` (a retry cannot fix a
- * credential, a quota, or a malformed request).
+ * Read off the shared taxonomy: the two classes that mean the request never got
+ * a real answer. Deliberately NOT retried are the classes that name a decision —
+ * `rate-limit`/`quota` (the session manager owns rate-limit waiting, so a
+ * workflow retry on top of it is pure quota burn), `auth-terminal`, and
+ * `terminal` (a retry cannot fix a credential, a quota, or a malformed request).
+ * A provider can be both overloaded and throttling; that text is retried here,
+ * exactly as it was before the classes were named.
  */
 export function isTransportFailure(message: string): boolean {
-  return TRANSPORT_SIGNATURES.some((signature) => signature.test(message));
+  return hasEngineFailureClass(classifyEngineFailureText(message), "provider-outage", "network");
+}
+
+/**
+ * Why another engine could serve the turn this one refused, phrased for the run
+ * detail — or `undefined` when swapping engines would change nothing.
+ *
+ * These are the classes that describe the PROVIDER rather than the work: an
+ * allowance, a throttle, a fault, a socket. `auth-terminal` and `terminal` are
+ * absent on purpose — a missing credential and an unrecognised verdict follow
+ * the request wherever it is sent.
+ */
+const AVAILABILITY_REASONS: readonly (readonly [EngineFailureClass, string])[] = [
+  ["quota", "out of quota"],
+  ["rate-limit", "rate-limited"],
+  ["provider-outage", "unavailable"],
+  ["network", "unreachable"],
+];
+
+export function availabilityReason(message: string): string | undefined {
+  const { classes } = classifyEngineFailureText(message);
+  return AVAILABILITY_REASONS.find(([failureClass]) => classes.has(failureClass))?.[1];
 }
 
 /**

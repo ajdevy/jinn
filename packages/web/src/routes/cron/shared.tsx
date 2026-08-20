@@ -13,6 +13,7 @@ export interface CronRunWire {
   startedAt?: string | number
   finishedAt?: string | number
   sessionKey?: string
+  sessionId?: string
   status?: string
   exitCode?: number
   durationMs?: number

@@ -22,6 +22,8 @@ import {
   showModelOverride,
 } from "@/lib/model-config"
 import { PluginsEntry } from "./plugins/entry"
+import { EnginesSection } from "./engines/entry"
+import type { EnginesConfig } from "./engines/chain-model"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
@@ -59,16 +61,11 @@ const ACCENT_PRESETS = [
 
 interface Config {
   gateway?: { port?: number; host?: string }
-  engines?: {
-    default?: string
-    claude?: { bin?: string; model?: string; effortLevel?: string }
-    codex?: { bin?: string; model?: string; effortLevel?: string }
-    grok?: { bin?: string; model?: string; effortLevel?: string }
-  }
+  engines?: EnginesConfig
   sessions?: {
     interruptOnNewMessage?: boolean
-    rateLimitStrategy?: "wait" | "fallback"
-    fallbackEngine?: "codex"
+    rateLimitStrategy?: "wait" | "fallback" | null
+    fallbackEngine?: string | null
     staleChat?: {
       enabled?: boolean
       tokenThreshold?: number
@@ -1000,6 +997,13 @@ export default function SettingsPage() {
                 </FieldRow>
               </Section>
 
+              {/* -- Section 4b: Engines — health and fallback chains -- */}
+              <EnginesSection
+                engines={config.engines}
+                sessions={config.sessions}
+                onChange={updateConfig}
+              />
+
               {/* -- Section 5: Sessions -- */}
               <Section title="Sessions">
                 <FieldRow label="Suggest Fresh Chats">
@@ -1059,28 +1063,6 @@ export default function SettingsPage() {
                   disabled, messages are queued.
                 </div>
 
-                <div
-                  className="border-t border-[var(--separator)] mt-[var(--space-3)] pt-[var(--space-3)]"
-                />
-
-                <FieldRow label="When Claude Hits Usage Limit">
-                  <SettingsSelect
-                    value={config.sessions?.rateLimitStrategy ?? "wait"}
-                    onChange={(v) =>
-                      updateConfig(["sessions", "rateLimitStrategy"], v)
-                    }
-                    options={[
-                      { value: "wait", label: "Wait & Auto-Resume" },
-                      { value: "fallback", label: "Switch to GPT (Codex)" },
-                    ]}
-                  />
-                </FieldRow>
-                <div
-                  className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] mt-[4px]"
-                >
-                  "Wait" pauses the session and continues automatically when Claude resets.
-                  "Switch" answers immediately using GPT, then returns to Claude once the reset window passes.
-                </div>
               </Section>
 
               {/* -- Section 6: Connectors -- */}

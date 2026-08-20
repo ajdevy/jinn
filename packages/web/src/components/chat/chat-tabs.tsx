@@ -76,7 +76,7 @@ export function ChatHeaderPills({
         {title && (() => {
           const { id, rest } = splitTitleId(title)
           return (
-            <span className="truncate text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] tracking-[-0.01em] text-[var(--text-primary)]">
+            <span className="truncate text-[length:var(--text-subheadline)] font-[var(--weight-medium)] tracking-[-0.01em] text-[var(--text-primary)]">
               {id && <span className="font-[var(--weight-medium)] text-[var(--text-tertiary)]">{id} </span>}
               {rest}
             </span>

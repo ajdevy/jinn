@@ -8,8 +8,8 @@ import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { startKeyboardInset } from './platform'
-import { useRouteLoadingPresence } from './components/chat/chat-hydration'
-import { TodosIndexRedirect } from './routes/todos/board/todos-index-redirect'
+import { RouteLoading } from './components/route-loading'
+import { TodosIndexRedirect, todosIndexLoader } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
 import type { NativeGatewayProfiles } from './lib/native-gateway-profiles'
@@ -62,15 +62,6 @@ if (typeof window !== 'undefined') {
     : (callback: () => void) => window.setTimeout(callback, 0)
   scheduleIdle(() => void ChatPage.prefetch())
   scheduleIdle(() => void TodoBoardPage.prefetch())
-}
-
-function RouteLoading({ label = 'Loading page' }: { label?: string }) {
-  useRouteLoadingPresence()
-  return (
-    <div className="flex h-dvh items-center justify-center bg-background" role="status" aria-label={label}>
-      <div className="size-5 animate-spin rounded-full border-2 border-[var(--fill-tertiary)] border-t-[var(--accent)]" />
-    </div>
-  )
 }
 
 function NotesFeatureRoute() {
@@ -140,7 +131,8 @@ const routeElements: Partial<Record<AppRouteId, ReactNode>> = {
   notes: <NotesFeatureRoute />,
   "experiments-list": <ExperimentsPage />,
   "experiment-detail": <ExperimentDetailPage />,
-  // GRS-021d: Kanban became Todos. Old links redirect.
+  // GRS-021d: Kanban became Todos. Old links redirect (loader-level, like
+  // todos-index — straight to the board, no intermediate hop).
   "kanban-redirect": <Navigate to="/todos" replace />,
   logs: <LogsPage />,
   limits: <LimitsPage />,
@@ -161,10 +153,20 @@ const routeElements: Partial<Record<AppRouteId, ReactNode>> = {
   redesign: <RedesignPage />,
 }
 
+// Redirect routes resolve at the ROUTER level so they never commit an
+// intermediate frame (see todosIndexLoader). An element-level <Navigate>
+// renders null for a full commit — the mobile "tab bar flashes out on the way
+// to Todos" bug.
+const routeLoaders: Partial<Record<AppRouteId, RouteObject["loader"]>> = {
+  "todos-index": todosIndexLoader,
+  "kanban-redirect": todosIndexLoader,
+}
+
 const appRoutes: RouteObject[] = APP_ROUTES.flatMap((route) => {
   if (route.id === "plugin-contributed" || (route.availability === "development" && !import.meta.env.DEV)) return []
   const element = routeElements[route.id]
-  return element ? [{ path: route.path, element }] : []
+  const loader = routeLoaders[route.id]
+  return element ? [{ path: route.path, element, ...(loader ? { loader } : {}) }] : []
 })
 
 const router = createBrowserRouter([
