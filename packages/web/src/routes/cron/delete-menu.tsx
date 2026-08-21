@@ -46,7 +46,13 @@ function DeleteConfirmDialog({ name, open, onCancel, onConfirm, pending, error }
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel() }}>
-      <DialogContent className="max-w-[380px]">
+      {/* The shared dialog defaults to a hairline, a literal black scrim and a 16px
+          dismiss X — none of which belong here; Cancel is the way out, at 34px. */}
+      <DialogContent
+        className="max-w-[380px] border-0"
+        overlayClassName="bg-[var(--scrim)]"
+        showCloseButton={false}
+      >
         <DialogTitle>Delete “{name}”?</DialogTitle>
         <DialogDescription>
           It stops running and leaves the list for good. Its run history is kept. To pause it instead, disable it.

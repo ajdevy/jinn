@@ -55,6 +55,13 @@ describe("CronDeleteMenu", () => {
     expect(screen.getByRole("heading", { name: "Delete “Nightly digest”?" })).toBeTruthy()
   })
 
+  it("offers no dismiss control under the 34px a phone needs", async () => {
+    renderIn(<CronDeleteMenu job={JOB} variant="row" />)
+    await openDeleteConfirm()
+    expect(document.querySelector("[data-slot='dialog-close']")).toBeNull()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy()
+  })
+
   it("sends nothing when the confirm is cancelled", async () => {
     renderIn(<CronDeleteMenu job={JOB} variant="row" />)
     await openDeleteConfirm()
