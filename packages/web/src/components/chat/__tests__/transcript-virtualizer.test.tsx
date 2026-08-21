@@ -56,7 +56,7 @@ describe('the transcript scroller takes our writes and not the virtualizer\'s re
     const { el, scrollTo } = fakeScroller(() => scrollHeight)
     const groups = fakeGroups()
     const keys = groups.map((_, index) => `g${index}`)
-    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement))
+    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement, 0))
 
     act(() => { result.current.getTotalSize() })
     act(() => {
@@ -81,7 +81,7 @@ describe('the transcript scroller takes our writes and not the virtualizer\'s re
     const { el } = fakeScroller(() => 4000)
     const groups = fakeGroups()
     const keys = groups.map((_, index) => `g${index}`)
-    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement))
+    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement, 0))
     act(() => { result.current.getTotalSize() })
 
     expect(takeTranscriptWriteTop(result.current)).toBeUndefined()

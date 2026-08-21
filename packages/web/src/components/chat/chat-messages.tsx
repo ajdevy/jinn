@@ -32,12 +32,14 @@ import {
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
 } from './transcript-virtualizer'
+import { OlderPageRow } from './older-page-row'
+import { useVirtualBlockOffset } from './virtual-block-offset'
 import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
 import { formatTimestamp, shouldShowTimestamp, TimestampDivider, validTimestamp } from './message-timestamps'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { TimestampDivider } from './message-timestamps'
-export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
+export { collapseState, shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
 export { turnSpacerClass } from './turn-spacer'
 
@@ -1012,12 +1014,13 @@ export function ChatMessages({
   const virtualized = !footer && groupedMessages.length >= VIRTUALIZE_THRESHOLD
   const virtualizedRef = useRef(virtualized)
   virtualizedRef.current = virtualized
-  const virtualizer = useTranscriptVirtualizer(
-    renderGroups,
-    groupKeys,
-    virtualized,
-    useCallback(() => scrollContainerRef.current, []),
-  )
+  // The block's offset goes back in as `scrollMargin`: it is the only way the
+  // virtualizer's row offsets and the scroller's own `scrollTop` describe the
+  // same place, and a re-measured row is classified by comparing the two.
+  const getScrollElement = useCallback(() => scrollContainerRef.current, [])
+  const virtualBlockRef = useRef<HTMLDivElement>(null)
+  const virtualBlockOffset = useVirtualBlockOffset(virtualBlockRef, getScrollElement)
+  const virtualizer = useTranscriptVirtualizer(renderGroups, groupKeys, virtualized, getScrollElement, virtualBlockOffset)
   const expansionStore = useTranscriptExpansionStore()
 
   // The true bottom of a virtualised thread is only known once the last row has
@@ -1229,18 +1232,9 @@ export function ChatMessages({
       {messages.length === 0 && !loading && !hydrating && <TranscriptEmptyState>{emptyState}</TranscriptEmptyState>}
       <div ref={setScrollContainerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll h-full overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
         <div className={`mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] lg:pt-[88px] ${footer ? 'flex min-h-full flex-col justify-end pb-0' : 'pb-[var(--space-6)]'}`}>
-          {loadingOlderMessages && (
-            <div role="status" aria-label="Loading older messages" className="flex h-8 items-center justify-center">
-              <span className="size-3 rounded-full bg-[var(--fill-tertiary)] animate-[jinn-pulse_1.4s_infinite]" />
-            </div>
-          )}
-          {olderMessagesError && hasOlderMessages && (
-            <div className="flex h-8 items-center justify-center text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-              Older messages could not load
-            </div>
-          )}
+          {hasOlderMessages && <OlderPageRow loading={loadingOlderMessages} error={olderMessagesError} />}
           {virtualized ? (
-            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            <div ref={virtualBlockRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
               {virtualizer.getVirtualItems().map((row) => (
                 // `data-index` is what the virtualizer measures by, so the row's
                 // own `data-message-id` stays where scroll-anchor.ts looks for it.
@@ -1248,7 +1242,9 @@ export function ChatMessages({
                   key={row.key}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start}px)` }}
+                  // `row.start` counts from the scrollport's top now that
+                  // `scrollMargin` is declared, and the block is already there.
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start - virtualBlockOffset}px)` }}
                 >
                   {renderGroup(renderGroups[row.index])}
                 </div>

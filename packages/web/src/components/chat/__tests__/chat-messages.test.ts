@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isFilePath,
   parseFenceLang,
+  collapseState,
   shouldCollapse,
   USER_COLLAPSE_PX,
   USER_COLLAPSE_SLACK,
@@ -81,5 +82,44 @@ describe('shouldCollapse', () => {
   it('honours custom threshold/slack overrides', () => {
     expect(shouldCollapse(120, 100, 10)).toBe(true)
     expect(shouldCollapse(105, 100, 10)).toBe(false)
+  })
+})
+
+// What that decision renders as, including before there is a height to decide
+// on — a windowed transcript remounts a bubble unmeasured every time it comes
+// back into the window.
+describe('collapseState', () => {
+  const LONG = USER_COLLAPSE_PX + USER_COLLAPSE_SLACK + 100
+
+  it('clamps a collapsed bubble it has not measured yet', () => {
+    expect(collapseState(0, true).maxHeight).toBe(`${USER_COLLAPSE_PX}px`)
+  })
+
+  it('offers no control and no fade until it has measured', () => {
+    expect(collapseState(0, true)).toMatchObject({ faded: false, offersToggle: false })
+  })
+
+  it('leaves an unmeasured expanded bubble alone rather than clamping it to nothing', () => {
+    expect(collapseState(0, false).maxHeight).toBeUndefined()
+  })
+
+  it('rests a measured long bubble clamped, faded, and with its control', () => {
+    expect(collapseState(LONG, true)).toEqual({
+      maxHeight: `${USER_COLLAPSE_PX}px`,
+      faded: true,
+      offersToggle: true,
+    })
+  })
+
+  it('opens a measured long bubble to its own height, unfaded', () => {
+    expect(collapseState(LONG, false)).toEqual({
+      maxHeight: `${LONG + 8}px`,
+      faded: false,
+      offersToggle: true,
+    })
+  })
+
+  it('releases the clamp once a measurement says the bubble is short', () => {
+    expect(collapseState(USER_COLLAPSE_PX, true)).toEqual({ faded: false, offersToggle: false })
   })
 })
