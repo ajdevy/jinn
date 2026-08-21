@@ -33,6 +33,7 @@ import { ChatPageHeader } from './chat-page-header'
 import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
 import { useChatGridWorkspace } from './use-chat-grid-workspace'
+import { chatHeaderTitle } from './header-title'
 import { useMobileWorkingSet } from './use-mobile-working-set'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
@@ -364,7 +365,7 @@ function ChatPage() {
     setEmployeeSessions([])
     chatTabs.clearActiveTab()
     // Leaving a session for the composer is a navigation — push, so back
-    // returns to the thread you left. (sessionMeta clears via the sync effect.)
+    // returns to the thread you left. (The header names the composer, not a chat.)
     if (selectedIdRef.current) {
       pendingNavRef.current = null
       navigate('/')
@@ -867,9 +868,8 @@ function ChatPage() {
       onOpenChatBeside={gridPicker.open}
     />
   )
-  // The conversation title — slim inline title (desktop) / centered nav-bar title
-  // (mobile thread). "New chat" on a fresh composer, else nothing until meta loads.
-  const headerTitle = sessionMeta?.title?.trim() || (focusedSessionId ? '' : 'New chat')
+  // The conversation title — slim inline (desktop) / centered nav bar (mobile).
+  const headerTitle = chatHeaderTitle({ focusedSessionId, meta: sessionMeta, sessions: sessionsQuery.data })
   const mobileWorkingSet = useMobileWorkingSet({
     sessionIds: mobileSessionIds, activeId: focusedSessionId, sessions: sessionsQuery.data ?? [],
     subscribe, connectionSeq, onSelect: handleMobileWorkingSetSelect,

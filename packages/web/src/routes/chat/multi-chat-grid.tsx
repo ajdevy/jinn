@@ -71,7 +71,10 @@ function delegatedActivityForPane(owner: MultiChatGridProps, sessionId: string |
 }
 
 function updatePaneMeta(owner: MultiChatGridProps, sessionId: string | null, update: PaneMetaUpdate): void {
-  if (sessionId) owner.onMeta(sessionId, update)
+  // The payload wins: a pane can change identity without remounting (composer
+  // adoption), so the id captured in this closure may already be a step behind.
+  const owningId = update.sessionId || sessionId
+  if (owningId) owner.onMeta(owningId, update)
   else owner.onNewMeta(update)
 }
 

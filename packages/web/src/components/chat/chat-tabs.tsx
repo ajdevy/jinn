@@ -4,6 +4,7 @@ import { ChevronLeft, SquarePen } from 'lucide-react'
 import { type ChatTab } from '@/hooks/use-chat-tabs'
 // Frosted pill primitives now live in the shared cross-page pill system.
 import { PILL_CLASS, PillButton } from '@/components/pill-nav'
+import { useTitleArrival } from './title-arrival'
 
 export interface ChatHeaderPillsProps {
   /** Conversation title — slim inline title on desktop, centered on the mobile
@@ -57,6 +58,9 @@ export function ChatHeaderPills({
   moreMenu,
   mobileWorkingSet,
 }: ChatHeaderPillsProps) {
+  // Only the centred nav-bar title animates its change: it swaps whole
+  // conversations under a fixed-height bar. The desktop title is left as it was.
+  const titleEntering = useTitleArrival(title ?? '')
   // Mobile nav bar: both side tracks are locked to the wider cluster, which is
   // what puts the middle track on the header's centre line. Callback refs keep
   // the observer attached across the back control's two shapes.
@@ -165,7 +169,10 @@ export function ChatHeaderPills({
               </button>
             )}
             {mobileWorkingSet ?? (
-              <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
+              <span
+                data-title-enter={titleEntering || undefined}
+                className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]"
+              >
                 {title}
               </span>
             )}
