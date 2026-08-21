@@ -9,7 +9,7 @@ import { clearBoardScrollCache } from "../board/board-route"
 
 /* A board URL that names one status is a board of that one column. This is the
  * done-when of the Talk orb's open_todos: "executing todos I started" resolves
- * to /todos/b/my?status=executing, and that link has to render what it says. */
+ * to /todos/b/home?status=executing, and that link has to render what it says. */
 
 vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock("@/routes/settings-provider", () => ({ useSettings: () => ({ settings: { employeeOverrides: {} } }) }))
@@ -138,25 +138,25 @@ describe("isColumnInStatusFilter", () => {
   })
 })
 
-describe("/todos/b/my?status=executing", () => {
+describe("/todos/b/home?status=executing", () => {
   it("renders only the executing column, and only asks the gateway for it", async () => {
-    renderBoard("/todos/b/my?status=executing")
+    renderBoard("/todos/b/home?status=executing")
 
     await waitFor(() => expect(screen.getByTestId("board-column-executing")).toBeTruthy())
     expect(screen.getAllByText("Item PLA-2").length).toBeGreaterThan(0)
-    // The backlog Todo exists and is the operator's; it is simply not what the
-    // link asked for. Before this scoping it rendered anyway.
+    // The backlog Todo exists and is in the board's scope; it is simply not
+    // what the link asked for. Before this scoping it rendered anyway.
     expect(screen.queryAllByText("Item PLA-1")).toEqual([])
     expect(screen.queryByTestId("board-column-backlog")).toBeNull()
 
     const asked = listWorkItems.mock.calls.map(([params]) => params).filter((params) => params?.status)
     expect(asked.map((params) => params.status)).toEqual(["executing"])
-    // Board `my` is createdBy: operator — the other half of the done-when.
-    expect(asked[0]).toMatchObject({ status: "executing", createdBy: "operator", rootsOnly: true })
+    // Board `home` is kept: true — the other half of the done-when.
+    expect(asked[0]).toMatchObject({ status: "executing", kept: true, rootsOnly: true })
   })
 
   it("still draws the whole pipeline with no status in the URL", async () => {
-    renderBoard("/todos/b/my")
+    renderBoard("/todos/b/home")
 
     await waitFor(() => expect(screen.getByTestId("board-column-backlog")).toBeTruthy())
     expect(screen.getByTestId("board-column-executing")).toBeTruthy()
@@ -168,9 +168,9 @@ describe("/todos/b/my?status=executing", () => {
 /* A closed status is a scope like any other. The board loaded the row all
  * along; it was the empty-state gate, counting only open columns, that told the
  * operator "No todos match." about a Todo sitting one element further down. */
-describe("/todos/b/my?status=done", () => {
+describe("/todos/b/home?status=done", () => {
   it("shows the done Todo in the list instead of the filtered-empty card", async () => {
-    renderBoard("/todos/b/my?status=done")
+    renderBoard("/todos/b/home?status=done")
 
     const list = screen.getByTestId("todo-list-scroll")
     await waitFor(() => expect(within(list).getByTestId("todo-list-group-closed")).toBeTruthy())
@@ -180,7 +180,7 @@ describe("/todos/b/my?status=done", () => {
   })
 
   it("arrives on the desktop board with the closed column already expanded", async () => {
-    renderBoard("/todos/b/my?status=done")
+    renderBoard("/todos/b/home?status=done")
 
     const board = screen.getByTestId("todo-board-scroll")
     await waitFor(() => expect(within(board).getByTestId("board-closed-column")).toBeTruthy())
@@ -194,14 +194,14 @@ describe("/todos/b/my?status=done", () => {
   })
 
   it("arrives on the mobile Closed segment with the Todo visible, untapped", async () => {
-    renderMobileBoard("/todos/b/my?status=done")
+    renderMobileBoard("/todos/b/home?status=done")
 
     const board = screen.getByTestId("todo-board-scroll")
     await waitFor(() => expect(within(board).getAllByText("Item PLA-3").length).toBeGreaterThan(0))
   })
 
   it("shows the cancelled Todo the same way", async () => {
-    renderBoard("/todos/b/my?status=cancelled")
+    renderBoard("/todos/b/home?status=cancelled")
 
     const board = screen.getByTestId("todo-board-scroll")
     await waitFor(() => expect(within(board).getByTestId("board-closed-group-cancelled")).toBeTruthy())
@@ -213,7 +213,7 @@ describe("/todos/b/my?status=done", () => {
     listWorkItems.mockImplementation(() =>
       Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
     )
-    renderBoard("/todos/b/my?status=done&q=zzzz")
+    renderBoard("/todos/b/home?status=done&q=zzzz")
 
     await waitFor(() => expect(screen.getByTestId("todo-list-filtered-empty")).toBeTruthy())
   })
@@ -225,10 +225,28 @@ describe("/todos/b/my?status=done", () => {
     listWorkItems.mockImplementation(() =>
       Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
     )
-    renderMobileBoard("/todos/b/my?status=done&q=zzzz")
+    renderMobileBoard("/todos/b/home?status=done&q=zzzz")
 
     const board = screen.getByTestId("todo-board-scroll")
     await waitFor(() => expect(within(board).getByTestId("board-filtered-empty")).toBeTruthy())
     expect(within(board).queryByText("Nothing closed yet.")).toBeNull()
+  })
+})
+
+/* ICI-1357 criterion 11. A fresh instance keeps nothing, so Home's FIRST render
+ * is the empty one. It has to be the board's own quiet empty state — the columns
+ * and their quick-adds — not a crash, and not a blank region where cards go. */
+describe("/todos/b/home with nothing kept", () => {
+  it("renders the board's quiet empty state, not the filtered-empty card", async () => {
+    listWorkItems.mockImplementation(() =>
+      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
+    )
+    renderBoard("/todos/b/home")
+
+    const backlog = await screen.findByTestId("board-column-backlog")
+    expect(backlog.textContent).toContain("0")
+    expect(screen.getByTestId("board-switcher").textContent).toContain("Home")
+    expect(screen.queryByTestId("board-filtered-empty")).toBeNull()
+    expect(document.querySelectorAll("[data-testid^=board-card-]").length).toBe(0)
   })
 })

@@ -196,14 +196,12 @@ import {
 } from "../work-items/comments.js";
 import {
   addRelation,
-  blockedSet,
   removeRelation,
   WorkItemRelationError,
   type RelationKind,
 } from "../work-items/relations.js";
 import {
   createLabel,
-  labelSets,
   listLabels,
   setWorkItemLabels,
   TODO_LABELS_MAX,
@@ -221,7 +219,7 @@ import {
 } from "../work-items/attachments.js";
 import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
-import { compactWorkItem, fullWorkItemPayload, openWorkItemPayload } from "./work-item-payload.js";
+import { fullWorkItemPayload, openWorkItemPayload, workItemPagePayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { parseStatusUpdateFields } from "./work-item-status-fields.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
@@ -302,6 +300,7 @@ import {
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
 import { handleHeartbeatApi } from "./heartbeat-api.js";
+import { handleWorkItemKeptApi } from "./work-item-kept-api.js";
 
 /** Max bytes accepted on /api/internal/hook (loopback-only relay payloads are tiny). */
 const HOOK_BODY_MAX_BYTES = 64 * 1024;
@@ -742,21 +741,6 @@ const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ['backlog', 'assigned', 'e
  *  terminals are unreachable from here anyway — leaving `done`, `cancelled` or
  *  `escalated` still needs the human surface. */
 const AGENT_WORK_ITEM_TARGETS: readonly WorkItemStatus[] = ['backlog', 'assigned', 'executing', 'in_review', 'blocked', 'escalated', 'done'];
-
-
-function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
-  // Batch the board wire data across the page — ONE query each, never per item.
-  const ids = page.workItems.map((item) => item.id);
-  const extras = { blocked: blockedSet(ids), labels: labelSets(ids) };
-  return {
-    workItems: page.workItems.map((item) => compactWorkItem(item, extras)),
-    total: page.total,
-    totals: page.totals,
-    limit: page.limit,
-    offset: page.offset,
-    nextOffset: page.nextOffset,
-  };
-}
 
 function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   if (isTodoId(value)) return true;
@@ -3850,6 +3834,11 @@ export async function handleApiRequest(
         return badRequest(res, err instanceof Error ? err.message : String(err));
       }
     }
+
+    if (await handleWorkItemKeptApi(req, res, { method, pathname, url }, {
+      resolveCaller: () => resolveWorkItemCaller(req, res, context),
+      emitProjection: (id) => emitTodoProjectionEvent(context, id, "kept-updated"),
+    })) return;
 
     // PUT /api/work-items/:id/dispatch-config — how the NEXT attempt runs: the
     // skills it preloads and the engine/model it uses. Deliberately settable

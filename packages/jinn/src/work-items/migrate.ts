@@ -10,6 +10,7 @@ import {
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
 import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
 import { WORK_ITEM_STOP_CAUSE_DDL } from "./stop-cause.js";
+import { backfillKeptFromCreatedBy, WORK_ITEM_KEPT_DDL } from "./kept.js";
 import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { currentTableSql, sqlShape } from "./sql-shape.js";
@@ -498,6 +499,7 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_id_allocator", WORK_ITEM_ID_ALLOCATOR_TABLE_DDL],
   ["work_item_id_burns", WORK_ITEM_ID_BURNS_TABLE_DDL],
   ["work_item_id_issuances", WORK_ITEM_ID_ISSUANCES_TABLE_DDL],
+  ["work_item_kept", WORK_ITEM_KEPT_DDL],
   ["departments", DEPARTMENTS_TABLE_DDL],
 ]);
 
@@ -519,6 +521,7 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_dispatch", ddl: WORK_ITEM_DISPATCH_DDL },
   { name: "work_item_create_receipts", ddl: WORK_ITEM_CREATE_RECEIPTS_DDL },
   { name: "work_item_stop_cause", ddl: WORK_ITEM_STOP_CAUSE_DDL },
+  { name: "work_item_kept", ddl: WORK_ITEM_KEPT_DDL },
 ];
 
 /**
@@ -860,7 +863,9 @@ export function migrateWorkItemsSchema(
     // matters: work_item_labels references labels.)
     const shadowedApprovals = hasShadowApprovalColumns(db);
     if (shadowedApprovals || sqlShape(currentTableSql(db, "work_items")) === sqlShape(WORK_ITEMS_TABLE_DDL)) {
+      const keptIsNew = !tableExists(db, "work_item_kept"); // ICI-1357: read before the creates — absence marks the one boot that may backfill Home from `created_by`, so a later unkeep sticks.
       for (const table of V2_ADDITIVE_TABLES) db.exec(table.ddl);
+      if (keptIsNew) backfillKeptFromCreatedBy(db);
       // PLA-48: a pre-drop database hands its shadowed approvals to their one
       // owner and then loses the columns — same transaction, both or neither.
       if (shadowedApprovals) {
@@ -901,21 +906,15 @@ export function migrateWorkItemsSchema(
 
       // Identity tables: tiny — snapshot to JS, drop, recreate canonical, reinsert.
       // Dropping a table drops its triggers; row-level guard triggers do NOT fire on DROP.
-      db.exec("DROP TABLE work_item_id_issuances");
-      db.exec("DROP TABLE work_item_id_burns");
-      db.exec("DROP TABLE work_item_id_allocator");
+      for (const table of ["work_item_id_issuances", "work_item_id_burns", "work_item_id_allocator"]) db.exec(`DROP TABLE ${table}`);
       db.exec(WORK_ITEM_IDENTITY_TABLES_DDL);
       if (legacy.prefix !== null) {
         db.prepare("INSERT INTO work_item_id_allocator (prefix, high_water) VALUES (?, ?)")
           .run(legacy.prefix, legacy.high_water);
-        for (const burn of legacyBurns) {
-          db.prepare("INSERT INTO work_item_id_burns (prefix, ordinal, claim_digest, burned_at) VALUES (?, ?, ?, ?)")
-            .run(legacy.prefix, burn.ordinal, burn.claim_digest, burn.burned_at);
-        }
-        for (const issuance of legacyIssuances) {
-          db.prepare("INSERT INTO work_item_id_issuances (prefix, ordinal, issued_at) VALUES (?, ?, ?)")
-            .run(legacy.prefix, issuance.ordinal, issuance.issued_at);
-        }
+        const insertBurn = db.prepare("INSERT INTO work_item_id_burns (prefix, ordinal, claim_digest, burned_at) VALUES (?, ?, ?, ?)");
+        for (const burn of legacyBurns) insertBurn.run(legacy.prefix, burn.ordinal, burn.claim_digest, burn.burned_at);
+        const insertIssuance = db.prepare("INSERT INTO work_item_id_issuances (prefix, ordinal, issued_at) VALUES (?, ?, ?)");
+        for (const issuance of legacyIssuances) insertIssuance.run(legacy.prefix, issuance.ordinal, issuance.issued_at);
       }
 
       // work_items: rename-first so the new table's stored SQL is the canonical string.
@@ -943,6 +942,7 @@ export function migrateWorkItemsSchema(
         FROM work_items_v1_legacy`);
       // Approvals come off the legacy row — read BEFORE the table is dropped.
       backfillWorkItemApprovals(db, "work_items_v1_legacy");
+      backfillKeptFromCreatedBy(db); // the rebuilt rows have never been kept or unkept
       reconcileDepartmentRegistry(db); // v1 rows carried departments with no registry
       const migratedRows = Number(db.prepare("SELECT COUNT(*) FROM work_items").pluck().get());
       db.exec("DROP TABLE work_items_v1_legacy");

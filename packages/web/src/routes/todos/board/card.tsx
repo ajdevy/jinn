@@ -1,19 +1,14 @@
 import { memo, useCallback, useMemo } from "react"
 import { Bell, Calendar, ChevronRight } from "lucide-react"
-import type {
-  Employee,
-  WorkItemCompactWire,
-  WorkItemOpenDetailWire,
-  WorkItemTreeWire,
-} from "@/lib/api"
-import { publicWorkItemReference } from "@/lib/todos"
+import type { Employee, WorkItemCompactWire, WorkItemOpenDetailWire, WorkItemTreeWire } from "@/lib/api"
+import { publicWorkItemReference, stateKeyOf } from "@/lib/todos"
 import { stripMarkdown } from "@/lib/strip-markdown"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { StateCircle } from "../state-glyph"
-import { stateKeyOf } from "@/lib/todos"
 import { escalationReasonLabel } from "../util"
 import { CardTree } from "./card-tree"
 import { CauseLine, hasStopLead, StopCauseLead, stopLeadKey } from "./stop-cause"
+import { KeepToggle, KeptCaption } from "./keep-control"
 
 /* Todos v2 slice 6 — the board card (design-doc §3, states mock specimen 3).
  * Status is NEVER on the card — the column says it. Variant A adds one quiet,
@@ -136,6 +131,8 @@ export interface BoardCardProps {
   onOpen: (id: string, item?: WorkItemCompactWire) => void
   onOpenChild: (id: string) => void
   onAddSubTask: (parentId: string, title: string) => void
+  /** Keep this Todo on Home, or take it off. Absent = no keep affordance. */
+  onKeep?: (vars: { id: string; kept: boolean }) => void
   /** Drag lift entry point (the drag hook owns pointer capture). */
   onLiftPointerDown?: (event: React.PointerEvent, item: WorkItemCompactWire) => void
   dragging?: boolean
@@ -152,6 +149,7 @@ export const BoardCard = memo(function BoardCard({
   onOpen,
   onOpenChild,
   onAddSubTask,
+  onKeep,
   onLiftPointerDown,
   dragging,
   ghost,
@@ -226,6 +224,7 @@ export const BoardCard = memo(function BoardCard({
             ${spendUsd.toFixed(2)}
           </span>
         ) : null}
+        {onKeep && !ghost && <KeepToggle id={item.id} kept={item.kept} onToggle={onKeep} revealOnHover className="-mr-1 ml-auto only:ml-auto" />}
       </div>
 
       {hasStopLead(item) && <StopCauseLead item={item} className="mt-1.5 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full" />}
@@ -234,6 +233,7 @@ export const BoardCard = memo(function BoardCard({
       <div className="mt-1 line-clamp-2 text-[calc(15px*var(--text-scale))] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:m-0 max-[700px]:line-clamp-1 max-[700px]:min-w-0 max-[700px]:flex-1 max-[700px]:text-[calc(16px*var(--text-scale))]">
         {item.title}
       </div>
+      <KeptCaption item={item} className="mt-1" />
 
       {bodyPreview && (
         <div className="mt-1.5 line-clamp-1 min-w-0 text-[calc(12.5px*var(--text-scale))] leading-[1.35] text-[var(--text-tertiary)] max-[700px]:ml-[50px] max-[700px]:mt-[-4px] max-[700px]:basis-full max-[700px]:pr-2">

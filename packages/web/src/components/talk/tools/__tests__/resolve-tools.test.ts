@@ -44,7 +44,7 @@ beforeEach(() => {
     return Promise.resolve()
   })
   queryClient.setQueryData(queryKeys.onboarding, { todoPrefix: "ZZZ" })
-  window.history.replaceState({}, "", "/todos/b/my")
+  window.history.replaceState({}, "", "/todos/b/home")
 })
 
 afterEach(() => {

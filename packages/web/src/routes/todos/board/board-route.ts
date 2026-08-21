@@ -4,22 +4,23 @@
 
 /** The four board kinds the switcher serves (design-doc §1.1). */
 export type BoardId =
-  | { kind: "my" }
+  | { kind: "home" }
   | { kind: "attention" }
   | { kind: "everything" }
   | { kind: "department"; slug: string }
 
-export const DEFAULT_BOARD_PATH = "/todos/b/my"
+export const DEFAULT_BOARD_PATH = "/todos/b/home"
 
-/** Parse the :board route param. Unknown/empty values fall back to My requests
- *  (the home board) rather than erroring — a stale department link should land
- *  somewhere sane, not on a dead page. */
+/** Parse the :board route param. Unknown/empty values fall back to Home rather
+ *  than erroring — a stale department link should land somewhere sane, not on a
+ *  dead page. `my` is the board Home replaced (ICI-1357); it still parses, so
+ *  every link and bookmark written before the rename keeps working. */
 export function parseBoardParam(param: string | undefined | null): BoardId {
   const value = (param ?? "").trim().toLowerCase()
-  if (!value || value === "my") return { kind: "my" }
+  if (!value || value === "home" || value === "my") return { kind: "home" }
   if (value === "attention") return { kind: "attention" }
   if (value === "everything") return { kind: "everything" }
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) return { kind: "my" }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) return { kind: "home" }
   return { kind: "department", slug: value }
 }
 

@@ -3,6 +3,7 @@ import type { Employee, WorkItemCompactWire } from "@/lib/api"
 import { emojiForName } from "@/lib/emoji-pool"
 import { StatusCircle } from "../state-glyph"
 import { hasStopLead, StopCauseLead } from "../board/stop-cause"
+import { KeptCaption } from "../board/keep-control"
 import { formatRelativeTime } from "../util"
 
 function PriorityBars({ priority }: { priority: number }) {
@@ -52,6 +53,8 @@ export const TodoListRow = memo(function TodoListRow({
     >
       {/* The phone renders rows, not cards, so a stopped Todo says why here too. */}
       {hasStopLead(item) && <StopCauseLead item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-0" />}
+      {/* Home mixes provenance here too, and the phone has no card to carry it. */}
+      <KeptCaption item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-0" />
       <span className="flex w-full items-center gap-3 max-[700px]:gap-2">
       <PriorityBars priority={priority} />
       <span

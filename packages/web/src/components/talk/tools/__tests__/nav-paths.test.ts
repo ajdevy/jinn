@@ -12,15 +12,15 @@ import {
 } from "../nav-paths"
 
 describe("todosPath", () => {
-  it("resolves \"executing todos I started\" to the my-board filtered by status", () => {
-    // The done-when for this child: board `my` IS createdBy=operator
+  it("resolves \"executing todos I started\" to the home board filtered by status", () => {
+    // The done-when for this child: board `home` IS kept + roots only
     // (boardScopeParams), so the whole request is one URL.
-    expect(todosPath({ board: "my", status: "executing" })).toBe("/todos/b/my?status=executing")
+    expect(todosPath({ board: "home", status: "executing" })).toBe("/todos/b/home?status=executing")
   })
 
-  it("defaults to the my board", () => {
-    expect(todosPath({})).toBe("/todos/b/my")
-    expect(todosPath({ status: "executing" })).toBe("/todos/b/my?status=executing")
+  it("defaults to the home board", () => {
+    expect(todosPath({})).toBe("/todos/b/home")
+    expect(todosPath({ status: "executing" })).toBe("/todos/b/home?status=executing")
   })
 
   it("keeps the default status out of the URL", () => {
@@ -31,9 +31,9 @@ describe("todosPath", () => {
     expect(todosPath({ board: "platform" })).toBe("/todos/b/platform")
   })
 
-  it("falls back to the my board rather than a dead page for an unusable board", () => {
-    expect(todosPath({ board: "  " })).toBe("/todos/b/my")
-    expect(todosPath({ board: "../etc" })).toBe("/todos/b/my")
+  it("falls back to the home board rather than a dead page for an unusable board", () => {
+    expect(todosPath({ board: "  " })).toBe("/todos/b/home")
+    expect(todosPath({ board: "../etc" })).toBe("/todos/b/home")
   })
 
   it("round-trips its filters back through the board's own parser", () => {

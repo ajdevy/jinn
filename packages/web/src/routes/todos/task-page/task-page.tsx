@@ -16,13 +16,8 @@ import { closeGateCounts } from "@/lib/legal-targets"
 import { useDepartments } from "@/hooks/use-departments"
 import { PageLayout } from "@/components/page-layout"
 import { useTheme } from "@/routes/providers"
-import {
-  useDecideApproval,
-  useEmployeesByName,
-  useOrg,
-  useSetWorkItemStatus,
-  useTodoById,
-} from "../use-todos"
+import { useDecideApproval, useEmployeesByName, useOrg, useSetWorkItemStatus, useTodoById } from "../use-todos"
+import { useKeepWorkItem } from "../board/use-board"
 import { parseBoardParam, boardPath, boardKey } from "../board/board-route"
 import { departmentTitle } from "../board/board-switcher"
 import { CrumbBar, type CrumbAncestor } from "./crumb-bar"
@@ -277,13 +272,12 @@ export default function TaskPage() {
   )
 
   // ── Board context (the crumb's back affordance) ───────────────────────────
-  const boardKeyRaw = routeState.fromBoard ?? item?.department ?? "my"
+  const keep = useKeepWorkItem()
+  const boardKeyRaw = routeState.fromBoard ?? item?.department ?? "home"
   const board = parseBoardParam(boardKeyRaw)
-  const boardLabel =
-    board.kind === "my" ? "My requests"
+  const boardLabel = board.kind === "department" ? departmentTitle(board.slug)
     : board.kind === "attention" ? "Attention"
-    : board.kind === "everything" ? "Everything"
-    : departmentTitle(board.slug)
+    : board.kind === "everything" ? "Everything" : "Home"
   const goBack = useCallback(() => {
     // Arriving from a board leaves it one POP away — going back that way
     // restores the board's cached scroll position. Otherwise push its path.
@@ -380,6 +374,8 @@ export default function TaskPage() {
           <CrumbBar
             boardLabel={boardLabel}
             onBack={goBack}
+            kept={detail?.kept}
+            onKeep={keep.mutate}
             ancestors={ancestors}
             id={id}
             title={item?.title ?? ""}
