@@ -58,6 +58,7 @@ let pending: WorkflowTodoStatusEvent[] = [];
 function event(id: string, workItemId: string): WorkflowTodoStatusEvent {
   return {
     id, workItemId, fromStatus: "executing", toStatus: "in_review", actor: "operator", armedAsDelegate: null,
+    quotaWindowDecided: false,
     item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
   };
 }

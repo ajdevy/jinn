@@ -64,7 +64,7 @@ function edge(id: string, from: string, to: string) {
   return { id, from: { nodeId: from, port: "success" as const }, to: { nodeId: to, port: "input" as const } };
 }
 function todoEvent(id: string, item: Partial<WorkflowTodoStatusEvent["item"]> = {}, actor: string | null = "operator"): WorkflowTodoStatusEvent {
-  return { id, workItemId: "ICI-1", fromStatus: "executing", toStatus: "in_review", actor, armedAsDelegate: null,
+  return { id, workItemId: "ICI-1", fromStatus: "executing", toStatus: "in_review", actor, armedAsDelegate: null, quotaWindowDecided: false,
     item: { source: "human", department: "platform", assignee: "worker", labels: [],
       live: { assignee: "worker", parentId: null }, ...item } };
 }
