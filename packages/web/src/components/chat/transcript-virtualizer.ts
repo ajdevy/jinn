@@ -2,6 +2,12 @@ import { useCallback, useRef } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import type { MessageItem, RenderGroup } from './chat-messages'
 import { restoreVisibleAnchor, type ScrollAnchor } from '@/lib/scroll-anchor'
+import {
+  dropHeldScrollAdjustment,
+  holdScrollAdjustment,
+  touchScrollLive,
+  useTouchScrollPhase,
+} from './touch-scroll-phase'
 
 /**
  * Windowing for the chat transcript.
@@ -92,7 +98,8 @@ export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
  *
  * The virtualizer's own resize compensation still passes: it arrives with an
  * `adjustments` term, and its whole job is holding a row under the same pixel
- * while something above it re-measures. That one never travels.
+ * while something above it re-measures. That one never travels. It does wait,
+ * though, when the reader is mid-flick — see `touch-scroll-phase.ts`.
  */
 const scrolling = new WeakSet<object>()
 
@@ -106,7 +113,20 @@ function transcriptScrollTo(
 ): void {
   const el = instance.scrollElement
   if (!el) return
-  if (adjustments === 0 && !scrolling.has(instance)) return
+  const deliberate = scrolling.has(instance)
+  if (adjustments === 0 && !deliberate) return
+  // A re-measure correction landing mid-flick is what the list going sticky
+  // looks like: assigning `scrollTop` ends WebKit's momentum on the spot. It
+  // waits for the glide instead. A deliberate scroll never waits — that one the
+  // reader asked for, and it supersedes anything still being held.
+  if (!deliberate && touchScrollLive(el)) {
+    holdScrollAdjustment(el, adjustments, (total) => {
+      el.scrollTo?.({ top: el.scrollTop + total })
+      writtenTop.set(instance, el.scrollTop)
+    })
+    return
+  }
+  dropHeldScrollAdjustment(el)
   el.scrollTo?.({ top: offset + adjustments, behavior })
   // A smooth scroll has not moved yet, so there is no landing position to record.
   if (behavior !== 'smooth') writtenTop.set(instance, el.scrollTop)
@@ -157,6 +177,7 @@ export function useTranscriptVirtualizer(
   // streaming token.
   const keysRef = useRef(keys)
   keysRef.current = keys
+  useTouchScrollPhase(getScrollElement)
   return useVirtualizer({
     count: enabled ? groups.length : 0,
     enabled,
