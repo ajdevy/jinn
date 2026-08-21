@@ -18,7 +18,7 @@ import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
 import { useStreamingFormat } from './streaming-format'
-import { UserMessageRow } from './user-message-row'
+import { UserMessageSlot } from './user-message-slot'
 import { commsArrivalDelayMs, useMessageArrivals } from './message-arrival'
 import { JumpToLatestButton } from './jump-to-latest'
 import { TranscriptEmptyState } from './chat-transcript-empty'
@@ -823,7 +823,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
 
       {/* User message */}
       {isUser && (
-        <UserMessageRow
+        <UserMessageSlot
           msg={msg}
           messageId={msg.id || `idx-${i}`}
           text={textContent}

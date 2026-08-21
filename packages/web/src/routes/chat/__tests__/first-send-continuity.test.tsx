@@ -20,7 +20,7 @@ const apiMocks = vi.hoisted(() => ({
   getEngines: vi.fn(async () => ({ engines: {} })),
   getFeatures: vi.fn(async () => ({ notesEnabled: false, staleChat: { enabled: false, tokenThreshold: 300000, staleAfterMinutes: 60 } })),
   getSkills: vi.fn(async () => []),
-  // QueuePanel spreads this; an object here throws inside the error boundary.
+  // The queued-message cards spread this; an object here throws inside the error boundary.
   getSessionQueue: vi.fn(async () => []),
   sendMessage: vi.fn(async () => ({})),
   updateSession: vi.fn(async () => ({})),

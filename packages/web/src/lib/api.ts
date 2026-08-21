@@ -66,6 +66,8 @@ export interface QueueItem {
   status: 'pending' | 'running' | 'cancelled' | 'completed';
   position: number;
   createdAt: string;
+  /** The transcript row this item will run, when the enqueuing path had one. */
+  messageId: string | null;
 }
 
 export interface InstanceMigration {
@@ -882,16 +884,13 @@ export const api = {
   },
   sttUpdateConfig: (languages: string[]) =>
     put<{ status: string; languages: string[] }>("/api/stt/config", { languages }),
-  getSessionQueue: (id: string) =>
-    get<QueueItem[]>(`/api/sessions/${id}/queue`),
-  cancelQueueItem: (sessionId: string, itemId: string) =>
-    del<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}`),
-  clearSessionQueue: (sessionId: string) =>
-    del<{ status: string; cancelled: number }>(`/api/sessions/${sessionId}/queue`),
-  pauseSessionQueue: (sessionId: string) =>
-    post<{ status: string }>(`/api/sessions/${sessionId}/queue/pause`, {}),
-  resumeSessionQueue: (sessionId: string) =>
-    post<{ status: string }>(`/api/sessions/${sessionId}/queue/resume`, {}),
+  getSessionQueue: (id: string) => get<QueueItem[]>(`/api/sessions/${id}/queue`),
+  cancelQueueItem: (sessionId: string, itemId: string) => del<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}`),
+  editQueueItem: (sessionId: string, itemId: string, prompt: string) => patch<{ status: string; item: QueueItem }>(`/api/sessions/${sessionId}/queue/${itemId}`, { prompt }),
+  sendQueueItemNow: (sessionId: string, itemId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}/send-now`, {}),
+  clearSessionQueue: (sessionId: string) => del<{ status: string; cancelled: number }>(`/api/sessions/${sessionId}/queue`),
+  pauseSessionQueue: (sessionId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/pause`, {}),
+  resumeSessionQueue: (sessionId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/resume`, {}),
   getSessionTranscript: (id: string) =>
     get<TranscriptEntry[]>(`/api/sessions/${id}/transcript`),
 

@@ -11,6 +11,13 @@ import {
   type ApiContext,
 } from "./helpers/callback-harness.js";
 import { makeResponse } from "./helpers/callback-requests.js";
+import {
+  CALLER_SESSION_CAPABILITY_HEADER,
+  CALLER_SESSION_HEADER,
+  TOOL_CALL_HEADER,
+  TOOL_CALL_HEADER_VALUE,
+  ensureSessionCapability,
+} from "../../mcp/identity.js";
 import type { Engine, EngineRunOpts } from "../../shared/types.js";
 
 /**
@@ -45,11 +52,17 @@ function blockingEngine(): { engine: Engine; prompts: string[]; release: () => v
   return { engine, prompts, release: () => release() };
 }
 
-async function request(context: ApiContext, method: string, url: string, body?: unknown) {
+async function request(
+  context: ApiContext,
+  method: string,
+  url: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+) {
   const req = Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]), {
     method,
     url,
-    headers: { ...HEADERS },
+    headers: { ...HEADERS, ...headers },
   });
   const captured = makeResponse();
   await api.handleApiRequest(req as never, captured.res, context);
@@ -195,5 +208,31 @@ describe("GET /api/sessions/:id/queue", () => {
     expect(registry.getMessages(session.id).find((message) => message.id === parked.messageId)?.content)
       .toBe("parked");
     expect(items.find((row) => row.prompt === "enqueued with no message")!.messageId).toBeNull();
+  });
+});
+
+describe("operator-only control-plane authority", () => {
+  it("refuses both verbs to a capability-bound employee session", async () => {
+    const { context, session } = await sessionWithParkedMessages(["parked"], "authority");
+    const [parked] = await parkedRows(context, session.id);
+    const worker = createParent("authority-worker");
+    const asWorker = {
+      [TOOL_CALL_HEADER]: TOOL_CALL_HEADER_VALUE,
+      [CALLER_SESSION_HEADER]: worker.id,
+      [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(worker.id),
+    };
+
+    const edit = await request(
+      context, "PATCH", `/api/sessions/${session.id}/queue/${parked.id}`, { prompt: "rewritten" }, asWorker,
+    );
+    const promote = await request(
+      context, "POST", `/api/sessions/${session.id}/queue/${parked.id}/send-now`, {}, asWorker,
+    );
+
+    for (const refused of [edit, promote]) {
+      expect(refused.status).toBe(403);
+      expect(JSON.stringify(refused.body)).toMatch(/operator.*control-plane/i);
+    }
+    expect((await parkedRows(context, session.id))[0].prompt).toBe("parked");
   });
 });
