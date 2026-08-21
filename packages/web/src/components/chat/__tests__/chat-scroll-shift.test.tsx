@@ -179,4 +179,44 @@ describe('a windowed transcript under a reader who only scrolled', () => {
     }
     layout.release()
   })
+
+  // `chat-scroll-anchor.test.tsx` pins the same prepend with the virtual block
+  // flush against the scrollport. This one runs it where the block actually
+  // sits: below the header padding, below the older-page row.
+  it('holds the topmost visible message across an older page that lands below a header', () => {
+    const older: Message[] = Array.from({ length: 100 }, (_, k) => ({
+      id: `o${k}`,
+      role: 'user' as const,
+      content: `older ${k}`,
+      timestamp: 1_600_000_000_000 + k * 60_000,
+    }))
+    let page!: () => void
+    const promise = new Promise<void>((resolve) => { page = resolve })
+    const view = (list: Message[], loading: boolean) => (
+      <ChatMessages
+        messages={list}
+        loading={false}
+        hasOlderMessages
+        loadingOlderMessages={loading}
+        onLoadOlderMessages={() => promise}
+      />
+    )
+    const layout = installVirtualLayout(ROW_H, VIEWPORT_H, blockOffset)
+    const { rerender } = render(view(thread, false))
+
+    // Inside OLDER_LOAD_THRESHOLD_PX of the top, which is what asks for the page.
+    act(() => { layout.scrollTo(500) })
+    act(() => { rerender(view(thread, true)) })
+    const topId = layout.visibleMessageIds()[0]
+    const before = layout.offsetOf(topId)
+
+    act(() => {
+      page()
+      rerender(view([...older, ...thread], false))
+    })
+
+    expect(layout.mountedMessageIds()).toContain(topId)
+    expect(Math.abs(layout.offsetOf(topId) - before)).toBeLessThanOrEqual(4)
+    layout.release()
+  })
 })
