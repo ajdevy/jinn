@@ -108,7 +108,7 @@ export function SessionPicker({ onPick }: SessionPickerProps) {
   const activeOptionId = activeId ? `${listboxId}-option-${activeId}` : undefined
   const emptyLabel = query.trim() ? 'No chats match' : 'No chats yet'
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-[var(--bg)]" aria-label="Choose a chat">
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col bg-[var(--bg)]" aria-label="Choose a chat">
       <div className="shrink-0 px-[var(--space-3)] pb-[var(--space-2)] pt-[var(--space-3)]">
         <label className="flex h-9 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] px-[var(--space-3)] text-[var(--text-tertiary)] focus-within:bg-[var(--fill-secondary)] focus-within:text-[var(--text-secondary)]">
           <Search aria-hidden className="size-4 shrink-0" />

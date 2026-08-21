@@ -5,6 +5,7 @@ import type { CommsPeekData } from '@/components/chat/thread-peek'
 import type { DelegatedActivity } from '@/lib/api'
 import type { ViewMode } from '@/lib/view-mode'
 import { ChatGrid } from './chat-grid'
+import { SessionPicker } from './session-picker'
 import type { SessionMeta } from './use-chat-pane-state'
 
 type PaneProps = ComponentProps<typeof ChatPane>
@@ -43,10 +44,17 @@ interface MultiChatGridProps {
   onShortcutsClick: PaneProps['onShortcutsClick']
   onContentReady: PaneProps['onContentReady']
   onStartFreshChat: PaneProps['onStartFreshChat']
+  pickerPane?: {
+    paneKey: string
+    onPick: (sessionId: string) => void
+    onSessionCreated: NonNullable<PaneProps['onSessionCreated']>
+    onClose: () => void
+  }
 }
 
 function sessionForGridId(props: MultiChatGridProps, gridId: string): string | null {
-  return gridId === props.primary.paneKey ? props.primary.sessionId : gridId
+  if (gridId === props.primary.paneKey) return props.primary.sessionId
+  return gridId === props.pickerPane?.paneKey ? null : gridId
 }
 
 function viewModeForPane(owner: MultiChatGridProps, sessionId: string | null, cliAvailable: boolean): ViewMode {
@@ -106,6 +114,7 @@ function GridChatPane({
 }) {
   const sessionId = sessionForGridId(owner, gridId)
   const primary = gridId === owner.primary.paneKey
+  const pickerPane = gridId === owner.pickerPane?.paneKey ? owner.pickerPane : undefined
   const cliAvailable = paneCliAvailable(owner, sessionId)
   const pane = (
     <ChatPane
@@ -115,7 +124,7 @@ function GridChatPane({
       initialEmployee={primary ? owner.primary.initialEmployee : undefined}
       isActive={active}
       onFocus={() => { if (sessionId) owner.onFocus(sessionId) }}
-      onSessionCreated={primary ? owner.primary.onSessionCreated : undefined}
+      onSessionCreated={primary ? owner.primary.onSessionCreated : pickerPane?.onSessionCreated}
       onNewChat={owner.onNewChat}
       onSessionMetaChange={(update) => updatePaneMeta(owner, sessionId, update)}
       onRefresh={owner.onRefresh}
@@ -127,6 +136,7 @@ function GridChatPane({
       onContentReady={owner.onContentReady}
       delegatedActivity={delegatedActivityForPane(owner, sessionId)}
       onStartFreshChat={owner.onStartFreshChat}
+      newChatEmptyState={pickerPane ? <SessionPicker onPick={pickerPane.onPick} /> : undefined}
     />
   )
   return (
@@ -138,11 +148,12 @@ function GridChatPane({
 
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
-  const gridIds = props.primary.sessionId
+  const sessionGridIds = props.primary.sessionId
     ? props.sessionIds.map((sessionId) => sessionId === props.primary.sessionId ? primaryKey : sessionId)
     : props.sessionIds.length === 1
       ? [primaryKey]
       : [...props.sessionIds, primaryKey]
+  const gridIds = props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
   const focusedGridId = !props.primary.sessionId || props.focusedId === props.primary.sessionId
     ? primaryKey
     : props.focusedId
@@ -159,6 +170,10 @@ export function MultiChatGrid(props: MultiChatGridProps) {
         if (sessionId) props.onFocus(sessionId)
       }}
       onRemove={(gridId) => {
+        if (gridId === props.pickerPane?.paneKey) {
+          props.pickerPane.onClose()
+          return
+        }
         const sessionId = sessionForGridId(props, gridId)
         if (sessionId) props.onRemove(sessionId)
       }}

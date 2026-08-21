@@ -1,5 +1,4 @@
-
-import { lazy, Suspense, useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { lazy, Suspense, useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, type ReactNode } from 'react'
 import { api, type DelegatedActivity } from '@/lib/api'
 import { useOrg } from '@/hooks/use-employees'
 import { ChatMessages } from '@/components/chat/chat-messages'
@@ -74,8 +73,8 @@ interface ChatPaneProps {
   delegatedActivity?: DelegatedActivity | null
   /** Create and navigate to a continuation of the current session. */
   onStartFreshChat?: (session: FreshChatSourceSession) => Promise<void>
+  newChatEmptyState?: ReactNode
 }
-
 export type { FreshChatSourceSession }
 
 export function ChatPane({
@@ -99,6 +98,7 @@ export function ChatPane({
   initialScrollTop,
   delegatedActivity,
   onStartFreshChat,
+  newChatEmptyState,
 }: ChatPaneProps) {
   // If this pane was opened from the onboarding wizard, the wizard stored the
   // seed user message in sessionStorage so we can display it immediately
@@ -510,7 +510,7 @@ export function ChatPane({
           liveTerminalDelegationIds={liveTerminalDelegationIds}
           blockAnnouncement={blockAnnouncement}
           footer={staleChatNotice}
-          emptyState={sessionId ? undefined : (
+          emptyState={sessionId ? undefined : newChatEmptyState ?? (
             <ChatEmployeePicker
               employees={pickerEmployees}
               selectedEmployee={selectedEmployee}

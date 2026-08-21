@@ -19,7 +19,7 @@ export function ChatPageHeader({
   backTo?: { label: string; onClick: () => void }
   onBack: () => void
   onNew: () => void
-  grid?: { sessions: Array<{ id?: unknown; title?: string; employee?: string }>; memberIds: string[]; onAdd: (id: string) => void }
+  grid?: { onAdd: () => void }
   moreMenu: ReactNode
   mobileWorkingSet?: ReactNode
   copiedField: string | null

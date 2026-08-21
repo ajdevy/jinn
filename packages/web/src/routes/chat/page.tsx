@@ -25,7 +25,6 @@ import { ChatErrorBoundary } from './chat-error-boundary'
 import { ChatHeaderMenu } from './chat-header-menu'
 import { MultiChatGrid } from './multi-chat-grid'
 import { usePaneIdentity } from './pane-identity'
-import { useChatWorkingSet } from './use-chat-working-set'
 import { useChatPaneState } from './use-chat-pane-state'
 import { historyRecord, parseHistoryPreview } from './chat-history'
 import { ChatGridDropOverlay } from './chat-grid-drop'
@@ -33,7 +32,7 @@ import { useChatGridAdd } from './use-chat-grid-add'
 import { ChatPageHeader } from './chat-page-header'
 import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
-import { useChatGridState } from './use-chat-grid-state'
+import { useChatGridWorkspace } from './use-chat-grid-workspace'
 import { useMobileWorkingSet } from './use-mobile-working-set'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
@@ -112,8 +111,7 @@ function ChatPage() {
   const sessionsQuery = useSessions()
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
-  const workingSet = useChatWorkingSet(committedId, sessionsQuery.data)
-  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data ?? [] })
+  const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data)
   const { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
@@ -314,7 +312,6 @@ function ChatPage() {
   }, [handleSelect])
 
   const gridAdd = useChatGridAdd(workingSet.add, workingSet.insert, selectedId, handleSelect)
-
   const handleRemovePane = useCallback((sessionId: string) => {
     const next = removeWorkingSetSession(workingSet.state, sessionId)
     workingSet.remove(sessionId)
@@ -939,7 +936,7 @@ function ChatPage() {
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
-            grid={gridSessionIds.length > 0 ? { sessions: sessionsQuery.data ?? [], memberIds: gridSessionIds, onAdd: gridAdd.addPane } : undefined}
+            grid={gridSessionIds.length > 0 ? { onAdd: gridPicker.open } : undefined}
             moreMenu={moreMenu}
             mobileWorkingSet={mobileWorkingSet}
             copiedField={copiedField}
@@ -1018,6 +1015,7 @@ function ChatPage() {
                 onShortcutsClick={() => setShowShortcutOverlay(true)}
                 onContentReady={handlePaneContentReady}
                 onStartFreshChat={handleStartFreshChat}
+                pickerPane={gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)}
               />
             )}
             <ChatGridDropOverlay placement={gridAdd.drop.placement} />

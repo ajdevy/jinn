@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { installVirtualLayout, type VirtualLayout } from '@/test/virtual-layout'
 import { WORKING_SET_STORAGE_KEY } from '../working-set'
 import {
   apiMocks,
@@ -13,6 +14,7 @@ import {
 
 describe('the routed multi-pane surface', () => {
   const desktopWidth = 1440
+  let pickerLayout: VirtualLayout | null = null
 
   beforeEach(() => {
     sessionIds.splice(0, sessionIds.length, 'a', 'b', 'c', 'd')
@@ -29,6 +31,19 @@ describe('the routed multi-pane surface', () => {
       focusHistory: sessionIds,
     }))
   })
+
+  afterEach(() => {
+    pickerLayout?.release()
+    pickerLayout = null
+  })
+
+  const installPickerLayout = () => {
+    pickerLayout = installVirtualLayout(44, 360, {
+      scroller: '[data-testid="session-picker-scroll"]',
+      row: '[data-session-picker-row]',
+      rowId: 'data-session-picker-row',
+    })
+  }
 
   it('keeps four live transcripts isolated and preserves a streaming pane while a sibling closes', async () => {
     renderRoute()
@@ -95,10 +110,11 @@ describe('the routed multi-pane surface', () => {
 
     gateway.listeners.clear()
     localStorage.setItem(WORKING_SET_STORAGE_KEY, initial)
+    installPickerLayout()
     renderRoute()
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(2))
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add chat to grid' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Title c' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    fireEvent.click(await screen.findByRole('option', { name: /Title c/ }))
     await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
     await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b', 'c']))
     expect(localStorage.getItem(WORKING_SET_STORAGE_KEY)).toBe(dropState)
@@ -111,15 +127,48 @@ describe('the routed multi-pane surface', () => {
       focusedId: 'a',
       focusHistory: ['a'],
     }))
+    installPickerLayout()
     renderRoute()
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
     const originalPane = pane('a')
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add chat to grid' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Title b' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    fireEvent.click(await screen.findByRole('option', { name: /Title b/ }))
 
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
     expect(pane('a')).toBe(originalPane)
+  })
+
+  it('hosts the picker in an empty pane, then swaps it for a picked or freshly composed chat', async () => {
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: ['a'],
+      focusedId: 'a',
+      focusHistory: ['a'],
+    }))
+    installPickerLayout()
+    renderRoute()
+    await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    const picker = await screen.findByRole('combobox', { name: 'Search chats' })
+    expect(picker.closest('[data-chat-pane-session="new"]')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('option', { name: /Title b/ }))
+
+    await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b']))
+    expect(Array.from(document.querySelectorAll('[data-chat-grid-pane]')).at(-1)?.querySelector('[data-chat-pane-session="b"]')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    const freshPicker = await screen.findByRole('combobox', { name: 'Search chats' })
+    const freshPane = freshPicker.closest<HTMLElement>('[data-chat-pane-session="new"]')!
+    const textarea = freshPane.querySelector<HTMLTextAreaElement>('[data-chat-textarea]')!
+    fireEvent.change(textarea, { target: { value: 'fresh beside' } })
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' })
+
+    await waitFor(() => expect(apiMocks.createSession).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'fresh beside' })))
+    await waitFor(() => expect(pane('e').textContent).toContain('transcript-e'))
+    expect(freshPicker.isConnected).toBe(false)
   })
 
   it('replaces a lone chat with the composer instead of splitting New chat', async () => {

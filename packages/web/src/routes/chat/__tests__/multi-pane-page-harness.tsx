@@ -23,6 +23,10 @@ const apiMocks = vi.hoisted(() => ({
     counts: {},
     perGroup: {},
   })),
+  getPins: vi.fn(async () => ({ pins: [] })),
+  searchSessions: vi.fn(async (query: string) => sessionIds
+    .filter((id) => `Title ${id}`.toLowerCase().includes(query.toLowerCase()))
+    .map((id) => ({ id, title: `Title ${id}`, status: 'idle' }))),
   getOrg: vi.fn(async () => ({ employees: [] })),
   getEngines: vi.fn(async () => ({ engines: {} })),
   getFeatures: vi.fn(async () => ({ notesEnabled: false, staleChat: { enabled: false, tokenThreshold: 300000, staleAfterMinutes: 60 } })),

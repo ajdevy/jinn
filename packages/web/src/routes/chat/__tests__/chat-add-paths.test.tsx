@@ -5,7 +5,7 @@ import { ChatGridAddMenu } from '../chat-grid-add-menu'
 import { ChatGridDropOverlay, useChatSessionDrop } from '../chat-grid-drop'
 import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
 import { placementForPointer } from '../grid-placement'
-import { addWorkingSetSession, createWorkingSet, insertWorkingSetSession, type ChatWorkingSet } from '../working-set'
+import { createWorkingSet, insertWorkingSetSession, type ChatWorkingSet } from '../working-set'
 
 function transfer(type: string, value: string): DataTransfer {
   return {
@@ -39,10 +39,6 @@ function AddHarness({ mode, initial, onAction }: {
   onAction?: (sessionId: string) => void
 }) {
   const [state, setState] = useState(initial)
-  const add = useCallback((sessionId: string) => {
-    onAction?.(sessionId)
-    setState((current) => addWorkingSetSession(current, sessionId, 4))
-  }, [onAction])
   const insert = useCallback((sessionId: string, index: number) => {
     onAction?.(sessionId)
     setState((current) => insertWorkingSetSession(current, sessionId, index, 4))
@@ -59,11 +55,7 @@ function AddHarness({ mode, initial, onAction }: {
       </div>
       <div data-chat-composer data-testid="composer">Composer</div>
       {mode === 'picker' && (
-        <ChatGridAddMenu
-          sessions={[{ id: 'a', title: 'Title a' }, { id: 'b', title: 'Title b' }, { id: 'c', title: 'Title c' }]}
-          memberIds={state.sessionIds}
-          onAdd={add}
-        />
+        <ChatGridAddMenu onAdd={() => onAction?.('open-picker')} />
       )}
       <output data-testid="working-set">{JSON.stringify(state)}</output>
       <ChatGridDropOverlay placement={drop.placement} />
@@ -71,14 +63,9 @@ function AddHarness({ mode, initial, onAction }: {
   )
 }
 
-async function stateAfter(mode: 'drop' | 'picker'): Promise<ChatWorkingSet> {
-  const view = render(<AddHarness mode={mode} initial={createWorkingSet(['a', 'b'], 'a')} />)
-  if (mode === 'drop') {
-    fireEvent.drop(screen.getByTestId('drop-surface'), { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
-  } else {
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add chat to grid' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Title c' }))
-  }
+async function stateAfterDrop(): Promise<ChatWorkingSet> {
+  const view = render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} />)
+  fireEvent.drop(screen.getByTestId('drop-surface'), { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
   await waitFor(() => expect(screen.getByTestId('working-set').textContent).toContain('"c"'))
   const state = JSON.parse(screen.getByTestId('working-set').textContent ?? '') as ChatWorkingSet
   view.unmount()
@@ -86,14 +73,24 @@ async function stateAfter(mode: 'drop' | 'picker'): Promise<ChatWorkingSet> {
 }
 
 describe('chat grid add paths', () => {
-  it('routes drop and picker through one add contract and produces identical state', async () => {
+  it('routes a drop through the working-set add contract', async () => {
     const expected = {
       sessionIds: ['a', 'b', 'c'],
       focusedId: 'c',
       focusHistory: ['b', 'a', 'c'],
     }
-    expect(await stateAfter('drop')).toEqual(expected)
-    expect(await stateAfter('picker')).toEqual(expected)
+    expect(await stateAfterDrop()).toEqual(expected)
+  })
+
+  it('uses the add control to open a picker without mutating the working set', () => {
+    const action = vi.fn()
+    const initial = createWorkingSet(['a', 'b'], 'a')
+    render(<AddHarness mode="picker" initial={initial} onAction={action} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+
+    expect(action).toHaveBeenCalledWith('open-picker')
+    expect(screen.getByTestId('working-set').textContent).toBe(JSON.stringify(initial))
   })
 
   it('focuses a duplicate drop without duplicating or reordering it', async () => {
