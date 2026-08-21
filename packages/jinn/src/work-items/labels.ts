@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../shared/db.js';
 import { parseTodoId } from './id.js';
+import { holdLiveSignalsUntilCommit, notifyTodoLabelsChanged } from './live-events.js';
 import type { WriteOrigin } from './origin.js';
 import { appendWorkItemEvent } from './store.js';
 
@@ -14,8 +15,12 @@ import { appendWorkItemEvent } from './store.js';
  *   route layer; this module is the storage truth.
  * - NO implicit label creation: `setWorkItemLabels` accepts existing label ids
  *   or names only — an unknown name throws listing the valid labels.
- * - Replacing a Todo's set appends ONE `label_changed` event with the resulting
+ * - Changing a Todo's set appends ONE `label_changed` event with the resulting
  *   names (`versionEffect: 'state'`), and only on an actual change.
+ * - A set can be REPLACED, or one label added or removed without re-sending the
+ *   others. Replace is the destructive one and every caller that has a whole set
+ *   in hand uses it; add/remove exist because a caller that only wants to drop
+ *   one label should not have to reconstruct the rest from memory to do it.
  */
 
 export interface Label {
@@ -28,6 +33,15 @@ export interface Label {
 
 const LABEL_ID_PATTERN = /^lbl_[0-9a-f]{12}$/;
 const LABEL_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+/** The most labels one Todo may carry. It lives here rather than at the route
+ *  because `add` only learns the resulting size once it has read the current
+ *  set, so this is the only layer that can refuse the write that overflows. */
+export const TODO_LABELS_MAX = 100;
+
+/** How a write changes a Todo's set: the whole set at once, or only the labels
+ *  named, leaving every other label in place. */
+export type LabelChangeMode = 'replace' | 'add' | 'remove';
 
 /** Normalize a label name to lowercase kebab-case: runs of anything that is not
  *  a letter or digit collapse to single dashes. Throws when nothing survives. */
@@ -122,33 +136,51 @@ function resolveLabel(db: ReturnType<typeof initDb>, ref: string): Label | undef
   return row ? rowToLabel(row) : undefined;
 }
 
+/** Resolve a caller-supplied reference, or throw naming what would have been
+ *  accepted — the caller is usually a model reading the error and retrying. */
+function resolveLabelOrThrow(db: ReturnType<typeof initDb>, ref: string): Label {
+  const label = resolveLabel(db, ref);
+  if (label) return label;
+  const valid = listLabels().map((l) => l.name);
+  throw new Error(
+    `unknown label "${ref}" — labels are never created implicitly; valid labels: ${valid.length ? valid.join(', ') : '(none yet — create one first)'}`,
+  );
+}
+
+/** The set this write leaves behind, ordered by name. `add` and `remove` are
+ *  computed against `current`, which is what makes them non-destructive. */
+function nextLabelSet(current: Label[], resolved: Label[], mode: LabelChangeMode): Label[] {
+  if (mode === 'remove') {
+    const dropped = new Set(resolved.map((label) => label.id));
+    return current.filter((label) => !dropped.has(label.id));
+  }
+  const kept = new Map((mode === 'add' ? current : []).map((label) => [label.id, label] as const));
+  for (const label of resolved) kept.set(label.id, label);
+  return [...kept.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /**
- * Replace a Todo's label set. Entries may be label ids or names; every entry
- * must resolve to an EXISTING label (no implicit creation) — an unknown entry
- * throws listing the valid labels. Appends one `label_changed` event with the
- * resulting names, only when the set actually changes. Returns the new set
- * ordered by name.
+ * Change a Todo's label set. Entries may be label ids or names; every entry must
+ * resolve to an EXISTING label (no implicit creation) — an unknown entry throws
+ * listing the valid labels, in every mode, because a caller removing a label
+ * that was never created has misread the Todo either way. Appends one
+ * `label_changed` event with the resulting names, only when the set actually
+ * changes, and signals the change once the write commits.
  */
-export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor: string, origin?: WriteOrigin): Label[] {
+function writeWorkItemLabels(workItemId: string, labelRefs: string[], actor: string,
+  mode: LabelChangeMode, origin?: WriteOrigin): Label[] {
   const db = initDb();
   const id = parseTodoId(workItemId);
   const txn = db.transaction((): Label[] => {
     if (!db.prepare('SELECT 1 FROM work_items WHERE id = ?').get(id)) {
       throw new Error(`Todo ${id} not found`);
     }
-    const resolved = new Map<string, Label>();
-    for (const ref of labelRefs) {
-      const label = resolveLabel(db, ref);
-      if (!label) {
-        const valid = listLabels().map((l) => l.name);
-        throw new Error(
-          `unknown label "${ref}" — labels are never created implicitly; valid labels: ${valid.length ? valid.join(', ') : '(none yet — create one first)'}`,
-        );
-      }
-      resolved.set(label.id, label);
-    }
-    const next = [...resolved.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const resolved = labelRefs.map((ref) => resolveLabelOrThrow(db, ref));
     const current = getWorkItemLabels(id);
+    const next = nextLabelSet(current, resolved, mode);
+    if (next.length > TODO_LABELS_MAX) {
+      throw new Error(`a Todo carries at most ${TODO_LABELS_MAX} labels; this would leave ${id} with ${next.length}`);
+    }
     if (current.length === next.length && current.every((label, index) => label.id === next[index].id)) {
       return current; // unchanged — no writes, no event
     }
@@ -163,9 +195,29 @@ export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor
       detail: { labels: next.map((label) => label.name), ...(origin ? { origin } : {}) },
       versionEffect: 'state', // re-tagging resorts activity-ordered lists
     });
+    // A `todo-status` trigger's label filter reads the Todo when its event
+    // DRAINS, not when the Todo moved, so a label landing after the move has to
+    // re-open that drain — otherwise the event was judged unlabelled forever.
+    notifyTodoLabelsChanged(id);
     return next;
   });
-  return txn();
+  return holdLiveSignalsUntilCommit(txn);
+}
+
+/** Replace a Todo's whole label set. Every label not named is dropped. */
+export function setWorkItemLabels(workItemId: string, labelRefs: string[], actor: string, origin?: WriteOrigin): Label[] {
+  return writeWorkItemLabels(workItemId, labelRefs, actor, 'replace', origin);
+}
+
+/** Add labels without re-sending the ones already there. Labels already on the
+ *  Todo are not duplicated, and an add that changes nothing writes nothing. */
+export function addWorkItemLabels(workItemId: string, labelRefs: string[], actor: string, origin?: WriteOrigin): Label[] {
+  return writeWorkItemLabels(workItemId, labelRefs, actor, 'add', origin);
+}
+
+/** Remove the labels named, leaving every other label on the Todo in place. */
+export function removeWorkItemLabels(workItemId: string, labelRefs: string[], actor: string, origin?: WriteOrigin): Label[] {
+  return writeWorkItemLabels(workItemId, labelRefs, actor, 'remove', origin);
 }
 
 /** A Todo's labels, ordered by name. An unknown Todo reads as empty — existence

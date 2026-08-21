@@ -107,6 +107,27 @@ describe("deriveNeedsYou", () => {
   it("is empty when nothing is pending/escalated/blocked", () => {
     expect(deriveNeedsYou([compact({ id: "x", status: "executing" })])).toHaveLength(0)
   })
+
+  // PLA-157: the board's "N waiting" reads this set, so a Todo waiting out a
+  // quota window must not be counted as a Todo waiting on a person.
+  it("drops an unexpired park, and keeps one that has run out or will not parse", () => {
+    const ahead = new Date(NOW + 3_600_000).toISOString()
+    const behind = new Date(NOW - 3_600_000).toISOString()
+    const items = [
+      compact({ id: "parked", status: "blocked", parkedUntil: ahead }),
+      compact({ id: "expired", status: "blocked", parkedUntil: behind }),
+      compact({ id: "unreadable", status: "escalated", parkedUntil: "whenever" }),
+      compact({ id: "escalated-parked", status: "escalated", parkedUntil: ahead }),
+      compact({ id: "plain", status: "blocked" }),
+    ]
+    expect(deriveNeedsYou(items, NOW).map((item) => item.id)).toEqual(["expired", "unreadable", "plain"])
+  })
+
+  it("drops a parked Todo even when it is holding a gate — the park is what decides", () => {
+    const parked = new Date(NOW + 3_600_000).toISOString()
+    expect(deriveNeedsYou([compact({ id: "gated", status: "blocked", approvalState: "pending", parkedUntil: parked })], NOW)).toHaveLength(0)
+    expect(deriveNeedsYou([compact({ id: "gated-open", status: "blocked", approvalState: "pending" })], NOW)).toHaveLength(1)
+  })
 })
 
 

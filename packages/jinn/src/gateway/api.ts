@@ -139,6 +139,7 @@ import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAtta
 import { streamFile } from "./byte-range.js";
 import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
+import { applyLabelChange, parseLabelChange } from "./work-item-label-change.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
@@ -195,16 +196,15 @@ import {
 } from "../work-items/comments.js";
 import {
   addRelation,
-  blockedSet,
   removeRelation,
   WorkItemRelationError,
   type RelationKind,
 } from "../work-items/relations.js";
 import {
   createLabel,
-  labelSets,
   listLabels,
   setWorkItemLabels,
+  TODO_LABELS_MAX,
   type Label,
 } from "../work-items/labels.js";
 import {
@@ -219,7 +219,7 @@ import {
 } from "../work-items/attachments.js";
 import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
-import { compactWorkItem, fullWorkItemPayload, openWorkItemPayload } from "./work-item-payload.js";
+import { fullWorkItemPayload, openWorkItemPayload, workItemPagePayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { parseStatusUpdateFields } from "./work-item-status-fields.js";
 import { assignWorkItem, transition, TransitionError } from "../work-items/transitions.js";
@@ -300,6 +300,7 @@ import {
 import type { WorkflowService } from "../workflows/service.js";
 import { handleWorkflowApi } from "./workflow-api.js";
 import { handleHeartbeatApi } from "./heartbeat-api.js";
+import { handleWorkItemKeptApi } from "./work-item-kept-api.js";
 
 /** Max bytes accepted on /api/internal/hook (loopback-only relay payloads are tiny). */
 const HOOK_BODY_MAX_BYTES = 64 * 1024;
@@ -307,8 +308,6 @@ const HOOK_BODY_MAX_BYTES = 64 * 1024;
 const AUTH_BODY_MAX_BYTES = 16 * 1024;
 /** Operator Todo PATCH cap, measured as raw UTF-8 request bytes including JSON overhead. */
 export const TODO_EDIT_BODY_MAX_BYTES = 64 * 1024;
-/** HTTP parity with the MCP label_work_item cap (slice-3 review N1). */
-export const TODO_LABELS_MAX = 100;
 const SESSION_LIST_PER_GROUP = 50;
 const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000;
 function headerValue(req: HttpRequest, name: string): string | undefined {
@@ -742,21 +741,6 @@ const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ['backlog', 'assigned', 'e
  *  terminals are unreachable from here anyway — leaving `done`, `cancelled` or
  *  `escalated` still needs the human surface. */
 const AGENT_WORK_ITEM_TARGETS: readonly WorkItemStatus[] = ['backlog', 'assigned', 'executing', 'in_review', 'blocked', 'escalated', 'done'];
-
-
-function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
-  // Batch the board wire data across the page — ONE query each, never per item.
-  const ids = page.workItems.map((item) => item.id);
-  const extras = { blocked: blockedSet(ids), labels: labelSets(ids) };
-  return {
-    workItems: page.workItems.map((item) => compactWorkItem(item, extras)),
-    total: page.total,
-    totals: page.totals,
-    limit: page.limit,
-    offset: page.offset,
-    nextOffset: page.nextOffset,
-  };
-}
 
 function requireTodoRouteId(res: ServerResponse, value: string): boolean {
   if (isTodoId(value)) return true;
@@ -3190,7 +3174,7 @@ export async function handleApiRequest(
       }
       const fields = parseStatusUpdateFields(body, target, isOperatorPut);
       if (!fields.ok) return json(res, { error: fields.error }, fields.status);
-      const { note, blockKind, cascade, acknowledgeEscalated } = fields;
+      const { note, blockKind, cascade, acknowledgeEscalated, stopCause } = fields;
       const item = getWorkItem(params.id);
       if (!item) return notFound(res);
       const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus);
@@ -3244,7 +3228,7 @@ export async function handleApiRequest(
               agent: !isOperatorPut || undefined,
               callerSessionId: caller.kind === "session" ? caller.callerId : undefined, ...(blockKind ? { blockKind } : {}),
               ...(cascade ? { cascade: true } : {}),
-              ...(acknowledgeEscalated ? { acknowledgeEscalated: true } : {}),
+              ...(acknowledgeEscalated ? { acknowledgeEscalated: true } : {}), ...(stopCause ? { stopCause } : {}),
               detail,
             });
         const activityReceiptId = persistTodoMutationActivity(
@@ -3851,6 +3835,11 @@ export async function handleApiRequest(
       }
     }
 
+    if (await handleWorkItemKeptApi(req, res, { method, pathname, url }, {
+      resolveCaller: () => resolveWorkItemCaller(req, res, context),
+      emitProjection: (id) => emitTodoProjectionEvent(context, id, "kept-updated"),
+    })) return;
+
     // PUT /api/work-items/:id/dispatch-config — how the NEXT attempt runs: the
     // skills it preloads and the engine/model it uses. Deliberately settable
     // while the Todo is `executing` (that is the point — it is the lever for
@@ -3894,9 +3883,9 @@ export async function handleApiRequest(
       return json(res, { dispatchConfig: result.config });
     }
 
-    // PUT /api/work-items/:id/labels — replace the label set (operator, item
-    // creator, or assignee — the pre-slice-4 subset of edit authority). Only
-    // EXISTING labels are accepted; nothing is created implicitly.
+    // PUT /api/work-items/:id/labels — `labels` replaces the whole set, `add`/`remove`
+    // touch only what they name (operator, item creator, or assignee — the pre-slice-4
+    // subset of edit authority). Only EXISTING labels are accepted, none created implicitly.
     params = matchRoute("/api/work-items/:id/labels", pathname);
     if (method === "PUT" && params) {
       const caller = resolveWorkItemCaller(req, res, context);
@@ -3910,22 +3899,14 @@ export async function handleApiRequest(
         item.createdBy === workItemActor(caller) ||
         (employee !== null && (item.assignee === employee || item.createdBy === employee));
       if (!allowed) {
-        return json(res, { error: "replacing a Todo's labels requires the operator, the item creator, or the assignee" }, 403);
+        return json(res, { error: "changing a Todo's labels requires the operator, the item creator, or the assignee" }, 403);
       }
       const parsed = await readJsonBody(req, res);
       if (!parsed.ok) return;
-      if (!parsed.body || typeof parsed.body !== "object" || Array.isArray(parsed.body)) {
-        return badRequest(res, "request body must be a JSON object");
-      }
-      const body = parsed.body as Record<string, unknown>;
-      if (!Array.isArray(body.labels) || body.labels.some((entry) => typeof entry !== "string" || !entry.trim() || entry.length > 256)) {
-        return badRequest(res, "labels must be an array of label ids or names (non-empty strings)");
-      }
-      if (body.labels.length > TODO_LABELS_MAX) {
-        return badRequest(res, `labels accepts at most ${TODO_LABELS_MAX} entries per Todo (got ${body.labels.length})`);
-      }
+      const change = parseLabelChange(parsed.body);
+      if ("error" in change) return badRequest(res, change.error);
       try {
-        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller), caller.origin);
+        const labels = applyLabelChange(params.id, change, workItemActor(caller), caller.origin);
         emitTodoProjectionEvent(context, params.id, "labels-updated");
         return json(res, { labels });
       } catch (err) {

@@ -1,21 +1,24 @@
-import { getWorkItemSpend, listWorkItemEvents, type WorkItem } from "../work-items/store.js";
+import { getWorkItemSpend, listWorkItemEvents, type queryWorkItems, type WorkItem } from "../work-items/store.js";
 import { commentsTail } from "../work-items/comments.js";
-import { isBlocked, listRelations } from "../work-items/relations.js";
-import { getWorkItemLabels, type Label } from "../work-items/labels.js";
+import { blockedSet, isBlocked, listRelations } from "../work-items/relations.js";
+import { getWorkItemLabels, labelSets, type Label } from "../work-items/labels.js";
 import { listApprovals } from "../work-items/approvals.js";
 import { listWorkItemRuns } from "../work-items/runs.js";
 import { getTodoDispatchConfig } from "../work-items/dispatch-config.js";
+import { readStopCause, type TodoStopCause } from "../work-items/stop-cause.js";
+import { isWorkItemKept, keptSet } from "../work-items/kept.js";
+import { initDb } from "../shared/db.js";
 
 /** The wire projections of a Todo the API routes return: one compact shape for
  *  lists, one enriched shape for the board, one full shape for the detail route. */
 
 /** Compact wire summary (Todos v2 slice 3 adds `labels` + `blocked` — the
- *  board's chip/indicator data). List callers pass the pre-batched `extras`
- *  (ONE blockedSet + ONE labelSets query per page); single-item callers omit
- *  them and pay two per-item lookups. */
+ *  board's chip/indicator data; ICI-1357 adds `kept` — whether the Todo is on
+ *  the operator's Home). List callers pass the pre-batched `extras` (ONE query
+ *  each per page); single-item callers omit them and pay per-item lookups. */
 export function compactWorkItem(
   item: WorkItem,
-  extras?: { blocked: Set<string>; labels: Map<string, Label[]> },
+  extras?: { blocked: Set<string>; labels: Map<string, Label[]>; kept: Set<string> },
 ): Record<string, unknown> {
   return {
     id: item.id,
@@ -34,6 +37,7 @@ export function compactWorkItem(
     rank: item.rank,
     labels: extras ? extras.labels.get(item.id) ?? [] : getWorkItemLabels(item.id),
     blocked: extras ? extras.blocked.has(item.id) : isBlocked(item.id),
+    kept: extras ? extras.kept.has(item.id) : isWorkItemKept(initDb(), item.id),
     approvalState: item.approvalState,
     approvalRequest: item.approvalRequest,
     approvalRef: item.approvalRef,
@@ -43,8 +47,34 @@ export function compactWorkItem(
     approvalTarget: item.approvalTarget,
     approvalEscalatedAt: item.approvalEscalatedAt,
     sessionRef: sessionRef(item),
+    ...stopCause(item),
     updatedAt: item.updatedAt,
   };
+}
+
+/** One page of compact rows, with every batched projection they read taken in
+ *  ONE query each across the whole page rather than per item. */
+export function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
+  const ids = page.workItems.map((item) => item.id);
+  const extras = { blocked: blockedSet(ids), labels: labelSets(ids), kept: keptSet(initDb(), ids) };
+  return {
+    workItems: page.workItems.map((item) => compactWorkItem(item, extras)),
+    total: page.total,
+    totals: page.totals,
+    limit: page.limit,
+    offset: page.offset,
+    nextOffset: page.nextOffset,
+  };
+}
+
+/** PLA-157: why a stopped Todo stopped, flattened onto the compact row so the
+ *  board can tell a clock-wait from a you-wait. Read only for the two statuses
+ *  that can carry one — a page is mostly rows that never stopped — and absent
+ *  entirely once the park has passed, so no surface has to re-check the clock
+ *  to avoid showing a countdown that already ran out. */
+function stopCause(item: WorkItem): TodoStopCause {
+  if (item.status !== "blocked" && item.status !== "escalated") return {};
+  return readStopCause(initDb(), item.id) ?? {};
 }
 
 function sessionRef(item: WorkItem): Record<string, string> | null {
@@ -64,6 +94,8 @@ export function fullWorkItemPayload(item: WorkItem): Record<string, unknown> {
     comments: commentsTail(item.id),
     relations: listRelations(item.id),
     labels: getWorkItemLabels(item.id),
+    // ICI-1357 (additive): whether this Todo sits on the operator's Home board.
+    kept: isWorkItemKept(initDb(), item.id),
     // Slice 4 (additive): the full approval history, oldest request first. The
     // legacy approval* fields on `workItem` remain the current row's values.
     approvals: listApprovals(item.id),

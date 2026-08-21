@@ -14,6 +14,7 @@ export interface TodoListRowHandlers {
   onOpen: (id: string, item: WorkItemCompactWire) => void
   onQuickAdd: (askAssignee: boolean) => void
   onToggleClosed: () => void
+  onKeep?: (vars: { id: string; kept: boolean }) => void
 }
 
 /** A section header as one windowed row: the `<section>` carries the group's
@@ -55,6 +56,7 @@ function WindowedRow({ row, handlers }: { row: TodoListVirtualRow; handlers: Tod
           byName={handlers.byName}
           now={handlers.now}
           onOpen={handlers.onOpen}
+          onKeep={handlers.onKeep}
         />
       )
     case "empty":

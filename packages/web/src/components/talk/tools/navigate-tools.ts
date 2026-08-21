@@ -41,7 +41,7 @@ export function companyTodoPrefix(): string | null {
 }
 
 const BOARD = str(
-  'Which board: "my" for Todos the operator started, "attention" for what needs them, "everything", or a department slug.',
+  'Which board: "home" for what the operator asked for or kept, "attention" for what needs them, "everything", or a department slug.',
 )
 const STATUS = str("Restrict the board to one status.", [
   "all", "backlog", "assigned", "executing", "blocked", "in_review", "escalated", "done", "cancelled",
@@ -50,7 +50,7 @@ const STATUS = str("Restrict the board to one status.", [
 const openTodos: TalkTool = {
   name: "open_todos",
   description:
-    'Open the Todo board, optionally scoped and filtered. Use board "my" for anything the operator describes as theirs — "todos I started", "my requests".',
+    'Open the Todo board, optionally scoped and filtered. Use board "home" for anything the operator describes as theirs — "todos I started", "my requests", "what I am following".',
   exposure: "always",
   parameters: params({
     board: BOARD,

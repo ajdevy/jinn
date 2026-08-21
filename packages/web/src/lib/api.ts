@@ -1,4 +1,5 @@
 import { authFetch } from "@/lib/auth"
+import type { TodoStopCauseWire } from "@/lib/parked"
 // Type-only, and it has to stay that way: `workflows/model.ts` value-imports
 // `node:util/types` and the web build carries no Node polyfills.
 import type {
@@ -488,7 +489,7 @@ export interface WorkItemRelationWire {
   createdAt: string
 }
 
-export interface WorkItemCompactWire {
+export interface WorkItemCompactWire extends TodoStopCauseWire {
   id: string
   /** Positive monotonic whole-row revision on CAS-capable gateways. */
   version?: number
@@ -504,8 +505,7 @@ export interface WorkItemCompactWire {
   /** Offered variants when the pending gate asks for a PICK (older gateways omit). */
   approvalOptions?: string[] | null
   approvalChoice?: string | null
-  /** The gate is reserved for the operator: no employee may decide it, not the
-   *  COO and not through escalation (older gateways omit). */
+  /** Reserved for the operator: no employee decides it, not even by escalation (older gateways omit). */
   approvalOperatorOnly?: boolean
   approvalTarget: string | null
   approvalEscalatedAt: string | null
@@ -516,10 +516,12 @@ export interface WorkItemCompactWire {
   rootId?: string
   depth?: number
   dueAt?: string | null
-  /** Todos v2 slice 3 board wire data (optional: older gateways omit them). */
+  /** Board wire data (optional: older gateways omit them). `blocked` is true
+   *  while an incoming `blocks` relation originates from an open Todo; `kept`
+   *  is true while the Todo sits on the operator's Home board. */
   labels?: WorkItemLabelWire[]
-  /** True while an incoming `blocks` relation originates from an open Todo. */
   blocked?: boolean
+  kept?: boolean
   updatedAt: string
   /** Manual sort rank (design-todos §7.3). Null until the operator reorders. */
   rank?: number | null
@@ -653,6 +655,7 @@ export interface DepartmentSummaryWire {
 /** The GET /api/work-items/:id payload: full row + live-derived spend + audit. */
 export interface WorkItemDetailWire {
   workItem: WorkItemFullWire
+  kept?: boolean
   spendUsd: number
   events: WorkItemEventWire[]
   /** Last-10 comments tail + total (optional: older gateways omit it). */
@@ -689,6 +692,9 @@ export interface LinkedSessionWire {
   lastActivity?: string | null
   [key: string]: unknown
 }
+
+/** Todo list params that pass straight through as a same-named query param. */
+const TODO_LIST_PARAMS = ["status", "assignee", "department", "source", "needsAttentionFor", "since", "until", "q", "createdBy", "label", "offset"] as const
 
 export const api = {
   listWorkspaces: () => get<WorkspaceInfo[]>('/api/instances'),
@@ -822,8 +828,8 @@ export const api = {
   getCronRuns: (id: string) => get<Record<string, unknown>[]>(`/api/cron/${id}/runs`),
   updateCronJob: (id: string, data: Record<string, unknown>) =>
     put<Record<string, unknown>>(`/api/cron/${id}`, data),
-  triggerCronJob: (id: string) =>
-    post<Record<string, unknown>>(`/api/cron/${id}/trigger`, {}),
+  deleteCronJob: (id: string) => del<{ deleted: string; name: string }>(`/api/cron/${encodeURIComponent(id)}`),
+  triggerCronJob: (id: string) => post<Record<string, unknown>>(`/api/cron/${id}/trigger`, {}),
   getOrg: () => get<OrgData>("/api/org"),
   getEmployee: (name: string) => get<Employee>(`/api/org/employees/${name}`),
   /** PATCH an employee's editable fields. `name` is immutable and must not be sent.
@@ -910,20 +916,11 @@ export const api = {
     createdBy?: string
     rootsOnly?: boolean
     label?: string
+    kept?: boolean
   }, signal?: AbortSignal) => {
     const q = new URLSearchParams()
-    if (params?.status) q.set("status", params.status)
-    if (params?.assignee) q.set("assignee", params.assignee)
-    if (params?.department) q.set("department", params.department)
-    if (params?.source) q.set("source", params.source)
-    if (params?.needsAttentionFor) q.set("needsAttentionFor", params.needsAttentionFor)
-    if (params?.since) q.set("since", params.since)
-    if (params?.until) q.set("until", params.until)
-    if (params?.q) q.set("q", params.q)
-    if (params?.createdBy) q.set("createdBy", params.createdBy)
-    if (params?.rootsOnly) q.set("rootsOnly", "true")
-    if (params?.label) q.set("label", params.label)
-    if (params?.offset) q.set("offset", String(params.offset))
+    for (const key of TODO_LIST_PARAMS) if (params?.[key]) q.set(key, String(params[key]))
+    for (const flag of ["rootsOnly", "kept"] as const) if (params?.[flag]) q.set(flag, "true")
     q.set("limit", String(params?.limit ?? 20))
     return get<WorkItemListWire>(`/api/work-items?${q.toString()}`, signal ? { signal } : undefined)
   },
@@ -1108,6 +1105,9 @@ export const api = {
   /** Replace a Todo's label set (ids or names; nothing created implicitly). */
   setWorkItemLabels: (id: string, labels: string[], origin?: WriteOriginWire) =>
     put<{ labels: WorkItemLabelWire[] }>(`/api/work-items/${encodeURIComponent(id)}/labels`, { labels }, origin),
+  /** Put a Todo on the operator's Home board, or take it off (ICI-1357). */
+  setWorkItemKept: (id: string, kept: boolean) =>
+    put<{ kept: boolean }>(`/api/work-items/${encodeURIComponent(id)}/kept`, { kept }),
   uploadFile: async (file: File, sessionId?: string): Promise<UploadedFile> => {
     const form = new FormData()
     form.append('file', file)

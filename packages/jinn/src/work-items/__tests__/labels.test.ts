@@ -91,6 +91,58 @@ describe("setWorkItemLabels", () => {
   });
 });
 
+describe("addWorkItemLabels and removeWorkItemLabels", () => {
+  it("removes exactly the label named and leaves every other one on the Todo", () => {
+    for (const name of ["build", "urgent-fix", "platform-work"]) labels.createLabel({ name });
+    const item = store.createWorkItem({ title: "carries three" });
+    labels.setWorkItemLabels(item.id, ["build", "urgent-fix", "platform-work"], "operator");
+
+    // The trap this replaces: dropping one label meant re-sending the rest from
+    // memory, and a Todo that lost its arming label that way never fires again.
+    const left = labels.removeWorkItemLabels(item.id, ["urgent-fix"], "session:phase");
+
+    expect(left.map((l) => l.name)).toEqual(["build", "platform-work"]);
+    expect(labels.getWorkItemLabels(item.id).map((l) => l.name)).toEqual(["build", "platform-work"]);
+    const event = store.listWorkItemEvents(item.id).filter((e) => e.kind === "label_changed").at(-1)!;
+    expect(event.detail?.labels).toEqual(["build", "platform-work"]);
+  });
+
+  it("adds a label without being told the ones already there", () => {
+    labels.createLabel({ name: "keeper" });
+    const shipIt = labels.createLabel({ name: "ship-it" });
+    const item = store.createWorkItem({ title: "gains one" });
+    labels.setWorkItemLabels(item.id, ["keeper"], "operator");
+
+    expect(labels.addWorkItemLabels(item.id, [shipIt.id], "operator").map((l) => l.name)).toEqual(["keeper", "ship-it"]);
+  });
+
+  it("writes nothing when the resulting set is unchanged", () => {
+    labels.createLabel({ name: "already-there" });
+    const item = store.createWorkItem({ title: "no-op subject" });
+    labels.setWorkItemLabels(item.id, ["already-there"], "operator");
+    const version = store.getWorkItem(item.id)!.version;
+
+    labels.addWorkItemLabels(item.id, ["Already There"], "operator"); // already carried
+    labels.removeWorkItemLabels(item.id, ["bug"], "operator"); // never carried
+
+    expect(store.getWorkItem(item.id)!.version).toBe(version);
+    expect(store.listWorkItemEvents(item.id).filter((e) => e.kind === "label_changed")).toHaveLength(1);
+  });
+
+  it("rejects an unknown label in either mode, and refuses to overflow the cap", () => {
+    const item = store.createWorkItem({ title: "strict in every mode" });
+    expect(() => labels.addWorkItemLabels(item.id, ["ghost-tag"], "operator")).toThrow(/ghost-tag.*valid labels/s);
+    expect(() => labels.removeWorkItemLabels(item.id, ["ghost-tag"], "operator")).toThrow(/ghost-tag.*valid labels/s);
+
+    const many = Array.from({ length: labels.TODO_LABELS_MAX }, (_, i) => labels.createLabel({ name: `cap-${i}` }).name);
+    labels.setWorkItemLabels(item.id, many, "operator");
+    labels.createLabel({ name: "one-too-many" });
+    expect(() => labels.addWorkItemLabels(item.id, ["one-too-many"], "operator"))
+      .toThrow(new RegExp(`at most ${labels.TODO_LABELS_MAX} labels`));
+    expect(labels.getWorkItemLabels(item.id)).toHaveLength(labels.TODO_LABELS_MAX);
+  });
+});
+
 describe("labelSets", () => {
   it("answers many items in one batch with every requested id present", () => {
     labels.createLabel({ name: "batch-a" });

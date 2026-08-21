@@ -7,7 +7,7 @@ import {
   type WorkItemStatusWire,
   type WorkItemTreeWire,
 } from "@/lib/api"
-import { dateBounds, type TodoFilters } from "@/lib/todos"
+import { dateBounds, operatorSafeTodoError, type TodoFilters } from "@/lib/todos"
 import { TODO_QUERY_FRESHNESS, TODO_WRITE_KEY } from "@/lib/query-keys"
 import { todoStatusMutationOptions } from "../todo-status-mutation"
 import type { BoardId } from "./board-route"
@@ -16,9 +16,11 @@ import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStat
 
 /* Todos v2 slice 6 — the board data layer (design-doc §11 queries).
  * One infinite query per status column, scoped per board:
- *   My requests   → createdBy=operator + rootsOnly
+ *   Home          → kept=true + rootsOnly
  *   department    → department=<slug> + rootsOnly
  *   Everything    → rootsOnly (no board-scope filter)
+ * Home is one filter, not a union: an operator's Todo starts kept (ICI-1357) —
+ * but no SUPERSET of createdBy=operator, since they can unkeep their own.
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 
@@ -28,8 +30,8 @@ export const BOARD_PAGE_SIZE = 20
 
 /** Server params for a board scope (pure — unit-tested). Boards show roots
  *  only (§4): children live in the in-place tree tray, not as cards. */
-export function boardScopeParams(board: BoardId): { createdBy?: string; department?: string; rootsOnly: true } {
-  if (board.kind === "my") return { createdBy: "operator", rootsOnly: true }
+export function boardScopeParams(board: BoardId): { kept?: true; department?: string; rootsOnly: true } {
+  if (board.kind === "home") return { kept: true, rootsOnly: true }
   if (board.kind === "department") return { department: board.slug, rootsOnly: true }
   return { rootsOnly: true }
 }
@@ -191,18 +193,19 @@ export function useBoardMenuCounts(departments: DepartmentSummaryWire[] | undefi
     queryKey: ["work-items", "board-menu-counts", slugs.join(",")],
     enabled: enabled && departments !== undefined,
     ...TODO_QUERY_FRESHNESS,
-    queryFn: async (): Promise<{ my: number; byDepartment: Record<string, number> }> => {
+    queryFn: async (): Promise<{ home: number; everything: number; byDepartment: Record<string, number> }> => {
       const openOf = (totals: Partial<Record<WorkItemStatusWire, number>> | undefined): number =>
         OPEN_STATUSES.reduce((sum, s) => sum + (totals?.[s] ?? 0), 0)
-      const [mine, ...perDept] = await Promise.all([
-        api.listWorkItems({ createdBy: "operator", rootsOnly: true, limit: 1 }),
+      const [home, everything, ...perDept] = await Promise.all([
+        api.listWorkItems({ kept: true, rootsOnly: true, limit: 1 }),
+        api.listWorkItems({ rootsOnly: true, limit: 1 }),
         ...slugs.map((slug) => api.listWorkItems({ department: slug, rootsOnly: true, limit: 1 })),
       ])
       const byDepartment: Record<string, number> = {}
       slugs.forEach((slug, i) => {
         byDepartment[slug] = openOf(perDept[i].totals)
       })
-      return { my: openOf(mine.totals), byDepartment }
+      return { home: openOf(home.totals), everything: openOf(everything.totals), byDepartment }
     },
   })
 }
@@ -249,6 +252,20 @@ export function useBoardRank() {
         expectedVersion,
         idempotencyKey: crypto.randomUUID(),
       }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["work-items"] })
+    },
+  })
+}
+
+/** Put a Todo on Home, or take it off (ICI-1357). Invalidates every Todo query
+ *  (unkeeping removes the card) and announces a refusal — nothing else shows one. */
+export function useKeepWorkItem(announce: (message: string) => void) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: TODO_WRITE_KEY,
+    mutationFn: ({ id, kept }: { id: string; kept: boolean }) => api.setWorkItemKept(id, kept),
+    onError: (error) => announce(operatorSafeTodoError(error, "The gateway refused to change what Home keeps")),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["work-items"] })
     },

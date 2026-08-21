@@ -74,6 +74,37 @@ describe("offline workspace start", () => {
     expect(childEnv?.JINN_PORT).toBeUndefined();
   });
 
+  it("does not hand the child the parent instance's gateway session", async () => {
+    vi.stubEnv("JINN_GATEWAY_URL", "http://127.0.0.1:7802");
+    vi.stubEnv("JINN_GATEWAY_TOKEN", "parent-token");
+    vi.stubEnv("JINN_SESSION_ID", "parent-session");
+    vi.stubEnv("JINN_SESSION_CAPABILITY", "parent-capability");
+    const { registryPath, legacyRegistryPath, instance } = fixture();
+    const execFile = vi.fn(async (
+      _file: string,
+      _args: string[],
+      _options?: { env?: NodeJS.ProcessEnv },
+    ) => ({ stdout: "", stderr: "" }));
+
+    await startInstance({ instance, currentPort: 7802 }, {
+      registryPath,
+      legacyRegistryPath,
+      cliEntry: "/package/dist/bin/jinn.js",
+      execFile,
+      isPortAvailable: async () => true,
+      waitForHealth: async () => true,
+      provisionAccess: async () => ({ status: "not-detected" }),
+    });
+
+    const childEnv = execFile.mock.calls[0]?.[2]?.env;
+    expect(childEnv?.JINN_GATEWAY_URL).toBeUndefined();
+    expect(childEnv?.JINN_GATEWAY_TOKEN).toBeUndefined();
+    expect(childEnv?.JINN_SESSION_ID).toBeUndefined();
+    expect(childEnv?.JINN_SESSION_CAPABILITY).toBeUndefined();
+    expect(childEnv?.JINN_HOME).toBe(instance.home);
+    expect(childEnv?.JINN_INSTANCE).toBe("atlas");
+  });
+
   it("checks the port, starts the registered home, waits for health, and persists discovered remote access", async () => {
     const { registryPath, legacyRegistryPath, instance } = fixture();
     const execFile = vi.fn(async () => ({ stdout: "", stderr: "" }));

@@ -8,6 +8,7 @@ import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
+import { keepWorkItem, KEPT_EXISTS_SQL } from './kept.js';
 import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
 
@@ -179,6 +180,8 @@ export interface ListWorkItemsFilter {
   rootId?: string;
   /** Only tree roots (parentless items). */
   rootsOnly?: boolean;
+  /** Only Todos the operator has kept on Home (ICI-1357). */
+  kept?: boolean;
   /** Items carrying this label, matched by exact label id (`lbl_…`) or stored
    *  (normalized kebab-case) name — callers normalize display names first. */
   label?: string;
@@ -419,6 +422,7 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
   const priority = input.priority ?? 2;
   const closedAt = CLOSED_STATUSES.has(status) ? now : null;
   const verifyPolicyJson = input.verifyPolicy ? JSON.stringify(input.verifyPolicy) : null;
+  const createdBy = input.createdBy ?? (source === 'human' ? 'operator' : 'system');
 
   const selectExisting = (): WorkItem | undefined => {
     const row = db
@@ -447,7 +451,7 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
         status,
         department,
         input.assignee ?? null,
-        input.createdBy ?? (source === 'human' ? 'operator' : 'system'),
+        createdBy,
         parent?.id ?? null,                       // parent_id
         parent ? parent.rootId : id,              // root_id
         parent ? parent.depth + 1 : 0,            // depth
@@ -472,6 +476,7 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
       }
       throw err;
     }
+    if (createdBy === 'operator') keepWorkItem(db, id, now); // ICI-1357: what the operator asks for is on Home without a second call
     appendWorkItemEvent({ workItemId: id, kind: 'created', toStatus: status, actor: source, detail: createdEventDetail(sourceRef, input.origin) });
     if (parent) {
       // Re-verify the parent under the write lock before auditing the link.
@@ -551,6 +556,10 @@ const WORK_ITEM_STATUS_VALUES: readonly WorkItemStatus[] = [
   'cancelled',
 ];
 
+/** Filter keys that are a plain equality on the column they name. */
+const EQUALITY_FILTERS = [['status', 'status'], ['department', 'department'], ['assignee', 'assignee'],
+  ['source', 'source'], ['createdBy', 'created_by']] as const;
+
 function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unknown[] } {
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -570,25 +579,11 @@ function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unkn
       values.push(like, like);
     }
   }
-  if (filter.status) {
-    conditions.push('status = ?');
-    values.push(filter.status);
-  }
-  if (filter.department) {
-    conditions.push('department = ?');
-    values.push(filter.department);
-  }
-  if (filter.assignee) {
-    conditions.push('assignee = ?');
-    values.push(filter.assignee);
-  }
-  if (filter.source) {
-    conditions.push('source = ?');
-    values.push(filter.source);
-  }
-  if (filter.createdBy) {
-    conditions.push('created_by = ?');
-    values.push(filter.createdBy);
+  for (const [key, column] of EQUALITY_FILTERS) {
+    const value = filter[key];
+    if (!value) continue;
+    conditions.push(`${column} = ?`);
+    values.push(value);
   }
   if (filter.parentId) {
     conditions.push('parent_id = ?');
@@ -601,6 +596,7 @@ function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unkn
   if (filter.rootsOnly) {
     conditions.push('parent_id IS NULL');
   }
+  if (filter.kept) conditions.push(KEPT_EXISTS_SQL);
   if (filter.label) {
     conditions.push(
       'EXISTS (SELECT 1 FROM work_item_labels wil JOIN labels l ON l.id = wil.label_id WHERE wil.work_item_id = work_items.id AND (l.id = ? OR l.name = ?))',
@@ -608,12 +604,12 @@ function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unkn
     values.push(filter.label, filter.label);
   }
   if (filter.needsAttentionFor) {
-    // Approvals live in work_item_approvals — their sole storage owner since
-    // PLA-48 dropped the shadow columns from work_items.
+    // Approvals live in work_item_approvals (their sole owner since PLA-48). An unexpired park is a
+    // clock-wait (PLA-157) and leaves this set outright, gate included; an unreadable one is not a park.
     conditions.push(
-      "(EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated')))",
+      "((EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated'))) AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?)))",
     );
-    values.push(filter.needsAttentionFor, filter.needsAttentionFor);
+    values.push(filter.needsAttentionFor, filter.needsAttentionFor, new Date().toISOString());
   }
   if (filter.since) {
     conditions.push('updated_at >= ?');

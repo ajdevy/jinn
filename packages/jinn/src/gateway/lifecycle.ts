@@ -4,13 +4,16 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, PID_FILE, GATEWAY_INFO_FILE, JINN_HOME, JINN_HOME_IDENTITY, resolveHomeIdentity } from "../shared/paths.js";
+import { JINN_INSTANCE_IDENTITY_ENV_KEYS } from "../shared/sandbox-env.js";
 import { logger } from "../shared/logger.js";
 import type { JinnConfig } from "../shared/types.js";
 import { startGateway } from "./server.js";
-import { loadConfig, gatewayEnvOverrides, gatewayFileBinding } from "../shared/config.js";
+import { loadConfig } from "../shared/config.js";
 import { gatewayBaseUrl, readGatewayInfo } from "./gateway-info.js";
 import { ensureGatewayAuthToken } from "./auth.js";
 import { buildRestartEntryArgv } from "./restart-entry-options.js";
+
+export { resolveLocalGatewayConnection, type LocalGatewayConnection } from "./local-gateway-connection.js";
 
 export async function startForeground(config: JinnConfig): Promise<void> {
   const cleanup = await startGateway(config);
@@ -142,12 +145,11 @@ export function buildGatewayChildEnv(
 }
 
 const GATEWAY_CHILD_ENV_SCRUB_EXACT: ReadonlySet<string> = new Set([
+  // A restart re-launches the SAME instance, so its name stays; every other identity
+  // variable is re-derived below from this gateway's own home and config.
+  ...JINN_INSTANCE_IDENTITY_ENV_KEYS.filter((key) => key !== "JINN_INSTANCE"),
   "CODEX",
   "CLAUDECODE",
-  "JINN_SESSION_ID",
-  "JINN_SESSION_CAPABILITY",
-  "JINN_HOME_IDENTITY",
-  "JINN_TAKE_PORT",
   "ANTHROPIC_BASE_URL",
   "GROK_CLAUDE_MCPS_ENABLED",
   "GROK_CURSOR_MCPS_ENABLED",
@@ -479,33 +481,6 @@ function resolveHost(): string {
   } catch {
     return "127.0.0.1";
   }
-}
-
-export interface LocalGatewayConnection {
-  host?: string;
-  port: number;
-  token?: string;
-}
-
-/**
- * Local CLI commands use the durable instance config plus the supported process
- * environment overrides for routing. gateway.json contributes only the bearer
- * credential: its host, port, pid, and URL are ephemeral runtime metadata and
- * never override the configured endpoint.
- */
-export function resolveLocalGatewayConnection(
-  home: string,
-  registryPort = 7777,
-  env: NodeJS.ProcessEnv = process.env,
-): LocalGatewayConnection {
-  const recorded = readGatewayInfo(path.join(home, "gateway.json"));
-  const onFile = gatewayFileBinding(path.join(home, "config.yaml"));
-  const overrides = gatewayEnvOverrides(env);
-  return {
-    port: overrides.port ?? onFile.port ?? registryPort,
-    host: overrides.host ?? onFile.host,
-    token: recorded?.token,
-  };
 }
 
 function lsofListenerHost(name: string): string {

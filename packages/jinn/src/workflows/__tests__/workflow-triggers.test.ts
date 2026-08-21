@@ -43,11 +43,13 @@ class Executor {
 class TodoFeed implements WorkflowTodoEventFeed {
   readonly pending: WorkflowTodoStatusEvent[] = [];
   readonly processed = new Map<string, WorkflowTodoEventClaimOutcome[]>();
+  readonly deferred = new Map<string, WorkflowTodoEventClaimOutcome[]>();
   claimEvent(id: string, definitionIds: string[]) {
     const prior = this.processed.get(id); return prior ? { state: "processed" as const, outcomes: prior }
       : { state: "acquired" as const, definitionIds };
   }
   completeEvent(id: string, outcomes: WorkflowTodoEventClaimOutcome[]): void { this.processed.set(id, outcomes); }
+  deferEvent(id: string, _definitionIds: string[], outcomes: WorkflowTodoEventClaimOutcome[]): void { this.deferred.set(id, outcomes); }
   releaseEvent(): void {}
   listPendingEvents(): WorkflowTodoStatusEvent[] { return this.pending.filter((event) => !this.processed.has(event.id)); }
 }
@@ -64,9 +66,9 @@ function edge(id: string, from: string, to: string) {
   return { id, from: { nodeId: from, port: "success" as const }, to: { nodeId: to, port: "input" as const } };
 }
 function todoEvent(id: string, item: Partial<WorkflowTodoStatusEvent["item"]> = {}, actor: string | null = "operator"): WorkflowTodoStatusEvent {
-  return { id, workItemId: "ICI-1", fromStatus: "executing", toStatus: "in_review", actor, armedAsDelegate: null,
+  return { id, workItemId: "ICI-1", fromStatus: "executing", toStatus: "in_review", actor, armedAsDelegate: null, quotaWindowDecided: false,
     item: { source: "human", department: "platform", assignee: "worker", labels: [],
-      live: { assignee: "worker", parentId: null }, ...item } };
+      live: { assignee: "worker", parentId: null, status: "in_review" }, ...item } };
 }
 function todoTrigger(config: Omit<Extract<TriggerNode["config"], { kind: "todo-status" }>, "kind" | "status">): WorkflowNode {
   return { id: "start", type: "trigger", name: "Todo", config: { kind: "todo-status", status: "in_review", ...config } };
@@ -200,13 +202,6 @@ describe("Workflow trigger adapters", () => {
     expect(service.listRuns(definition.id, {}).items).toHaveLength(1);
   });
 
-  it("matches the label filter against the label id as well as the normalized name", async () => {
-    const byId = save("todo-label-id", todoTrigger({ label: "lbl_0000000000ab" }));
-    feed.pending.push(todoEvent("event-1", { labels: [{ id: "lbl_0000000000ab", name: "needs-review" }] }));
-    await service.recover(now);
-    expect(service.listRuns(byId.id, {}).items).toHaveLength(1);
-  });
-
   it("keeps an unfiltered Todo trigger firing for every Todo reaching its status", async () => {
     const definition = save("todo-unfiltered", todoTrigger({}));
     feed.pending.push(todoEvent("event-1", { department: null, assignee: null }));
@@ -215,18 +210,18 @@ describe("Workflow trigger adapters", () => {
   });
 
   it("completes a Todo event that matches zero filtered definitions instead of leaving it pending", async () => {
-    const definition = save("todo-excluding", todoTrigger({ label: "needs-review" }));
+    const definition = save("todo-excluding", todoTrigger({ department: "growth" }));
     feed.pending.push(todoEvent("event-1"));
     await service.recover(now);
     expect(feed.processed.get("event-1")).toMatchObject([
-      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("label") },
+      { workflowId: definition.id, outcome: "suppressed", detail: expect.stringContaining("department") },
     ]);
     expect(feed.listPendingEvents()).toHaveLength(0);
   });
 
   it("fires an unlabelled, unassigned Todo and names the unlabeled filter when the same Todo carries a label", async () => {
     const definition = save("todo-intake", todoTrigger({ unlabeled: true, unassigned: true }));
-    const bare = { assignee: null, live: { assignee: null, parentId: null } };
+    const bare = { assignee: null, live: { assignee: null, parentId: null, status: "in_review" as const } };
     feed.pending.push(todoEvent("bare-todo", bare));
     await service.recover(now);
     expect(service.listRuns(definition.id, {}).items).toHaveLength(1);
@@ -241,7 +236,7 @@ describe("Workflow trigger adapters", () => {
 
   it("suppresses an unassigned filter against the live assignee even when the frozen snapshot has none", async () => {
     const definition = save("todo-unassigned", todoTrigger({ unassigned: true }));
-    feed.pending.push(todoEvent("reassigned-todo", { assignee: null, live: { assignee: "other", parentId: null } }));
+    feed.pending.push(todoEvent("reassigned-todo", { assignee: null, live: { assignee: "other", parentId: null, status: "in_review" } }));
     await service.recover(now);
     expect(service.listRuns(definition.id, {}).items).toHaveLength(0);
     expect(feed.processed.get("reassigned-todo")).toMatchObject([
@@ -251,7 +246,7 @@ describe("Workflow trigger adapters", () => {
 
   it("fires a rootOnly Todo trigger for a root Todo and suppresses a child", async () => {
     const definition = save("todo-root-only", todoTrigger({ rootOnly: true }));
-    feed.pending.push(todoEvent("child-todo", { live: { assignee: "worker", parentId: "ICI-9" } }));
+    feed.pending.push(todoEvent("child-todo", { live: { assignee: "worker", parentId: "ICI-9", status: "in_review" } }));
     await service.recover(now);
     expect(service.listRuns(definition.id, {}).items).toHaveLength(0);
     expect(feed.processed.get("child-todo")).toMatchObject([

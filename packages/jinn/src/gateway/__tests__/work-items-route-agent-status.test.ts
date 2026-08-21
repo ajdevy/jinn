@@ -22,12 +22,12 @@ describe("POST /api/work-items/:id/status — open to any authenticated session"
   // blocked Todo could not put it back to work, and `assigned` had no agent
   // lane at all. Within the target allowlist the graph now stops applying, and
   // the only body a stranger still has to supply is the note blocked and
-  // escalated demand.
+  // escalated demand — plus, since PLA-157, the hint an escalation needs.
   it.each([
     ["assigned", "executing", { status: "executing", note: "reporting from elsewhere" }],
     ["assigned", "in_review", { status: "in_review", note: "reporting from elsewhere" }],
     ["assigned", "blocked", { status: "blocked", note: "reporting from elsewhere" }],
-    ["assigned", "escalated", { status: "escalated", note: "reporting from elsewhere" }],
+    ["assigned", "escalated", { status: "escalated", note: "reporting from elsewhere", unblockHint: { what: "decide the next move", who: "the operator" } }],
     ["blocked", "executing", { status: "executing" }],
     ["in_review", "executing", { status: "executing" }],
     ["executing", "assigned", { status: "assigned" }],

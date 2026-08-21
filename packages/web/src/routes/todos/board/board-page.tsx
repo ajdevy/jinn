@@ -33,14 +33,7 @@ import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
 import { BoardColumn, DragSlot } from "./column"
 import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail"
 import { BoardSwitcher, departmentTitle } from "./board-switcher"
-import {
-  boardDetailIds,
-  useBoardData,
-  useBoardRank,
-  useBoardTransition,
-  useBoardTrees,
-  useCreateSubTask,
-} from "./use-board"
+import { boardDetailIds, useBoardData, useBoardRank, useBoardTransition, useBoardTrees, useCreateSubTask, useKeepWorkItem } from "./use-board"
 import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
 } from "./status-scope"
@@ -442,11 +435,9 @@ export default function TodoBoardPage() {
 
   // ── Derived chrome ──────────────────────────────────────────────────────────
   const deptSummary = board.kind === "department" ? departments.data?.find((d) => d.slug === board.slug) : undefined
-  const title =
-    board.kind === "my" ? "My requests"
+  const title = board.kind === "department" ? departmentTitle(board.slug)
     : board.kind === "attention" ? "Attention"
-    : board.kind === "everything" ? "Everything"
-    : departmentTitle(board.slug)
+    : board.kind === "everything" ? "Everything" : "Home"
   const blockedTotal = countByStatus.blocked ?? 0
   const escalatedTotal = countByStatus.escalated ?? 0
   const closedTotal = CLOSED_STATUSES.reduce((sum, status) => sum + (countByStatus[status] ?? 0), 0)
@@ -480,6 +471,7 @@ export default function TodoBoardPage() {
     }
     return columns
   }, [data.columns, itemsByStatus, filters.due])
+  const keep = useKeepWorkItem(announce)
   const clearAllFilters = useCallback(() => {
     const params = new URLSearchParams()
     setSearchParams(params, { replace: false })
@@ -502,6 +494,7 @@ export default function TodoBoardPage() {
             onOpen={onOpen}
             onOpenChild={onOpen}
             onAddSubTask={addSubTask}
+            onKeep={keep.mutate}
             onLiftPointerDown={liftPointerDown}
           />
         </div>,
@@ -552,6 +545,7 @@ export default function TodoBoardPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />
               </div>
+              {board.kind === "home" && <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">Everything you asked for, plus everything you kept.</p>}
               <div className="mt-1 flex items-center gap-2 text-[13px] text-[var(--text-tertiary)]">
                 {deptSummary && (
                   <>
@@ -606,7 +600,7 @@ export default function TodoBoardPage() {
                 onChange={setFilters}
                 onSearchChange={setSearch}
                 employees={org.data?.employees ?? []}
-                departments={board.kind === "everything" || board.kind === "my" ? org.data?.departments ?? [] : []}
+                departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
                 byName={byName}
                 hideStatus
                 hideDepartment={board.kind === "department"}
@@ -704,10 +698,8 @@ export default function TodoBoardPage() {
                 trees={trees.data}
                 now={now}
                 onOpen={onOpen}
-                onQuickAdd={(askAssignee) => setCreating({
-                  department: board.kind === "department" ? board.slug : undefined,
-                  askAssignee: askAssignee || undefined,
-                })}
+                onKeep={keep.mutate}
+                onQuickAdd={(askAssignee) => setCreating({ department: board.kind === "department" ? board.slug : undefined, askAssignee: askAssignee || undefined })}
               />
             )}
           </div>
@@ -814,7 +806,7 @@ export default function TodoBoardPage() {
           filters={filters}
           onChange={setFilters}
           employees={org.data?.employees ?? []}
-          departments={board.kind === "everything" || board.kind === "my" ? org.data?.departments ?? [] : []}
+          departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
           byName={byName}
           onClose={() => setMobileFilterOpen(false)}
           hideStatus

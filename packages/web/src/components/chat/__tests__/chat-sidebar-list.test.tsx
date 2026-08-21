@@ -168,24 +168,25 @@ describe('automated sessions and the Team directory', () => {
     parentSessionId: 'own-1',
   })
 
-  it('keeps delegated children out of Today in BOTH focus modes', () => {
+  it('shows delegated children as flat rows in All mode (all means all)', () => {
     sidebarData.sessions = [OWN, CHILD]
 
     renderSidebar()
-    // Default mode is All; the child renders only inside the Team group,
-    // never as a flat Today row (Today count would read 2 otherwise).
+    // Default mode is All: the child is findable as a flat recency row AND
+    // inside its Team group (the grouped view keeps full per-employee history).
     expect(screen.getByText('Talk Orb Refinement')).toBeTruthy()
-    expect(screen.queryByText('IMPLEMENT PHASE — round 1')).toBeNull()
+    expect(screen.getByText('IMPLEMENT PHASE — round 1')).toBeTruthy()
     expect(screen.getByText('Team')).toBeTruthy()
     expect(screen.getByText('Jinn Dev')).toBeTruthy()
   })
 
-  it('hides the Team directory in Focused mode', () => {
+  it('hides delegated children and the Team directory in Focused mode', () => {
     localStorage.setItem('jinn-sidebar-focus-mode', 'focused')
     sidebarData.sessions = [OWN, CHILD]
 
     renderSidebar()
     expect(screen.getByText('Talk Orb Refinement')).toBeTruthy()
+    expect(screen.queryByText('IMPLEMENT PHASE — round 1')).toBeNull()
     expect(screen.queryByText('Jinn Dev')).toBeNull()
   })
 
@@ -215,7 +216,9 @@ describe('automated sessions and the Team directory', () => {
 
     renderSidebar()
     fireEvent.click(screen.getByText('Jinn Dev'))
-    expect(screen.getByText('IMPLEMENT PHASE — round 1')).toBeTruthy()
-    expect(screen.getByText('PLAN PHASE — planning only')).toBeTruthy()
+    // Each child now also renders as a flat All-mode row, so the expanded
+    // group makes it a second match.
+    expect(screen.getAllByText('IMPLEMENT PHASE — round 1').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('PLAN PHASE — planning only').length).toBeGreaterThan(0)
   })
 })

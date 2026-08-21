@@ -109,10 +109,10 @@ describe("the registered set", () => {
 })
 
 describe("the two done-when calls", () => {
-  it('lands "executing todos I started" on the operator-scoped board', async () => {
+  it('lands "executing todos I started" on the home board, taking the legacy "my" alias', async () => {
     const result = await executeToolCall("open_todos", '{"board":"my","status":"executing"}')
-    expect(result).toEqual({ ok: true, data: { path: "/todos/b/my?status=executing" } })
-    expect(visited).toEqual(["/todos/b/my?status=executing"])
+    expect(result).toEqual({ ok: true, data: { path: "/todos/b/home?status=executing" } })
+    expect(visited).toEqual(["/todos/b/home?status=executing"])
   })
 
   it('opens "Todo 59" from a bare number or a prefixed id', async () => {
@@ -125,7 +125,7 @@ describe("the two done-when calls", () => {
     // This is what lets the transport fire on partial intent rather than waiting
     // for the model to finish speaking.
     const settling = executeToolCall("open_todos", '{"status":"executing"}')
-    expect(visited).toEqual(["/todos/b/my?status=executing"])
+    expect(visited).toEqual(["/todos/b/home?status=executing"])
     await settling
   })
 
@@ -146,7 +146,7 @@ describe("the two done-when calls", () => {
     clearToolTimings()
 
     const settling = executeToolCall("open_todos", '{"status":"executing"}')
-    expect(visited).toEqual(["/todos/b/my?status=executing"])
+    expect(visited).toEqual(["/todos/b/home?status=executing"])
 
     let settled = false
     void settling.then(() => { settled = true })
@@ -158,7 +158,7 @@ describe("the two done-when calls", () => {
     expect(lastToolTiming()).toBeUndefined()
 
     land()
-    expect(await settling).toEqual({ ok: true, data: { path: "/todos/b/my?status=executing" } })
+    expect(await settling).toEqual({ ok: true, data: { path: "/todos/b/home?status=executing" } })
     await vi.waitFor(() => { expect(lastToolTiming()?.ms).toBeGreaterThanOrEqual(25) })
   })
 

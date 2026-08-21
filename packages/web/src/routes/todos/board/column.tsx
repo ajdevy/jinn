@@ -93,8 +93,8 @@ export function BoardColumn({
     >
       <div className="group/colhead sticky top-0 z-[2] flex items-center gap-2 bg-[var(--bg)] px-[13px] pb-2.5 pt-0.5 max-[700px]:static max-[700px]:px-0.5 max-[700px]:pb-0.5">
         <StateCircle keyOf={stateKeyOf(status)} size={20} />
-        <span className="text-[13px] font-semibold text-[var(--text-secondary)]">{label}</span>
-        <span className="text-[12px] tabular-nums text-[var(--text-quaternary)]">{count}</span>
+        <span className="text-[calc(13px*var(--text-scale))] font-semibold text-[var(--text-secondary)]">{label}</span>
+        <span className="text-[calc(12px*var(--text-scale))] tabular-nums text-[var(--text-quaternary)]">{count}</span>
         {onQuickAdd && (
           <button
             type="button"
@@ -121,7 +121,7 @@ export function BoardColumn({
             data-testid={`board-show-more-${status}`}
             onClick={loadMore}
             disabled={loadingMore}
-            className="focus-ring min-h-9 rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] px-[13px] text-left text-[12px] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
+            className="focus-ring min-h-9 rounded-[var(--radius-lg)] bg-[var(--fill-quaternary)] px-[13px] text-left text-[calc(12px*var(--text-scale))] font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
           >
             {loadingMore ? "Loading…" : `Show ${Math.min(BOARD_PAGE_SIZE, remaining)} more`}
           </button>

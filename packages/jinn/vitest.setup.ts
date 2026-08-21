@@ -29,9 +29,23 @@ const LEAKY_ENV_VARS = [
   'JINN_GATEWAY_URL',
   'JINN_GATEWAY_TOKEN',
   'JINN_HOME_IDENTITY',
+  // Instance identity — the live gateway exports its own binding into every session,
+  // and JINN_HOST/JINN_PORT outrank a fixture's config.yaml wherever a test loads one.
+  'JINN_INSTANCE',
+  'JINN_HOST',
+  'JINN_PORT',
   // Engine homes.
   'CODEX',
   'CODEX_HOME',
 ] as const;
 
 for (const name of LEAKY_ENV_VARS) delete process.env[name];
+
+/**
+ * Deliberately NOT importing assertNotProductionGateway (src/shared/sandbox-env.ts)
+ * here: a setup file's imports are instantiated before every test module, so pulling
+ * in shared/home.ts caches it against the real 'node:os' and any later
+ * vi.mock('node:os') in a test whose graph reaches it silently stops applying —
+ * fork-claude-projectdir.test.ts fails that way. assertIsolatedTestHome above is the
+ * stronger check regardless: it refuses the production home AND every non-temp one.
+ */

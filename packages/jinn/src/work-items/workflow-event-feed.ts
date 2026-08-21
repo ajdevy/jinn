@@ -17,37 +17,51 @@ export interface WorkflowTodoStatusEvent {
    *  null for every other event. It is written at the moment of the move, so a
    *  later change to the delegate list never rewrites what already happened. */
   armedAsDelegate: string | null;
+  /** Whether the availability resume sweep wrote this move, having already
+   *  settled from the failure's own reset when the quota window reopens. Written
+   *  at the moment of the move, so nothing read later can claim a window nobody
+   *  waited out. */
+  quotaWindowDecided: boolean;
   /** `source`, `department`, and `assignee` are the provenance snapshot frozen
    *  into the audit row when the Todo moved. `labels` and `live` are read at
    *  replay time instead: labels, assignment, and parentage all change
    *  independently of status, so a filter asking what the Todo *is* must read the
    *  row rather than whatever it carried when it moved. `live` is null once the
-   *  row is gone, which is not the same as a Todo that is simply unassigned. */
+   *  row is gone, which is not the same as a Todo that is simply unassigned. Its
+   *  `status` is the Todo's status NOW, which is what says whether the Todo is
+   *  still sitting where this event put it. */
   item: {
     source: WorkItemSource;
     department: string | null;
     assignee: string | null;
     labels: Array<{ id: string; name: string }>;
-    live: { assignee: string | null; parentId: string | null } | null;
+    live: { assignee: string | null; parentId: string | null; status: WorkItemStatus } | null;
   };
 }
 
 export interface WorkflowTodoEventClaimOutcome {
   workflowId: string;
-  outcome: 'started' | 'duplicate' | 'suppressed' | 'failed';
+  outcome: 'started' | 'duplicate' | 'suppressed' | 'superseded' | 'deferred-then-superseded' | 'failed';
   runId?: string;
   detail: string;
 }
 
 export type WorkflowTodoEventClaim =
-  | { state: 'acquired'; definitionIds: string[] }
+  /** `deferred` marks an event an earlier pass put back rather than settled, so
+   *  the caller knows to re-check whatever it was waiting on before firing. */
+  | { state: 'acquired'; definitionIds: string[]; deferred?: boolean }
   | { state: 'busy' }
   | { state: 'processed'; outcomes: WorkflowTodoEventClaimOutcome[] };
 
 export interface WorkflowTodoEventFeed {
   claimEvent(eventId: string, definitionIds: string[]): WorkflowTodoEventClaim;
   completeEvent(eventId: string, outcomes: WorkflowTodoEventClaimOutcome[]): void;
+  /** Record what this pass decided WITHOUT sealing the event: a later drain has
+   *  to judge it again, against `definitionIds` as its candidates. */
+  deferEvent(eventId: string, definitionIds: string[], outcomes: WorkflowTodoEventClaimOutcome[]): void;
   releaseEvent(eventId: string): void;
+  /** Unclaimed status events, oldest first, so a caller reading a backlog
+   *  sees the order the Todo actually moved in. */
   listPendingEvents(limit?: number): WorkflowTodoStatusEvent[];
 }
 
@@ -74,14 +88,14 @@ interface TodoEventRow {
   detail: string | null;
 }
 
-const CLAIMS_TABLE = 'workflow_todo_event_claims';
+export const CLAIMS_TABLE = 'workflow_todo_event_claims';
 const CLAIMS_MIGRATION_KEY = 'todo_status_event_claims_migrated';
 const LEGACY_WATERMARK_KEY = 'todo_status_replay_watermark';
 const CLAIM_OWNER = randomUUID();
 const DEFAULT_CLAIM_LEASE_MS = 30_000;
 let claimsTableReady = false;
 
-function ensureClaimsTable(): ReturnType<typeof initDb> {
+export function ensureClaimsTable(): ReturnType<typeof initDb> {
   const db = initDb();
   if (claimsTableReady) return db;
   db.exec(`CREATE TABLE IF NOT EXISTS ${CLAIMS_TABLE} (
@@ -129,7 +143,7 @@ function parseStringArray(raw: string): string[] {
   }
 }
 
-function parseOutcomes(raw: string | null): WorkflowTodoEventClaimOutcome[] {
+export function parseOutcomes(raw: string | null): WorkflowTodoEventClaimOutcome[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -152,7 +166,8 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
   if (!isTodoId(row.work_item_id)) return null;
   if (!row.detail) return null;
   try {
-    const detail = JSON.parse(row.detail) as { todoProvenance?: unknown; armedAsDelegate?: unknown };
+    const detail = JSON.parse(row.detail) as
+      { todoProvenance?: unknown; armedAsDelegate?: unknown; availabilityResume?: unknown };
     const snapshot = detail.todoProvenance;
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
     const value = snapshot as Record<string, unknown>;
@@ -168,12 +183,13 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
       toStatus: row.to_status,
       actor: row.actor,
       armedAsDelegate: typeof detail.armedAsDelegate === 'string' ? detail.armedAsDelegate : null,
+      quotaWindowDecided: detail.availabilityResume === true,
       item: {
         source: value.source as WorkItemSource,
         department: value.department as string | null,
         assignee: value.assignee as string | null,
         labels: getWorkItemLabels(row.work_item_id).map(({ id, name }) => ({ id, name })),
-        live: current ? { assignee: current.assignee, parentId: current.parentId } : null,
+        live: current ? { assignee: current.assignee, parentId: current.parentId, status: current.status } : null,
       },
     };
   } catch {
@@ -211,7 +227,8 @@ export function createWorkflowTodoEventFeed(opts: WorkflowTodoEventFeedOptions =
            WHERE event_id = ? AND state = 'processing' AND owner = ? AND claimed_at = ?`,
         ).run(owner, now().toISOString(), eventId, existing.owner, existing.claimed_at);
         if (takeover.changes !== 1) return { state: 'busy' };
-        return { state: 'acquired', definitionIds: parseStringArray(existing.definition_ids) };
+        return { state: 'acquired', definitionIds: parseStringArray(existing.definition_ids),
+          deferred: existing.owner.startsWith('deferred:') };
       }).immediate();
     },
 
@@ -221,6 +238,22 @@ export function createWorkflowTodoEventFeed(opts: WorkflowTodoEventFeedOptions =
          SET state = 'processed', outcomes = ?, processed_at = ?
          WHERE event_id = ? AND state = 'processing' AND owner = ?`,
       ).run(JSON.stringify(outcomes), now().toISOString(), eventId, owner);
+    },
+
+    /**
+     * Put a claimed event back in the queue. It was not refused on the merits —
+     * a filter read something that can still change — so the outcomes recorded
+     * here are provisional, and whatever settles the event overwrites them.
+     * `definitionIds` replaces the claim's own list, because the point of
+     * deferring is that the next drain re-decides which definitions match.
+     */
+    deferEvent(eventId, definitionIds, outcomes) {
+      ensureClaimsTable().prepare(
+        `UPDATE ${CLAIMS_TABLE}
+         SET owner = ?, claimed_at = ?, definition_ids = ?, outcomes = ?
+         WHERE event_id = ? AND state = 'processing' AND owner = ?`,
+      ).run(`deferred:${randomUUID()}`, new Date(0).toISOString(), JSON.stringify(definitionIds),
+        JSON.stringify(outcomes), eventId, owner);
     },
 
     releaseEvent(eventId) {
