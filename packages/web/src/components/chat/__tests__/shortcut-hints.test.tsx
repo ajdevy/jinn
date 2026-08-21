@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const sidebarData = vi.hoisted(() => ({
@@ -145,6 +145,27 @@ describe('ChatHeaderPills shortcut hints', () => {
     const newBtns = screen.getAllByTitle(/\(N\)/i)
     expect(newBtns.length).toBeGreaterThan(0)
     expect(newBtns.every((b) => b.getAttribute('aria-label') === 'New chat')).toBe(true)
+  })
+
+  it('keeps New chat one tap away beside an active four-chip mobile working set', () => {
+    const onNew = vi.fn()
+    render(
+      <ChatHeaderPills
+        {...defaultProps}
+        onNew={onNew}
+        mobileWorkingSet={(
+          <nav aria-label="Open chats">
+            {['One', 'Two', 'Three', 'Four'].map((label) => <button key={label}>{label}</button>)}
+          </nav>
+        )}
+      />,
+    )
+
+    const workingSet = screen.getByRole('navigation', { name: 'Open chats' })
+    expect(within(workingSet).getAllByRole('button')).toHaveLength(4)
+    const mobileActions = workingSet.nextElementSibling as HTMLElement
+    fireEvent.click(within(mobileActions).getByRole('button', { name: 'New chat' }))
+    expect(onNew).toHaveBeenCalledTimes(1)
   })
 })
 

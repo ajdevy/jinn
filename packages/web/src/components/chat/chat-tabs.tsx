@@ -147,11 +147,9 @@ export function ChatHeaderPills({
               </span>
             )}
             <div className="flex shrink-0 items-center">
-              {!mobileWorkingSet ? (
-                <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
-                  <SquarePen size={18} />
-                </PillButton>
-              ) : null}
+              <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
+                <SquarePen size={18} />
+              </PillButton>
               {moreMenu}
             </div>
           </div>

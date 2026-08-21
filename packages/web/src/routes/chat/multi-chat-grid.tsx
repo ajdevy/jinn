@@ -26,6 +26,7 @@ interface MultiChatGridProps {
   }
   viewport: { width: number; height: number }
   metaById: Record<string, SessionMeta>
+  sessionTitleFor: (sessionId: string) => unknown
   runtime: PaneRuntime
   scrollTopFor: (sessionId: string) => number | undefined
   viewModeFor: (sessionId: string) => ViewMode
@@ -77,6 +78,21 @@ function panePeek(owner: MultiChatGridProps, sessionId: string | null): PaneProp
 function paneCliAvailable(owner: MultiChatGridProps, sessionId: string | null): boolean {
   const engine = sessionId ? owner.metaById[sessionId]?.engine : undefined
   return !engine || owner.runtime.engineRegistry?.engines?.[engine]?.supportsPty === true
+}
+
+const UUID_PATTERN = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
+
+function safePaneTitle(value: unknown): string | undefined {
+  const title = typeof value === 'string' ? value.trim() : ''
+  return title && !UUID_PATTERN.test(title) ? title : undefined
+}
+
+function closeLabelForGridId(owner: MultiChatGridProps, gridId: string): string {
+  const sessionId = sessionForGridId(owner, gridId)
+  if (!sessionId) return 'Close chat'
+  const title = safePaneTitle(owner.metaById[sessionId]?.title)
+    ?? safePaneTitle(owner.sessionTitleFor(sessionId))
+  return title ? `Close ${title}` : 'Close chat'
 }
 
 function GridChatPane({
@@ -135,6 +151,7 @@ export function MultiChatGrid(props: MultiChatGridProps) {
       focusedId={focusedGridId}
       width={props.viewport.width}
       height={props.viewport.height}
+      labelFor={(gridId) => closeLabelForGridId(props, gridId)}
       onFocus={(gridId) => {
         const sessionId = sessionForGridId(props, gridId)
         if (sessionId) props.onFocus(sessionId)

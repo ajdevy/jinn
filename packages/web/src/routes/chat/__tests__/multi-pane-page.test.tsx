@@ -64,7 +64,7 @@ describe('the routed multi-pane surface', () => {
     const streamingChatPane = pane('c')
     const streamingText = pane('c').textContent
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close b' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close Title b' }))
     await waitFor(() => expect(document.querySelector('[data-chat-pane-session="b"]')).toBeNull())
     expect(screen.getByTestId('pane-c')).toBe(streamingPane)
     expect(pane('c')).toBe(streamingChatPane)

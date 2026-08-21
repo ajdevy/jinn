@@ -3,11 +3,19 @@ import { X } from 'lucide-react'
 import { layoutFor } from './grid-layout'
 import { useChatGridMotion } from './use-chat-grid-motion'
 
+const UUID_PATTERN = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
+
+function safeCloseLabel(value: string | undefined): string {
+  const label = value?.trim()
+  return label && !UUID_PATTERN.test(label) ? label : 'Close chat'
+}
+
 interface ChatGridProps {
   sessionIds: string[]
   focusedId: string | null
   width: number
   height: number
+  labelFor?: (sessionId: string) => string
   onFocus: (sessionId: string) => void
   onRemove: (sessionId: string) => void
   renderPane: (sessionId: string, active: boolean) => ReactNode
@@ -17,13 +25,14 @@ interface PaneFrameProps {
   sessionId: string
   active: boolean
   singlePane: boolean
+  label: string
   onFocus: (sessionId: string) => void
   onRemove: (sessionId: string) => void
   paneRef: RefCallback<HTMLElement>
   children: ReactNode
 }
 
-function PaneFrame({ sessionId, active, singlePane, onFocus, onRemove, paneRef, children }: PaneFrameProps) {
+function PaneFrame({ sessionId, active, singlePane, label, onFocus, onRemove, paneRef, children }: PaneFrameProps) {
   return (
     <section
       ref={paneRef}
@@ -37,7 +46,7 @@ function PaneFrame({ sessionId, active, singlePane, onFocus, onRemove, paneRef, 
       {!singlePane && (
         <button
           type="button"
-          aria-label={`Close ${sessionId}`}
+          aria-label={label}
           onClick={(event) => {
             event.stopPropagation()
             onRemove(sessionId)
@@ -57,6 +66,7 @@ export function ChatGrid({
   focusedId,
   width,
   height,
+  labelFor,
   onFocus,
   onRemove,
   renderPane,
@@ -86,6 +96,7 @@ export function ChatGrid({
           sessionId={sessionId}
           active={sessionId === focusedId}
           singlePane={singlePane}
+          label={safeCloseLabel(labelFor?.(sessionId))}
           onFocus={onFocus}
           onRemove={onRemove}
           paneRef={motion.paneRef(sessionId)}

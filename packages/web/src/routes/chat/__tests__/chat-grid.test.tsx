@@ -65,6 +65,7 @@ describe('live chat grid', () => {
         focusedId="c"
         width={1440}
         height={900}
+        labelFor={(id) => `Close ${id}`}
         onFocus={onFocus}
         onRemove={onRemove}
         renderPane={(id, active) => <output data-testid={`content-${id}`} data-active={String(active)} />}
@@ -88,6 +89,7 @@ describe('live chat grid', () => {
         focusedId="c"
         width={1440}
         height={900}
+        labelFor={(id) => `Close ${id}`}
         onFocus={onFocus}
         onRemove={onRemove}
         renderPane={(id, active) => <output data-testid={`content-${id}`} data-active={String(active)} />}
@@ -111,6 +113,29 @@ describe('live chat grid', () => {
 
     expect(screen.getByTestId('chat-grid').getAttribute('data-single-pane')).toBe('true')
     expect(screen.queryByRole('button', { name: 'Close only' })).toBeNull()
+  })
+
+  it('uses supplied close names without exposing UUID pane identities', () => {
+    const firstId = '550e8400-e29b-41d4-a716-446655440000'
+    const secondId = '8c47858c-fac4-4e1d-b327-1e2da44d1403'
+    render(
+      <ChatGrid
+        sessionIds={[firstId, secondId]}
+        focusedId={firstId}
+        width={1440}
+        height={900}
+        labelFor={(id) => id === firstId ? 'Close Release planning' : `Close ${id}`}
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        renderPane={() => <output>Pane</output>}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Close Release planning' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Close chat' })).toBeTruthy()
+    for (const button of screen.getAllByRole('button')) {
+      expect(button.getAttribute('aria-label')).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)
+    }
   })
 
   it('FLIPs removal through transform and opacity while retaining pane nodes', () => {

@@ -999,7 +999,7 @@ function ChatPage() {
                 viewport={viewport}
                 onFocus={handleFocusPane}
                 onRemove={handleRemovePane}
-                metaById={paneState.metaById}
+                metaById={paneState.metaById} sessionTitleFor={(id) => sessionsQuery.data?.find((session) => String(session.id ?? '') === id)?.title}
                 runtime={{ portalName, subscribe, engineRegistry, connectionSeq, skillsVersion, events }}
                 scrollTopFor={(sessionId) => sessionScrollRef.current.get(sessionId)}
                 viewModeFor={paneState.viewModeFor}
