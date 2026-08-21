@@ -34,7 +34,7 @@ function PickerSessionRow({ row, optionId, active, onActivate, onPick }: {
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[length:var(--text-subheadline)] font-[var(--weight-medium)]">{title}</span>
-        <span className="block truncate text-[length:var(--text-caption-1)] text-[var(--text-tertiary)]">{row.session.employee || 'Direct chat'}</span>
+        <span className="block truncate text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{row.session.employee || 'Direct chat'}</span>
       </span>
       {row.pinned ? <Pin aria-label="Pinned" className="size-3.5 shrink-0 text-[var(--accent)]" /> : null}
     </button>
@@ -50,7 +50,7 @@ function PickerRow({ row, optionId, activeId, onActivate, onPick }: {
 }) {
   if (row.kind === 'group') {
     return (
-      <div data-session-picker-group={row.id} className="flex h-8 items-end px-[var(--space-3)] pb-[var(--space-1)] text-[length:var(--text-caption-1)] font-[var(--weight-semibold)] uppercase tracking-[0.08em] text-[var(--text-tertiary)]">
+      <div data-session-picker-group={row.id} className="flex h-8 items-end px-[var(--space-3)] pb-[var(--space-1)] text-[length:var(--text-caption1)] font-[var(--weight-semibold)] uppercase tracking-[0.08em] text-[var(--text-tertiary)]">
         {row.label}
       </div>
     )
@@ -109,7 +109,7 @@ export function SessionPicker({ onPick }: SessionPickerProps) {
   const emptyLabel = query.trim() ? 'No chats match' : 'No chats yet'
   return (
     <section className="flex h-full min-h-0 w-full flex-1 flex-col bg-[var(--bg)]" aria-label="Choose a chat">
-      <div data-testid="session-picker-search" className="shrink-0 px-[var(--space-3)] pb-[var(--space-2)] pt-[calc(var(--safe-top)+var(--space-12)+var(--space-2))] lg:pt-[var(--space-3)]">
+      <div data-testid="session-picker-search" className="shrink-0 px-[var(--space-3)] pb-[var(--space-2)] pt-[calc(var(--safe-top)+var(--space-12)+var(--space-2))] lg:pt-[calc(var(--space-12)+var(--space-10))]">
         <label className="flex h-9 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] px-[var(--space-3)] text-[var(--text-tertiary)] focus-within:bg-[var(--fill-secondary)] focus-within:text-[var(--text-secondary)]">
           <Search aria-hidden className="size-4 shrink-0" />
           <input

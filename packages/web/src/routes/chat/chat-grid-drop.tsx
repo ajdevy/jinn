@@ -92,7 +92,7 @@ export function ChatGridDropOverlay({ placement }: { placement: GridPlacement | 
       data-drop-region={placement.region}
       data-drop-index={placement.targetIndex}
       aria-hidden
-      className="pointer-events-none fixed left-0 top-0 z-30 rounded-[var(--radius-lg)] bg-[color-mix(in_srgb,var(--accent)_18%,var(--bg-secondary))] opacity-100 shadow-[var(--shadow-card)] transition-[transform,opacity] duration-[var(--duration-fast)] ease-[var(--ease-standard)]"
+      className="pointer-events-none fixed left-0 top-0 z-30 rounded-[var(--radius-lg)] bg-[color-mix(in_srgb,var(--accent)_18%,var(--bg-secondary))] opacity-100 shadow-[var(--shadow-card)] transition-[transform,opacity] duration-[var(--duration-fast)] ease-[var(--ease-smooth)]"
       style={{
         width: previewRect.width,
         height: previewRect.height,
