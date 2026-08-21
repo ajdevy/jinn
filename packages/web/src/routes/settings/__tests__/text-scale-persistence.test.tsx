@@ -61,6 +61,25 @@ describe("the persisted text size setting", () => {
     )
   })
 
+  it("never publishes the default over a persisted step while starting up", async () => {
+    localStorage.setItem("jinn-settings", JSON.stringify({ textScale: 1.25 }))
+    const style = document.documentElement.style
+    const write = style.setProperty.bind(style)
+    const written: string[] = []
+    const spy = vi.spyOn(style, "setProperty").mockImplementation((property, value) => {
+      if (property === "--text-scale") written.push(String(value))
+      write(property, value)
+    })
+
+    mountProvider()
+    await screen.findByRole("button", { name: "1.25" })
+
+    // The bootstrap in index.html already painted at 1.25. A first pass holding
+    // the default would write 1 over it and reflow the page before correcting.
+    expect(written).toEqual(["1.25"])
+    spy.mockRestore()
+  })
+
   it("falls back to Default when the stored step is junk, absent or out of range", async () => {
     for (const stored of ["huge", 2, 0.1, null, undefined]) {
       localStorage.setItem("jinn-settings", JSON.stringify({ textScale: stored }))
