@@ -7,6 +7,7 @@ import { normalizeLabelName } from "../work-items/labels.js";
 import { appendRespawnGuardHold, checkRespawnGuard } from "../work-items/respawn-guards.js";
 import { createWorkflowTodoEventFeed, type WorkflowTodoEventFeed,
   type WorkflowTodoStatusEvent } from "../work-items/workflow-event-feed.js";
+import { startedAfterEvent } from "../work-items/workflow-event-winners.js";
 import { jsonValueSchema, type JsonValue, type TriggerNode, type WorkflowDefinition } from "./model.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type { WorkflowRunDetail } from "./runtime.js";
@@ -172,9 +173,10 @@ export class WorkflowTriggerService {
     await this.start(indexed.definition, indexed.trigger, fireId, { scheduledAt: fireId }, `schedule:${fireId}`);
   }
 
-  private async fireTodo(event: WorkflowTodoStatusEvent, superseded: SupersededBy): Promise<number> {
+  private async fireTodo(event: WorkflowTodoStatusEvent, pendingWinners: SupersededBy): Promise<number> {
     const candidates: TodoCandidate[] = (this.todos.get(event.toStatus) ?? [])
       .map((item) => ({ ...item, mismatch: todoMismatch(item.trigger, event) }));
+    const superseded = this.supersededForEvent(event, candidates, pendingWinners);
     // Drop the superseded definitions BEFORE the claim: the claim stores the ids
     // a lease takeover replays from, so one we have decided not to run must
     // never be written into it.
@@ -204,6 +206,27 @@ export class WorkflowTriggerService {
       settle(this.feed, event, deciding, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
     } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
+  }
+
+  /** Which definitions a newer event has already taken this Todo's lane for.
+   *  The pending page answers this for siblings still waiting their turn; it
+   *  cannot answer it for one that has already run, because a settled event is
+   *  no longer pending — and past the page's own limit it cannot answer it at
+   *  all. A deferral released after either kind of sibling would otherwise see
+   *  an empty gate and start a second run on a lane already running. */
+  private supersededForEvent(event: WorkflowTodoStatusEvent, candidates: ReadonlyArray<TodoCandidate>,
+    pendingWinners: SupersededBy): SupersededBy {
+    // Nothing qualified, so nothing can be beaten, and the ordinary drain pays
+    // nothing for a query with no question in it.
+    if (!candidates.some((item) => item.mismatch === undefined)) return pendingWinners;
+    const settled = startedAfterEvent(event.id);
+    if (settled.size === 0) return pendingWinners;
+    // Both maps name events strictly newer than this one, so either detail line
+    // is true. The pending page wins the tie: it is the same rule the drain has
+    // already applied to this event's waiting siblings.
+    const winners = new Map(settled);
+    for (const [definitionId, winner] of pendingWinners) winners.set(definitionId, winner);
+    return winners;
   }
 
   /** Why nothing may start on this event yet, or undefined when a run may. The

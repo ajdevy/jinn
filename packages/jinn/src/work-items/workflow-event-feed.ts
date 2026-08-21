@@ -88,14 +88,14 @@ interface TodoEventRow {
   detail: string | null;
 }
 
-const CLAIMS_TABLE = 'workflow_todo_event_claims';
+export const CLAIMS_TABLE = 'workflow_todo_event_claims';
 const CLAIMS_MIGRATION_KEY = 'todo_status_event_claims_migrated';
 const LEGACY_WATERMARK_KEY = 'todo_status_replay_watermark';
 const CLAIM_OWNER = randomUUID();
 const DEFAULT_CLAIM_LEASE_MS = 30_000;
 let claimsTableReady = false;
 
-function ensureClaimsTable(): ReturnType<typeof initDb> {
+export function ensureClaimsTable(): ReturnType<typeof initDb> {
   const db = initDb();
   if (claimsTableReady) return db;
   db.exec(`CREATE TABLE IF NOT EXISTS ${CLAIMS_TABLE} (
@@ -143,7 +143,7 @@ function parseStringArray(raw: string): string[] {
   }
 }
 
-function parseOutcomes(raw: string | null): WorkflowTodoEventClaimOutcome[] {
+export function parseOutcomes(raw: string | null): WorkflowTodoEventClaimOutcome[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
