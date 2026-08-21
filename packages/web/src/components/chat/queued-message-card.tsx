@@ -1,5 +1,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { ArrowUp, Pencil, X } from 'lucide-react'
+import { type MediaAttachment } from '@/lib/conversations'
+import { MessageMedia } from './message-media'
 import { SessionQueueContext, type QueuedMessage } from './use-session-queue'
 
 /* A message the operator has sent that is still waiting its turn. It sits where
@@ -53,16 +55,20 @@ function CardAction({ label, onClick, active, hero, children }: CardActionProps)
 interface CardFooterProps {
   position: number
   editing: boolean
+  error: string | null
   onEdit: () => void
   onCancel: () => void
   onSendNow: () => void
 }
 
-function CardFooter({ position, editing, onEdit, onCancel, onSendNow }: CardFooterProps) {
+function CardFooter({ position, editing, error, onEdit, onCancel, onSendNow }: CardFooterProps) {
   return (
     <div className="mt-[var(--space-2)] flex items-center justify-between gap-[var(--space-2)]">
-      <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        {queueCaption(position, editing)}
+      <span
+        role={error ? 'alert' : undefined}
+        className={`text-[length:var(--text-caption1)] ${error ? 'text-[var(--system-red)]' : 'text-[var(--text-tertiary)]'}`}
+      >
+        {error ?? queueCaption(position, editing)}
       </span>
       <div className="flex items-center gap-[var(--space-1)]">
         <CardAction label={editing ? 'Save this message' : 'Edit this message'} active={editing} onClick={onEdit}>
@@ -119,20 +125,49 @@ function CardEditor({ draft, onChange, onSave, onCancel }: CardEditorProps) {
 
 interface QueuedMessageCardProps {
   queued: QueuedMessage
-  /** The transcript's text for this message, so a card renders what the bubble did. */
-  text: string
+  media?: MediaAttachment[]
 }
 
-export function QueuedMessageCard({ queued, text }: QueuedMessageCardProps) {
+/** Why an action did not happen, in the caption slot the card already has. */
+function failureText(error: unknown, verb: string): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  return `Could not ${verb} · ${detail} · try again`
+}
+
+/** The card's own state: what is being typed, and why the last action failed. */
+function useCardActions(itemId: string, text: string) {
   const queue = useContext(SessionQueueContext)
   const [draft, setDraft] = useState<string | null>(null)
-  const editing = draft !== null
+  const [error, setError] = useState<string | null>(null)
 
-  const save = useCallback(() => {
+  const run = useCallback(async (verb: string, action: Promise<void>) => {
+    setError(null)
+    try {
+      await action
+      return true
+    } catch (failure) {
+      setError(failureText(failure, verb))
+      return false
+    }
+  }, [])
+
+  const save = useCallback(async () => {
     const next = draft?.trim()
-    setDraft(null)
-    if (next && next !== text) void queue.edit(queued.item.id, next)
-  }, [draft, text, queue, queued.item.id])
+    if (!next || next === text) return setDraft(null)
+    // The draft stays put until the server has taken it: closing the editor on a
+    // rejected PATCH would throw away what the operator typed.
+    if (await run('save that edit', queue.edit(itemId, next))) setDraft(null)
+  }, [draft, text, run, queue, itemId])
+
+  return { queue, draft, setDraft, error, run, save }
+}
+
+export function QueuedMessageCard({ queued, media }: QueuedMessageCardProps) {
+  // The parked row is what runs and what a queue refresh re-reads, so it is also
+  // what the card shows. The transcript row is not refetched after an edit.
+  const text = queued.item.prompt
+  const { queue, draft, setDraft, error, run, save } = useCardActions(queued.item.id, text)
+  const editing = draft !== null
 
   return (
     <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
@@ -144,16 +179,18 @@ export function QueuedMessageCard({ queued, text }: QueuedMessageCardProps) {
         }`}
       >
         {editing ? (
-          <CardEditor draft={draft} onChange={setDraft} onSave={save} onCancel={() => setDraft(null)} />
+          <CardEditor draft={draft} onChange={setDraft} onSave={() => void save()} onCancel={() => setDraft(null)} />
         ) : (
-          <div className="whitespace-pre-wrap text-[length:var(--text-body)] text-[var(--text-primary)]">{text}</div>
+          text && <div className="whitespace-pre-wrap text-[length:var(--text-body)] text-[var(--text-primary)]">{text}</div>
         )}
+        {media && media.length > 0 && <MessageMedia media={media} isUser={true} />}
         <CardFooter
           position={queued.position}
           editing={editing}
-          onEdit={() => (editing ? save() : setDraft(text))}
-          onCancel={() => void queue.cancel(queued.item.id)}
-          onSendNow={() => void queue.sendNow(queued.item.id)}
+          error={error}
+          onEdit={() => (editing ? void save() : setDraft(text))}
+          onCancel={() => void run('cancel that message', queue.cancel(queued.item.id))}
+          onSendNow={() => void run('send that message now', queue.sendNow(queued.item.id))}
         />
       </div>
     </div>

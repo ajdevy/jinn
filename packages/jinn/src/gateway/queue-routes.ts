@@ -129,13 +129,7 @@ function sendNow({ res, context, session, params }: QueueRouteArgs): void {
   const sessionKey = queueKey(session);
   const parked = getQueueItems(sessionKey).filter((row) => row.status === "pending");
   const promoted = rotatePendingToFront(parked, item.id);
-  reassignPendingQueuePayloads(
-    promoted.map((payload, index) => ({
-      id: parked[index].id,
-      prompt: payload.prompt,
-      messageId: payload.messageId,
-    })),
-  );
+  reassignPendingQueuePayloads(promoted.map((payload, index) => ({ id: parked[index].id, payload })));
   interruptRunningTurn(context, session);
   context.emit("queue:updated", { sessionId: params.id, sessionKey });
   return json(res, { status: "sent-now", itemId: params.itemId });

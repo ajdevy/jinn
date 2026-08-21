@@ -96,15 +96,26 @@ async function runQueuedTurn(
  * What this turn actually runs, decided when the queue lets it through rather
  * than when it was enqueued.
  *
- * A parked row can be edited or have another message's payload rotated onto it
- * while it waits, and the operator is looking at the row — so the row wins. The
- * speech note is recomputed from whatever text that turns out to be, exactly as
- * `resolveMessageAudiences` requires: derived per dispatch, never persisted.
+ * A parked row can be edited, or have another message's payload rotated onto it
+ * by "send this one now", while it waits. The operator is looking at the row, so
+ * the row wins — and it wins whole: text, attachments and speech origin travel
+ * together, because a promoted message arriving with the attachment of the row
+ * it displaced would be worse than not reordering at all. The speech note is
+ * recomputed from that text exactly as `resolveMessageAudiences` requires:
+ * derived per dispatch, never persisted.
  */
-function promptForTurn(dispatched: string, opts?: { queueItemId?: string; speechDerived?: boolean }): string {
-  if (!opts?.queueItemId) return dispatched;
-  const parked = getQueueItem(opts.queueItemId)?.prompt;
-  return parked === undefined ? dispatched : resolveMessageAudiences(parked, opts.speechDerived === true).engine;
+function requestForTurn(
+  dispatched: Omit<WebTurnRequest, "attemptToken">,
+  queueItemId?: string,
+): Omit<WebTurnRequest, "attemptToken"> {
+  const parked = queueItemId ? getQueueItem(queueItemId) : undefined;
+  if (!parked) return dispatched;
+  // Its text always. Its attachments only if it recorded any: the notification,
+  // workflow and plugin paths enqueue without a payload and still carry files on
+  // the closure, and overriding those with "none" would silently drop them.
+  const prompt = resolveMessageAudiences(parked.prompt, parked.dispatch?.speechDerived === true).engine;
+  if (!parked.dispatch) return { ...dispatched, prompt };
+  return { ...dispatched, prompt, attachments: parked.dispatch.attachments.length > 0 ? parked.dispatch.attachments : undefined };
 }
 
 export function dispatchWebSessionRun(
@@ -112,14 +123,14 @@ export function dispatchWebSessionRun(
   prompt: string,
   engine: Engine,
   context: ApiContext,
-  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[]; speechDerived?: boolean },
+  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[] },
 ): void {
   let dispatchedAttemptToken: string | undefined;
   const sessionKey = session.sessionKey || session.sourceRef;
   const run = async () => {
     try {
       await context.sessionManager.getQueue().enqueue(sessionKey, () =>
-        runQueuedTurn(session, context, { prompt: promptForTurn(prompt, opts), engine, attachments: opts?.attachments }, {
+        runQueuedTurn(session, context, requestForTurn({ prompt, engine, attachments: opts?.attachments }, opts?.queueItemId), {
           sessionKey,
           queueItemId: opts?.queueItemId,
           onAttempt: (token) => {

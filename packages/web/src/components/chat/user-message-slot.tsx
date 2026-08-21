@@ -21,8 +21,9 @@ interface UserMessageSlotProps {
 
 export function UserMessageSlot(props: UserMessageSlotProps) {
   const queued = useContext(SessionQueueContext).byMessageId.get(props.messageId)
-  // A queued message with attachments still needs the bubble's media row, so the
-  // card only takes over the plain-text case it can render honestly.
-  if (!queued || props.media.length > 0 || !props.text) return <UserMessageRow {...props} />
-  return <QueuedMessageCard queued={queued} text={props.text} />
+  if (!queued) return <UserMessageRow {...props} />
+  // Attachments ride along on the card: a queued message is queued whether or
+  // not it carries files, and routing those to the plain bubble would leave the
+  // one message the operator most wants to recall with nothing to recall it by.
+  return <QueuedMessageCard queued={queued} media={props.media} />
 }

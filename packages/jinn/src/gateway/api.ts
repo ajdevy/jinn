@@ -4672,13 +4672,6 @@ export async function handleApiRequest(
 
       const attachmentPaths = resolveAttachmentPaths(body.attachments);
 
-      // Internal notification-role messages are already durably queued above;
-      // only real user messages create a visible queue-panel item here.
-      if (!isNotification) {
-        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId });
-        context.emit("queue:updated", { sessionId: session.id, sessionKey });
-      }
-
       // Speech-derived operator messages carry a hidden context note to the engine
       // only. Everything persisted/queued/emitted above uses the clean `prompt`;
       // notifications (callbacks, relays) never qualify, and interactive dispatch
@@ -4687,16 +4680,23 @@ export async function handleApiRequest(
       // persisted, never rendered, never duplicated on retry/reload/reconnect.
       const speechDerived = speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine });
       const { engine: enginePrompt } = resolveMessageAudiences(prompt, speechDerived);
-      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, speechDerived, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
+
+      // Internal notification-role messages are already durably queued above;
+      // only real user messages create a visible queue-panel item here. The row
+      // carries the whole payload so "send this one now" can move all of it.
+      if (!isNotification) {
+        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId, dispatch: { attachments: attachmentPaths, speechDerived } });
+        context.emit("queue:updated", { sessionId: session.id, sessionKey });
+      }
+
+      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",
         sessionId: session.id,
-        ...(callbackDelivery ? {
-          callbackDeliveryId: callbackDelivery.id,
-          messageId: incomingMessageId,
-          queueItemId,
-        } : {}),
+        messageId: incomingMessageId,
+        queueItemId,
+        ...(callbackDelivery ? { callbackDeliveryId: callbackDelivery.id } : {}),
       });
     }
 

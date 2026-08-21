@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -37,19 +40,23 @@ const HEADERS = {
 };
 
 /** An engine whose turn does not finish until the test releases it, so messages park. */
-function blockingEngine(): { engine: Engine; prompts: string[]; release: () => void } {
+interface RunRecord { prompt: string; attachments: string[] }
+
+function blockingEngine(): { engine: Engine; runs: RunRecord[]; prompts: string[]; release: () => void } {
+  const runs: RunRecord[] = [];
   const prompts: string[] = [];
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const engine: Engine = {
     name: "stub",
     run: async (opts: EngineRunOpts) => {
+      runs.push({ prompt: opts.prompt, attachments: opts.attachments ?? [] });
       prompts.push(opts.prompt);
       await gate;
       return { sessionId: "stub", result: "acknowledged" };
     },
   };
-  return { engine, prompts, release: () => release() };
+  return { engine, runs, prompts, release: () => release() };
 }
 
 async function request(
@@ -92,7 +99,7 @@ const runningRow = async (context: ApiContext, sessionId: string) =>
 
 /** One running turn plus `parked` messages waiting behind it. */
 async function sessionWithParkedMessages(parked: string[], suffix: string) {
-  const { engine, prompts, release } = blockingEngine();
+  const { engine, runs, prompts, release } = blockingEngine();
   const queue = new queueModule.SessionQueue();
   const context = makeContext(engine, queue, []);
   const session = createParent(suffix);
@@ -100,7 +107,7 @@ async function sessionWithParkedMessages(parked: string[], suffix: string) {
   await eventually(() => expect(prompts).toEqual(["running turn"]));
   for (const message of parked) await send(context, session.id, message);
   expect((await parkedRows(context, session.id)).map((row) => row.prompt)).toEqual(parked);
-  return { context, queue, session, prompts, release };
+  return { context, queue, session, runs, prompts, release };
 }
 
 describe("PATCH /api/sessions/:id/queue/:itemId", () => {
@@ -171,6 +178,35 @@ describe("POST /api/sessions/:id/queue/:itemId/send-now", () => {
       "first parked",
       "second parked",
     ]));
+  });
+
+  it("carries the promoted message's own attachment, not the one from the row it lands on", async () => {
+    const { engine, runs, prompts, release } = blockingEngine();
+    const queue = new queueModule.SessionQueue();
+    const context = makeContext(engine, queue, []);
+    const session = createParent("send-now-attachments");
+    await send(context, session.id, "running turn");
+    await eventually(() => expect(prompts).toEqual(["running turn"]));
+
+    // The head row is enqueued with a file; the one behind it carries none. Send-now
+    // moves the second payload onto the first row, and the file must not come with it.
+    const onDisk = path.join(os.tmpdir(), `jinn-queue-verbs-${Date.now()}.png`);
+    fs.writeFileSync(onDisk, "png");
+    registry.insertFile({ id: "file-chart", filename: "chart.png", size: 3, mimetype: "image/png", path: onDisk });
+    await request(context, "POST", `/api/sessions/${session.id}/message`, {
+      message: "look at the chart", attachments: ["file-chart"],
+    });
+    await send(context, session.id, "no attachment here");
+    const plain = (await parkedRows(context, session.id)).find((row) => row.prompt === "no attachment here")!;
+
+    await request(context, "POST", `/api/sessions/${session.id}/queue/${plain.id}/send-now`);
+
+    release();
+    await eventually(() => expect(runs).toHaveLength(3));
+    expect(runs[1].prompt).toBe("no attachment here");
+    expect(runs[1].attachments).toEqual([]);
+    expect(runs[2].prompt).toBe("look at the chart");
+    expect(runs[2].attachments).toHaveLength(1);
   });
 
   it("does not clear the queue — the regression POST /stop would introduce", async () => {

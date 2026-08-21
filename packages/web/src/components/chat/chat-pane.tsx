@@ -344,7 +344,7 @@ export function ChatPane({
           // CLI view → route to the interactive PTY engine so the user sees the prompt
           // get injected into the live xterm + claude's streaming response.
           const mode = viewMode === 'cli' && engineRegistry?.engines?.[String(currentSession?.engine ?? '')]?.supportsPty ? 'interactive' : undefined
-          await api.sendMessage(sid, { message, interrupt: interrupt || undefined, attachments: attachmentIds, mode, speech: speech || undefined })
+          sessionQueue.adopt(userMsg.id, await api.sendMessage(sid, { message, interrupt: interrupt || undefined, attachments: attachmentIds, mode, speech: speech || undefined }))
           onRefresh?.()
         }
         return true
@@ -354,7 +354,7 @@ export function ChatPane({
       }
     },
     // Keep viewMode and stale-notice handling fresh across chat↔CLI sends.
-    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, engineRegistry, beginSend, failSend, answerStaleChatBySending]
+    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, engineRegistry, beginSend, failSend, answerStaleChatBySending, sessionQueue]
   )
 
   const handleStatusRequest = useCallback(async () => {

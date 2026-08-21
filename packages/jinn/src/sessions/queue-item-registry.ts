@@ -13,28 +13,57 @@ export interface QueueItem {
   internal: boolean;
   /** The transcript row this item will run, when the enqueuing path had one. */
   messageId: string | null;
+  /** Engine-facing extras that must travel with the payload when rows rotate.
+   *  Null means this row never recorded any: the dispatch closure still decides. */
+  dispatch: QueueDispatch | null;
   position: number;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
 }
 
-interface QueueItemRow extends Omit<QueueItem, "internal"> {
+/** What a turn runs on besides its text. */
+export interface QueueDispatch {
+  attachments: string[];
+  speechDerived: boolean;
+}
+
+interface QueueItemRow extends Omit<QueueItem, "internal" | "dispatch"> {
   internal: number;
+  dispatch_payload: string | null;
+}
+
+/**
+ * Null and empty are NOT the same thing here, and conflating them drops files.
+ * Null means no payload was ever recorded for this row - the notification,
+ * workflow and plugin paths never record one - so the dispatch closure still
+ * decides. An empty recorded payload means "this row runs with nothing extra",
+ * which is what a rotated row that carried no attachment must say, or it would
+ * inherit the attachment of the row it landed on.
+ */
+function parseDispatchPayload(raw: string | null): QueueDispatch | null {
+  if (raw === null) return null;
+  const parsed = JSON.parse(raw) as { attachments?: string[]; speechDerived?: boolean };
+  return { attachments: parsed.attachments ?? [], speechDerived: parsed.speechDerived === true };
+}
+
+function serializeDispatchPayload(dispatch: QueueDispatch | null): string | null {
+  return dispatch === null ? null : JSON.stringify(dispatch);
 }
 
 function rowToQueueItem(row: QueueItemRow): QueueItem {
-  return { ...row, internal: row.internal === 1 };
+  const { dispatch_payload: dispatchPayload, ...rest } = row;
+  return { ...rest, internal: row.internal === 1, dispatch: parseDispatchPayload(dispatchPayload) };
 }
 
 const QUEUE_ITEM_SELECT =
-  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt, message_id as messageId FROM queue_items";
+  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt, message_id as messageId, dispatch_payload FROM queue_items";
 
 export function enqueueQueueItem(
   sessionId: string,
   sessionKey: string,
   prompt: string,
-  options: { internal?: boolean; messageId?: string } = {},
+  options: { internal?: boolean; messageId?: string; dispatch?: QueueDispatch } = {},
 ): string {
   const db = initDb();
   const id = randomUUID();
@@ -42,8 +71,9 @@ export function enqueueQueueItem(
     "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status = 'pending'"
   ).get(sessionKey) as { pos: number }).pos;
   db.prepare(
-    "INSERT INTO queue_items (id, session_id, session_key, prompt, status, internal, position, created_at, message_id) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)"
-  ).run(id, sessionId, sessionKey, prompt, options.internal ? 1 : 0, position, new Date().toISOString(), options.messageId ?? null);
+    "INSERT INTO queue_items (id, session_id, session_key, prompt, status, internal, position, created_at, message_id, dispatch_payload) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)"
+  ).run(id, sessionId, sessionKey, prompt, options.internal ? 1 : 0, position, new Date().toISOString(), options.messageId ?? null,
+    serializeDispatchPayload(options.dispatch ?? null));
   return id;
 }
 
@@ -107,14 +137,24 @@ export function editPendingQueueItem(itemId: string, prompt: string): QueueItem 
  * Move payloads between parked rows, in one transaction so a reader never sees
  * two rows claiming the same message. The rows keep their positions and their
  * place in the committed promise chain; only what they will run changes.
+ *
+ * The whole payload moves - text, bubble, attachments, speech origin - because a
+ * message arriving with a neighbour's attachment is worse than not reordering.
  */
 export function reassignPendingQueuePayloads(
-  assignments: ReadonlyArray<{ id: string; prompt: string; messageId: string | null }>,
+  assignments: ReadonlyArray<{ id: string; payload: QueueItem }>,
 ): void {
   const db = initDb();
   db.transaction(() => {
-    const write = db.prepare("UPDATE queue_items SET prompt = ?, message_id = ? WHERE id = ? AND status = 'pending'");
-    for (const assignment of assignments) write.run(assignment.prompt, assignment.messageId, assignment.id);
+    const write = db.prepare(
+      "UPDATE queue_items SET prompt = ?, message_id = ?, dispatch_payload = ? WHERE id = ? AND status = 'pending'",
+    );
+    for (const { id, payload } of assignments) {
+      // Always explicit after a rotation, never null: a promoted row that says
+      // nothing would fall back to the closure of the row it displaced.
+      const dispatch = payload.dispatch ?? { attachments: [], speechDerived: false };
+      write.run(payload.prompt, payload.messageId, serializeDispatchPayload(dispatch), id);
+    }
   }).immediate();
 }
 

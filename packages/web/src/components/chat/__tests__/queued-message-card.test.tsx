@@ -5,12 +5,12 @@ import type { QueueItem } from '@/lib/api'
 import { QueuedMessageCard } from '@/components/chat/queued-message-card'
 import { UserMessageSlot } from '@/components/chat/user-message-slot'
 import { SessionQueueContext, indexByMessage, type SessionQueue } from '@/components/chat/use-session-queue'
-import type { Message } from '@/lib/conversations'
+import type { MediaAttachment, Message } from '@/lib/conversations'
 
 /* ICI-1365 — a queued message is a card in message position, carrying exactly
  * the three actions the operator asked for: edit it, drop it, or send it now. */
 
-const verbs = { cancel: vi.fn(), edit: vi.fn(), sendNow: vi.fn() }
+const verbs = { cancel: vi.fn(), edit: vi.fn(), sendNow: vi.fn(), adopt: vi.fn() }
 
 beforeEach(() => {
   verbs.cancel.mockReset().mockResolvedValue(undefined)
@@ -31,11 +31,11 @@ function queueItem(overrides: Partial<QueueItem> = {}): QueueItem {
   }
 }
 
-function renderCard(position: number, text = 'draft the digest') {
+function renderCard(position: number, prompt = 'draft the digest') {
   const queue: SessionQueue = { byMessageId: new Map(), ...verbs }
   return render(
     <SessionQueueContext.Provider value={queue}>
-      <QueuedMessageCard queued={{ item: queueItem(), position }} text={text} />
+      <QueuedMessageCard queued={{ item: queueItem({ prompt }), position }} />
     </SessionQueueContext.Provider>,
   )
 }
@@ -83,6 +83,51 @@ describe('the queued message card', () => {
     expect(verbs.edit).not.toHaveBeenCalled()
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.getByText('draft the digest')).toBeTruthy()
+  })
+
+  it('shows the edited text once the queue row carries it', () => {
+    const queue: SessionQueue = { byMessageId: new Map(), ...verbs }
+    const { rerender } = render(
+      <SessionQueueContext.Provider value={queue}>
+        <QueuedMessageCard queued={{ item: queueItem({ prompt: 'draft the digest' }), position: 1 }} />
+      </SessionQueueContext.Provider>,
+    )
+    expect(screen.getByText('draft the digest')).toBeTruthy()
+
+    rerender(
+      <SessionQueueContext.Provider value={queue}>
+        <QueuedMessageCard queued={{ item: queueItem({ prompt: 'draft the digest and post it' }), position: 1 }} />
+      </SessionQueueContext.Provider>,
+    )
+
+    expect(screen.getByText('draft the digest and post it')).toBeTruthy()
+    expect(screen.queryByText('draft the digest')).toBeNull()
+  })
+
+  it('keeps the draft and says why when the save is rejected', async () => {
+    verbs.edit.mockRejectedValue(new Error('Only a pending message can be edited'))
+    renderCard(1)
+
+    await userEvent.click(screen.getByLabelText('Edit this message'))
+    await userEvent.type(screen.getByRole('textbox'), ' and post it{Enter}')
+
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Could not save that edit · Only a pending message can be edited · try again')
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('draft the digest and post it')
+  })
+
+  it('reports a rejected cancel and a rejected send-now instead of going quiet', async () => {
+    verbs.cancel.mockRejectedValue(new Error('Item not found or already running'))
+    renderCard(1)
+
+    await userEvent.click(screen.getByLabelText('Cancel this message'))
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Could not cancel that message · Item not found or already running · try again')
+
+    verbs.sendNow.mockRejectedValue(new Error('offline'))
+    await userEvent.click(screen.getByLabelText('Send this message now'))
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Could not send that message now · offline · try again')
   })
 
   it('says where in the queue it sits, and that it is being edited', async () => {
@@ -134,6 +179,23 @@ describe('an operator message in the transcript', () => {
 
   it('renders as the queued card while it is still parked', () => {
     renderSlot(indexByMessage([queueItem()]))
+
+    expect(screen.getByText('Sends after this reply')).toBeTruthy()
+    expect(screen.getAllByRole('button')).toHaveLength(3)
+  })
+
+  it('is still a card when it carries an attachment', () => {
+    render(
+      <SessionQueueContext.Provider value={{ byMessageId: indexByMessage([queueItem()]), ...verbs }}>
+        <UserMessageSlot
+          msg={message}
+          messageId="m1"
+          text="draft the digest"
+          content="draft the digest"
+          media={[{ kind: 'image', url: '/files/chart.png', name: 'chart.png' } as unknown as MediaAttachment]}
+        />
+      </SessionQueueContext.Provider>,
+    )
 
     expect(screen.getByText('Sends after this reply')).toBeTruthy()
     expect(screen.getAllByRole('button')).toHaveLength(3)

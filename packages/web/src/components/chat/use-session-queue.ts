@@ -15,9 +15,12 @@ export interface QueuedMessage {
 
 export interface SessionQueue {
   byMessageId: ReadonlyMap<string, QueuedMessage>
+  /** Each verb REJECTS on failure. The card is the only caller and it reports. */
   cancel: (itemId: string) => Promise<void>
   edit: (itemId: string, prompt: string) => Promise<void>
   sendNow: (itemId: string) => Promise<void>
+  /** Point an optimistic message id at the canonical one the server minted. */
+  adopt: (localId: string, sent: unknown) => void
 }
 
 const EMPTY: SessionQueue = {
@@ -25,6 +28,26 @@ const EMPTY: SessionQueue = {
   cancel: async () => {},
   edit: async () => {},
   sendNow: async () => {},
+  adopt: () => {},
+}
+
+/**
+ * A queued bubble appended optimistically carries a client-side id, while the
+ * queue row is keyed by the id the server minted. Until the transcript reloads
+ * those are different strings, so the card would not appear on the message that
+ * just got queued. The alias closes that window.
+ */
+function withAliases(
+  index: ReadonlyMap<string, QueuedMessage>,
+  aliases: ReadonlyMap<string, string>,
+): ReadonlyMap<string, QueuedMessage> {
+  if (aliases.size === 0) return index
+  const merged = new Map(index)
+  for (const [localId, canonicalId] of aliases) {
+    const entry = index.get(canonicalId)
+    if (entry) merged.set(localId, entry)
+  }
+  return merged
 }
 
 export const SessionQueueContext = createContext<SessionQueue>(EMPTY)
@@ -36,6 +59,20 @@ export function indexByMessage(items: readonly QueueItem[]): ReadonlyMap<string,
   const parked = items.filter((item) => item.status === 'pending')
   return new Map(parked.flatMap((item, index): Array<[string, QueuedMessage]> =>
     item.messageId ? [[item.messageId, { item, position: index + 1 }]] : []))
+}
+
+/** Optimistic-to-canonical message ids, forgotten when the pane changes session. */
+function useMessageIdAliases(sessionId: string | null) {
+  const [aliases, setAliases] = useState<ReadonlyMap<string, string>>(new Map())
+  useEffect(() => { setAliases(new Map()) }, [sessionId])
+
+  const adopt = useCallback((localId: string, sent: unknown) => {
+    const canonicalId = (sent as { messageId?: unknown } | null)?.messageId
+    if (typeof canonicalId !== 'string' || canonicalId === localId) return
+    setAliases((prev) => new Map(prev).set(localId, canonicalId))
+  }, [])
+
+  return { aliases, adopt }
 }
 
 export function useSessionQueue(
@@ -62,21 +99,25 @@ export function useSessionQueue(
     void refresh()
   }), [subscribe, sessionId, refresh])
 
+  /** Refresh either way, then let the failure through: a card that says nothing
+   *  after a rejected action is indistinguishable from one that worked. */
   const act = useCallback(async (run: () => Promise<unknown>) => {
     try {
       await run()
-    } catch {
-      // Non-fatal: the refresh below re-reads the truth either way.
+    } finally {
+      await refresh()
     }
-    await refresh()
   }, [refresh])
 
-  const byMessageId = useMemo(() => indexByMessage(items), [items])
+  const { aliases, adopt } = useMessageIdAliases(sessionId)
+
+  const byMessageId = useMemo(() => withAliases(indexByMessage(items), aliases), [items, aliases])
 
   return useMemo<SessionQueue>(() => sessionId === null ? EMPTY : {
     byMessageId,
     cancel: (itemId) => act(() => api.cancelQueueItem(sessionId, itemId)),
     edit: (itemId, prompt) => act(() => api.editQueueItem(sessionId, itemId, prompt)),
     sendNow: (itemId) => act(() => api.sendQueueItemNow(sessionId, itemId)),
-  }, [sessionId, byMessageId, act])
+    adopt,
+  }, [sessionId, byMessageId, act, adopt])
 }
