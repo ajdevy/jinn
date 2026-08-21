@@ -239,18 +239,18 @@ describe("/todos/b/home?status=done", () => {
 /* ICI-1357 criterion 11. A fresh instance keeps nothing, so Home's FIRST render
  * is the empty one. It has to be the board's own quiet empty state — the columns
  * and their quick-adds — not a crash, and not a blank region where cards go. */
-describe("/todos/b/home with nothing kept", () => {
-  it("renders the board's quiet empty state, not the filtered-empty card", async () => {
-    listWorkItems.mockImplementation(() =>
-      Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null }),
-    )
+/* PLA-172, criterion 7: an empty Home teaches the pin instead of sitting silent. */
+describe("/todos/b/home with nothing pinned", () => {
+  beforeEach(() => listWorkItems.mockImplementation(() => Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null })))
+  it("renders the pin-gesture empty state, not the filtered-empty card", async () => {
     renderBoard("/todos/b/home")
-
-    const backlog = await screen.findByTestId("board-column-backlog")
-    expect(backlog.textContent).toContain("0")
-    expect(screen.getByTestId("board-switcher").textContent).toContain("Home")
+    expect((await screen.findByTestId("board-home-empty")).textContent).toContain("Pin a Todo")
     expect(screen.queryByTestId("board-filtered-empty")).toBeNull()
     expect(document.querySelectorAll("[data-testid^=board-card-]").length).toBe(0)
+  })
+  it("reaches the phone", async () => {
+    renderMobileBoard("/todos/b/home")
+    expect((await screen.findByTestId("todo-list-home-empty")).textContent).toContain("Pin a Todo")
   })
 })
 

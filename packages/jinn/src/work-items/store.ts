@@ -8,7 +8,7 @@ import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
-import { keepWorkItem, KEPT_EXISTS_SQL } from './kept.js';
+import { KEPT_EXISTS_SQL } from './kept.js';
 import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
 
@@ -476,7 +476,6 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
       }
       throw err;
     }
-    if (createdBy === 'operator') keepWorkItem(db, id, now); // ICI-1357: what the operator asks for is on Home without a second call
     appendWorkItemEvent({ workItemId: id, kind: 'created', toStatus: status, actor: source, detail: createdEventDetail(sourceRef, input.origin) });
     if (parent) {
       // Re-verify the parent under the write lock before auditing the link.

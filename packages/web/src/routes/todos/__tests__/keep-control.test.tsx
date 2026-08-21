@@ -67,30 +67,41 @@ describe("the keep toggle", () => {
     expect(document.activeElement).toBe(button)
   })
 
-  // Criterion 8: the pointer crossing a card must not resize it. The control is
-  // always mounted at a fixed size and only its OPACITY changes, so it occupies
-  // its box whether or not it is showing.
-  it("occupies its box in both states, and reveals itself on hover and on focus", () => {
-    const { rerender } = render(<KeepToggle id="PLA-4" revealOnHover onToggle={() => {}} />)
+  /* PLA-172, criterion 5. The pin used to wait for a pointer that a card on
+   * Everything might never receive, so the one gesture that fills Home was
+   * invisible on the board you would use it from. It shows at rest now. */
+  it("shows at rest in both states, hover-gated by nothing", () => {
+    const { rerender } = render(<KeepToggle id="PLA-4" onToggle={() => {}} />)
     const off = screen.getByTestId("keep-toggle-PLA-4")
-    expect(off.className).toContain("size-[22px]")
-    expect(off.className).toContain("opacity-0")
-    expect(off.className).toContain("group-hover:opacity-100")
-    expect(off.className).toContain("focus-visible:opacity-100")
+    expect(off.className).not.toContain("opacity-0")
+    expect(off.className).not.toContain("group-hover:")
+    expect(off.className).toContain("text-[var(--text-quaternary)]")
 
-    rerender(<KeepToggle id="PLA-4" kept revealOnHover onToggle={() => {}} />)
+    rerender(<KeepToggle id="PLA-4" kept onToggle={() => {}} />)
     const on = screen.getByTestId("keep-toggle-PLA-4")
-    expect(on.className).toContain("size-[22px]")
     expect(on.className).not.toContain("opacity-0")
   })
 
-  // The task page's toolbar has no hover group to belong to, so a control that
-  // waited for one would be invisible until it happened to take focus.
-  it("shows at rest wherever there is no hover group, kept or not", () => {
-    render(<KeepToggle id="PLA-12" onToggle={() => {}} />)
-    const button = screen.getByTestId("keep-toggle-PLA-12")
-    expect(button.className).not.toContain("opacity-0")
-    expect(button.className).not.toContain("group-hover:")
+  // Criterion 8: the pointer crossing a card must not resize it. The control is
+  // mounted at one fixed size in every state, so it always occupies its box.
+  it("occupies the same box kept and unkept", () => {
+    const { rerender } = render(<KeepToggle id="PLA-12" onToggle={() => {}} />)
+    expect(screen.getByTestId("keep-toggle-PLA-12").className).toContain("size-[22px]")
+    rerender(<KeepToggle id="PLA-12" kept onToggle={() => {}} />)
+    expect(screen.getByTestId("keep-toggle-PLA-12").className).toContain("size-[22px]")
+  })
+
+  /* Criterion 6: kept and unkept have to be one glance apart on one board. */
+  it("draws a kept Todo's pin in the accent, filled", () => {
+    const { rerender } = render(<KeepToggle id="PLA-13" onToggle={() => {}} />)
+    const unkept = screen.getByTestId("keep-toggle-PLA-13")
+    expect(unkept.className).not.toContain("text-[var(--accent)]")
+    expect(unkept.querySelector("svg")?.getAttribute("class")).not.toContain("fill-current")
+
+    rerender(<KeepToggle id="PLA-13" kept onToggle={() => {}} />)
+    const kept = screen.getByTestId("keep-toggle-PLA-13")
+    expect(kept.className).toContain("text-[var(--accent)]")
+    expect(kept.querySelector("svg")?.getAttribute("class")).toContain("fill-current")
   })
 
   it("keeps a click off the card underneath it", () => {
@@ -116,8 +127,8 @@ describe("the Kept · <department> caption", () => {
       .toBe("Kept · Customer Success")
   })
 
-  it("says nothing about a Todo the operator raised themselves", () => {
-    expect(keptCaptionOf(compact({ id: "PLA-7", kept: true, createdBy: "operator" }))).toBeNull()
+  it("names the department of a kept Todo the operator raised themselves — `created_by` says nothing about who asked", () => {
+    expect(keptCaptionOf(compact({ id: "PLA-2", kept: true, createdBy: "operator" }))).toBe("Kept · Platform")
   })
 
   it("says nothing about a Todo that is not kept", () => {

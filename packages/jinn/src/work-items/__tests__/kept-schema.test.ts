@@ -84,72 +84,60 @@ describe("work_item_kept is additive", () => {
   });
 });
 
-/* Criterion 3: every Todo "My requests" showed before the upgrade — which was
- * exactly `created_by = 'operator'` — is on Home after it. */
-describe("the upgrade carries My requests onto Home", () => {
-  it("backfills one row per operator-created Todo, and none for the agents'", () => {
-    const { file, db } = freshDatabase("backfill.db");
-    db.exec("DROP TABLE work_item_kept");
-    const mine = seed(db, "operator");
-    seed(db, "session:agent-1");
-    const alsoMine = seed(db, "operator");
-    const myRequests = db.prepare("SELECT id FROM work_items WHERE created_by = 'operator' ORDER BY id").pluck().all();
-    db.close();
+/* PLA-172. Auto-keep on create, plus the ICI-1357 backfill of every
+ * `created_by = 'operator'` row, filled Home with everything an agent had ever
+ * minted with the operator's credential. Both are gone; the rows they wrote are
+ * cleared once, on the first boot that carries this change. */
 
-    const healed = new Database(file);
-    migrate.migrateWorkItemsSchema(healed, "current");
-    expect(keptIds(healed)).toEqual(myRequests);
-    expect(keptIds(healed)).toEqual([mine, alsoMine].sort());
-    healed.close();
+/** A database as it stood before this change: kept rows, and no marker saying
+ *  they have been dealt with. `meta` is the sessions schema's, so a work-items
+ *  fixture has to stand it up itself. */
+function pollutedDatabase(name: string): { file: string; id: string } {
+  const { file, db } = freshDatabase(name);
+  const id = seed(db, "operator");
+  db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
+  db.prepare("INSERT INTO work_item_kept (work_item_id, kept_at) VALUES (?, ?)").run(id, SEEDED_AT);
+  db.exec("DELETE FROM meta");
+  db.close();
+  return { file, id };
+}
+
+function boot(file: string): import("better-sqlite3").Database {
+  const db = new Database(file);
+  migrate.migrateWorkItemsSchema(db, "current");
+  return db;
+}
+
+describe("the upgrade clears the kept set auto-keep filled", () => {
+  it("empties a populated work_item_kept on the first boot after the change", () => {
+    const { file } = pollutedDatabase("polluted.db");
+
+    const upgraded = boot(file);
+    expect(keptIds(upgraded)).toEqual([]);
+    upgraded.close();
   });
 
-  it("carries `created_at` across, so Home does not reorder on the upgrade", () => {
-    const { file, db } = freshDatabase("backfill-at.db");
-    db.exec("DROP TABLE work_item_kept");
-    const id = seed(db, "operator");
-    db.close();
+  it("leaves a pin made after that boot alone on the next one", () => {
+    const { file, id } = pollutedDatabase("repin.db");
 
-    const healed = new Database(file);
-    migrate.migrateWorkItemsSchema(healed, "current");
-    expect(healed.prepare("SELECT kept_at FROM work_item_kept WHERE work_item_id = ?").pluck().get(id)).toBe(SEEDED_AT);
-    healed.close();
-  });
-});
-
-/* Criterion 4. Without the `keptIsNew` guard in migrate.ts these two go red:
- * the second migration re-runs the backfill and the unkept Todo comes back. */
-describe("the backfill runs exactly once", () => {
-  it("does not duplicate rows on a second migration", () => {
-    const { file, db } = freshDatabase("twice.db");
-    db.exec("DROP TABLE work_item_kept");
-    seed(db, "operator");
-    db.close();
-
-    for (const _pass of [1, 2]) {
-      const boot = new Database(file);
-      migrate.migrateWorkItemsSchema(boot, "current");
-      boot.close();
-    }
-    const check = new Database(file);
-    expect(check.prepare("SELECT COUNT(*) FROM work_item_kept").pluck().get()).toBe(1);
-    check.close();
-  });
-
-  it("never re-keeps a Todo the operator has since unkept", () => {
-    const { file, db } = freshDatabase("unkept.db");
-    db.exec("DROP TABLE work_item_kept");
-    const id = seed(db, "operator");
-    db.close();
-
-    const upgraded = new Database(file);
-    migrate.migrateWorkItemsSchema(upgraded, "current");
-    expect(keptIds(upgraded)).toEqual([id]);
-    upgraded.prepare("DELETE FROM work_item_kept WHERE work_item_id = ?").run(id); // the operator unkeeps it
+    const upgraded = boot(file);
+    upgraded.prepare("INSERT INTO work_item_kept (work_item_id, kept_at) VALUES (?, ?)").run(id, SEEDED_AT);
     upgraded.close();
 
-    const rebooted = new Database(file);
-    migrate.migrateWorkItemsSchema(rebooted, "current");
-    expect(keptIds(rebooted)).toEqual([]);
+    const rebooted = boot(file);
+    expect(keptIds(rebooted)).toEqual([id]);
+    rebooted.close();
+  });
+
+  it("keeps a fresh database's first pin, having nothing to clear", () => {
+    const { file, db } = freshDatabase("fresh-pin.db");
+    const id = seed(db, "operator");
+    expect(keptIds(db)).toEqual([]);
+    db.prepare("INSERT INTO work_item_kept (work_item_id, kept_at) VALUES (?, ?)").run(id, SEEDED_AT);
+    db.close();
+
+    const rebooted = boot(file);
+    expect(keptIds(rebooted)).toEqual([id]);
     rebooted.close();
   });
 });

@@ -913,7 +913,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 965,
+      "lines": 963,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -926,7 +926,7 @@
       ]
     },
     "packages/jinn/src/work-items/store.ts": {
-      "lines": 991,
+      "lines": 990,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1703,7 +1703,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 956,
+      "lines": 925,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

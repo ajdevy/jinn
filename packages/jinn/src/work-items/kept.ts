@@ -1,11 +1,14 @@
 import type { Database as DatabaseType } from "better-sqlite3";
+import { CREATE_META_TABLE } from "../sessions/migrate.js";
 
 /** ICI-1357: the Todos the operator keeps on Home.
  *
  *  Home used to be `created_by = 'operator'`, so a Todo an agent raised was
  *  reachable only from its department board. Keeping is the operator's gesture
- *  for "follow this one", and creating a Todo as the operator keeps it — which
- *  is what lets one board replace both "My requests" and a separate Following.
+ *  for "follow this one", and it is the only thing that puts a Todo on Home —
+ *  PLA-172 removed the auto-keep on create, because `created_by = 'operator'`
+ *  is every caller holding the gateway credential rather than the operator's
+ *  own hand, and Home filled up with work they never asked to follow.
  *
  *  Additive, never a column on `work_items`: the exact-shape verifier refuses
  *  any drift in an existing table, so a new table is the only extension a
@@ -60,15 +63,21 @@ export function keptSet(db: DatabaseType, workItemIds: string[]): Set<string> {
   return new Set(rows);
 }
 
-/** One-shot: every Todo the operator created is kept, so the set Home shows
- *  after the upgrade is the set "My requests" showed before it. Runs only on
- *  the boot that creates the table — re-running it would resurrect Todos the
- *  operator has since unkept, and unkeeping has to stick. */
-export function backfillKeptFromCreatedBy(db: DatabaseType): number {
-  return db
-    .prepare(
-      `INSERT OR IGNORE INTO work_item_kept (work_item_id, kept_at)
-       SELECT id, created_at FROM work_items WHERE created_by = 'operator'`,
-    )
-    .run().changes;
+/** The key that marks the auto-keep cleanup done. Lives in `meta`, the
+ *  registry's key/value store for one-off migration flags. */
+const AUTO_KEEP_CLEARED_KEY = "work_item_kept_auto_keep_cleared";
+
+/** One-shot: empty the kept set that auto-keep and its `created_by` backfill
+ *  filled, so Home starts as nothing and holds what the operator pins.
+ *
+ *  Marked in `meta` rather than inferred from the table being new: the point of
+ *  the flag is that a pin made after the cleanup survives the next boot. Every
+ *  row this deletes was written by machinery PLA-172 removed — the pin shipped
+ *  hours earlier and was invisible, so there is no hand-curated set to lose. */
+export function clearAutoKeptOnce(db: DatabaseType): void {
+  db.exec(CREATE_META_TABLE);
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(AUTO_KEEP_CLEARED_KEY)) return;
+  const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_item_kept'").get();
+  if (table) db.prepare("DELETE FROM work_item_kept").run();
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(AUTO_KEEP_CLEARED_KEY, "1");
 }

@@ -177,19 +177,43 @@ describe("PUT /api/work-items/:id/kept", () => {
 });
 
 describe("the list route reads `kept`", () => {
-  it("scopes the page to Home and puts `kept` on every compact row", async () => {
+  const pageIds = async (query: string): Promise<string[]> => {
+    const page = await call("GET", `/api/work-items?${query}&limit=200`, undefined, operatorHeaders);
+    return page.body.workItems.map((w: { id: string }) => w.id);
+  };
+
+  it("puts a Todo on Home when the operator pins it, and takes it off again", async () => {
     const theirs = store.createWorkItem({ title: "an agent's", createdBy: "session:agent-6" });
     const mine = store.createWorkItem({ title: "the operator's", createdBy: "operator" });
 
-    const before = await call("GET", "/api/work-items?kept=true&rootsOnly=true&limit=100", undefined, operatorHeaders);
-    const idsBefore = before.body.workItems.map((w: { id: string }) => w.id);
-    expect(idsBefore).toContain(mine.id);
-    expect(idsBefore).not.toContain(theirs.id);
-    expect(before.body.workItems.find((w: { id: string }) => w.id === mine.id).kept).toBe(true);
+    // PLA-172: nothing reaches Home by being created, the operator's own least
+    // of all — `created_by = 'operator'` is every caller holding their token.
+    const before = await pageIds("kept=true&rootsOnly=true");
+    expect(before).not.toContain(mine.id);
+    expect(before).not.toContain(theirs.id);
 
     await call("PUT", `/api/work-items/${theirs.id}/kept`, { kept: true }, operatorHeaders);
-    const after = await call("GET", "/api/work-items?kept=true&rootsOnly=true&limit=100", undefined, operatorHeaders);
+    const after = await call("GET", "/api/work-items?kept=true&rootsOnly=true&limit=200", undefined, operatorHeaders);
     expect(after.body.workItems.map((w: { id: string }) => w.id)).toContain(theirs.id);
+    expect(after.body.workItems.find((w: { id: string }) => w.id === theirs.id).kept).toBe(true);
+
+    await call("PUT", `/api/work-items/${theirs.id}/kept`, { kept: false }, operatorHeaders);
+    expect(await pageIds("kept=true&rootsOnly=true")).not.toContain(theirs.id);
+  });
+
+  /* The regression the operator reported: Home showed the same stuff as
+   * Everything. With mixed data the two pages differ by construction. */
+  it("returns a strict subset of the same page unfiltered", async () => {
+    const pinned = store.createWorkItem({ title: "pinned", createdBy: "session:agent-8" });
+    store.createWorkItem({ title: "left alone", createdBy: "session:agent-8" });
+    store.createWorkItem({ title: "left alone too", createdBy: "operator" });
+    await call("PUT", `/api/work-items/${pinned.id}/kept`, { kept: true }, operatorHeaders);
+
+    const home = await pageIds("kept=true&rootsOnly=true");
+    const everything = await pageIds("rootsOnly=true");
+    expect(home).toContain(pinned.id);
+    expect(home.every((id) => everything.includes(id))).toBe(true);
+    expect(home.length).toBeLessThan(everything.length);
   });
 
   it("leaves the page unscoped when `kept` is absent or anything but true", async () => {

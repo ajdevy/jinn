@@ -19,8 +19,8 @@ import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStat
  *   Home          → kept=true + rootsOnly
  *   department    → department=<slug> + rootsOnly
  *   Everything    → rootsOnly (no board-scope filter)
- * Home is one filter, not a union: an operator's Todo starts kept (ICI-1357) —
- * but no SUPERSET of createdBy=operator, since they can unkeep their own.
+ * Home is one filter, not a union, and only the operator's pin fills it: every
+ * caller holding their credential mints as `operator`, so auto-keep aped it all.
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 

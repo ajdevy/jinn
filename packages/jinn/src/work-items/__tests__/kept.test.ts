@@ -23,24 +23,35 @@ beforeAll(async () => {
 const mk = (createdBy: string, extra: Record<string, unknown> = {}) =>
   store.createWorkItem({ title: `t-${Math.random().toString(36).slice(2, 8)}`, createdBy, ...extra });
 
+/** Create it and put it on Home, which is now always two steps. */
+const mkKept = (createdBy: string, extra: Record<string, unknown> = {}) => {
+  const item = mk(createdBy, extra);
+  kept.setWorkItemKept(db, item.id, true);
+  return item;
+};
+
 /** What the Home board asks the gateway for. */
 const homeIds = (extra: Record<string, unknown> = {}) =>
   store.queryWorkItems({ kept: true, rootsOnly: true, limit: 100, ...extra }).workItems.map((i) => i.id);
 
-/* ICI-1357 — the operator's Home board. "My requests" was `createdBy=operator`,
- * which is exactly the set an agent-created Todo could never join. */
-describe("creating a Todo keeps it when the operator is the creator", () => {
-  it("puts the operator's own Todo on Home with no second call", () => {
+/* PLA-172 — Home is what the operator pinned, and nothing else. `created_by`
+ * does not decide it: any caller holding the operator credential mints Todos as
+ * `operator`, so an agent relaying a request is indistinguishable from the
+ * operator clicking New Todo. Keeping on create made Home a copy of Everything. */
+describe("creating a Todo never puts it on Home", () => {
+  it("leaves the operator's own Todo off Home", () => {
+    db.exec("DELETE FROM work_item_kept");
     const mine = mk("operator");
-    expect(kept.isWorkItemKept(db, mine.id)).toBe(true);
-    expect(homeIds()).toContain(mine.id);
+    expect(db.prepare("SELECT COUNT(*) FROM work_item_kept").pluck().get()).toBe(0);
+    expect(kept.isWorkItemKept(db, mine.id)).toBe(false);
+    expect(homeIds()).not.toContain(mine.id);
   });
 
-  it("keeps a Todo an agent creates in the operator's name — the case that already worked", () => {
-    // `delegate_task` mints in the operator's name; that Todo surfaced before
-    // this change and has to keep surfacing.
+  it("leaves a Todo an agent mints in the operator's name off Home", () => {
+    // `delegate_task` mints in the operator's name. That is the case that made
+    // Home unusable: the operator never asked for the Todo by hand.
     const onBehalf = store.createWorkItem({ title: "raised for the operator", source: "delegation", createdBy: "operator" });
-    expect(homeIds()).toContain(onBehalf.id);
+    expect(homeIds()).not.toContain(onBehalf.id);
   });
 
   it("leaves an agent's own Todo off Home", () => {
@@ -49,15 +60,15 @@ describe("creating a Todo keeps it when the operator is the creator", () => {
     expect(homeIds()).not.toContain(theirs.id);
   });
 
-  it("defaults a machine-sourced Todo to `system`, which is not kept", () => {
+  it("defaults a machine-sourced Todo to `system`, which is not kept either", () => {
     const cron = store.createWorkItem({ title: "nightly sweep", source: "cron", sourceRef: `cron:${Date.now()}` });
     expect(cron.createdBy).toBe("system");
     expect(kept.isWorkItemKept(db, cron.id)).toBe(false);
   });
 });
 
-/* Criterion 1: the whole point — an agent's Todo the operator wants to follow. */
-describe("keeping an agent-created Todo puts it on Home, and unkeeping takes it off", () => {
+/* Criterion 1: the whole point — a Todo the operator wants to follow. */
+describe("keeping a Todo puts it on Home, and unkeeping takes it off", () => {
   it("round-trips", () => {
     const theirs = mk("session:agent-2", { department: "platform" });
     expect(homeIds()).not.toContain(theirs.id);
@@ -78,14 +89,14 @@ describe("keeping an agent-created Todo puts it on Home, and unkeeping takes it 
   });
 
   it("does not move a Todo that was already on Home", () => {
-    const mine = mk("operator");
+    const mine = mkKept("operator");
     const first = db.prepare("SELECT kept_at FROM work_item_kept WHERE work_item_id = ?").pluck().get(mine.id);
     kept.setWorkItemKept(db, mine.id, true);
     expect(db.prepare("SELECT kept_at FROM work_item_kept WHERE work_item_id = ?").pluck().get(mine.id)).toBe(first);
   });
 
-  it("lets the operator drop their own Todo off Home without deleting it", () => {
-    const mine = mk("operator");
+  it("lets the operator drop a Todo off Home without deleting it", () => {
+    const mine = mkKept("operator");
     kept.setWorkItemKept(db, mine.id, false);
     expect(homeIds()).not.toContain(mine.id);
     expect(store.getWorkItem(mine.id)).toBeTruthy();
@@ -94,9 +105,9 @@ describe("keeping an agent-created Todo puts it on Home, and unkeeping takes it 
 
 describe("the kept filter composes with the board's other filters", () => {
   it("AND-composes with department and status", () => {
-    const onPlatform = mk("operator", { department: "kept-platform", status: "backlog" });
-    const elsewhere = mk("operator", { department: "kept-growth", status: "backlog" });
-    const wrongStatus = mk("operator", { department: "kept-platform", status: "executing" });
+    const onPlatform = mkKept("operator", { department: "kept-platform", status: "backlog" });
+    const elsewhere = mkKept("operator", { department: "kept-growth", status: "backlog" });
+    const wrongStatus = mkKept("operator", { department: "kept-platform", status: "executing" });
 
     const ids = homeIds({ department: "kept-platform", status: "backlog" });
     expect(ids).toContain(onPlatform.id);
@@ -111,8 +122,9 @@ describe("the kept filter composes with the board's other filters", () => {
   });
 
   it("shows sub-tasks only when the board is not asking for roots", () => {
-    const parent = mk("operator");
+    const parent = mkKept("operator");
     const child = store.createWorkItem({ title: "child", parentId: parent.id, createdBy: "operator" });
+    kept.setWorkItemKept(db, child.id, true);
     expect(homeIds()).not.toContain(child.id);
     expect(store.queryWorkItems({ kept: true, limit: 100 }).workItems.map((i) => i.id)).toContain(child.id);
   });
@@ -120,7 +132,7 @@ describe("the kept filter composes with the board's other filters", () => {
 
 describe("keptSet", () => {
   it("answers a whole page in one query, and is empty for none", () => {
-    const mine = mk("operator");
+    const mine = mkKept("operator");
     const theirs = mk("session:agent-4");
     expect(kept.keptSet(db, [mine.id, theirs.id])).toEqual(new Set([mine.id]));
     expect(kept.keptSet(db, [])).toEqual(new Set());

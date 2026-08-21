@@ -224,7 +224,7 @@ export const BoardCard = memo(function BoardCard({
             ${spendUsd.toFixed(2)}
           </span>
         ) : null}
-        {onKeep && !ghost && <KeepToggle id={item.id} kept={item.kept} onToggle={onKeep} revealOnHover className="-mr-1 ml-auto only:ml-auto" />}
+        {onKeep && !ghost && <KeepToggle id={item.id} kept={item.kept} onToggle={onKeep} className="-mr-1 ml-auto only:ml-auto" />}
       </div>
 
       {hasStopLead(item) && <StopCauseLead item={item} className="mt-1.5 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full" />}

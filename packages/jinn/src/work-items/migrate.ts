@@ -10,7 +10,7 @@ import {
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
 import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
 import { WORK_ITEM_STOP_CAUSE_DDL } from "./stop-cause.js";
-import { backfillKeptFromCreatedBy, WORK_ITEM_KEPT_DDL } from "./kept.js";
+import { clearAutoKeptOnce, WORK_ITEM_KEPT_DDL } from "./kept.js";
 import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
 import { currentTableSql, sqlShape } from "./sql-shape.js";
@@ -854,6 +854,7 @@ export function migrateWorkItemsSchema(
 ): WorkItemsMigrationResult {
   registerWorkItemIdentityFunctions(db);
   const migrate = db.transaction((): WorkItemsMigrationResult => {
+    clearAutoKeptOnce(db); // PLA-172: one-shot, and self-guarded on every path through this function
     // In-place self-heal, BEFORE classification: a v2 database created before a
     // later slice shipped its additive tables (or before PLA-48 dropped the
     // approval columns) is brought to the canonical shape here so the exact-shape
@@ -863,9 +864,7 @@ export function migrateWorkItemsSchema(
     // matters: work_item_labels references labels.)
     const shadowedApprovals = hasShadowApprovalColumns(db);
     if (shadowedApprovals || sqlShape(currentTableSql(db, "work_items")) === sqlShape(WORK_ITEMS_TABLE_DDL)) {
-      const keptIsNew = !tableExists(db, "work_item_kept"); // ICI-1357: read before the creates — absence marks the one boot that may backfill Home from `created_by`, so a later unkeep sticks.
       for (const table of V2_ADDITIVE_TABLES) db.exec(table.ddl);
-      if (keptIsNew) backfillKeptFromCreatedBy(db);
       // PLA-48: a pre-drop database hands its shadowed approvals to their one
       // owner and then loses the columns — same transaction, both or neither.
       if (shadowedApprovals) {
@@ -942,7 +941,6 @@ export function migrateWorkItemsSchema(
         FROM work_items_v1_legacy`);
       // Approvals come off the legacy row — read BEFORE the table is dropped.
       backfillWorkItemApprovals(db, "work_items_v1_legacy");
-      backfillKeptFromCreatedBy(db); // the rebuilt rows have never been kept or unkept
       reconcileDepartmentRegistry(db); // v1 rows carried departments with no registry
       const migratedRows = Number(db.prepare("SELECT COUNT(*) FROM work_items").pluck().get());
       db.exec("DROP TABLE work_items_v1_legacy");
