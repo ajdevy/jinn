@@ -14,13 +14,14 @@ function displayable(value: unknown): string | undefined {
 }
 
 /**
- * The conversation title for the chat header.
+ * The conversation title for the chat header, or '' when no source names the
+ * focused chat yet.
  *
  * Live meta arrives per pane and lands a fetch after a switch, so every source
  * here is keyed to the id now in front of the reader: a fallback can name the
- * focused chat or nothing, never the chat it replaced. Landing on "Untitled"
- * rather than a blank matches the sidebar and the add menu — mobile centres this
- * string unconditionally, and an empty one renders as a hole in the nav bar.
+ * focused chat or nothing, never the chat it replaced. Standing in for a name
+ * nobody knows is the caller's business — desktop shows nothing, and only the
+ * mobile nav bar, which centres this string unconditionally, needs a word.
  */
 export function chatHeaderTitle({
   focusedSessionId,
@@ -35,5 +36,5 @@ export function chatHeaderTitle({
   const live = meta?.sessionId === focusedSessionId ? meta : undefined
   const listed = sessions?.find((session) => String(session.id ?? '') === focusedSessionId)
   const candidates = [live?.title, listed?.title, live?.employee, listed?.employee]
-  return candidates.map(displayable).find(Boolean) ?? 'Untitled'
+  return candidates.map(displayable).find(Boolean) ?? ''
 }

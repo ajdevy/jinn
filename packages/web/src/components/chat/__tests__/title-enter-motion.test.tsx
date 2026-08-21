@@ -9,6 +9,11 @@ function header(title: string) {
   return <ChatHeaderPills title={title} onNew={noop} onBack={noop} />
 }
 
+/** The working set replaces the centred title with four chips. */
+function headerWithChips(title: string) {
+  return <ChatHeaderPills title={title} onNew={noop} onBack={noop} mobileWorkingSet={<nav />} />
+}
+
 describe('chat title entrance', () => {
   const realMatchMedia = window.matchMedia
   afterEach(() => {
@@ -51,6 +56,23 @@ describe('chat title entrance', () => {
 
     const second = render(header('Weekly digest'))
     expect(entering(second.container)).toHaveLength(0)
+  })
+
+  it('does not animate a swap that happened behind the working-set chips', () => {
+    const { container, rerender } = render(headerWithChips('Release plan'))
+    rerender(headerWithChips('Weekly digest'))
+    // Well inside the mark's TTL: the span comes back carrying a title that
+    // changed while nobody could see it, which is a mount, not an arrival.
+    rerender(header('Weekly digest'))
+    expect(entering(container)).toHaveLength(0)
+  })
+
+  it('still animates the next real change once the title is back on screen', () => {
+    const { container, rerender } = render(headerWithChips('Release plan'))
+    rerender(header('Release plan'))
+    expect(entering(container)).toHaveLength(0)
+    rerender(header('Weekly digest'))
+    expect(entering(container)).toHaveLength(1)
   })
 
   it('marks nothing under reduced motion', () => {

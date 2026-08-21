@@ -11,13 +11,16 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * True on the commit that replaces one conversation title with another.
+ * True on the commit that replaces one conversation title with another in front
+ * of the reader.
  *
  * The title a header mounts with is never marked — it did not arrive, it was
- * already there — so returning to a thread cannot replay an entrance the reader
- * has watched, and an unrelated rerender animates nothing.
+ * already there. Neither is one that changed while `showing` was false: the
+ * working-set chips were standing in its place, so putting the span back is a
+ * mount too. A remount, an unrelated rerender, and a change nobody could see
+ * all animate nothing.
  */
-export function useTitleArrival(title: string): boolean {
+export function useTitleArrival(title: string, showing: boolean): boolean {
   const seenRef = useRef<string | null>(null)
   const enteringRef = useRef(false)
 
@@ -25,12 +28,14 @@ export function useTitleArrival(title: string): boolean {
   // that paints the new title, or the entrance it describes is already over.
   useMemo(() => {
     const seen = seenRef.current
-    if (seen === null || seen === title) return
+    if (seen === null) return
+    // Recorded even while hidden, so a swap behind the chips is already old news
+    // by the time the span comes back rather than reading as a fresh arrival.
     seenRef.current = title
-    if (prefersReducedMotion()) return
+    if (!showing || seen === title || prefersReducedMotion()) return
     enteringRef.current = true
     setTimeout(() => { enteringRef.current = false }, ENTER_MARK_TTL_MS)
-  }, [title])
+  }, [title, showing])
 
   useEffect(() => {
     if (seenRef.current === null) seenRef.current = title

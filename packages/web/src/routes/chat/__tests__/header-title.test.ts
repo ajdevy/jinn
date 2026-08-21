@@ -37,7 +37,7 @@ describe('chatHeaderTitle', () => {
       focusedSessionId: 'b',
       meta: meta('a', 'Chat A'),
       sessions: [{ id: 'a', title: 'Chat A' }],
-    })).toBe('Untitled')
+    })).toBe('')
   })
 
   it('names the employee when neither source has a title', () => {
@@ -48,12 +48,14 @@ describe('chatHeaderTitle', () => {
     })).toBe('a-lead')
   })
 
-  it('lands on Untitled rather than a blank when no title ever arrives', () => {
+  it('yields nothing when no source names the chat, leaving the word to the caller', () => {
+    // Desktop shows nothing here and always has; the mobile nav bar, which
+    // centres this string unconditionally, is the one that stands a word in.
     expect(chatHeaderTitle({
       focusedSessionId: 'a',
       meta: meta('a', '   '),
       sessions: [{ id: 'a', title: '' }],
-    })).toBe('Untitled')
+    })).toBe('')
   })
 
   it('renders the arriving title once meta lands', () => {
@@ -63,9 +65,11 @@ describe('chatHeaderTitle', () => {
       .toBe('Fetched title')
   })
 
-  it('is never the empty string for a focused chat', () => {
-    for (const sessions of [undefined, [], [{ id: 'a' }], [{ id: 'a', title: '  ' }], [{ id: 'a', title: 42 }]]) {
-      expect(chatHeaderTitle({ focusedSessionId: 'a', meta: null, sessions })).not.toBe('')
+  it('never names a chat other than the focused one', () => {
+    const sessions = [{ id: 'a', title: 'Chat A' }, { id: 'b', title: 'Chat B' }]
+    for (const meta of [null, { sessionId: 'a', title: 'Chat A' }]) {
+      expect(chatHeaderTitle({ focusedSessionId: 'b', meta, sessions: [sessions[0]] })).toBe('')
+      expect(chatHeaderTitle({ focusedSessionId: 'b', meta, sessions })).toBe('Chat B')
     }
   })
 })
