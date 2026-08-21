@@ -54,8 +54,10 @@ export function overflowForViewport(
   state: ChatWorkingSet,
   width: number,
   height: number,
+  reservedSlots = 0,
 ): WorkingSetOverflow {
-  const visible = applyWorkingSetCap(state, capForViewport(width, height))
+  const reserved = finiteFloor(reservedSlots)
+  const visible = applyWorkingSetCap(state, Math.max(0, capForViewport(width, height) - reserved))
   const visibleIds = new Set(visible.sessionIds)
   return {
     visible,

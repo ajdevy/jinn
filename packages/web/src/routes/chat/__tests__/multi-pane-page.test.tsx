@@ -1,140 +1,27 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-
-const { sessionIds } = vi.hoisted(() => ({ sessionIds: ['a', 'b', 'c', 'd'] }))
-const gateway = vi.hoisted(() => ({
-  listeners: new Set<(frame: { event: string; payload: unknown }) => void>(),
-}))
-const apiMocks = vi.hoisted(() => ({
-  getSession: vi.fn(async (id: string) => ({
-    id,
-    title: `Title ${id}`,
-    status: 'idle',
-    engine: 'claude',
-    messages: [{ id: `${id}-m1`, role: 'assistant', content: `transcript-${id}`, timestamp: 1 }],
-  })),
-  getSessionMessages: vi.fn(async () => ({ messages: [], hasOlder: false })),
-  getSessions: vi.fn(async () => ({
-    sessions: sessionIds.map((id) => ({ id, title: `Title ${id}`, status: 'idle' })),
-    counts: {},
-    perGroup: {},
-  })),
-  getOrg: vi.fn(async () => ({ employees: [] })),
-  getEngines: vi.fn(async () => ({ engines: {} })),
-  getFeatures: vi.fn(async () => ({ notesEnabled: false, staleChat: { enabled: false, tokenThreshold: 300000, staleAfterMinutes: 60 } })),
-  getSkills: vi.fn(async () => []),
-  getSessionQueue: vi.fn(async () => []),
-  sendMessage: vi.fn(async () => ({})),
-  updateSession: vi.fn(async () => ({})),
-}))
-
-vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: apiMocks }
-})
-
-vi.mock('@/hooks/use-gateway', () => ({
-  useGateway: () => ({
-    events: [],
-    connected: true,
-    connectionSeq: 0,
-    skillsVersion: 0,
-    subscribe: (listener: (frame: { event: string; payload: unknown }) => void) => {
-      gateway.listeners.add(listener)
-      return () => gateway.listeners.delete(listener)
-    },
-  }),
-}))
-
-vi.mock('@/components/page-layout', () => ({
-  PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
-
-vi.mock('@/components/chat/chat-sidebar', () => ({
-  ChatSidebar: () => <div data-testid="chat-sidebar" />,
-  pickDeleteFallbackId: () => null,
-}))
-
-vi.mock('@/hooks/use-chat-tabs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/use-chat-tabs')>()
-  const tabs = sessionIds.map((sessionId) => ({
-    kind: 'session' as const,
-    sessionId,
-    label: sessionId,
-    status: 'idle' as const,
-    unread: false,
-  }))
-  const noop = () => {}
-  return {
-    ...actual,
-    useChatTabs: () => ({
-      tabs,
-      activeTab: tabs[0],
-      activeIndex: 0,
-      hydrated: true,
-      openTab: noop,
-      openFileTab: noop,
-      closeTab: noop,
-      switchTab: noop,
-      nextTab: noop,
-      prevTab: noop,
-      pinTab: noop,
-      moveTab: noop,
-      clearActiveTab: noop,
-      updateTabStatus: noop,
-      closeTabBySessionId: noop,
-      reconcileTabs: noop,
-    }),
-  }
-})
-
-import ChatPageWrapper from '../page'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { WORKING_SET_STORAGE_KEY } from '../working-set'
-import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
-
-function pane(id: string): HTMLElement {
-  const node = document.querySelector<HTMLElement>(`[data-chat-pane-session="${id}"]`)
-  if (!node) throw new Error(`missing pane ${id}`)
-  return node
-}
-
-function emit(event: string, payload: unknown) {
-  act(() => gateway.listeners.forEach((listener) => listener({ event, payload })))
-}
-
-function renderRoute() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/?session=a']}>
-        <Routes><Route path="/" element={<ChatPageWrapper />} /></Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  )
-}
-
-function sessionTransfer(sessionId: string): DataTransfer {
-  return {
-    types: [CHAT_SESSION_DND_MIME],
-    files: [] as unknown as FileList,
-    effectAllowed: 'copy',
-    dropEffect: 'none',
-    setData: vi.fn(),
-    getData: (type: string) => type === CHAT_SESSION_DND_MIME ? sessionId : '',
-  } as unknown as DataTransfer
-}
+import {
+  apiMocks,
+  emit,
+  gateway,
+  pane,
+  renderRoute,
+  sessionIds,
+  sessionTransfer,
+} from './multi-pane-page-harness'
 
 describe('the routed multi-pane surface', () => {
   const desktopWidth = 1440
 
   beforeEach(() => {
+    sessionIds.splice(0, sessionIds.length, 'a', 'b', 'c', 'd')
     Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: desktopWidth })
     Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 900 })
     localStorage.clear()
     gateway.listeners.clear()
     apiMocks.sendMessage.mockClear()
+    apiMocks.createSession.mockClear()
     localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
       version: 1,
       sessionIds,
@@ -233,6 +120,51 @@ describe('the routed multi-pane surface', () => {
 
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
     expect(pane('a')).toBe(originalPane)
+  })
+
+  it('uses one capped pane for the composer and restores the folded member on dismiss and commit', async () => {
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+
+    await waitFor(() => expect(pane('new')).toBeDefined())
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(document.querySelector('[data-chat-pane-session="b"]')).toBeNull()
+    expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(sessionIds)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test browser back' }))
+    await waitFor(() => expect(pane('a')).toBeDefined())
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    expect(pane('b')).toBeDefined()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+    await waitFor(() => expect(pane('new')).toBeDefined())
+
+    const textarea = pane('new').querySelector<HTMLTextAreaElement>('[data-chat-textarea]')!
+    fireEvent.change(textarea, { target: { value: 'commit-composer' } })
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' })
+
+    await waitFor(() => expect(apiMocks.createSession).toHaveBeenCalled())
+    await waitFor(() => expect(pane('e').textContent).toContain('commit-composer'))
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(pane('b')).toBeDefined()
+  })
+
+  it('renders exactly one composer pane when the working set is empty', async () => {
+    sessionIds.length = 0
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: [],
+      focusedId: null,
+      focusHistory: [],
+    }))
+    renderRoute('/')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Start empty chat' })[0])
+
+    await waitFor(() => expect(pane('new')).toBeDefined())
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1)
   })
 
   it('mounts only the active pane on mobile while fixed chips switch the route-backed transcript', async () => {

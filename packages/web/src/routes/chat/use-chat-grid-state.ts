@@ -26,11 +26,12 @@ export function useChatGridState({
   const focusedSessionId = committedId
     ? (!workingSet.sessionIds.includes(committedId) ? committedId : workingSet.focusedId ?? committedId)
     : null
+  const reservedComposerSlots = !viewport.mobile && !committedId && workingSet.sessionIds.length > 0 ? 1 : 0
   const visibleWorkingSet = useMemo(() => overflowForViewport({
     ...workingSet,
     sessionIds: gridSessionIds,
     focusedId: focusedSessionId,
-  }, viewport.width, viewport.height).visible, [focusedSessionId, gridSessionIds, viewport.height, viewport.width, workingSet])
+  }, viewport.width, viewport.height, reservedComposerSlots).visible, [focusedSessionId, gridSessionIds, reservedComposerSlots, viewport.height, viewport.width, workingSet])
   const mountedSessionIds = viewport.mobile
     ? (focusedSessionId ? [focusedSessionId] : [])
     : visibleWorkingSet.sessionIds

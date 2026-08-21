@@ -41,4 +41,16 @@ describe('chat grid layout', () => {
     expect(overflow.visible.focusedId).toBe('b')
     expect(overflow.foldedIds).toEqual(['a', 'c'])
   })
+
+  it('reserves a capped pane for the composer without mutating the stored set', () => {
+    const state = createWorkingSet(['a', 'b', 'c', 'd'], 'a')
+
+    const composing = overflowForViewport(state, 1440, 900, 1)
+
+    expect(capForViewport(1440, 900)).toBe(4)
+    expect(composing.visible.sessionIds).toHaveLength(3)
+    expect(composing.foldedIds).toHaveLength(1)
+    expect(state.sessionIds).toEqual(['a', 'b', 'c', 'd'])
+    expect(overflowForViewport(state, 1440, 900).visible.sessionIds).toEqual(state.sessionIds)
+  })
 })
