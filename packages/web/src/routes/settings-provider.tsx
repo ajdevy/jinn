@@ -5,10 +5,9 @@ import {
   DEFAULTS,
   loadSettings,
   saveSettings,
-  hexToAccentFill,
-  hexToContrastText,
 } from '@/lib/settings'
 import { useOnboarding } from '@/hooks/use-onboarding'
+import { useRootCssVariables } from '@/hooks/use-root-css-variables'
 
 interface EmployeeDisplay {
   emoji: string
@@ -32,6 +31,7 @@ interface SettingsContextValue {
   setTalkOrb: (enabled: boolean) => void
   setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
   setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
+  setTextScale: (textScale: JinnSettings["textScale"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
   getEmployeeDisplay: (employee: { name: string; emoji: string; id: string }) => EmployeeDisplay
@@ -54,6 +54,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setTalkOrb: () => {},
   setTalkOrbVariant: () => {},
   setTalkMicrophone: () => {},
+  setTextScale: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
@@ -103,19 +104,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     })
   }, [onboarding])
 
-  // Apply accent color CSS variables when settings change
-  useEffect(() => {
-    const el = document.documentElement.style
-    if (settings.accentColor) {
-      el.setProperty('--accent', settings.accentColor)
-      el.setProperty('--accent-fill', hexToAccentFill(settings.accentColor))
-      el.setProperty('--accent-contrast', hexToContrastText(settings.accentColor))
-    } else {
-      el.removeProperty('--accent')
-      el.removeProperty('--accent-fill')
-      el.removeProperty('--accent-contrast')
-    }
-  }, [settings.accentColor])
+  useRootCssVariables(settings)
 
   const update = useCallback((updater: (prev: JinnSettings) => JinnSettings) => {
     setSettings((prev) => {
@@ -210,6 +199,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setTextScale = useCallback(
+    (textScale: JinnSettings["textScale"]) => {
+      update((prev) => ({ ...prev, textScale }))
+    },
+    [update],
+  )
+
   const setEmployeeOverride = useCallback(
     (employeeId: string, override: EmployeeOverride) => {
       update((prev) => {
@@ -270,6 +266,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setTalkOrb,
         setTalkOrbVariant,
         setTalkMicrophone,
+        setTextScale,
         setEmployeeOverride,
         clearEmployeeOverride,
         getEmployeeDisplay,

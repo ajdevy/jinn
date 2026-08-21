@@ -4,8 +4,6 @@ import { RotateCcw, Trash2, Check, Save, Loader2, Plus, EyeOff } from "lucide-re
 import { PageLayout } from "@/components/page-layout"
 import { useSettings } from "@/routes/settings-provider"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
-import { useTheme } from "@/routes/providers"
-import { THEMES } from "@/lib/themes"
 import { api } from "@/lib/api"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
@@ -19,6 +17,7 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
+import { ThemePicker, TextSizePicker } from "./appearance-pickers"
 import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
@@ -157,7 +156,6 @@ export default function SettingsPage() {
     setTalkOrb,
     resetAll,
   } = useSettings()
-  const { theme, setTheme } = useTheme()
   const auth = useAuth()
 
   // Local branding inputs
@@ -365,45 +363,8 @@ export default function SettingsPage() {
 
           {/* -- Section 1: Appearance -- */}
           <Section title="Appearance">
-            {/* Theme picker */}
-            <div
-              className="text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] mb-[var(--space-2)]"
-            >
-              Theme
-            </div>
-            <div
-              className="grid grid-cols-3 gap-[var(--space-2)] mb-[var(--space-4)]"
-            >
-              {THEMES.map((t) => {
-                const isActive = theme === t.id
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setTheme(t.id)}
-                    aria-pressed={isActive}
-                    className="flex cursor-pointer flex-col items-center gap-[var(--space-1)] rounded-[13px] border-none px-[var(--space-2)] py-[var(--space-3)] transition-colors duration-150 ease-[var(--ease-smooth)]"
-                    style={{
-                      background: isActive ? "var(--accent-fill)" : "var(--fill-quaternary)",
-                    }}
-                  >
-                    <span className="text-[24px]">{t.emoji}</span>
-                    <span
-                      className="text-[length:var(--text-caption2)]"
-                      style={{
-                        fontWeight: isActive
-                          ? "var(--weight-semibold)"
-                          : "var(--weight-medium)",
-                        color: isActive
-                          ? "var(--accent)"
-                          : "var(--text-secondary)",
-                      }}
-                    >
-                      {t.label}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+            <ThemePicker />
+            <TextSizePicker />
 
             {/* Accent color */}
             <div
