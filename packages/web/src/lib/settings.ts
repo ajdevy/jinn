@@ -7,6 +7,26 @@ export interface EmployeeOverride {
 
 export type TalkMicrophone = "far_field" | "near_field"
 
+export interface TextScaleStep {
+  label: string
+  value: number
+}
+
+/** The shipped text-size steps. Discrete rather than a free slider so the range
+ *  stays one nobody can land outside of: 0.9 is where captions stop being
+ *  readable and 1.25 is where the sidebar stops fitting its labels. The blocking
+ *  bootstrap in index.html mirrors these values — it cannot import them. */
+export const TEXT_SCALES: readonly TextScaleStep[] = [
+  { label: "Small", value: 0.9 },
+  { label: "Default", value: 1 },
+  { label: "Large", value: 1.1 },
+  { label: "Larger", value: 1.25 },
+]
+
+export function isTextScale(value: unknown): value is number {
+  return TEXT_SCALES.some((step) => step.value === value)
+}
+
 export interface JinnSettings {
   accentColor: string | null
   companyName: string | null
@@ -25,6 +45,9 @@ export interface JinnSettings {
   talkOrbVariant: OrbVariant
   /** Provider-side filtering for the microphone used by Talk. */
   talkMicrophone: TalkMicrophone
+  /** Multiplier on every type step. Per-device on purpose — it tracks the screen
+   *  being read, not the account. */
+  textScale: number
   employeeOverrides: Record<string, EmployeeOverride>
 }
 
@@ -43,6 +66,7 @@ export const DEFAULTS: JinnSettings = {
   talkOrb: false,
   talkOrbVariant: "mist",
   talkMicrophone: "far_field",
+  textScale: 1,
   employeeOverrides: {},
 }
 
@@ -59,6 +83,7 @@ export function loadSettings(): JinnSettings {
     if (merged.talkMicrophone !== "near_field" && merged.talkMicrophone !== "far_field") {
       merged.talkMicrophone = DEFAULTS.talkMicrophone
     }
+    if (!isTextScale(merged.textScale)) merged.textScale = DEFAULTS.textScale
     return merged
   } catch {
     return { ...DEFAULTS }

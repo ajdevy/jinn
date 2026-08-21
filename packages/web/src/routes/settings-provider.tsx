@@ -5,10 +5,9 @@ import {
   DEFAULTS,
   loadSettings,
   saveSettings,
-  hexToAccentFill,
-  hexToContrastText,
 } from '@/lib/settings'
 import { useOnboarding } from '@/hooks/use-onboarding'
+import { useRootCssVariables } from '@/hooks/use-root-css-variables'
 
 interface EmployeeDisplay {
   emoji: string
@@ -32,6 +31,7 @@ interface SettingsContextValue {
   setTalkOrb: (enabled: boolean) => void
   setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
   setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
+  setTextScale: (textScale: JinnSettings["textScale"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
   getEmployeeDisplay: (employee: { name: string; emoji: string; id: string }) => EmployeeDisplay
@@ -54,6 +54,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setTalkOrb: () => {},
   setTalkOrbVariant: () => {},
   setTalkMicrophone: () => {},
+  setTextScale: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
@@ -61,20 +62,20 @@ const SettingsContext = createContext<SettingsContextValue>({
 })
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  // Initialize with defaults so server and client render the same HTML.
-  // Hydrate from localStorage after mount to avoid hydration mismatch.
-  const [settings, setSettings] = useState<JinnSettings>({ ...DEFAULTS })
+  // Read localStorage during the first render rather than in a mount effect.
+  // The blocking bootstrap in index.html has already painted at the stored text
+  // scale, so a first pass holding the defaults would publish --text-scale: 1
+  // over it and reflow the whole page before the effect corrected it. There is
+  // no server render to mismatch: main.tsx mounts with createRoot into the
+  // empty #root that index.html ships. loadSettings() returns the defaults when
+  // window is absent, so a non-browser render still gets them.
+  const [settings, setSettings] = useState<JinnSettings>(loadSettings)
 
   // Onboarding status/names come from the shared react-query key so the whole
   // app fires exactly one /api/onboarding request (the wizard consumes it too).
   const { data: onboarding } = useOnboarding()
 
-  // Hydrate from localStorage on mount.
-  useEffect(() => {
-    setSettings(loadSettings())
-  }, [])
-
-  // Then sync companyName/portalName/operatorName/operatorEmoji from backend config
+  // Sync companyName/portalName/operatorName/operatorEmoji from backend config
   // (source of truth) once the shared onboarding query resolves. This ensures the
   // correct COO name and operator icon show up even if localStorage has stale
   // values from a previous onboarding or another browser.
@@ -103,19 +104,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     })
   }, [onboarding])
 
-  // Apply accent color CSS variables when settings change
-  useEffect(() => {
-    const el = document.documentElement.style
-    if (settings.accentColor) {
-      el.setProperty('--accent', settings.accentColor)
-      el.setProperty('--accent-fill', hexToAccentFill(settings.accentColor))
-      el.setProperty('--accent-contrast', hexToContrastText(settings.accentColor))
-    } else {
-      el.removeProperty('--accent')
-      el.removeProperty('--accent-fill')
-      el.removeProperty('--accent-contrast')
-    }
-  }, [settings.accentColor])
+  useRootCssVariables(settings)
 
   const update = useCallback((updater: (prev: JinnSettings) => JinnSettings) => {
     setSettings((prev) => {
@@ -210,6 +199,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setTextScale = useCallback(
+    (textScale: JinnSettings["textScale"]) => {
+      update((prev) => ({ ...prev, textScale }))
+    },
+    [update],
+  )
+
   const setEmployeeOverride = useCallback(
     (employeeId: string, override: EmployeeOverride) => {
       update((prev) => {
@@ -270,6 +266,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setTalkOrb,
         setTalkOrbVariant,
         setTalkMicrophone,
+        setTextScale,
         setEmployeeOverride,
         clearEmployeeOverride,
         getEmployeeDisplay,

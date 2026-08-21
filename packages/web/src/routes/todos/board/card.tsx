@@ -205,24 +205,24 @@ export const BoardCard = memo(function BoardCard({
       <div className="flex min-h-4 items-center gap-[7px] max-[700px]:hidden">
         <PriorityGlyph priority={priority} />
         <span
-          className="text-[11px] tracking-[.04em] text-[var(--text-tertiary)]"
+          className="text-[calc(11px*var(--text-scale))] tracking-[.04em] text-[var(--text-tertiary)]"
           style={{ fontFamily: "var(--font-code)" }}
         >
           {item.id}
         </span>
         {approvalPending ? (
-          <span className="ml-auto flex items-center gap-1 text-[11px] font-medium text-[var(--accent)]">
+          <span className="ml-auto flex items-center gap-1 text-[calc(11px*var(--text-scale))] font-medium text-[var(--accent)]">
             <Bell size={11} aria-hidden /> Approval
           </span>
         ) : item.dueAt ? (
           <span
-            className={`ml-auto flex items-center gap-1 text-[11px] ${overdue ? "text-[var(--system-red)]" : "text-[var(--text-tertiary)]"}`}
+            className={`ml-auto flex items-center gap-1 text-[calc(11px*var(--text-scale))] ${overdue ? "text-[var(--system-red)]" : "text-[var(--text-tertiary)]"}`}
           >
             <Calendar size={11} aria-hidden />
             {formatDue(item.dueAt)}
           </span>
         ) : spendUsd > 0 ? (
-          <span className="ml-auto text-[11px] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)" }}>
+          <span className="ml-auto text-[calc(11px*var(--text-scale))] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)" }}>
             ${spendUsd.toFixed(2)}
           </span>
         ) : null}
@@ -231,12 +231,12 @@ export const BoardCard = memo(function BoardCard({
       {hasStopLead(item) && <StopCauseLead item={item} className="mt-1.5 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full" />}
 
       {/* Title — the only primary ink on the card. 2-line clamp / 1-line mobile. */}
-      <div className="mt-1 line-clamp-2 text-[15px] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:m-0 max-[700px]:line-clamp-1 max-[700px]:min-w-0 max-[700px]:flex-1 max-[700px]:text-[16px]">
+      <div className="mt-1 line-clamp-2 text-[calc(15px*var(--text-scale))] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:m-0 max-[700px]:line-clamp-1 max-[700px]:min-w-0 max-[700px]:flex-1 max-[700px]:text-[calc(16px*var(--text-scale))]">
         {item.title}
       </div>
 
       {bodyPreview && (
-        <div className="mt-1.5 line-clamp-1 min-w-0 text-[12.5px] leading-[1.35] text-[var(--text-tertiary)] max-[700px]:ml-[50px] max-[700px]:mt-[-4px] max-[700px]:basis-full max-[700px]:pr-2">
+        <div className="mt-1.5 line-clamp-1 min-w-0 text-[calc(12.5px*var(--text-scale))] leading-[1.35] text-[var(--text-tertiary)] max-[700px]:ml-[50px] max-[700px]:mt-[-4px] max-[700px]:basis-full max-[700px]:pr-2">
           {bodyPreview}
         </div>
       )}
@@ -247,7 +247,7 @@ export const BoardCard = memo(function BoardCard({
           {item.labels!.map((label) => (
             <span
               key={label.id}
-              className="flex h-5 items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[11px] font-medium text-[var(--text-secondary)]"
+              className="flex h-5 items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[calc(11px*var(--text-scale))] font-medium text-[var(--text-secondary)]"
             >
               <span
                 className="size-[5px] rounded-full"
@@ -261,11 +261,11 @@ export const BoardCard = memo(function BoardCard({
 
       {/* Executing StateLine — delegation grammar verbatim. */}
       {working && (
-        <div className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-[var(--system-blue)] max-[700px]:hidden">
+        <div className="mt-2 flex items-center gap-1.5 text-[calc(12px*var(--text-scale))] font-medium text-[var(--system-blue)] max-[700px]:hidden">
           <span className="size-1.5 flex-none rounded-full bg-[var(--system-blue)] motion-safe:animate-[jinn-pulse_1.4s_ease-in-out_infinite]" aria-hidden />
           <span className="whitespace-nowrap">Working · {working}</span>
           {sessionRefLabel && (
-            <span className="truncate text-[11px] font-normal text-[var(--text-tertiary)]" style={{ fontFamily: "var(--font-code)" }}>
+            <span className="truncate text-[calc(11px*var(--text-scale))] font-normal text-[var(--text-tertiary)]" style={{ fontFamily: "var(--font-code)" }}>
               {sessionRefLabel}
             </span>
           )}
@@ -278,7 +278,7 @@ export const BoardCard = memo(function BoardCard({
       {(assigneeName || rollup || (spendUsd > 0 && (item.dueAt || approvalPending))) && (
         <div className="mt-2 flex items-center gap-2 max-[700px]:m-0 max-[700px]:gap-1.5">
           {assigneeName && (
-            <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
+            <span className="flex min-w-0 items-center gap-1.5 text-[calc(12px*var(--text-scale))] text-[var(--text-secondary)]">
               <EmployeeAvatar name={item.assignee!} size={20} fontSize={11} className="bg-[var(--fill-secondary)]" />
               <span className="truncate max-[700px]:hidden">{assigneeName}</span>
             </span>
@@ -294,7 +294,7 @@ export const BoardCard = memo(function BoardCard({
                 onToggleTree(item.id)
               }}
               onPointerDown={(e) => e.stopPropagation()}
-              className="focus-ring flex h-5 items-center gap-1 rounded-[10px] bg-[var(--fill-tertiary)] py-0 pl-[5px] pr-2 text-[11px] font-medium tabular-nums text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
+              className="focus-ring flex h-5 items-center gap-1 rounded-[10px] bg-[var(--fill-tertiary)] py-0 pl-[5px] pr-2 text-[calc(11px*var(--text-scale))] font-medium tabular-nums text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
             >
               <ChevronRight
                 size={10}
@@ -305,7 +305,7 @@ export const BoardCard = memo(function BoardCard({
             </button>
           )}
           {spendUsd > 0 && (item.dueAt || approvalPending) && (
-            <span className="ml-auto text-[11px] text-[var(--text-quaternary)] max-[700px]:hidden" style={{ fontFamily: "var(--font-code)" }}>
+            <span className="ml-auto text-[calc(11px*var(--text-scale))] text-[var(--text-quaternary)] max-[700px]:hidden" style={{ fontFamily: "var(--font-code)" }}>
               ${spendUsd.toFixed(2)}
             </span>
           )}
