@@ -272,7 +272,7 @@ export default function TaskPage() {
   )
 
   // ── Board context (the crumb's back affordance) ───────────────────────────
-  const keep = useKeepWorkItem()
+  const keep = useKeepWorkItem(announce)
   const boardKeyRaw = routeState.fromBoard ?? item?.department ?? "home"
   const board = parseBoardParam(boardKeyRaw)
   const boardLabel = board.kind === "department" ? departmentTitle(board.slug)

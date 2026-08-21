@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkItemCompactWire, WorkItemListWire, WorkItemStatusWire, WorkItemTreeWire } from "@/lib/api"
@@ -17,6 +17,7 @@ vi.mock("@/components/ui/employee-avatar", () => ({ EmployeeAvatar: () => <span 
 vi.mock("@/hooks/use-gateway", () => ({ useGateway: () => ({ connectionSeq: 1, subscribe: () => () => {} }) }))
 
 const listWorkItems = vi.fn()
+const setWorkItemKept = vi.fn()
 const getWorkItemTrees = vi.fn()
 const getDepartments = vi.fn()
 const getOrg = vi.fn()
@@ -34,6 +35,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       getDepartments: (...args: unknown[]) => getDepartments(...args),
       getOrg: (...args: unknown[]) => getOrg(...args),
       setWorkItemStatus: vi.fn(),
+      setWorkItemKept: (...args: unknown[]) => setWorkItemKept(...(args as [])),
       updateWorkItem: vi.fn(),
       createWorkItem: vi.fn(),
       assignWorkItem: vi.fn(),
@@ -93,6 +95,7 @@ beforeEach(() => {
   )
   getDepartments.mockResolvedValue({ departments: [{ slug: "platform", prefix: "PLA", createdAt: "2026-07-01", todoCount: 2 }] })
   getOrg.mockResolvedValue({ departments: ["platform"], employees: [] })
+  setWorkItemKept.mockResolvedValue({ kept: true })
 })
 
 function renderBoard(path: string) {
@@ -248,5 +251,50 @@ describe("/todos/b/home with nothing kept", () => {
     expect(screen.getByTestId("board-switcher").textContent).toContain("Home")
     expect(screen.queryByTestId("board-filtered-empty")).toBeNull()
     expect(document.querySelectorAll("[data-testid^=board-card-]").length).toBe(0)
+  })
+})
+
+/* ICI-1357 round 2. The phone board draws TodoList rows, not cards, so the card's
+ * keep control never reached 390px. The row carries its own now. */
+describe("the phone board's keep control", () => {
+  /** The desktop board stays mounted behind `hidden`, so a bare getByTestId
+   *  matches its card too. The phone surface is the list scrollport. */
+  const phoneRow = async (id: string) => {
+    const list = await screen.findByTestId("todo-list-scroll")
+    return within(list).getByTestId(`keep-toggle-${id}`)
+  }
+
+  it("gives every row a labelled keep button that survives without a pointer", async () => {
+    renderMobileBoard("/todos/b/home")
+    await screen.findByTestId("todo-list-row-PLA-1")
+
+    const button = await phoneRow("PLA-1")
+    expect(button.tagName).toBe("BUTTON")
+    expect(button.getAttribute("aria-label")).toBe("Keep PLA-1 on Home")
+    expect(button.getAttribute("aria-pressed")).toBe("false")
+    // Nothing hover-gated on a touch surface: no pointer will ever arrive.
+    expect(button.className).not.toContain("opacity-0")
+    expect(button.className).not.toContain("group-hover:")
+    // A sibling of the row button, never nested inside it.
+    expect(button.closest("[data-testid='todo-list-row-PLA-1']")).toBeNull()
+  })
+
+  it("keeps the Todo the row names", async () => {
+    renderMobileBoard("/todos/b/home")
+    await screen.findByTestId("todo-list-row-PLA-1")
+
+    fireEvent.click(await phoneRow("PLA-1"))
+    await waitFor(() => expect(setWorkItemKept).toHaveBeenCalledWith("PLA-1", true))
+  })
+
+  /* Round-1 review: no onError anywhere, so a refused PUT said nothing. */
+  it("says so when the gateway refuses, instead of looking like a dead click", async () => {
+    setWorkItemKept.mockRejectedValue(new Error("boom"))
+    renderMobileBoard("/todos/b/home")
+    await screen.findByTestId("todo-list-row-PLA-1")
+
+    fireEvent.click(await phoneRow("PLA-1"))
+    const callout = await screen.findByTestId("board-callout")
+    expect(callout.textContent).toContain("refused")
   })
 })

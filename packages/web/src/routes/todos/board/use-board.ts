@@ -7,7 +7,7 @@ import {
   type WorkItemStatusWire,
   type WorkItemTreeWire,
 } from "@/lib/api"
-import { dateBounds, type TodoFilters } from "@/lib/todos"
+import { dateBounds, operatorSafeTodoError, type TodoFilters } from "@/lib/todos"
 import { TODO_QUERY_FRESHNESS, TODO_WRITE_KEY } from "@/lib/query-keys"
 import { todoStatusMutationOptions } from "../todo-status-mutation"
 import type { BoardId } from "./board-route"
@@ -19,8 +19,8 @@ import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStat
  *   Home          → kept=true + rootsOnly
  *   department    → department=<slug> + rootsOnly
  *   Everything    → rootsOnly (no board-scope filter)
- * Home is one filter rather than a union because creating a Todo as the
- * operator keeps it (ICI-1357), so kept is a superset of createdBy=operator.
+ * Home is one filter, not a union: an operator's Todo starts kept (ICI-1357) —
+ * but no SUPERSET of createdBy=operator, since they can unkeep their own.
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 
@@ -258,13 +258,14 @@ export function useBoardRank() {
   })
 }
 
-/** Put a Todo on the operator's Home board, or take it off (ICI-1357). Every
- *  Todo query is invalidated because unkeeping removes the card from Home. */
-export function useKeepWorkItem() {
+/** Put a Todo on Home, or take it off (ICI-1357). Invalidates every Todo query
+ *  (unkeeping removes the card) and announces a refusal — nothing else shows one. */
+export function useKeepWorkItem(announce: (message: string) => void) {
   const qc = useQueryClient()
   return useMutation({
     mutationKey: TODO_WRITE_KEY,
     mutationFn: ({ id, kept }: { id: string; kept: boolean }) => api.setWorkItemKept(id, kept),
+    onError: (error) => announce(operatorSafeTodoError(error, "The gateway refused to change what Home keeps")),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["work-items"] })
     },

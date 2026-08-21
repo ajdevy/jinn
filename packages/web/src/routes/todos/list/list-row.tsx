@@ -3,7 +3,7 @@ import type { Employee, WorkItemCompactWire } from "@/lib/api"
 import { emojiForName } from "@/lib/emoji-pool"
 import { StatusCircle } from "../state-glyph"
 import { hasStopLead, StopCauseLead } from "../board/stop-cause"
-import { KeptCaption } from "../board/keep-control"
+import { KeepToggle, KeptCaption } from "../board/keep-control"
 import { formatRelativeTime } from "../util"
 
 function PriorityBars({ priority }: { priority: number }) {
@@ -35,26 +35,28 @@ export const TodoListRow = memo(function TodoListRow({
   byName,
   now,
   onOpen,
+  onKeep,
 }: {
   item: WorkItemCompactWire
   priority: number
   byName: Map<string, Employee>
   now: number
   onOpen: (id: string, item: WorkItemCompactWire) => void
+  /** Keep this Todo on Home, or take it off. Absent = no keep affordance. */
+  onKeep?: (vars: { id: string; kept: boolean }) => void
 }) {
   const assignee = item.assignee ? byName.get(item.assignee) : undefined
   return (
+    <div className="flex items-center gap-1">
     <button
       type="button"
       data-testid={`todo-list-row-${item.id}`}
       data-anchor-id={item.id}
       onClick={() => onOpen(item.id, item)}
-      className="focus-ring flex min-h-[44px] w-full flex-col items-stretch justify-center gap-1 rounded-[var(--radius-md)] px-2.5 py-1 text-left outline-none transition-colors duration-150 hover:bg-[var(--fill-quaternary)] max-[700px]:min-h-[52px]"
+      className="focus-ring flex min-h-[44px] min-w-0 flex-1 flex-col items-stretch justify-center gap-1 rounded-[var(--radius-md)] px-2.5 py-1 text-left outline-none transition-colors duration-150 hover:bg-[var(--fill-quaternary)] max-[700px]:min-h-[52px]"
     >
       {/* The phone renders rows, not cards, so a stopped Todo says why here too. */}
       {hasStopLead(item) && <StopCauseLead item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-0" />}
-      {/* Home mixes provenance here too, and the phone has no card to carry it. */}
-      <KeptCaption item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-0" />
       <span className="flex w-full items-center gap-3 max-[700px]:gap-2">
       <PriorityBars priority={priority} />
       <span
@@ -93,6 +95,13 @@ export const TodoListRow = memo(function TodoListRow({
         )}
       </span>
       </span>
+      {/* Under the title, as on the card: above it, the line reads as if it
+          belonged to the row before. Home mixes provenance on the phone too. */}
+      <KeptCaption item={item} className="pl-[calc(0.75rem+12px)] max-[700px]:pl-[26px]" />
     </button>
+      {/* A sibling, never a child: the row is itself a button. This is a touch
+          surface, so the pin shows at rest rather than waiting for a hover. */}
+      {onKeep && <KeepToggle id={item.id} kept={item.kept} onToggle={onKeep} className="size-[34px] rounded-[10px]" />}
+    </div>
   )
 })

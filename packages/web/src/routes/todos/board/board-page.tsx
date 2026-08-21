@@ -471,7 +471,7 @@ export default function TodoBoardPage() {
     }
     return columns
   }, [data.columns, itemsByStatus, filters.due])
-  const keep = useKeepWorkItem()
+  const keep = useKeepWorkItem(announce)
   const clearAllFilters = useCallback(() => {
     const params = new URLSearchParams()
     setSearchParams(params, { replace: false })
@@ -698,10 +698,8 @@ export default function TodoBoardPage() {
                 trees={trees.data}
                 now={now}
                 onOpen={onOpen}
-                onQuickAdd={(askAssignee) => setCreating({
-                  department: board.kind === "department" ? board.slug : undefined,
-                  askAssignee: askAssignee || undefined,
-                })}
+                onKeep={keep.mutate}
+                onQuickAdd={(askAssignee) => setCreating({ department: board.kind === "department" ? board.slug : undefined, askAssignee: askAssignee || undefined })}
               />
             )}
           </div>
