@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ChatGridAddMenu } from '../chat-grid-add-menu'
 import { ChatGridDropOverlay, useChatSessionDrop } from '../chat-grid-drop'
 import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
 import { placementForPointer } from '../grid-placement'
@@ -33,8 +32,7 @@ function fireDragAt(
   fireEvent(target, event)
 }
 
-function AddHarness({ mode, initial, onAction }: {
-  mode: 'drop' | 'picker'
+function AddHarness({ initial, onAction }: {
   initial: ChatWorkingSet
   onAction?: (sessionId: string) => void
 }) {
@@ -54,9 +52,6 @@ function AddHarness({ mode, initial, onAction }: {
         ))}
       </div>
       <div data-chat-composer data-testid="composer">Composer</div>
-      {mode === 'picker' && (
-        <ChatGridAddMenu onAdd={() => onAction?.('open-picker')} />
-      )}
       <output data-testid="working-set">{JSON.stringify(state)}</output>
       <ChatGridDropOverlay placement={drop.placement} />
     </div>
@@ -64,7 +59,7 @@ function AddHarness({ mode, initial, onAction }: {
 }
 
 async function stateAfterDrop(): Promise<ChatWorkingSet> {
-  const view = render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} />)
+  const view = render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
   fireEvent.drop(screen.getByTestId('drop-surface'), { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
   await waitFor(() => expect(screen.getByTestId('working-set').textContent).toContain('"c"'))
   const state = JSON.parse(screen.getByTestId('working-set').textContent ?? '') as ChatWorkingSet
@@ -82,20 +77,9 @@ describe('chat grid add paths', () => {
     expect(await stateAfterDrop()).toEqual(expected)
   })
 
-  it('uses the add control to open a picker without mutating the working set', () => {
-    const action = vi.fn()
-    const initial = createWorkingSet(['a', 'b'], 'a')
-    render(<AddHarness mode="picker" initial={initial} onAction={action} />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
-
-    expect(action).toHaveBeenCalledWith('open-picker')
-    expect(screen.getByTestId('working-set').textContent).toBe(JSON.stringify(initial))
-  })
-
   it('focuses a duplicate drop without duplicating or reordering it', async () => {
     const action = vi.fn()
-    render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b', 'c'], 'a')} onAction={action} />)
+    render(<AddHarness initial={createWorkingSet(['a', 'b', 'c'], 'a')} onAction={action} />)
     fireEvent.drop(screen.getByTestId('drop-surface'), { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
     await waitFor(() => expect(screen.getByTestId('working-set').textContent).toContain('"focusedId":"c"'))
     expect(JSON.parse(screen.getByTestId('working-set').textContent ?? '')).toEqual({
@@ -108,7 +92,7 @@ describe('chat grid add paths', () => {
 
   it('rejects composer and foreign drops without moving or reordering transcript rows', () => {
     const action = vi.fn()
-    render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} onAction={action} />)
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} onAction={action} />)
     const composer = screen.getByTestId('composer')
     const transcript = screen.getByTestId('transcript-a')
     const rows = [...transcript.children]
@@ -129,7 +113,7 @@ describe('chat grid add paths', () => {
       const id = this.dataset.chatGridPane
       return id === 'a' ? new DOMRect(0, 0, 100, 100) : new DOMRect(100, 0, 100, 100)
     })
-    render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} />)
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
     const surface = screen.getByTestId('drop-surface')
     fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, transfer(CHAT_SESSION_DND_MIME, 'c'))
     expect(screen.getByTestId('chat-grid-drop-zone').className).toContain('pointer-events-none')
@@ -143,7 +127,7 @@ describe('chat grid add paths', () => {
       const id = this.dataset.chatGridPane
       return id === 'a' ? new DOMRect(0, 0, 100, 100) : new DOMRect(100, 0, 100, 100)
     })
-    render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} />)
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
     const surface = screen.getByTestId('drop-surface')
     const paneRects = [new DOMRect(0, 0, 100, 100), new DOMRect(100, 0, 100, 100)]
     const gridRect = new DOMRect(0, 0, 250, 100)
@@ -170,7 +154,7 @@ describe('chat grid add paths', () => {
       const id = this.dataset.chatGridPane
       return id === 'a' ? new DOMRect(0, 0, 100, 100) : new DOMRect(100, 0, 100, 100)
     })
-    render(<AddHarness mode="drop" initial={createWorkingSet(['a', 'b'], 'a')} />)
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
     const surface = screen.getByTestId('drop-surface')
     const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'c')
     fireDragAt(surface, 'dragOver', { x: 110, y: 50 }, dataTransfer)

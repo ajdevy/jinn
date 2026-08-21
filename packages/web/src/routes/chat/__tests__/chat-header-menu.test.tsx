@@ -35,6 +35,7 @@ function renderMenu(overrides: Partial<Parameters<typeof ChatHeaderMenu>[0]> = {
       onShareDebugLog={vi.fn()}
       onClearDebugLog={vi.fn()}
       onDeleteSession={vi.fn()}
+      onOpenChatBeside={vi.fn()}
       {...overrides}
     />,
   )
@@ -49,7 +50,7 @@ beforeEach(() => {
   pinState.mutate = vi.fn()
 })
 
-describe('ChatHeaderMenu pin item', () => {
+describe('ChatHeaderMenu', () => {
   it('renders Pin directly above Duplicate and pins the selected session', () => {
     const onOpenChange = vi.fn()
     renderMenu({ onOpenChange })
@@ -79,5 +80,16 @@ describe('ChatHeaderMenu pin item', () => {
     expect(screen.queryByText('Unpin')).toBeNull()
     expect(screen.queryByText('Duplicate...')).toBeNull()
     expect(screen.queryByText('Archive chat')).toBeNull()
+  })
+
+  it('opens a picker pane beside the current chat and closes the menu', () => {
+    const onOpenChatBeside = vi.fn()
+    const onOpenChange = vi.fn()
+    renderMenu({ onOpenChatBeside, onOpenChange })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat beside' }))
+
+    expect(onOpenChatBeside).toHaveBeenCalledOnce()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { installVirtualLayout, type VirtualLayout } from '@/test/virtual-layout'
 import { WORKING_SET_STORAGE_KEY } from '../working-set'
 import {
@@ -11,6 +11,12 @@ import {
   sessionIds,
   sessionTransfer,
 } from './multi-pane-page-harness'
+function openChatBeside() {
+  const desktopNewChat = screen.getAllByRole('button', { name: 'New chat' })[0]
+  const actionsPill = desktopNewChat.parentElement!
+  fireEvent.click(within(actionsPill).getByRole('button', { name: 'More options' }))
+  fireEvent.click(within(actionsPill).getByRole('button', { name: 'Open chat beside' }))
+}
 
 describe('the routed multi-pane surface', () => {
   const desktopWidth = 1440
@@ -113,7 +119,10 @@ describe('the routed multi-pane surface', () => {
     installPickerLayout()
     renderRoute()
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(2))
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    const desktopNewChat = screen.getAllByRole('button', { name: 'New chat' })[0]
+    const actionsPill = desktopNewChat.parentElement!
+    expect(within(actionsPill).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['New chat', 'More options'])
+    openChatBeside()
     fireEvent.click(await screen.findByRole('option', { name: /Title c/ }))
     await waitFor(() => expect(pane('c').textContent).toContain('transcript-c'))
     await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b', 'c']))
@@ -132,7 +141,7 @@ describe('the routed multi-pane surface', () => {
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
     const originalPane = pane('a')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    openChatBeside()
     fireEvent.click(await screen.findByRole('option', { name: /Title b/ }))
 
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
@@ -149,17 +158,17 @@ describe('the routed multi-pane surface', () => {
     installPickerLayout()
     renderRoute()
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    openChatBeside()
     const picker = await screen.findByRole('combobox', { name: 'Search chats' })
-    expect(picker.closest('[data-chat-pane-session="new"]')).toBeTruthy()
+    const pickerPane = picker.closest('[data-chat-grid-pane]')
+    expect(pickerPane?.querySelector('[data-chat-pane-session="new"]')).toBeTruthy()
+    expect(Array.from(document.querySelectorAll('[data-chat-grid-pane]')).at(-1)).toBe(pickerPane)
     fireEvent.click(await screen.findByRole('option', { name: /Title b/ }))
-
     await waitFor(() => expect(pane('b').textContent).toContain('transcript-b'))
     await waitFor(() => expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(['a', 'b']))
     expect(Array.from(document.querySelectorAll('[data-chat-grid-pane]')).at(-1)?.querySelector('[data-chat-pane-session="b"]')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat to grid' }))
+    openChatBeside()
     const freshPicker = await screen.findByRole('combobox', { name: 'Search chats' })
     const freshPane = freshPicker.closest<HTMLElement>('[data-chat-pane-session="new"]')!
     const textarea = freshPane.querySelector<HTMLTextAreaElement>('[data-chat-textarea]')!

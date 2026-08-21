@@ -112,7 +112,7 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data)
-  const { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
+  const { viewport, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
@@ -864,6 +864,7 @@ function ChatPage() {
       onShareDebugLog={shareDebugLog}
       onClearDebugLog={clearDebugLog}
       onDeleteSession={handleDeleteSession}
+      onOpenChatBeside={gridPicker.open}
     />
   )
   // The conversation title — slim inline title (desktop) / centered nav-bar title
@@ -936,7 +937,6 @@ function ChatPage() {
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
-            grid={gridSessionIds.length > 0 ? { onAdd: gridPicker.open } : undefined}
             moreMenu={moreMenu}
             mobileWorkingSet={mobileWorkingSet}
             copiedField={copiedField}
