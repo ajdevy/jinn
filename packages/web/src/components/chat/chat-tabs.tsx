@@ -1,5 +1,5 @@
 
-import { type ReactNode } from 'react'
+import { useLayoutEffect, useState, type ReactNode } from 'react'
 import { ChevronLeft, SquarePen } from 'lucide-react'
 import { type ChatTab } from '@/hooks/use-chat-tabs'
 // Frosted pill primitives now live in the shared cross-page pill system.
@@ -54,6 +54,26 @@ export function ChatHeaderPills({
   onNew,
   moreMenu,
 }: ChatHeaderPillsProps) {
+  // Mobile nav bar: both side tracks are locked to the wider cluster, which is
+  // what puts the middle track on the header's centre line. Callback refs keep
+  // the observer attached across the back control's two shapes.
+  const [backControl, setBackControl] = useState<HTMLElement | null>(null)
+  const [actions, setActions] = useState<HTMLElement | null>(null)
+  const [sideTrack, setSideTrack] = useState(0)
+
+  useLayoutEffect(() => {
+    if (!backControl || !actions) return
+    // Both clusters are justify-self-aligned, so they stay content-sized and
+    // reading them back can never feed a track's width into itself.
+    const measure = () =>
+      setSideTrack(Math.max(backControl.offsetWidth, actions.offsetWidth))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(backControl)
+    observer.observe(actions)
+    return () => observer.disconnect()
+  }, [backControl, actions])
+
   return (
     <>
       {/* DESKTOP — slim inline thread title (top-left, plain text, no pill).
@@ -105,31 +125,40 @@ export function ChatHeaderPills({
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
           style={{ paddingTop: 'max(var(--safe-top), 0px)' }}
         >
-          {/* Three tracks, not an absolutely-centered title: the side controls
-              are sized in rem, so at a large browser text size a viewport-capped
-              centred title grows straight under the action buttons. The middle
-              track truncates against its real neighbours at any text size. */}
-          <div className="relative grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 bg-[var(--material-thick-opaque)] px-1.5 [@media(pointer:fine)]:bg-[var(--material-thick)] [@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)] [@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]">
+          {/* Three tracks with the side pair locked to the WIDER cluster, so the
+              middle track IS the header's centre line and the title reads
+              dead-centre whether the back control is a bare chevron or
+              `‹ Parent`. The reservation is measured rather than declared
+              because the controls are sized in rem: a fixed or viewport-capped
+              centred title grows straight under the action buttons at a large
+              browser text size. Below that width the title truncates against
+              its real neighbours, which is what the previous grid protected. */}
+          <div
+            className="relative grid h-12 items-center gap-1 bg-[var(--material-thick-opaque)] px-1.5 [@media(pointer:fine)]:bg-[var(--material-thick)] [@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)] [@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]"
+            style={{ gridTemplateColumns: `${sideTrack}px minmax(0,1fr) ${sideTrack}px` }}
+          >
             {/* Back control. A drill-in reads `‹ Parent` and returns to the
                 parent thread (iOS previous-screen-title idiom); otherwise the
                 bare chevron pops to the chat list (accessible name in
                 aria-label, HIG icons-over-labels). */}
             {backTo ? (
               <button
+                ref={setBackControl}
                 onClick={backTo.onClick}
                 aria-label={`Back to ${backTo.label}`}
                 title={`Back to ${backTo.label}`}
-                className="inline-flex h-9 max-w-[34vw] shrink-0 items-center gap-0.5 rounded-full pl-1 pr-2.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]"
+                className="inline-flex h-9 max-w-[34vw] shrink-0 items-center justify-self-start gap-0.5 rounded-full pl-1 pr-2.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]"
               >
                 <ChevronLeft size={22} className="shrink-0" />
                 <span className="truncate text-[length:var(--text-subheadline)] font-medium">{backTo.label}</span>
               </button>
             ) : (
               <button
+                ref={setBackControl}
                 onClick={onBack}
                 aria-label="Back to chats"
                 title="Back to chats"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]"
+                className="inline-flex size-9 shrink-0 items-center justify-center justify-self-start rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]"
               >
                 <ChevronLeft size={24} className="shrink-0" />
               </button>
@@ -137,7 +166,7 @@ export function ChatHeaderPills({
             <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
               {title}
             </span>
-            <div className="flex shrink-0 items-center">
+            <div ref={setActions} className="flex shrink-0 items-center justify-self-end">
               <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
                 <SquarePen size={18} />
               </PillButton>
