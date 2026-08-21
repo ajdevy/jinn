@@ -454,6 +454,8 @@ describe("control-plane writes require operator authority", () => {
       { method: "DELETE", path: `/api/sessions/${target.id}`, body: undefined, label: "session delete" },
       { method: "POST", path: `/api/sessions/${target.id}/reset`, body: {}, label: "session reset" },
       { method: "DELETE", path: `/api/sessions/${target.id}/queue/qi_missing`, body: undefined, label: "queue item cancel" },
+      { method: "PATCH", path: `/api/sessions/${target.id}/queue/qi_missing`, body: { prompt: "rewritten" }, label: "queue item edit" },
+      { method: "POST", path: `/api/sessions/${target.id}/queue/qi_missing/send-now`, body: {}, label: "queue item send now" },
       { method: "DELETE", path: `/api/sessions/${target.id}/queue`, body: undefined, label: "queue clear" },
       { method: "POST", path: `/api/sessions/${target.id}/queue/pause`, body: {}, label: "queue pause" },
       { method: "POST", path: `/api/sessions/${target.id}/queue/resume`, body: {}, label: "queue resume" },

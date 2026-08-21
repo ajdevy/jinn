@@ -116,7 +116,7 @@ import {
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
+import { supersedeRunningTurn } from "../sessions/turn/superseded.js";
 import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
 import { spawnSession } from "./spawn-session.js";
 export { deliverConnectorReply } from "./connector-reply.js";
@@ -1100,6 +1100,8 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
+  if (method === "PATCH" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item edit";
+  if (method === "POST" && matchRoute("/api/sessions/:id/queue/:itemId/send-now", pathname)) return "session queue item send now";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue", pathname)) return "session queue clear";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/pause", pathname)) return "session queue pause";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/resume", pathname)) return "session queue resume";
@@ -1338,26 +1340,6 @@ function serializeSessionList(sessions: readonly Session[], context: ApiContext)
 function serializeSessionResponse(session: Session, context: ApiContext): Session {
   const delegatedActivityIndex = buildSessionDelegatedActivityIndex(listSessions(), context);
   return serializeSession(session, context, delegatedActivityIndex);
-}
-
-function withTransportMeta(session: Session, updates: JsonObject): JsonObject {
-  const base =
-    session.transportMeta && typeof session.transportMeta === "object" && !Array.isArray(session.transportMeta)
-      ? session.transportMeta
-      : {};
-  return { ...base, ...updates };
-}
-
-function supersedeRunningTurn(session: Session): void {
-  updateSession(session.id, {
-    transportMeta: withTransportMeta(session, {
-      [SUPERSEDED_TURN_META_KEY]: new Date().toISOString(),
-    }),
-    ...(session.workflowProvenance?.kind === "phase" ? {
-      attemptInterruptionCause: "user-message",
-      attemptInterruptionTurn: (session.attemptTurn ?? 0) + 1,
-    } : {}),
-  });
 }
 
 function isSessionLiveRunning(session: Session, context: ApiContext): boolean {
@@ -2419,7 +2401,7 @@ export async function handleApiRequest(
       }
     }
 
-    if (handleSessionQueueRoute(method, pathname, res, context)) return;
+    if (await handleSessionQueueRoute(method, pathname, req, res, context)) return;
 
     // POST /api/sessions/bulk-delete
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
@@ -4693,7 +4675,7 @@ export async function handleApiRequest(
       // Internal notification-role messages are already durably queued above;
       // only real user messages create a visible queue-panel item here.
       if (!isNotification) {
-        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
+        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId });
         context.emit("queue:updated", { sessionId: session.id, sessionKey });
       }
 
@@ -4703,11 +4685,9 @@ export async function handleApiRequest(
       // (ptyEngine truthy) suppresses the note so the visible PTY paste stays the
       // operator's exact text. Recomputed per request → exactly one note, never
       // persisted, never rendered, never duplicated on retry/reload/reconnect.
-      const { engine: enginePrompt } = resolveMessageAudiences(
-        prompt,
-        speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine }),
-      );
-      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
+      const speechDerived = speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine });
+      const { engine: enginePrompt } = resolveMessageAudiences(prompt, speechDerived);
+      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, speechDerived, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",

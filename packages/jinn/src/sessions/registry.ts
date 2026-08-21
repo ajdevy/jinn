@@ -2627,7 +2627,7 @@ export {
   enqueueQueueItem, markQueueItemRunning, markQueueItemCompleted, markRunningQueueItemsCompletedForSession,
   getQueueItem, cancelQueueItem, getQueueItems, cancelAllPendingQueueItems, recoverStaleQueueItems,
   listAllPendingQueueItems, claimWorkflowAttemptDispatch, cancelWorkflowAttemptDispatch,
-  listPendingWorkflowAttemptDispatches, type QueueItem,
+  listPendingWorkflowAttemptDispatches, editPendingQueueItem, reassignPendingQueuePayloads, type QueueItem,
 } from './queue-item-registry.js';
 // ── File management ──────────────────────────────────────────────────
 // Kept re-exported here so the many callers that reach for a file through the

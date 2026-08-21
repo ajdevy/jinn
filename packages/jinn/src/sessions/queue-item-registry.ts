@@ -11,6 +11,8 @@ export interface QueueItem {
   prompt: string;
   status: "pending" | "running" | "cancelled" | "completed";
   internal: boolean;
+  /** The transcript row this item will run, when the enqueuing path had one. */
+  messageId: string | null;
   position: number;
   createdAt: string;
   startedAt: string | null;
@@ -26,13 +28,13 @@ function rowToQueueItem(row: QueueItemRow): QueueItem {
 }
 
 const QUEUE_ITEM_SELECT =
-  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt FROM queue_items";
+  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt, message_id as messageId FROM queue_items";
 
 export function enqueueQueueItem(
   sessionId: string,
   sessionKey: string,
   prompt: string,
-  options: { internal?: boolean } = {},
+  options: { internal?: boolean; messageId?: string } = {},
 ): string {
   const db = initDb();
   const id = randomUUID();
@@ -40,8 +42,8 @@ export function enqueueQueueItem(
     "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status = 'pending'"
   ).get(sessionKey) as { pos: number }).pos;
   db.prepare(
-    "INSERT INTO queue_items (id, session_id, session_key, prompt, status, internal, position, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)"
-  ).run(id, sessionId, sessionKey, prompt, options.internal ? 1 : 0, position, new Date().toISOString());
+    "INSERT INTO queue_items (id, session_id, session_key, prompt, status, internal, position, created_at, message_id) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)"
+  ).run(id, sessionId, sessionKey, prompt, options.internal ? 1 : 0, position, new Date().toISOString(), options.messageId ?? null);
   return id;
 }
 
@@ -77,6 +79,43 @@ export function cancelQueueItem(itemId: string): boolean {
     "UPDATE queue_items SET status = 'cancelled' WHERE id = ? AND status = 'pending'"
   ).run(itemId);
   return result.changes > 0;
+}
+
+/**
+ * Rewrite a parked item's text, and the bubble it is showing, together.
+ *
+ * The two writes share a transaction because a queue row and its transcript row
+ * disagreeing is the one state the chat cannot render honestly: the operator
+ * would be reading one message and the engine would run another. The message
+ * UPDATE is spelled out here rather than borrowed from `registry.ts` so this
+ * module stays a leaf.
+ *
+ * Returns undefined when the item is gone or has already left `pending`.
+ */
+export function editPendingQueueItem(itemId: string, prompt: string): QueueItem | undefined {
+  const db = initDb();
+  return db.transaction(() => {
+    const item = getQueueItem(itemId);
+    if (!item || item.status !== 'pending') return undefined;
+    db.prepare("UPDATE queue_items SET prompt = ? WHERE id = ? AND status = 'pending'").run(prompt, itemId);
+    if (item.messageId) db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(prompt, item.messageId);
+    return getQueueItem(itemId);
+  }).immediate();
+}
+
+/**
+ * Move payloads between parked rows, in one transaction so a reader never sees
+ * two rows claiming the same message. The rows keep their positions and their
+ * place in the committed promise chain; only what they will run changes.
+ */
+export function reassignPendingQueuePayloads(
+  assignments: ReadonlyArray<{ id: string; prompt: string; messageId: string | null }>,
+): void {
+  const db = initDb();
+  db.transaction(() => {
+    const write = db.prepare("UPDATE queue_items SET prompt = ?, message_id = ? WHERE id = ? AND status = 'pending'");
+    for (const assignment of assignments) write.run(assignment.prompt, assignment.messageId, assignment.id);
+  }).immediate();
 }
 
 export function getQueueItems(sessionKey: string): QueueItem[] {

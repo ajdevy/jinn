@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getFile, getSession, beginSessionAttempt } from "../sessions/registry.js";
+import { getFile, getSession, getQueueItem, beginSessionAttempt } from "../sessions/registry.js";
 import { FILES_DIR } from "../shared/paths.js";
 import { settleTurn } from "../sessions/turn/completion.js";
 import { resolveTurnHierarchy } from "../sessions/turn/preflight.js";
@@ -9,6 +9,7 @@ import { runTurn } from "../sessions/turn/runner.js";
 import { logger } from "../shared/logger.js";
 import type { Engine, Session } from "../shared/types.js";
 import { createWebTurnSurface } from "./web-turn-surface.js";
+import { resolveMessageAudiences } from "./speech-context.js";
 // Type-only, so the pair below can name the context every web route already
 // carries without this module and api.ts importing each other at runtime.
 import type { ApiContext } from "./api.js";
@@ -91,19 +92,34 @@ async function runQueuedTurn(
   }
 }
 
+/**
+ * What this turn actually runs, decided when the queue lets it through rather
+ * than when it was enqueued.
+ *
+ * A parked row can be edited or have another message's payload rotated onto it
+ * while it waits, and the operator is looking at the row — so the row wins. The
+ * speech note is recomputed from whatever text that turns out to be, exactly as
+ * `resolveMessageAudiences` requires: derived per dispatch, never persisted.
+ */
+function promptForTurn(dispatched: string, opts?: { queueItemId?: string; speechDerived?: boolean }): string {
+  if (!opts?.queueItemId) return dispatched;
+  const parked = getQueueItem(opts.queueItemId)?.prompt;
+  return parked === undefined ? dispatched : resolveMessageAudiences(parked, opts.speechDerived === true).engine;
+}
+
 export function dispatchWebSessionRun(
   session: Session,
   prompt: string,
   engine: Engine,
   context: ApiContext,
-  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[] },
+  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[]; speechDerived?: boolean },
 ): void {
   let dispatchedAttemptToken: string | undefined;
   const sessionKey = session.sessionKey || session.sourceRef;
   const run = async () => {
     try {
       await context.sessionManager.getQueue().enqueue(sessionKey, () =>
-        runQueuedTurn(session, context, { prompt, engine, attachments: opts?.attachments }, {
+        runQueuedTurn(session, context, { prompt: promptForTurn(prompt, opts), engine, attachments: opts?.attachments }, {
           sessionKey,
           queueItemId: opts?.queueItemId,
           onAttempt: (token) => {
