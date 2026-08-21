@@ -122,6 +122,23 @@ describe('the routed multi-pane surface', () => {
     expect(pane('a')).toBe(originalPane)
   })
 
+  it('replaces a lone chat with the composer instead of splitting New chat', async () => {
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: ['a'],
+      focusedId: 'a',
+      focusHistory: ['a'],
+    }))
+    renderRoute()
+    await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+
+    await waitFor(() => expect(pane('new')).toBeDefined())
+    expect(screen.getByTestId('chat-grid').getAttribute('data-single-pane')).toBe('true')
+    expect(document.querySelectorAll('[data-chat-grid-pane]')).toHaveLength(1)
+  })
+
   it('uses one capped pane for the composer and restores the folded member on dismiss and commit', async () => {
     renderRoute()
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))

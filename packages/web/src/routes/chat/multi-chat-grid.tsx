@@ -140,7 +140,9 @@ export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
   const gridIds = props.primary.sessionId
     ? props.sessionIds.map((sessionId) => sessionId === props.primary.sessionId ? primaryKey : sessionId)
-    : [primaryKey, ...props.sessionIds]
+    : props.sessionIds.length === 1
+      ? [primaryKey]
+      : [...props.sessionIds, primaryKey]
   const focusedGridId = !props.primary.sessionId || props.focusedId === props.primary.sessionId
     ? primaryKey
     : props.focusedId

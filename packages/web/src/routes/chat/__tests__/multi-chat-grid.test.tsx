@@ -53,4 +53,47 @@ describe('MultiChatGrid close labels', () => {
     expect(screen.getByRole('button', { name: 'Close chat' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: `Close ${uuidTitle}` })).toBeNull()
   })
+
+  it('appends a session-less primary pane after every live session pane', () => {
+    const noop = vi.fn()
+    render(
+      <MultiChatGrid
+        sessionIds={['a', 'b']}
+        focusedId="a"
+        primary={{
+          paneKey: 'composer',
+          sessionId: null,
+          pendingUserMessage: undefined,
+          initialEmployee: undefined,
+          onSessionCreated: noop,
+          viewMode: 'chat',
+          focusTrigger: 0,
+          delegatedActivity: undefined,
+        }}
+        viewport={{ width: 1440, height: 900 }}
+        metaById={{}}
+        sessionTitleFor={() => undefined}
+        runtime={{ portalName: 'Gateway', subscribe: () => noop, events: [] }}
+        scrollTopFor={() => undefined}
+        viewModeFor={() => 'chat'}
+        focusTriggerFor={() => 0}
+        delegatedActivityFor={() => undefined}
+        onFocus={noop}
+        onRemove={noop}
+        onMeta={noop}
+        onNewMeta={noop}
+        onOpenFile={noop}
+        onPeek={noop}
+        onNewChat={noop}
+        onRefresh={noop}
+        onShortcutsClick={noop}
+        onContentReady={noop}
+        onStartFreshChat={async () => {}}
+      />,
+    )
+
+    expect(Array.from(document.querySelectorAll('[data-chat-grid-pane]')).map((pane) => (
+      pane.getAttribute('data-chat-grid-pane')
+    ))).toEqual(['a', 'b', 'composer'])
+  })
 })
