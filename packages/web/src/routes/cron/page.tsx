@@ -19,6 +19,8 @@ import {
   type CronFilter,
   type CronJobWire,
 } from "./shared"
+import { CronDeleteMenu } from "./delete-menu"
+import { ListSkeleton } from "./list-skeleton"
 import { useCronViewParams, type CronLens } from "./use-cron-params"
 
 /* design-cron §2 — Cron joins the shared language: inline large-title header
@@ -40,7 +42,7 @@ function useEmployeesByName() {
   )
 }
 
-function CronRow({
+export function CronRow({
   job,
   now,
   onToggle,
@@ -111,44 +113,9 @@ function CronRow({
         onChange={(v) => onToggle(job, v)}
         label={job.enabled ? `Disable ${job.name}` : `Enable ${job.name}`}
       />
+      <CronDeleteMenu job={job} variant="row" />
       <ChevronRight size={14} strokeWidth={2.4} className="flex-none text-[var(--text-quaternary)]" aria-hidden />
     </div>
-  )
-}
-
-function ListSkeleton() {
-  const widths = ["38%", "52%", "30%"]
-  return (
-    <section className="mb-[22px]" data-testid="cron-skeleton" aria-hidden>
-      <div className="flex items-center gap-2 px-1.5 pb-2">
-        <span className="size-5 rounded-full bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
-        <span className="h-3 w-16 rounded-[6px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
-      </div>
-      <div className="rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] p-[5px] shadow-[var(--shadow-card)]">
-        {widths.map((w, i) => (
-          <div key={i} className="flex min-h-[56px] items-center gap-2.5 py-2 pl-2.5 pr-3">
-            <span
-              className="size-6 flex-none rounded-full bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]"
-              style={{ animationDelay: `${i * 200}ms` }}
-            />
-            <span className="flex flex-1 flex-col gap-2">
-              <span
-                className="h-3 rounded-[6px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]"
-                style={{ width: w, animationDelay: `${i * 200}ms` }}
-              />
-              <span
-                className="h-2.5 w-[58%] rounded-[6px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]"
-                style={{ animationDelay: `${i * 200}ms` }}
-              />
-            </span>
-            <span
-              className="h-6 w-11 flex-none rounded-[12px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]"
-              style={{ animationDelay: `${i * 200}ms` }}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
   )
 }
 
