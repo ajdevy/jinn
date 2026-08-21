@@ -1,10 +1,11 @@
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { ChatPane } from '@/components/chat/chat-pane'
 import { FileOpenContext } from '@/components/chat/file-open-context'
 import type { CommsPeekData } from '@/components/chat/thread-peek'
 import type { DelegatedActivity } from '@/lib/api'
 import type { ViewMode } from '@/lib/view-mode'
 import { ChatGrid } from './chat-grid'
+import type { ChatViewport } from './use-chat-viewport'
 import type { SessionMeta } from './use-chat-pane-state'
 
 type PaneProps = ComponentProps<typeof ChatPane>
@@ -24,7 +25,7 @@ interface MultiChatGridProps {
     focusTrigger: number
     delegatedActivity: DelegatedActivity | null | undefined
   }
-  viewport: { width: number; height: number }
+  viewport: ChatViewport
   metaById: Record<string, SessionMeta>
   sessionTitleFor: (sessionId: string) => unknown
   runtime: PaneRuntime
@@ -136,6 +137,29 @@ function GridChatPane({
   )
 }
 
+/**
+ * The mobile switch.
+ *
+ * A phone mounts one transcript, so a switch replaces the whole thread in a
+ * single frame. Keying this on the pane the grid has actually committed fades
+ * the incoming transcript in exactly once; keying it on the URL's selection
+ * would start the fade a beat early, while `selection-commit.ts` is still
+ * holding the outgoing chat because the incoming one cannot paint yet — the
+ * blank frame that lag exists to prevent. Opacity only: the strip above does
+ * not move, and a sliding thread would fight it.
+ */
+function MobileThreadCrossfade({ paneId, children }: { paneId: string; children: ReactNode }) {
+  return (
+    <div
+      key={paneId}
+      data-mobile-thread-pane={paneId}
+      className="flex min-h-0 flex-1 overflow-hidden animate-[jinn-mobile-chat-crossfade_var(--duration-base)_var(--ease-smooth)] motion-reduce:animate-none"
+    >
+      {children}
+    </div>
+  )
+}
+
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
   const gridIds = props.primary.sessionId
@@ -145,7 +169,7 @@ export function MultiChatGrid(props: MultiChatGridProps) {
     ? primaryKey
     : props.focusedId
 
-  return (
+  const grid = (
     <ChatGrid
       sessionIds={gridIds}
       focusedId={focusedGridId}
@@ -163,4 +187,6 @@ export function MultiChatGrid(props: MultiChatGridProps) {
       renderPane={(gridId, active) => <GridChatPane gridId={gridId} active={active} owner={props} />}
     />
   )
+  if (!props.viewport.mobile) return grid
+  return <MobileThreadCrossfade paneId={focusedGridId ?? primaryKey}>{grid}</MobileThreadCrossfade>
 }

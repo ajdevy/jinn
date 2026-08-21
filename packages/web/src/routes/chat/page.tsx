@@ -113,7 +113,7 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const workingSet = useChatWorkingSet(committedId, sessionsQuery.data)
-  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data ?? [] })
+  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data })
   const { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
