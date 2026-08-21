@@ -313,7 +313,7 @@ function ChatPage() {
     handleSelect(sessionId, { navigateMobile: false })
   }, [handleSelect])
 
-  const gridAdd = useChatGridAdd(workingSet.add, selectedId, handleSelect)
+  const gridAdd = useChatGridAdd(workingSet.add, workingSet.insert, selectedId, handleSelect)
 
   const handleRemovePane = useCallback((sessionId: string) => {
     const next = removeWorkingSetSession(workingSet.state, sessionId)
@@ -1020,7 +1020,7 @@ function ChatPage() {
                 onStartFreshChat={handleStartFreshChat}
               />
             )}
-            <ChatGridDropOverlay active={gridAdd.drop.active} />
+            <ChatGridDropOverlay placement={gridAdd.drop.placement} />
           </div>
 
           {/* Stable above the session-keyed ChatPane: it survives route remount

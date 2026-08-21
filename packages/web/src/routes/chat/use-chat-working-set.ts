@@ -3,6 +3,7 @@ import {
   addWorkingSetSession,
   createWorkingSet,
   focusWorkingSetSession,
+  insertWorkingSetSession,
   loadPersistedWorkingSet,
   persistWorkingSet,
   removeWorkingSetSession,
@@ -54,9 +55,12 @@ export function useChatWorkingSet(
   const focus = useCallback((sessionId: string) => {
     setState((current) => focusWorkingSetSession(current, sessionId))
   }, [])
+  const insert = useCallback((sessionId: string, index: number) => {
+    setState((current) => insertWorkingSetSession(current, sessionId, index, viewportCap()))
+  }, [])
   const remove = useCallback((sessionId: string) => {
     setState((current) => removeWorkingSetSession(current, sessionId))
   }, [])
 
-  return { state, add, focus, remove }
+  return { state, add, insert, focus, remove }
 }
