@@ -25,7 +25,7 @@ interface MultiChatGridProps {
     focusTrigger: number
     delegatedActivity: DelegatedActivity | null | undefined
   }
-  viewport: { width: number; height: number }
+  viewport: { width: number; height: number; mobile?: boolean }
   metaById: Record<string, SessionMeta>
   sessionTitleFor: (sessionId: string) => unknown
   runtime: PaneRuntime
@@ -153,10 +153,15 @@ export function MultiChatGrid(props: MultiChatGridProps) {
     : props.sessionIds.length === 1
       ? [primaryKey]
       : [...props.sessionIds, primaryKey]
-  const gridIds = props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
-  const focusedGridId = !props.primary.sessionId || props.focusedId === props.primary.sessionId
-    ? primaryKey
-    : props.focusedId
+  const mobilePickerKey = props.viewport.mobile ? props.pickerPane?.paneKey : undefined
+  const gridIds = mobilePickerKey
+    ? [mobilePickerKey]
+    : props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
+  const focusedGridId = mobilePickerKey ?? (
+    !props.primary.sessionId || props.focusedId === props.primary.sessionId
+      ? primaryKey
+      : props.focusedId
+  )
 
   return (
     <ChatGrid

@@ -157,6 +157,25 @@ export function reorderWorkingSetSession(
   return { ...state, sessionIds }
 }
 
+function reserveInsertionSlot(
+  sessionIds: string[],
+  focusHistory: string[],
+  insertionSlot: number,
+  limit: number,
+): { sessionIds: string[]; focusHistory: string[] } {
+  if (limit <= 0) return { sessionIds: [], focusHistory: [] }
+  const survivors = [...sessionIds]
+  let survivorHistory = [...focusHistory]
+  while (survivors.length >= limit && survivors.length > 0) {
+    const victim = survivorHistory.find((id) => survivors.indexOf(id) >= insertionSlot)
+      ?? survivorHistory.find((id) => survivors.includes(id))
+    if (!victim) break
+    survivors.splice(survivors.indexOf(victim), 1)
+    survivorHistory = survivorHistory.filter((id) => id !== victim)
+  }
+  return { sessionIds: survivors, focusHistory: survivorHistory }
+}
+
 /** Insert into a DOM-order slot. Existing members move through the same slot
  * model, so a drop preview and the resulting presentation order cannot drift. */
 export function insertWorkingSetSession(
@@ -176,12 +195,22 @@ export function insertWorkingSetSession(
   const adjustedSlot = fromIndex >= 0 && fromIndex < insertionSlot
     ? insertionSlot - 1
     : insertionSlot
-  sessionIds.splice(Math.min(adjustedSlot, sessionIds.length), 0, sessionId)
+  const limit = Math.max(0, Math.floor(cap))
+
+  // Make room before inserting so an LRU pane before the previewed slot cannot
+  // shift the dropped chat away from the rectangle the operator saw. Prefer a
+  // victim at/after that slot; an end drop falls back to ordinary LRU eviction
+  // and remains appended after the shorter surviving list.
+  const prepared = fromIndex < 0
+    ? reserveInsertionSlot(sessionIds, state.focusHistory, adjustedSlot, limit)
+    : { sessionIds, focusHistory: state.focusHistory }
+
+  if (limit > 0) prepared.sessionIds.splice(Math.min(adjustedSlot, prepared.sessionIds.length), 0, sessionId)
 
   return applyWorkingSetCap(normalize(
-    sessionIds,
-    sessionId,
-    fromIndex >= 0 ? state.focusHistory : [...state.focusHistory, sessionId],
+    prepared.sessionIds,
+    limit > 0 ? sessionId : null,
+    fromIndex >= 0 ? prepared.focusHistory : [...prepared.focusHistory, sessionId],
   ), cap)
 }
 

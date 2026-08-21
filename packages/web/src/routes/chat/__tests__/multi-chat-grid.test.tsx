@@ -96,4 +96,39 @@ describe('MultiChatGrid close labels', () => {
       pane.getAttribute('data-chat-grid-pane')
     ))).toEqual(['a', 'b', 'composer'])
   })
+
+  it('shows an open picker as the only pane on mobile', () => {
+    const noop = vi.fn()
+    render(
+      <MultiChatGrid
+        sessionIds={['a']}
+        focusedId="a"
+        primary={{ paneKey: 'a', sessionId: 'a', pendingUserMessage: undefined, initialEmployee: undefined, onSessionCreated: noop, viewMode: 'chat', focusTrigger: 0, delegatedActivity: undefined }}
+        viewport={{ width: 390, height: 844, mobile: true }}
+        metaById={{}}
+        sessionTitleFor={() => undefined}
+        runtime={{ portalName: 'Gateway', subscribe: () => noop, events: [] }}
+        scrollTopFor={() => undefined}
+        viewModeFor={() => 'chat'}
+        focusTriggerFor={() => 0}
+        delegatedActivityFor={() => undefined}
+        onFocus={noop}
+        onRemove={noop}
+        onMeta={noop}
+        onNewMeta={noop}
+        onOpenFile={noop}
+        onPeek={noop}
+        onNewChat={noop}
+        onRefresh={noop}
+        onShortcutsClick={noop}
+        onContentReady={noop}
+        onStartFreshChat={async () => {}}
+        pickerPane={{ paneKey: 'picker', onPick: noop, onSessionCreated: noop, onClose: noop }}
+      />,
+    )
+
+    expect(Array.from(document.querySelectorAll('[data-chat-grid-pane]')).map((pane) => (
+      pane.getAttribute('data-chat-grid-pane')
+    ))).toEqual(['picker'])
+  })
 })

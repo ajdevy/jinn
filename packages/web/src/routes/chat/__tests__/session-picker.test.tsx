@@ -100,6 +100,15 @@ describe('SessionPicker', () => {
     expect(screen.queryByText('Planning chat 30')).toBeNull()
   })
 
+  it('clears the floating mobile header while keeping desktop spacing compact', () => {
+    pickerData.sessions = [session(0)]
+    renderPicker()
+
+    const searchRegion = screen.getByTestId('session-picker-search')
+    expect(searchRegion.className).toContain('pt-[calc(var(--safe-top)+var(--space-12)+var(--space-2))]')
+    expect(searchRegion.className).toContain('lg:pt-[var(--space-3)]')
+  })
+
   it('picks the active search result with Arrow keys and Enter', async () => {
     pickerData.sessions = [session(1), session(12)]
     const { onPick } = renderPicker()

@@ -77,8 +77,23 @@ describe('chat working set', () => {
 
     const next = insertWorkingSetSession(initial, 'new', 2, 4)
 
-    expect(next.sessionIds).toEqual(['b', 'new', 'c', 'd'])
+    expect(next.sessionIds).toEqual(['a', 'b', 'new', 'd'])
     expect(next.focusedId).toBe('new')
+  })
+
+  it('keeps the previewed insertion slot when a full grid evicts an older pane', () => {
+    const initial = createWorkingSet(['a', 'b', 'c', 'd'], 'd')
+
+    const next = insertWorkingSetSession(initial, 'new', 1, 4)
+
+    expect(next.sessionIds).toEqual(['a', 'new', 'c', 'd'])
+    expect(next.sessionIds[1]).toBe('new')
+  })
+
+  it('returns an empty working set when insertion capacity is zero', () => {
+    const initial = createWorkingSet(['a', 'b'], 'b')
+
+    expect(insertWorkingSetSession(initial, 'new', 1, 0)).toEqual(createWorkingSet())
   })
 
   it('ignores blank ids and non-integer insertion slots', () => {

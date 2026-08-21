@@ -164,4 +164,21 @@ describe('chat grid add paths', () => {
 
     await waitFor(() => expect(JSON.parse(screen.getByTestId('working-set').textContent ?? '').sessionIds).toEqual(['a', 'c', 'b']))
   })
+
+  it('keeps the previewed index when a full grid evicts a pane', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'chat-grid') return new DOMRect(0, 0, 400, 100)
+      const index = ['a', 'b', 'c', 'd'].indexOf(this.dataset.chatGridPane ?? '')
+      return new DOMRect(index * 100, 0, 100, 100)
+    })
+    render(<AddHarness initial={createWorkingSet(['a', 'b', 'c', 'd'], 'd')} />)
+    const surface = screen.getByTestId('drop-surface')
+    const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'new')
+    fireDragAt(surface, 'dragOver', { x: 90, y: 50 }, dataTransfer)
+    expect(screen.getByTestId('chat-grid-drop-zone').dataset.dropIndex).toBe('1')
+
+    fireDragAt(surface, 'drop', { x: 90, y: 50 }, dataTransfer)
+
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('working-set').textContent ?? '').sessionIds).toEqual(['a', 'new', 'c', 'd']))
+  })
 })
