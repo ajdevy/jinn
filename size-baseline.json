@@ -1571,14 +1571,14 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 355,
+      "lines": 318,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 379,
+      "lines": 346,
       "exempt": [
         "complexity",
         "max-lines-per-function"

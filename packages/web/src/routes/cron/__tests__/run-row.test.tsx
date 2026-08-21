@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { describe, expect, it } from "vitest"
-import { RunRow } from "../detail"
+import { RunRow } from "../run-row"
 import type { CronRunWire } from "../shared"
 
 const NOW = new Date("2026-08-01T04:00:00.000Z")
