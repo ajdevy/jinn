@@ -1,11 +1,27 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 /** Resolve the current instance home at call time, before eager path constants. */
-export function resolveJinnHome(): string {
-  if (process.env.JINN_HOME) return path.resolve(process.env.JINN_HOME);
-  const instance = process.env.JINN_INSTANCE || "jinn";
+export function resolveJinnHome(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.JINN_HOME) return path.resolve(env.JINN_HOME);
+  const instance = env.JINN_INSTANCE || "jinn";
   return path.resolve(path.join(os.homedir(), `.${instance}`));
+}
+
+/** The comparable identity of a home: two paths naming one directory resolve equal. */
+export function resolveHomeIdentity(home: string): string {
+  const absolute = path.resolve(home);
+  try {
+    return fs.realpathSync.native(absolute);
+  } catch {
+    const parent = path.dirname(absolute);
+    try {
+      return path.join(fs.realpathSync.native(parent), path.basename(absolute));
+    } catch {
+      return absolute;
+    }
+  }
 }
 
 /** Resolve Claude Code's config dir at call time; CLAUDE_CONFIG_DIR moves credentials,

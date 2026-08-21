@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { cloneCurrentTailscaleServe, type AccessProvisionResult, type ExecFileFn } from "./access.js";
 import { ensureGatewayAuthToken } from "../gateway/auth.js";
 import { patchConfigFile, ConfigDocumentError } from "../shared/config-document.js";
+import { buildSandboxChildEnv } from "../shared/sandbox-env.js";
 import {
   loadInstances,
   saveInstances,
@@ -198,19 +199,17 @@ export async function createInstance(
   );
   const execFile = dependencies.execFile ?? defaultExecFile;
   const cliEntry = dependencies.cliEntry ?? resolveCliEntry();
+  // The child is a different instance, so it inherits none of this one's identity.
+  // JINN_HOST/JINN_PORT name THIS gateway's binding — compose sets JINN_PORT for the
+  // whole service — and the child was allocated a port of its own. Inherited, it starts
+  // on ours instead, fails the port-ownership check, and the rollback below deletes the
+  // workspace it had just created. The session variables are wrong the same way:
+  // setup would run as a session of the instance that spawned it.
   const childEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    JINN_HOME: home,
-    JINN_INSTANCE: naming.instanceName,
+    ...buildSandboxChildEnv({ home, instance: naming.instanceName }),
     JINN_SETUP_NAME: naming.displayName,
     JINN_NO_OPEN: "1",
   };
-  // JINN_HOST/JINN_PORT name THIS gateway's binding — compose sets JINN_PORT for the
-  // whole service — and the child is a different instance on a port just allocated for
-  // it. Inherited, it starts on ours instead, fails the port-ownership check, and the
-  // rollback below deletes the workspace it had just created.
-  delete childEnv.JINN_HOST;
-  delete childEnv.JINN_PORT;
 
   try {
     await execFile(process.execPath, [cliEntry, "setup"], { env: childEnv, timeout: 120_000 });

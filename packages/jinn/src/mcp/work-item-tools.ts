@@ -3,9 +3,9 @@ import { labelTools } from "./label-tools.js";
 import { assertIdentity, gatewayFailure, mutationResult } from "./work-item-result.js";
 import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
+import { PARKED_UNTIL_ERROR, UNBLOCK_HINT_ERROR, parseParkedUntil, parseUnblockHint } from "../work-items/stop-cause.js";
 import { parseTodoId } from "../work-items/id.js";
 import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
-import { validateVerifyPolicy, type VerifyPolicy } from "../work-items/verify-policy.js";
 import {
   clampInt,
   FILTER_CHAR_CAP,
@@ -19,6 +19,7 @@ import {
   requireTodoId,
   requireSkillNames,
   requireTodoIdField,
+  validatedVerifyPolicy,
 } from "./work-item-args.js";
 
 export const WORK_ITEM_SEARCH_LIMIT_MAX = 100;
@@ -85,15 +86,6 @@ function rejectApprovalFields(args: Record<string, unknown>, toolName: string): 
       `approval fields (${forbidden.join(", ")}) cannot be attached by ${toolName} — approvals are routed gates; request/decide them through the separate approval authority surface, not Todo creation/status updates.`,
     );
   }
-}
-
-/** The declared verify policy, refused with the same named error the gateway
- *  route would give it, or undefined when the caller declared none. */
-function validatedVerifyPolicy(args: Record<string, unknown>): VerifyPolicy | null | undefined {
-  if (args.verifyPolicy === undefined || args.verifyPolicy === null) return undefined;
-  const validated = validateVerifyPolicy(args.verifyPolicy);
-  if (!validated.ok) throw new JinnMcpToolError(validated.error);
-  return validated.value;
 }
 
 /** PATCH the metadata pen at a freshly read version, retrying ONCE on a concurrent
@@ -303,8 +295,10 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         blockKind: { type: "string", enum: [...BLOCK_KINDS], description: "`dependency` re-queues it; the rest wait on a human." },
         note: { type: "string" },
         asOperator: { type: "boolean", description: "Record the move as the operator's. COO only." },
-        cascade: { type: "boolean", description: "With `done`, close its open sub-tasks too. Operator surface only." },
-        acknowledgeEscalated: { type: "boolean", description: "Let a cascade close an escalated sub-task." },
+        cascade: { type: "boolean", description: "With `done`, close open sub-tasks. Operator only." },
+        acknowledgeEscalated: { type: "boolean", description: "Let it close an escalated sub-task." },
+        parkedUntil: { type: "string" },
+        unblockHint: { type: "object", description: "{what, who}. Required to escalate." },
         verifyPolicy: { type: "object" },
       },
       required: ["id", "status"],
@@ -318,13 +312,16 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       if (!(AGENT_UPDATE_STATUSES as readonly string[]).includes(rawStatus)) throw new JinnMcpToolError(`status must be one of ${AGENT_UPDATE_STATUSES.join(", ")}; cancellation/other lifecycle edits are human surface decisions.`);
       const blockKind = parseBlockKind(args.blockKind);
       if (blockKind === null) throw new JinnMcpToolError(`${BLOCK_KIND_ERROR}.`);
+      // The route's validator AND its words verbatim: a trailing full stop is enough to make them unequal.
+      if (parseUnblockHint(args.unblockHint) === null) throw new JinnMcpToolError(UNBLOCK_HINT_ERROR);
+      if (parseParkedUntil(args.parkedUntil) === null) throw new JinnMcpToolError(`${PARKED_UNTIL_ERROR}.`);
       const note = optionalString(args, "note", WORK_ITEM_NOTE_CHAR_CAP);
       // Where a Todo's product lands is metadata, not a lifecycle edge: it rides the same
       // pen the web surface writes it through, and rides it first, so a refused declaration
       // cannot move the status — and a refused move says what did land, not "nothing happened".
       const verifyPolicy = validatedVerifyPolicy(args);
       if (verifyPolicy !== undefined) await patchWorkItem(ctx, id, { verifyPolicy }, `updating work item "${id}"`);
-      const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };
+      const payload: Record<string, unknown> = { status: rawStatus, ...(blockKind ? { blockKind } : {}), ...(note !== undefined ? { note } : {}), ...Object.fromEntries((["asOperator", "cascade", "acknowledgeEscalated", "parkedUntil", "unblockHint"] as const).filter((key) => args[key] !== undefined).map((key) => [key, args[key]])) };
       const { status, body } = await gatewayRequest(ctx, "POST", `/api/work-items/${encodeURIComponent(id)}/status`, payload);
       if (status >= 400) throw new JinnMcpToolError(`${gatewayFailure(`updating work item "${id}"`, status, body).message}${verifyPolicy === undefined ? "" : " — the deliverable declaration was written and stands; only the status move failed, so a retry does not need to carry verifyPolicy again"}`);
       return mutationResult(body, "Todo status updated.");
@@ -445,7 +442,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
 
   const comment: JinnMcpTool = {
     name: "comment_work_item",
-    description: "Comment on a Todo; supports threaded replies and local attachments.",
+    description: "Comment on a Todo.",
     inputSchema: {
       type: "object",
       properties: {
@@ -624,7 +621,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
 
   const dispatchConfig: JinnMcpTool = {
     name: "set_work_item_dispatch",
-    description: "Set how a Todo's NEXT attempt runs: skills to preload, engine/model override. Safe while executing.",
+    description: "Set how a Todo's NEXT attempt runs. Safe while executing.",
     inputSchema: {
       type: "object",
       properties: {

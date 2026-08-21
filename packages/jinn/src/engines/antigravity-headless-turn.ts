@@ -78,7 +78,7 @@ export class AntigravityHeadlessTurn {
     proc.on("error", this.onError);
     this.hardTimeout = setTimeout(this.onTimeout, ANTIGRAVITY_TURN_TIMEOUT_MS);
     this.hardTimeout.unref?.();
-    proc.stdin!.end(`${JSON.stringify({ type: "user", message: this.opts.prompt })}\n`);
+    proc.stdin!.end(`${JSON.stringify({ event: "user", message: { content: this.opts.prompt } })}\n`);
   }
 
   private onStdout = (chunk: Buffer): void => {

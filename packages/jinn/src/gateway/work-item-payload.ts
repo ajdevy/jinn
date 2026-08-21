@@ -5,6 +5,8 @@ import { getWorkItemLabels, type Label } from "../work-items/labels.js";
 import { listApprovals } from "../work-items/approvals.js";
 import { listWorkItemRuns } from "../work-items/runs.js";
 import { getTodoDispatchConfig } from "../work-items/dispatch-config.js";
+import { readStopCause, type TodoStopCause } from "../work-items/stop-cause.js";
+import { initDb } from "../shared/db.js";
 
 /** The wire projections of a Todo the API routes return: one compact shape for
  *  lists, one enriched shape for the board, one full shape for the detail route. */
@@ -43,8 +45,19 @@ export function compactWorkItem(
     approvalTarget: item.approvalTarget,
     approvalEscalatedAt: item.approvalEscalatedAt,
     sessionRef: sessionRef(item),
+    ...stopCause(item),
     updatedAt: item.updatedAt,
   };
+}
+
+/** PLA-157: why a stopped Todo stopped, flattened onto the compact row so the
+ *  board can tell a clock-wait from a you-wait. Read only for the two statuses
+ *  that can carry one — a page is mostly rows that never stopped — and absent
+ *  entirely once the park has passed, so no surface has to re-check the clock
+ *  to avoid showing a countdown that already ran out. */
+function stopCause(item: WorkItem): TodoStopCause {
+  if (item.status !== "blocked" && item.status !== "escalated") return {};
+  return readStopCause(initDb(), item.id) ?? {};
 }
 
 function sessionRef(item: WorkItem): Record<string, string> | null {

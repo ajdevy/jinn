@@ -55,6 +55,7 @@ let now: string;
 
 function todoEvent(id: string, actor: string, armedAsDelegate: string | null): WorkflowTodoStatusEvent {
   return { id, workItemId: "ICI-1", fromStatus: "backlog", toStatus: "assigned", actor, armedAsDelegate,
+    quotaWindowDecided: false,
     item: { source: "human", department: "platform", assignee: "worker", labels: [],
       live: { assignee: "worker", parentId: null, status: "assigned" } } };
 }

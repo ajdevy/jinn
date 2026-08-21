@@ -17,6 +17,11 @@ export interface WorkflowTodoStatusEvent {
    *  null for every other event. It is written at the moment of the move, so a
    *  later change to the delegate list never rewrites what already happened. */
   armedAsDelegate: string | null;
+  /** Whether the availability resume sweep wrote this move, having already
+   *  settled from the failure's own reset when the quota window reopens. Written
+   *  at the moment of the move, so nothing read later can claim a window nobody
+   *  waited out. */
+  quotaWindowDecided: boolean;
   /** `source`, `department`, and `assignee` are the provenance snapshot frozen
    *  into the audit row when the Todo moved. `labels` and `live` are read at
    *  replay time instead: labels, assignment, and parentage all change
@@ -161,7 +166,8 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
   if (!isTodoId(row.work_item_id)) return null;
   if (!row.detail) return null;
   try {
-    const detail = JSON.parse(row.detail) as { todoProvenance?: unknown; armedAsDelegate?: unknown };
+    const detail = JSON.parse(row.detail) as
+      { todoProvenance?: unknown; armedAsDelegate?: unknown; availabilityResume?: unknown };
     const snapshot = detail.todoProvenance;
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
     const value = snapshot as Record<string, unknown>;
@@ -177,6 +183,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
       toStatus: row.to_status,
       actor: row.actor,
       armedAsDelegate: typeof detail.armedAsDelegate === 'string' ? detail.armedAsDelegate : null,
+      quotaWindowDecided: detail.availabilityResume === true,
       item: {
         source: value.source as WorkItemSource,
         department: value.department as string | null,

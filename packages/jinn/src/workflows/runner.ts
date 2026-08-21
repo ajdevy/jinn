@@ -14,7 +14,6 @@ import type {
   EndNode,
   JsonValue,
   ApprovalNode,
-  TriggerNode,
   WaitNode,
   WorkflowCallNode,
   WorkflowNode,
@@ -38,6 +37,7 @@ import type {
   WorkflowRunDetail,
 } from "./runtime.js";
 import type { WorkflowSessionExecutor } from "./session-executor.js";
+import { resolveRearmTarget } from "./rearm-target.js";
 import { todoApprovalRef } from "./todo-approval-ref.js";
 import { openTodoRun, settleTodoRun } from "./todo-run-ledger.js";
 import type { WorkflowRearmTarget, WorkflowRunReflection, WorkflowTodoApprovalMirror, WorkflowTodoDispatchOverride,
@@ -501,24 +501,8 @@ export class WorkflowRunner {
     }
   }
 
-  /** Where a re-armed Todo has to land, read off the CURRENT definition rather
-   *  than the snapshot this run started with: a workflow disabled or retired
-   *  since the run began fires nothing, and a Todo left sitting at its trigger
-   *  status would look queued forever. The status and the filters come from the
-   *  trigger, never from a hardcoded default — every Todo-triggered workflow gets
-   *  this, not one of them. */
   private rearmTarget(workflowId: string): WorkflowRearmTarget {
-    const current = this.options.repository.getDefinition(workflowId);
-    if (!current) return { unavailable: `workflow \`${workflowId}\` no longer exists` };
-    if (current.retiredAt !== undefined) return { unavailable: `workflow \`${workflowId}\` is retired` };
-    if (!current.enabled) return { unavailable: `workflow \`${workflowId}\` is disabled` };
-    const trigger = current.nodes.find((node): node is TriggerNode =>
-      node.type === "trigger" && node.config.kind === "todo-status");
-    if (trigger?.config.kind !== "todo-status") {
-      return { unavailable: `workflow \`${workflowId}\` has no Todo trigger to re-arm` };
-    }
-    const { status, actor, label } = trigger.config;
-    return { status, ...(actor !== undefined ? { actor } : {}), ...(label !== undefined ? { label } : {}) };
+    return resolveRearmTarget(this.options.repository.getDefinition(workflowId), workflowId);
   }
 
   /** Attribute a phase session to the run's bound Todo, so the Todo's derived

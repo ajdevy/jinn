@@ -3190,7 +3190,7 @@ export async function handleApiRequest(
       }
       const fields = parseStatusUpdateFields(body, target, isOperatorPut);
       if (!fields.ok) return json(res, { error: fields.error }, fields.status);
-      const { note, blockKind, cascade, acknowledgeEscalated } = fields;
+      const { note, blockKind, cascade, acknowledgeEscalated, stopCause } = fields;
       const item = getWorkItem(params.id);
       if (!item) return notFound(res);
       const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus);
@@ -3244,7 +3244,7 @@ export async function handleApiRequest(
               agent: !isOperatorPut || undefined,
               callerSessionId: caller.kind === "session" ? caller.callerId : undefined, ...(blockKind ? { blockKind } : {}),
               ...(cascade ? { cascade: true } : {}),
-              ...(acknowledgeEscalated ? { acknowledgeEscalated: true } : {}),
+              ...(acknowledgeEscalated ? { acknowledgeEscalated: true } : {}), ...(stopCause ? { stopCause } : {}),
               detail,
             });
         const activityReceiptId = persistTodoMutationActivity(

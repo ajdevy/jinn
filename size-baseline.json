@@ -403,7 +403,7 @@
       ]
     },
     "packages/jinn/src/gateway/lifecycle.ts": {
-      "lines": 750,
+      "lines": 725,
       "exempt": [
         "complexity",
         "max-depth",
@@ -622,7 +622,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 669,
+      "lines": 666,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -913,7 +913,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 975,
+      "lines": 965,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -933,7 +933,7 @@
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 311,
+      "lines": 302,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1048,7 +1048,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1060,
+      "lines": 1044,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1722,7 +1722,7 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 338,
+      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"

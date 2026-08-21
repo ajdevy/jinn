@@ -223,8 +223,11 @@ export class WorkflowTriggerService {
     // re-dispatch lane — status-driven pickup, and workflow re-arm one hop later
     // through the status transition it writes — and a Todo a guard refuses must
     // stay free for a human to dispatch by hand. One event, one audited hold,
-    // however many definitions were about to run on it.
-    const guard = checkRespawnGuard(event.workItemId);
+    // however many definitions were about to run on it. A re-arm the availability
+    // sweep wrote arrives with the quota window already settled from the
+    // failure's own reset, so `rate_limit_cooldown` does not get to answer that
+    // question again generically; the other three guards still do.
+    const guard = checkRespawnGuard(event.workItemId, undefined, { quotaWindowDecided: event.quotaWindowDecided });
     if (guard.state === "held") {
       appendRespawnGuardHold(event.workItemId, guard, owner);
       return `the ${guard.guard} guard holds it: ${guard.reason}`;

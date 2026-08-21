@@ -89,7 +89,7 @@ describe("AntigravityHeadlessEngine process ownership", () => {
     expect(call.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
     expect(call.args.join(" ")).not.toContain(hostilePrompt);
     expect(call.proc.stdinWrites).toEqual([
-      `${JSON.stringify({ type: "user", message: hostilePrompt })}\n`,
+      `${JSON.stringify({ event: "user", message: { content: hostilePrompt } })}\n`,
     ]);
     engine.kill("jinn-session-windows", "test cleanup");
     expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
