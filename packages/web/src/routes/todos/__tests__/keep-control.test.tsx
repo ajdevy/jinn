@@ -75,7 +75,7 @@ describe("the keep toggle", () => {
     const off = screen.getByTestId("keep-toggle-PLA-4")
     expect(off.className).not.toContain("opacity-0")
     expect(off.className).not.toContain("group-hover:")
-    expect(off.className).toContain("text-[var(--text-quaternary)]")
+    expect(off.className).toContain("text-[var(--text-tertiary)]") // 3:1 on the card in both themes; quaternary measured 1.9:1
 
     rerender(<KeepToggle id="PLA-4" kept onToggle={() => {}} />)
     const on = screen.getByTestId("keep-toggle-PLA-4")

@@ -14,8 +14,9 @@ import { departmentTitle } from "./board-switcher"
 /**
  * The toggle. It shows at rest wherever it is mounted: an affordance nobody
  * can see is one nobody uses, and hover-gating it hid the whole gesture on the
- * board where it matters most. Unkept it sits at the card's quietest ink and
- * strengthens under the pointer; kept it is the accent, filled. The button
+ * board where it matters most. Unkept it rests at `--text-tertiary`, which
+ * clears 3:1 on the card in both themes where the quietest ink measured 1.9:1,
+ * and strengthens under the pointer; kept it is the accent, filled. The button
  * occupies the same box in every state, so a card cannot resize as the pointer
  * crosses it.
  */
@@ -38,7 +39,7 @@ export function KeepToggle(
         "focus-ring grid size-[22px] flex-none place-items-center rounded-md outline-none transition-colors duration-150",
         kept
           ? "text-[var(--accent)] hover:bg-[var(--accent-fill)]"
-          : "text-[var(--text-quaternary)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-tertiary)]",
+          : "text-[var(--text-tertiary)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)]",
         className,
       ].join(" ")}
     >
