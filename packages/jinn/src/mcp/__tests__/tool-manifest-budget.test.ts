@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5932;
+const MAX_MANIFEST_TOKENS = 5952;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -140,11 +140,26 @@ const ATTESTED = {
   // session-tools.test.ts pin them, so they are contract, not prose.
   // `parkedUntil` carries no description of its own because the refusal names
   // the format at the moment it matters. The remaining 3 are the fields' honest
-  // cost and they put Pi exactly ON the fixed ceiling: the next addition to this
-  // surface has to buy its room BEFORE it spends any.
-  rpc: { tokens: 5426, sha256: "cfc1ec37b2d780e05bfd8918657a2f369a57928b00866f9638bd3a9e1e256cf6" },
-  pi: { tokens: 5932, sha256: "b4ea785b70c1806de3f477ade7678704dc21bde239b29000a78e74c69cb948b2" },
-  openai: { tokens: 5631, sha256: "42f69af16a356e3b568fd268a223a1f2495b5195677601557835d398f8d166b5" },
+  // cost.
+  // Rebased again for `mode` on label_work_item (PLA-155). Replace was the only
+  // mode this tool had, so an agent told to drop one label had to re-send every
+  // other label from memory to keep it — and a Todo that lost its arming label
+  // that way sits at its arming status forever, because its lane trigger filters
+  // on that label. The whole addition is one enum property and six words: `mode`
+  // is `{"type":"string","enum":["add","remove"]}` at 14 tokens, and the tool's
+  // own description went from "Set existing Todo labels." to "Set Todo labels;
+  // mode add/remove keeps the rest." for 6 more. The alternative shape — sibling
+  // `add` and `remove` arrays — cost 8 tokens more and let a caller name two
+  // modes at once. No enum is restated in prose anywhere on this surface any more
+  // and no field list duplicates its own properties, so unlike the earlier
+  // rebases there was nothing dead left to buy the 20 back from; the ceiling
+  // moves by exactly that. PLA-157's 3 land in the same release and take the
+  // headroom the move would otherwise have left, so Pi sits exactly ON the moved
+  // ceiling: the next addition to this surface has to buy its room BEFORE it
+  // spends any.
+  rpc: { tokens: 5446, sha256: "cfc8b9a7df51e4b28ac4382a9bc94a7b5bc23309fbd57769daa4858107fe30b5" },
+  pi: { tokens: 5952, sha256: "05bc26e60d6178aa96db272183d4fea17cf3bc91b79b3e91fdaf4840b70ce131" },
+  openai: { tokens: 5651, sha256: "90f1818ae5a7e8e9c4a2e9094dd395e729630835a6b69ddb9fc0897b0a351e54" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

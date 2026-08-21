@@ -49,6 +49,7 @@ const runner = { start: async (runId: string) => ({ id: runId, status: "complete
 const feed: WorkflowTodoEventFeed = {
   claimEvent: (_id, definitionIds) => ({ state: "acquired", definitionIds }),
   completeEvent: (_id: string, _outcomes: WorkflowTodoEventClaimOutcome[]) => {},
+  deferEvent: (_id: string, _definitionIds: string[], _outcomes: WorkflowTodoEventClaimOutcome[]) => {},
   releaseEvent: () => {},
   listPendingEvents: () => pending,
 };
@@ -59,7 +60,8 @@ function event(id: string, workItemId: string): WorkflowTodoStatusEvent {
   return {
     id, workItemId, fromStatus: "executing", toStatus: "in_review", actor: "operator", armedAsDelegate: null,
     quotaWindowDecided: false,
-    item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
+    item: { source: "human", department: null, assignee: null, labels: [],
+      live: { assignee: null, parentId: null, status: "in_review" } },
   };
 }
 

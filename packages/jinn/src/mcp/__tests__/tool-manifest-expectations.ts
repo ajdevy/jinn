@@ -164,6 +164,7 @@ export const EXPECTED_ENUMS = {
   get_workflow_run: [["properties.view", ["full"]]],
   link_work_items: [["properties.kind", ["blocks", "relates", "duplicates"]]],
   list_sessions: [["properties.scope", ["children", "employee", "recent", "pinned"]]],
+  label_work_item: [["properties.mode", ["add", "remove"]]],
   list_experiments: [["properties.status", ["running", "concluded"]]],
   list_work_items: [
     ["properties.status", ["backlog", "assigned", "executing", "in_review", "done", "blocked", "escalated", "cancelled"]],

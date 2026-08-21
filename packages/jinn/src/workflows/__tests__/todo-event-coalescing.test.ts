@@ -17,10 +17,10 @@ type Triggers = typeof import("../trigger-service.js");
 let store: Store;
 let triggers: Triggers;
 
-function definitionWith(id: string, label?: string): WorkflowDefinition {
+function definitionWith(id: string, filter: { label?: string; department?: string } = {}): WorkflowDefinition {
   const trigger: WorkflowNode = {
     id: "start", type: "trigger", name: "Todo",
-    config: { kind: "todo-status", status: "in_review", ...(label === undefined ? {} : { label }) },
+    config: { kind: "todo-status", status: "in_review", ...filter },
   };
   return { id, title: id, revision: 1, enabled: true, nodes: [trigger], edges: [] } as unknown as WorkflowDefinition;
 }
@@ -29,6 +29,7 @@ let definitions: WorkflowDefinition[] = [];
 let pending: WorkflowTodoStatusEvent[] = [];
 const started: Array<{ workflowId: string; idempotencyKey: string; payload: unknown }> = [];
 const completed: Array<{ eventId: string; outcomes: WorkflowTodoEventClaimOutcome[] }> = [];
+const deferred = new Map<string, { definitionIds: string[]; outcomes: WorkflowTodoEventClaimOutcome[] }>();
 
 const repository = {
   listDefinitions: () => ({ items: definitions.map((item) => ({ id: item.id })), nextCursor: null }),
@@ -44,12 +45,20 @@ const repository = {
 
 const runner = { start: async (runId: string) => ({ id: runId, status: "completed" }) } as unknown as WorkflowRunner;
 
-/** Every event is fresh to the feed, so nothing but the coalescing under test
- *  can stop one of them firing. `completeEvent` is the spy: it is where the
- *  outcome recorded against each declined event shows up. */
+/** Every event is fresh to the feed unless a previous sweep deferred it, so
+ *  nothing but the coalescing and the label deferral under test can stop one of
+ *  them firing. `completeEvent` is the spy: it is where the outcome recorded
+ *  against each declined event shows up. A deferred event keeps its claim, so
+ *  re-claiming it hands back the definitions the deferral put back. */
 const feed: WorkflowTodoEventFeed = {
-  claimEvent: (_id, definitionIds) => ({ state: "acquired", definitionIds }),
-  completeEvent: (eventId, outcomes) => { completed.push({ eventId, outcomes }); },
+  claimEvent: (eventId, definitionIds) => {
+    const held = deferred.get(eventId);
+    return held === undefined
+      ? { state: "acquired", definitionIds }
+      : { state: "acquired", definitionIds: held.definitionIds, deferred: true };
+  },
+  completeEvent: (eventId, outcomes) => { deferred.delete(eventId); completed.push({ eventId, outcomes }); },
+  deferEvent: (eventId, definitionIds, outcomes) => { deferred.set(eventId, { definitionIds, outcomes }); },
   releaseEvent: () => {},
   listPendingEvents: () => pending,
 };
@@ -61,7 +70,7 @@ function event(id: string, workItemId: string, labels: string[] = []): WorkflowT
     item: {
       source: "human", department: null, assignee: null,
       labels: labels.map((name) => ({ id: `lbl_${name}`, name })),
-      live: { assignee: null, parentId: null },
+      live: { assignee: null, parentId: null, status: "in_review" },
     },
   };
 }
@@ -84,6 +93,7 @@ beforeAll(async () => {
 beforeEach(() => {
   started.length = 0;
   completed.length = 0;
+  deferred.clear();
   pending = [];
   definitions = [definitionWith("claim-flow")];
 });
@@ -125,7 +135,7 @@ describe("coalescing a backlog of pending Todo events", () => {
   });
 
   it("still starts an event superseded for one workflow when it is the newest for another", async () => {
-    definitions = [definitionWith("unfiltered"), definitionWith("build-only", "build")];
+    definitions = [definitionWith("unfiltered"), definitionWith("build-only", { label: "build" })];
     // A Todo whose row is gone cannot be double-worked, so the Todo-wide claim
     // never holds the second fire and the per-definition coalescing is what is
     // observed on its own. The test below is the same burst on a live Todo,
@@ -146,7 +156,7 @@ describe("coalescing a backlog of pending Todo events", () => {
   });
 
   it("lets the Todo-wide claim, not the coalescing, decide how much of a live burst runs", async () => {
-    definitions = [definitionWith("unfiltered"), definitionWith("build-only", "build")];
+    definitions = [definitionWith("unfiltered"), definitionWith("build-only", { label: "build" })];
     const item = store.createWorkItem({ title: "different winners" });
     pending = [event("event-1", item.id, ["build"]), event("event-2", item.id)];
 
@@ -171,18 +181,24 @@ describe("coalescing a backlog of pending Todo events", () => {
     ]);
   });
 
-  it("leaves a filtered-out event suppressed with its own reason, and the survivor's payload alone", async () => {
-    definitions = [definitionWith("build-only", "build")];
+  it("defers a label-refused event rather than declining it, and leaves the survivor's payload alone", async () => {
+    definitions = [definitionWith("build-only", { label: "build" })];
     const item = store.createWorkItem({ title: "one labelled, one not" });
     pending = [event("event-1", item.id), event("event-2", item.id, ["build"])];
 
     await sweep();
 
-    expect(outcomesFor("event-1")).toEqual([{
-      workflowId: "build-only",
-      outcome: "suppressed",
-      detail: "Todo event event-1 suppressed: label filter build does not match.",
-    }]);
+    // event-2 is newer and qualifies, so supersession would have declined event-1
+    // had the label not held it back first: deferral runs upstream of that gate.
+    expect(completed.map((entry) => entry.eventId)).not.toContain("event-1");
+    expect(deferred.get("event-1")).toEqual({
+      definitionIds: ["build-only"],
+      outcomes: [{
+        workflowId: "build-only",
+        outcome: "suppressed",
+        detail: "Todo event event-1 suppressed: label filter build does not match.",
+      }],
+    });
     expect(started).toEqual([{
       workflowId: "build-only",
       idempotencyKey: "todo:event-2",
@@ -190,6 +206,55 @@ describe("coalescing a backlog of pending Todo events", () => {
         todoId: item.id, fromStatus: "executing", toStatus: "in_review", actor: "operator",
         source: "human", department: null, assignee: null, labels: ["build"], labelList: "build",
       },
+    }]);
+  });
+
+  it("seals an event a filter other than the label refused", async () => {
+    definitions = [definitionWith("platform-only", { department: "platform" })];
+    const item = store.createWorkItem({ title: "wrong department" });
+    pending = [event("event-1", item.id), event("event-2", item.id)];
+
+    await sweep();
+
+    expect(deferred.has("event-1")).toBe(false);
+    expect(outcomesFor("event-1")).toEqual([{
+      workflowId: "platform-only",
+      outcome: "suppressed",
+      detail: "Todo event event-1 suppressed: department filter platform does not match.",
+    }]);
+    expect(started).toEqual([]);
+  });
+
+  it("starts a released event when it is still the newest that qualifies", async () => {
+    definitions = [definitionWith("build-only", { label: "build" })];
+    const item = store.createWorkItem({ title: "label lands late" });
+    pending = [event("event-1", item.id)];
+    await sweep();
+    expect(deferred.has("event-1")).toBe(true);
+    expect(started).toEqual([]);
+
+    pending = [event("event-1", item.id, ["build"])];
+    await sweep();
+
+    expect(keys()).toEqual(["todo:event-1"]);
+    expect(outcomesFor("event-1").map((outcome) => outcome.outcome)).toEqual(["started"]);
+  });
+
+  it("declines a released event a newer one beat, and says it had been waiting", async () => {
+    definitions = [definitionWith("build-only", { label: "build" })];
+    const item = store.createWorkItem({ title: "label lands too late" });
+    pending = [event("event-1", item.id)];
+    await sweep();
+
+    pending = [event("event-1", item.id, ["build"]), event("event-2", item.id, ["build"])];
+    await sweep();
+
+    expect(keys()).toEqual(["todo:event-2"]);
+    expect(outcomesFor("event-1")).toEqual([{
+      workflowId: "build-only",
+      outcome: "deferred-then-superseded",
+      detail: "Todo event event-1 waited for its label, then was superseded by event-2,"
+        + ` a newer in_review event on ${item.id}.`,
     }]);
   });
 

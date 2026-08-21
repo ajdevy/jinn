@@ -139,6 +139,7 @@ import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAtta
 import { streamFile } from "./byte-range.js";
 import { selectAttachmentVariant } from "./attachment-variants.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
+import { applyLabelChange, parseLabelChange } from "./work-item-label-change.js";
 import { resolveMessageAudiences, speechContextApplies } from "./speech-context.js";
 import { isJsonMediaType } from "./media-type.js";
 import { forwardWorkflowTodoComment } from "./workflow-todo-surface.js";
@@ -205,6 +206,7 @@ import {
   labelSets,
   listLabels,
   setWorkItemLabels,
+  TODO_LABELS_MAX,
   type Label,
 } from "../work-items/labels.js";
 import {
@@ -307,8 +309,6 @@ const HOOK_BODY_MAX_BYTES = 64 * 1024;
 const AUTH_BODY_MAX_BYTES = 16 * 1024;
 /** Operator Todo PATCH cap, measured as raw UTF-8 request bytes including JSON overhead. */
 export const TODO_EDIT_BODY_MAX_BYTES = 64 * 1024;
-/** HTTP parity with the MCP label_work_item cap (slice-3 review N1). */
-export const TODO_LABELS_MAX = 100;
 const SESSION_LIST_PER_GROUP = 50;
 const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000;
 function headerValue(req: HttpRequest, name: string): string | undefined {
@@ -3894,9 +3894,9 @@ export async function handleApiRequest(
       return json(res, { dispatchConfig: result.config });
     }
 
-    // PUT /api/work-items/:id/labels — replace the label set (operator, item
-    // creator, or assignee — the pre-slice-4 subset of edit authority). Only
-    // EXISTING labels are accepted; nothing is created implicitly.
+    // PUT /api/work-items/:id/labels — `labels` replaces the whole set, `add`/`remove`
+    // touch only what they name (operator, item creator, or assignee — the pre-slice-4
+    // subset of edit authority). Only EXISTING labels are accepted, none created implicitly.
     params = matchRoute("/api/work-items/:id/labels", pathname);
     if (method === "PUT" && params) {
       const caller = resolveWorkItemCaller(req, res, context);
@@ -3910,22 +3910,14 @@ export async function handleApiRequest(
         item.createdBy === workItemActor(caller) ||
         (employee !== null && (item.assignee === employee || item.createdBy === employee));
       if (!allowed) {
-        return json(res, { error: "replacing a Todo's labels requires the operator, the item creator, or the assignee" }, 403);
+        return json(res, { error: "changing a Todo's labels requires the operator, the item creator, or the assignee" }, 403);
       }
       const parsed = await readJsonBody(req, res);
       if (!parsed.ok) return;
-      if (!parsed.body || typeof parsed.body !== "object" || Array.isArray(parsed.body)) {
-        return badRequest(res, "request body must be a JSON object");
-      }
-      const body = parsed.body as Record<string, unknown>;
-      if (!Array.isArray(body.labels) || body.labels.some((entry) => typeof entry !== "string" || !entry.trim() || entry.length > 256)) {
-        return badRequest(res, "labels must be an array of label ids or names (non-empty strings)");
-      }
-      if (body.labels.length > TODO_LABELS_MAX) {
-        return badRequest(res, `labels accepts at most ${TODO_LABELS_MAX} entries per Todo (got ${body.labels.length})`);
-      }
+      const change = parseLabelChange(parsed.body);
+      if ("error" in change) return badRequest(res, change.error);
       try {
-        const labels = setWorkItemLabels(params.id, (body.labels as string[]).map((entry) => entry.trim()), workItemActor(caller), caller.origin);
+        const labels = applyLabelChange(params.id, change, workItemActor(caller), caller.origin);
         emitTodoProjectionEvent(context, params.id, "labels-updated");
         return json(res, { labels });
       } catch (err) {

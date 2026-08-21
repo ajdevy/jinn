@@ -79,7 +79,7 @@ class FakeFeed implements WorkflowTodoEventFeed {
   completeEvent(eventId: string, _outcomes: WorkflowTodoEventClaimOutcome[]): void {
     this.pending = this.pending.filter((event) => event.id !== eventId);
   }
-  releaseEvent(): void {}
+  deferEvent(): void {} releaseEvent(): void {}
   listPendingEvents(): WorkflowTodoStatusEvent[] { return this.pending; }
 }
 
@@ -159,7 +159,7 @@ async function runToGate(definition: WorkflowDefinition, todoId: string,
   events += 1;
   feed.pending.push({
     id: `wie_${events}`, workItemId: todoId, fromStatus: "backlog", toStatus, actor, armedAsDelegate: null, quotaWindowDecided: false,
-    item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
+    item: { source: "human", department: null, assignee: null, labels: [{ id: "lbl_0000000000ab", name: "build" }], live: { assignee: null, parentId: null, status: toStatus } },
   });
   await service.recover(now.toISOString());
   const run = service.listRuns(definition.id, { limit: 10 }).items.at(-1)!;
@@ -251,16 +251,16 @@ describe("a rejection carrying feedback sends the work round again", () => {
     expect(lifecycle.reflections.at(-1)).toMatchObject({ status: "blocked", nodeId: "not-merged" });
   });
 
-  it("reports a NON-operator actor filter instead of re-arming into a suppressed trigger", async () => {
-    // The one filter a re-arm can break by itself: the actor is whoever rejected.
+  it("carries the trigger's own filters into the re-arm, and reports a NON-operator actor", async () => {
+    // The actor is whoever rejected, so a mismatch is fatal; the label is carried because a phase may have taken it off and the re-arm has to put it back.
     const definition = todoPipeline("revise-actor-filter", {
-      kind: "todo-status", status: "assigned", actor: "reconciler",
+      kind: "todo-status", status: "assigned", actor: "reconciler", label: "build",
     });
     const run = await runToGate(definition, "OPS-4", "assigned", "reconciler");
 
     await decide(definition, run.id, "reject", { reason: "Wrong shade of blue." });
 
-    expect(lifecycle.revisions.at(-1)!.rearm).toEqual({ status: "assigned", actor: "reconciler" });
+    expect(lifecycle.revisions.at(-1)!.rearm).toEqual({ status: "assigned", actor: "reconciler", label: "build" });
     expect(lifecycle.revisions.at(-1)!.decidedBy).toBe("operator");
   });
 

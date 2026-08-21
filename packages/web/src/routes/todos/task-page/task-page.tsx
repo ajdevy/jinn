@@ -158,7 +158,7 @@ export default function TaskPage() {
     (session) => session.employee === "todo-dispatcher" && LIVE_SESSION_STATES.has(session.status ?? ""),
   )
 
-  // ── Transient refusal callout — always the gateway's words ────────────────
+  // ── Transient refusal callout — always the gateway's words; renders above the picker sheet, which is where the refusals it reports come from ──
   const [callout, setCallout] = useState<string | null>(null)
   const calloutTimer = useRef<number | null>(null)
   const announce = useCallback((message: string) => {
@@ -585,7 +585,7 @@ export default function TaskPage() {
         <div
           role="status"
           data-testid="task-callout"
-          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-[var(--radius-lg)] bg-[var(--material-thick)] px-4 py-2.5 text-[length:var(--text-footnote)] text-[var(--text-primary)] shadow-[var(--shadow-overlay)] backdrop-blur-xl"
+          className="pointer-events-none fixed bottom-6 left-1/2 z-[130] -translate-x-1/2 rounded-[var(--radius-lg)] bg-[var(--material-thick)] px-4 py-2.5 text-[length:var(--text-footnote)] text-[var(--text-primary)] shadow-[var(--shadow-overlay)] backdrop-blur-xl"
         >
           {callout}
         </div>

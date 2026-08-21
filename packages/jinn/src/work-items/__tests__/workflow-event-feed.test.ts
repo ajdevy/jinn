@@ -78,7 +78,7 @@ describe("workflow Todo event feed", () => {
     expect(pending.find((candidate) => candidate.workItemId === item.id)!.item.labels).toEqual([]);
   });
 
-  it("reads the assignee and parent live, so a reassignment after the status move is what the event carries", () => {
+  it("reads the assignee, parent, and status live, so a change after the status move is what the event carries", () => {
     const parent = store.createWorkItem({ title: "parent todo", status: "executing" });
     const child = store.createWorkItem({ title: "child todo", status: "executing", parentId: parent.id, assignee: "worker" });
     tr.transition(child.id, "in_review", "worker");
@@ -90,16 +90,16 @@ describe("workflow Todo event feed", () => {
     const event = pending.find((candidate) => candidate.workItemId === child.id)!;
 
     expect(event.item.assignee).toBe("worker");
-    expect(event.item.live).toEqual({ assignee: "other", parentId: parent.id });
+    expect(event.item.live).toEqual({ assignee: "other", parentId: parent.id, status: "in_review" });
   });
 
-  it("reads a root Todo's live parent as null", () => {
+  it("reads a root Todo's live parent as null, and its status as where it stands now", () => {
     const item = store.createWorkItem({ title: "root todo", status: "executing" });
     tr.transition(item.id, "in_review", "worker");
 
     const pending = feed.createWorkflowTodoEventFeed({ ownerId: "test-owner" }).listPendingEvents();
 
     expect(pending.find((candidate) => candidate.workItemId === item.id)!.item.live)
-      .toEqual({ assignee: null, parentId: null });
+      .toEqual({ assignee: null, parentId: null, status: "in_review" });
   });
 });

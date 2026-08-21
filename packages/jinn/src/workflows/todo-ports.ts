@@ -59,7 +59,10 @@ export interface WorkflowTodoLifecycle {
 }
 
 /** Where a re-armed Todo has to land for the workflow's own trigger to fire it
- *  again, or the reason no re-arm can fire at all. */
+ *  again, or the reason no re-arm can fire at all. `actor` and `label` are the
+ *  trigger's own filters, carried so the re-arm can check it would fire —
+ *  `label` also has to be re-applied, because a node prompt that disarmed the
+ *  Todo mid-run has taken it off. */
 export type WorkflowRearmTarget =
   | { status: string; actor?: string; label?: string }
   | { unavailable: string };

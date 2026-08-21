@@ -1,5 +1,5 @@
 {
-  "_instructions": "Every entry is a file that predates the 300-line limit, carries an ESLint grandfather exemption, or both. `lines` is a budget that may only shrink: growing past it fails CI, and so does a new file over the limit or a new entry in eslint-baseline.json. To leave the list, split the file by responsibility — move one concern into its own module and import it back — then run `pnpm ratchet` and commit the shrunken file. Add nothing here by hand; the ratchet never widens a budget.",
+  "_instructions": "Every entry is a file that predates the 300-line limit, carries an ESLint grandfather exemption, or both. `lines` is a budget that may only shrink: growing past it fails CI, and so does a new file over the limit or a new entry in eslint-baseline.json. To leave the list, split the file by responsibility \u2014 move one concern into its own module and import it back \u2014 then run `pnpm ratchet` and commit the shrunken file. Add nothing here by hand; the ratchet never widens a budget.",
   "limit": 300,
   "files": {
     "e2e/workflow-layout/bounded-reporter.mjs": {
@@ -345,7 +345,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5761,
+      "lines": 5753,
       "exempt": [
         "complexity",
         "max-depth",
@@ -487,7 +487,6 @@
       ]
     },
     "packages/jinn/src/gateway/workflow-todo-surface.ts": {
-      "lines": 308,
       "exempt": [
         "complexity"
       ]
@@ -623,7 +622,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 749,
+      "lines": 666,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -992,7 +991,7 @@
       "lines": 417
     },
     "packages/jinn/src/workflows/__tests__/workflow-triggers.test.ts": {
-      "lines": 371
+      "lines": 366
     },
     "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": {
       "lines": 768

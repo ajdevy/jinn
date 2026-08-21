@@ -5,12 +5,15 @@ import { logger } from "../shared/logger.js";
 import { claimWorkItem, releaseWorkItemClaim } from "../work-items/claims.js";
 import { normalizeLabelName } from "../work-items/labels.js";
 import { appendRespawnGuardHold, checkRespawnGuard } from "../work-items/respawn-guards.js";
-import { createWorkflowTodoEventFeed, type WorkflowTodoEventClaimOutcome,
-  type WorkflowTodoEventFeed, type WorkflowTodoStatusEvent } from "../work-items/workflow-event-feed.js";
+import { createWorkflowTodoEventFeed, type WorkflowTodoEventFeed,
+  type WorkflowTodoStatusEvent } from "../work-items/workflow-event-feed.js";
+import { startedAfterEvent } from "../work-items/workflow-event-winners.js";
 import { jsonValueSchema, type JsonValue, type TriggerNode, type WorkflowDefinition } from "./model.js";
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type { WorkflowRunDetail } from "./runtime.js";
 import type { WorkflowRunner } from "./runner.js";
+import { declinedOutcomes, NOTHING_SUPERSEDED, settle, stillWhereTheEventLeftIt, suppressAll,
+  type IndexedTrigger, type SupersededBy, type TodoCandidate, type TodoMismatch } from "./todo-event-outcome.js";
 
 export interface FireWorkflowEventInput {
   eventName: string;
@@ -18,12 +21,7 @@ export interface FireWorkflowEventInput {
   payload: Record<string, JsonValue>;
 }
 
-interface IndexedTrigger { definition: WorkflowDefinition; trigger: TriggerNode }
 interface ScheduleIndex extends IndexedTrigger { task: ScheduledTask }
-interface FilteredTrigger extends IndexedTrigger { mismatch: string | undefined }
-/** Definition id to the newer event that superseded this one for that definition. */
-type SupersededBy = ReadonlyMap<string, string>;
-const NOTHING_SUPERSEDED: SupersededBy = new Map();
 function bad(message: string): never { throw new WorkflowRepositoryError("bad-input", message); }
 function payload(value: unknown): Record<string, JsonValue> {
   const parsed = jsonValueSchema.safeParse(value);
@@ -40,30 +38,37 @@ function labelMatches(filter: string, labels: WorkflowTodoStatusEvent["item"]["l
   let name: string; try { name = normalizeLabelName(filter); } catch { return false; }
   return labels.some((label) => label.id === filter || label.name === name);
 }
-/** The reason this Todo event does NOT match the trigger, or undefined when it
- *  does. Filters are ANDed; the first mismatch is what gets reported, so a
- *  suppressed run always says which filter refused it. */
-function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): string | undefined {
-  if (node.config.kind !== "todo-status") return "trigger is not a todo-status trigger";
+function refused(reason: string): TodoMismatch { return { filter: "other", reason }; }
+/** Why this Todo event does NOT match the trigger, or undefined when it does.
+ *  Filters are ANDed; the first mismatch is what gets reported, so a suppressed
+ *  run always says which filter refused it. */
+function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): TodoMismatch | undefined {
+  if (node.config.kind !== "todo-status") return refused("trigger is not a todo-status trigger");
   const { actor, label, department, assignee, delegates, unlabeled, unassigned, rootOnly } = node.config;
   // An arming delegate moved the Todo as itself, so the event names its session
   // rather than the operator; the stamp the status route wrote at that moment is
   // what says the operator's authority stands behind it. Only an `operator`
   // filter is widened, and only where the binding has not opted out.
   const armed = actor === "operator" && delegates !== false && event.armedAsDelegate !== null;
-  if (actor !== undefined && actor !== event.actor && !armed) return `actor ${event.actor ?? "unknown"} is not ${actor}`;
-  if (department !== undefined && department !== event.item.department) return `department filter ${department} does not match`;
-  if (assignee !== undefined && assignee !== event.item.assignee) return `assignee filter ${assignee} does not match`;
-  if (label !== undefined && !labelMatches(label, event.item.labels)) return `label filter ${label} does not match`;
-  if (unlabeled === undefined && unassigned === undefined && rootOnly === undefined) return undefined;
-  // These three assert what the Todo IS right now, so a row that has since been
-  // deleted answers none of them — an unknown Todo must refuse rather than fall
-  // through as a match and arm a workflow on nothing.
+  if (actor !== undefined && actor !== event.actor && !armed) return refused(`actor ${event.actor ?? "unknown"} is not ${actor}`);
+  if (department !== undefined && department !== event.item.department) return refused(`department filter ${department} does not match`);
+  if (assignee !== undefined && assignee !== event.item.assignee) return refused(`assignee filter ${assignee} does not match`);
   const live = event.item.live;
-  if (live === null) return "the Todo no longer exists, so its live filters cannot match";
-  if (unlabeled && event.item.labels.length > 0) return "unlabeled filter does not match: the Todo carries labels";
-  if (unassigned && live.assignee !== null) return `unassigned filter does not match: the Todo is assigned to ${live.assignee}`;
-  if (rootOnly && live.parentId !== null) return `rootOnly filter does not match: the Todo is a child of ${live.parentId}`;
+  if (unlabeled !== undefined || unassigned !== undefined || rootOnly !== undefined) {
+    // These three assert what the Todo IS right now, so a row that has since been
+    // deleted answers none of them — an unknown Todo must refuse rather than fall
+    // through as a match and arm a workflow on nothing.
+    if (live === null) return refused("the Todo no longer exists, so its live filters cannot match");
+    if (unlabeled && event.item.labels.length > 0) return refused("unlabeled filter does not match: the Todo carries labels");
+    if (unassigned && live.assignee !== null) return refused(`unassigned filter does not match: the Todo is assigned to ${live.assignee}`);
+    if (rootOnly && live.parentId !== null) return refused(`rootOnly filter does not match: the Todo is a child of ${live.parentId}`);
+  }
+  // Judged LAST on purpose: a `label` mismatch has to mean that every other filter
+  // was satisfied, or a Todo refused for something a label cannot change would be
+  // read as a race and left waiting for a label that would not have helped.
+  if (label !== undefined && !labelMatches(label, event.item.labels)) {
+    return { filter: "label", reason: `label filter ${label} does not match` };
+  }
   return undefined;
 }
 export class WorkflowTriggerService {
@@ -168,9 +173,10 @@ export class WorkflowTriggerService {
     await this.start(indexed.definition, indexed.trigger, fireId, { scheduledAt: fireId }, `schedule:${fireId}`);
   }
 
-  private async fireTodo(event: WorkflowTodoStatusEvent, superseded: SupersededBy): Promise<number> {
-    const candidates: FilteredTrigger[] = (this.todos.get(event.toStatus) ?? [])
+  private async fireTodo(event: WorkflowTodoStatusEvent, pendingWinners: SupersededBy): Promise<number> {
+    const candidates: TodoCandidate[] = (this.todos.get(event.toStatus) ?? [])
       .map((item) => ({ ...item, mismatch: todoMismatch(item.trigger, event) }));
+    const superseded = this.supersededForEvent(event, candidates, pendingWinners);
     // Drop the superseded definitions BEFORE the claim: the claim stores the ids
     // a lease takeover replays from, so one we have decided not to run must
     // never be written into it.
@@ -178,33 +184,16 @@ export class WorkflowTriggerService {
     const claim = this.feed.claimEvent(event.id, indexed.map((item) => item.definition.id));
     if (claim.state !== "acquired") return 0;
     const allowed = new Set(claim.definitionIds);
-    const outcomes = this.declinedOutcomes(event, candidates, superseded);
+    // A deferred re-drain is only re-deciding the definitions the deferral put
+    // back; every other candidate was settled by the pass that deferred, and
+    // recording it again here would overwrite what actually happened to it.
+    const deciding = claim.deferred ? candidates.filter((item) => allowed.has(item.definition.id)) : candidates;
+    const outcomes = declinedOutcomes(event, deciding, superseded, claim.deferred === true);
     const labels = event.item.labels.map((label) => label.name);
     const runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
-    // Claim the TODO, not just the event: the event claim stops this event being
-    // replayed, and this stops a DIFFERENT event — or another gateway — starting
-    // a second run on work somebody is already doing. A rejected claim means the
-    // Todo row is gone, and a Todo that no longer exists cannot be double-worked.
     const owner = `workflow:${event.id}`;
-    // The respawn guards run BEFORE the claim (ICI-731): this is the automated
-    // re-dispatch lane — status-driven pickup, and workflow re-arm one hop later
-    // through the status transition it writes — and a Todo a guard refuses must
-    // stay free for a human to dispatch by hand. One event, one audited hold,
-    // however many definitions were about to run on it. A re-arm the availability
-    // sweep wrote arrives with the quota window already settled from the
-    // failure's own reset, so `rate_limit_cooldown` does not get to answer that
-    // question again generically; the other three guards still do.
-    const guard = runnable.length > 0
-      ? checkRespawnGuard(event.workItemId, undefined, { quotaWindowDecided: event.quotaWindowDecided })
-      : undefined;
-    if (guard?.state === "held") {
-      appendRespawnGuardHold(event.workItemId, guard, owner);
-      return this.suppressAll(event, runnable, outcomes, `the ${guard.guard} guard holds it: ${guard.reason}`);
-    }
-    const todo = runnable.length > 0 ? claimWorkItem({ workItemId: event.workItemId, owner }) : undefined;
-    if (todo?.state === "held") {
-      return this.suppressAll(event, runnable, outcomes, `${event.workItemId} is already being worked by ${todo.claim.owner}`);
-    }
+    const refusal = this.refusalBeforeStart(event, claim.deferred === true, runnable, owner);
+    if (refusal !== undefined) return suppressAll(this.feed, event, runnable, outcomes, refusal);
     try {
       for (const item of runnable) {
         const run = await this.start(item.definition, item.trigger, event.id, {
@@ -214,46 +203,64 @@ export class WorkflowTriggerService {
         }, `todo:${event.id}`, event.workItemId);
         outcomes.push({ workflowId: item.definition.id, outcome: "started", runId: run.id, detail: `Todo event ${event.id} started.` });
       }
-      this.feed.completeEvent(event.id, outcomes);
+      settle(this.feed, event, deciding, outcomes);
       return outcomes.filter((outcome) => outcome.outcome === "started").length;
     } catch (error) { releaseWorkItemClaim(event.workItemId, owner); this.feed.releaseEvent(event.id); throw error; }
   }
 
-  /** Record WHY a candidate did not run. A Todo event that a filter refused, or
-   *  that a newer event superseded, otherwise completes silently, which is
-   *  indistinguishable from a broken trigger. */
-  private declinedOutcomes(event: WorkflowTodoStatusEvent, candidates: ReadonlyArray<FilteredTrigger>,
-    superseded: SupersededBy): WorkflowTodoEventClaimOutcome[] {
-    const outcomes: WorkflowTodoEventClaimOutcome[] = [];
-    for (const item of candidates) {
-      const workflowId = item.definition.id;
-      const winner = superseded.get(workflowId);
-      let declined: WorkflowTodoEventClaimOutcome | undefined;
-      if (item.mismatch !== undefined) {
-        declined = { workflowId, outcome: "suppressed", detail: `Todo event ${event.id} suppressed: ${item.mismatch}.` };
-      } else if (winner !== undefined) {
-        declined = { workflowId, outcome: "superseded",
-          detail: `Todo event ${event.id} superseded by ${winner}, a newer ${event.toStatus} event on ${event.workItemId}.` };
-      }
-      if (declined === undefined) continue;
-      logger.info(`Workflow ${workflowId}: ${declined.detail}`);
-      outcomes.push(declined);
-    }
-    return outcomes;
+  /** Which definitions a newer event has already taken this Todo's lane for.
+   *  The pending page answers this for siblings still waiting their turn; it
+   *  cannot answer it for one that has already run, because a settled event is
+   *  no longer pending — and past the page's own limit it cannot answer it at
+   *  all. A deferral released after either kind of sibling would otherwise see
+   *  an empty gate and start a second run on a lane already running. */
+  private supersededForEvent(event: WorkflowTodoStatusEvent, candidates: ReadonlyArray<TodoCandidate>,
+    pendingWinners: SupersededBy): SupersededBy {
+    // Nothing qualified, so nothing can be beaten, and the ordinary drain pays
+    // nothing for a query with no question in it.
+    if (!candidates.some((item) => item.mismatch === undefined)) return pendingWinners;
+    const settled = startedAfterEvent(event.id);
+    if (settled.size === 0) return pendingWinners;
+    // Both maps name events strictly newer than this one, so either detail line
+    // is true. The pending page wins the tie: it is the same rule the drain has
+    // already applied to this event's waiting siblings.
+    const winners = new Map(settled);
+    for (const [definitionId, winner] of pendingWinners) winners.set(definitionId, winner);
+    return winners;
   }
 
-  /** Refuse every candidate that survived the filters for the same reason, and
-   *  close the event on it. Two things stop a fire this late: a respawn guard,
-   *  and the Todo already being worked by somebody else. */
-  private suppressAll(event: WorkflowTodoStatusEvent, runnable: ReadonlyArray<IndexedTrigger>,
-    outcomes: WorkflowTodoEventClaimOutcome[], reason: string): number {
-    for (const item of runnable) {
-      const detail = `Todo event ${event.id} suppressed: ${reason}.`;
-      logger.info(`Workflow ${item.definition.id}: ${detail}`);
-      outcomes.push({ workflowId: item.definition.id, outcome: "suppressed", detail });
+  /** Why nothing may start on this event yet, or undefined when a run may. The
+   *  filters have already had their say; these are the three things that stop a
+   *  fire this late, and they all refuse the whole event rather than one
+   *  definition of it. */
+  private refusalBeforeStart(event: WorkflowTodoStatusEvent, deferred: boolean,
+    runnable: ReadonlyArray<IndexedTrigger>, owner: string): string | undefined {
+    // A deferral is only good while the Todo sits where the event put it. Once it
+    // has moved on the event is stale, and a label landing later must not fire a
+    // run on work that has already gone somewhere else.
+    if (deferred && !stillWhereTheEventLeftIt(event)) return `${event.workItemId} has moved on from ${event.toStatus}`;
+    // Nothing is going to run, so there is no work to hold and no guard to ask:
+    // taking the Todo's claim here would only lock it against somebody who will.
+    if (runnable.length === 0) return undefined;
+    // The respawn guards run BEFORE the claim (ICI-731): this is the automated
+    // re-dispatch lane — status-driven pickup, and workflow re-arm one hop later
+    // through the status transition it writes — and a Todo a guard refuses must
+    // stay free for a human to dispatch by hand. One event, one audited hold,
+    // however many definitions were about to run on it. A re-arm the availability
+    // sweep wrote arrives with the quota window already settled from the
+    // failure's own reset, so `rate_limit_cooldown` does not get to answer that
+    // question again generically; the other three guards still do.
+    const guard = checkRespawnGuard(event.workItemId, undefined, { quotaWindowDecided: event.quotaWindowDecided });
+    if (guard.state === "held") {
+      appendRespawnGuardHold(event.workItemId, guard, owner);
+      return `the ${guard.guard} guard holds it: ${guard.reason}`;
     }
-    this.feed.completeEvent(event.id, outcomes);
-    return 0;
+    // Claim the TODO, not just the event: the event claim stops this event being
+    // replayed, and this stops a DIFFERENT event — or another gateway — starting
+    // a second run on work somebody is already doing. A rejected claim means the
+    // Todo row is gone, and a Todo that no longer exists cannot be double-worked.
+    const todo = claimWorkItem({ workItemId: event.workItemId, owner });
+    return todo.state === "held" ? `${event.workItemId} is already being worked by ${todo.claim.owner}` : undefined;
   }
 
   private async start(definition: WorkflowDefinition, source: TriggerNode, fireId: string,
