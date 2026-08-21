@@ -4,6 +4,7 @@ import {
   applyWorkingSetCap,
   createWorkingSet,
   focusWorkingSetSession,
+  insertWorkingSetSession,
   loadPersistedWorkingSet,
   persistWorkingSet,
   replaceFocusedWorkingSetSession,
@@ -46,6 +47,45 @@ describe('chat working set', () => {
     expect(focused.focusHistory).toEqual(['b', 'c', 'a'])
     expect(reordered.sessionIds).toEqual(['c', 'a', 'b'])
     expect(reordered.focusHistory).toEqual(['b', 'c', 'a'])
+  })
+
+  it('inserts a session at a clamped presentation slot and focuses it', () => {
+    const initial = createWorkingSet(['a', 'b'], 'a')
+
+    const prepended = insertWorkingSetSession(initial, 'before', -10, 4)
+    const appended = insertWorkingSetSession(prepended, 'after', 99, 4)
+
+    expect(prepended.sessionIds).toEqual(['before', 'a', 'b'])
+    expect(appended.sessionIds).toEqual(['before', 'a', 'b', 'after'])
+    expect(appended.focusedId).toBe('after')
+    expect(appended.focusHistory.at(-1)).toBe('after')
+  })
+
+  it('moves an existing member through insertion slots without duplicating it', () => {
+    const initial = createWorkingSet(['a', 'b', 'c'], 'c')
+
+    const moved = insertWorkingSetSession(initial, 'a', 2, 4)
+
+    expect(moved.sessionIds).toEqual(['b', 'a', 'c'])
+    expect(moved.sessionIds.filter((id) => id === 'a')).toHaveLength(1)
+    expect(moved.focusedId).toBe('a')
+    expect(moved.focusHistory).toEqual(['b', 'c', 'a'])
+  })
+
+  it('keeps the inserted session when applying the working-set cap', () => {
+    const initial = createWorkingSet(['a', 'b', 'c', 'd'], 'd')
+
+    const next = insertWorkingSetSession(initial, 'new', 2, 4)
+
+    expect(next.sessionIds).toEqual(['b', 'new', 'c', 'd'])
+    expect(next.focusedId).toBe('new')
+  })
+
+  it('ignores blank ids and non-integer insertion slots', () => {
+    const initial = createWorkingSet(['a', 'b'], 'a')
+
+    expect(insertWorkingSetSession(initial, '  ', 1, 4)).toBe(initial)
+    expect(insertWorkingSetSession(initial, 'c', 1.5, 4)).toBe(initial)
   })
 
   it('chooses the most recently focused survivor when the focused pane is removed', () => {

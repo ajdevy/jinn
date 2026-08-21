@@ -157,6 +157,34 @@ export function reorderWorkingSetSession(
   return { ...state, sessionIds }
 }
 
+/** Insert into a DOM-order slot. Existing members move through the same slot
+ * model, so a drop preview and the resulting presentation order cannot drift. */
+export function insertWorkingSetSession(
+  state: ChatWorkingSet,
+  rawSessionId: string,
+  index: number,
+  cap: number,
+): ChatWorkingSet {
+  const sessionId = rawSessionId.trim()
+  if (!sessionId || !Number.isInteger(index)) return state
+
+  const insertionSlot = Math.max(0, Math.min(index, state.sessionIds.length))
+  const fromIndex = state.sessionIds.indexOf(sessionId)
+  const sessionIds = [...state.sessionIds]
+  if (fromIndex >= 0) sessionIds.splice(fromIndex, 1)
+
+  const adjustedSlot = fromIndex >= 0 && fromIndex < insertionSlot
+    ? insertionSlot - 1
+    : insertionSlot
+  sessionIds.splice(Math.min(adjustedSlot, sessionIds.length), 0, sessionId)
+
+  return applyWorkingSetCap(normalize(
+    sessionIds,
+    sessionId,
+    fromIndex >= 0 ? state.focusHistory : [...state.focusHistory, sessionId],
+  ), cap)
+}
+
 export function serializeWorkingSet(state: ChatWorkingSet): string {
   const normalized = normalize(state.sessionIds, state.focusedId, state.focusHistory)
   const persisted: PersistedWorkingSet = { version: 1, ...normalized }
