@@ -24,6 +24,7 @@ import { PeekProvider } from '@/components/peek/peek-stack'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ChatHeaderMenu } from './chat-header-menu'
 import { MultiChatGrid } from './multi-chat-grid'
+import { deriveChatGridIds } from './grid-placement'
 import { usePaneIdentity } from './pane-identity'
 import { useChatPaneState } from './use-chat-pane-state'
 import { historyRecord, parseHistoryPreview } from './chat-history'
@@ -875,18 +876,18 @@ function ChatPage() {
     subscribe, connectionSeq, onSelect: handleMobileWorkingSetSelect,
   })
   const onMobileList = mobileView === 'sidebar'
+  const pickerPane = gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)
+  const desktopMultiPane = !viewport.mobile && deriveChatGridIds({ sessionIds: mountedSessionIds, primaryPaneKey: paneKey, primarySessionId: committedId, pickerPaneKey: pickerPane?.paneKey }).length > 1
   return (
     <FileOpenContext.Provider value={openFile}>
     <PeekProvider>
     <PageLayout chromeless>
       <div className="flex overflow-hidden h-full">
-        {/* Left region (desktop): the permanent slim nav ribbon + the foldable
-            280px chat list. The ribbon's top toggle folds the list to 0; the
-            ribbon persists and the thread reflows wider. No overflow-hidden here
-            so the ribbon's per-icon label pills can escape to the right over the
-            list/thread (the list column clips its own fold). `group/sidebar`
-            scopes the ribbon-logo→toggle morph to this whole region (rail + list)
-            — hovering the thread (a sibling outside this div) never triggers it. */}
+        {/* Desktop keeps the slim nav ribbon while its 280px chat list folds.
+            The ribbon remains outside the clipping column so its labels can
+            escape over the thread, while the list itself reflows at a fixed
+            width and never changes its internal measure during the fold.
+            The sibling thread therefore owns the remaining width throughout. */}
         <div className="group/sidebar hidden h-full shrink-0 lg:flex">
           <NavRibbon listOpen={listOpen} onToggleList={toggleList} />
           {/* Fold the list by animating its width; the inner column keeps a fixed
@@ -917,20 +918,18 @@ function ChatPage() {
         </div>
 
         <div className="chat-pills-layout relative min-w-0 flex-1 flex-col overflow-hidden bg-background flex">
-          {/* Soft top scrim (gradient, not a border) — content scrolls under it.
-              Hold a real cloud behind the floating header, then fade before the
-              message list's top padding ends. Theme-aware via var(--bg). */}
-          <div
+          {/* Single-pane content scrolls beneath the theme-aware header cloud. */}
+          {!desktopMultiPane && <div
             aria-hidden
+            data-chat-top-scrim
             className={cn(
               "pointer-events-none absolute inset-x-0 top-0 z-[5] h-[88px]",
               onMobileList && "hidden lg:block",
             )}
             style={{ background: 'linear-gradient(to bottom, var(--bg) 0, var(--bg) 52px, color-mix(in srgb, var(--bg) 68%, transparent) 68px, transparent 100%)' }}
-          />
+          />}
 
-          {/* Frosted corner pills replace the solid header. Hidden over the mobile
-              chat-list view (the sidebar has its own header); shown on desktop + thread. */}
+          {/* Mobile keeps its nav chrome; multi-pane desktop moves identity into panes. */}
           <ChatPageHeader
             hideOnMobile={onMobileList}
             title={headerTitle}
@@ -940,6 +939,7 @@ function ChatPage() {
             moreMenu={moreMenu}
             mobileWorkingSet={mobileWorkingSet}
             copiedField={copiedField}
+            hideDesktop={desktopMultiPane}
           />
 
           <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
@@ -1015,7 +1015,7 @@ function ChatPage() {
                 onShortcutsClick={() => setShowShortcutOverlay(true)}
                 onContentReady={handlePaneContentReady}
                 onStartFreshChat={handleStartFreshChat}
-                pickerPane={gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)}
+                pickerPane={pickerPane}
               />
             )}
             <ChatGridDropOverlay placement={gridAdd.drop.placement} />

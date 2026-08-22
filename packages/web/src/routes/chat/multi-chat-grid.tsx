@@ -5,12 +5,15 @@ import type { CommsPeekData } from '@/components/chat/thread-peek'
 import type { DelegatedActivity } from '@/lib/api'
 import type { ViewMode } from '@/lib/view-mode'
 import { ChatGrid } from './chat-grid'
+import { deriveChatGridIds } from './grid-placement'
 import { SessionPicker } from './session-picker'
 import type { SessionMeta } from './use-chat-pane-state'
 
 type PaneProps = ComponentProps<typeof ChatPane>
 type PaneMetaUpdate = Parameters<NonNullable<PaneProps['onSessionMetaChange']>>[0]
 type PaneRuntime = Pick<PaneProps, 'portalName' | 'subscribe' | 'engineRegistry' | 'connectionSeq' | 'skillsVersion' | 'events'>
+
+export { deriveChatGridIds } from './grid-placement'
 
 interface MultiChatGridProps {
   sessionIds: string[]
@@ -148,15 +151,14 @@ function GridChatPane({
 
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
-  const sessionGridIds = props.primary.sessionId
-    ? props.sessionIds.map((sessionId) => sessionId === props.primary.sessionId ? primaryKey : sessionId)
-    : props.sessionIds.length === 1
-      ? [primaryKey]
-      : [...props.sessionIds, primaryKey]
   const mobilePickerKey = props.viewport.mobile ? props.pickerPane?.paneKey : undefined
-  const gridIds = mobilePickerKey
-    ? [mobilePickerKey]
-    : props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
+  const gridIds = deriveChatGridIds({
+    sessionIds: props.sessionIds,
+    primaryPaneKey: primaryKey,
+    primarySessionId: props.primary.sessionId,
+    pickerPaneKey: props.pickerPane?.paneKey,
+    mobile: props.viewport.mobile,
+  })
   const focusedGridId = mobilePickerKey ?? (
     !props.primary.sessionId || props.focusedId === props.primary.sessionId
       ? primaryKey

@@ -27,6 +27,8 @@ export interface ChatHeaderPillsProps {
   moreMenu?: ReactNode
   /** Mobile Variant C: four fixed working-set chips replace the title/compose track. */
   mobileWorkingSet?: ReactNode
+  /** Hide the desktop-only title and actions when every grid pane owns chrome. */
+  hideDesktop?: boolean
 
   /** Retained for callers; the in-header tab switcher UI was removed. */
   tabs?: ChatTab[]
@@ -56,6 +58,7 @@ export function ChatHeaderPills({
   onNew,
   moreMenu,
   mobileWorkingSet,
+  hideDesktop,
 }: ChatHeaderPillsProps) {
   // Mobile nav bar: both side tracks are locked to the wider cluster, which is
   // what puts the middle track on the header's centre line. Callback refs keep
@@ -84,7 +87,7 @@ export function ChatHeaderPills({
           h-10 + top-4 puts its vertical center on the same y as the right actions
           pill and the ribbon's logo/toggle slot — one clean horizontal row. A
           drill-in prepends the quiet back chip (skills/cron detail idiom). */}
-      <div className="pointer-events-none absolute left-6 top-4 z-10 hidden h-10 max-w-[42vw] items-center gap-2.5 lg:flex xl:max-w-[48vw]">
+      {!hideDesktop && <div data-chat-desktop-title className="pointer-events-none absolute left-6 top-4 z-10 hidden h-10 max-w-[42vw] items-center gap-2.5 lg:flex xl:max-w-[48vw]">
         {backTo && (
           <button
             type="button"
@@ -105,17 +108,17 @@ export function ChatHeaderPills({
             </span>
           )
         })()}
-      </div>
+      </div>}
 
       {/* DESKTOP — right actions pill: compose · more. */}
-      <div className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block">
+      {!hideDesktop && <div data-chat-desktop-actions className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block">
         <div className={PILL_CLASS}>
           <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
             <SquarePen size={18} />
           </PillButton>
           {moreMenu}
         </div>
-      </div>
+      </div>}
 
       {/* MOBILE — thread nav bar: back · centered title · compose · more. Hidden
           over the list (the tab bar + list header own that screen). No hairline
@@ -125,6 +128,7 @@ export function ChatHeaderPills({
           re-rasterising over the scrolling thread. */}
       {!hideOnMobile && (
         <div
+          data-chat-mobile-header
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
           style={{ paddingTop: 'max(var(--safe-top), 0px)' }}
         >

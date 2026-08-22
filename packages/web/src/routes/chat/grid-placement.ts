@@ -1,3 +1,28 @@
+export interface ChatGridPlacementInput {
+  sessionIds: readonly string[]
+  primaryPaneKey: string
+  primarySessionId: string | null
+  pickerPaneKey?: string | null
+  mobile?: boolean
+}
+
+export function deriveChatGridIds({
+  sessionIds,
+  primaryPaneKey,
+  primarySessionId,
+  pickerPaneKey,
+  mobile,
+}: ChatGridPlacementInput): string[] {
+  const sessionGridIds = primarySessionId
+    ? sessionIds.map((sessionId) => sessionId === primarySessionId ? primaryPaneKey : sessionId)
+    : sessionIds.length === 1
+      ? [primaryPaneKey]
+      : [...sessionIds, primaryPaneKey]
+
+  if (mobile && pickerPaneKey) return [pickerPaneKey]
+  return pickerPaneKey ? [...sessionGridIds, pickerPaneKey] : sessionGridIds
+}
+
 export interface GridPoint {
   x: number
   y: number
