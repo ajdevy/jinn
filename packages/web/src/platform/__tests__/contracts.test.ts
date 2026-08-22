@@ -9,6 +9,13 @@ import { createFallbackAdapter } from "../adapters/fallback"
 import { createLazyTauriAdapter } from "../adapters/lazy-tauri"
 import { createTestAdapter } from "../adapters/test"
 
+// main.tsx mounts on import. The startup test wants its module body and
+// mount() to run for real, without dragging a full React render in.
+const mount = vi.hoisted(() => ({ rendered: false }))
+vi.mock("react-dom/client", () => ({
+  createRoot: () => ({ render: () => { mount.rendered = true }, unmount: () => {} }),
+}))
+
 const runtime: Runtime = {
   container: "browser",
   os: "unknown",
@@ -117,20 +124,23 @@ describe("platform adapter contract", () => {
     expect(load).not.toHaveBeenCalled()
   })
 
-  it("issues no permission prompt while the app's default platform is created", async () => {
+  it("issues no permission prompt while the app starts up", async () => {
     const requestPermission = vi.fn(async () => "granted" as NotificationPermission)
     const present = vi.fn()
     const share = vi.fn(async () => {})
     const writeText = vi.fn(async () => {})
     vi.stubGlobal("Notification", Object.assign(present, { permission: "default", requestPermission }))
     vi.stubGlobal("navigator", { userAgent: "startup-test", share, vibrate: vi.fn(), clipboard: { writeText } })
+    document.body.innerHTML = '<div id="root"></div>'
     vi.resetModules()
 
-    // The app boots by reaching for the default platform; nothing may prompt here.
-    const { getPlatform } = await import("../platform")
-    const platform = getPlatform()
+    // Real startup: main.tsx runs its module body and mounts. A prompt raised
+    // anywhere on that path — not only inside the platform — fails this.
+    await import("@/main")
+    await vi.waitFor(() => expect(mount.rendered).toBe(true))
 
-    expect(platform.runtime.container).toBe("browser")
+    const { getPlatform } = await import("../platform")
+    expect(getPlatform().runtime.container).toBe("browser")
     expect(requestPermission).not.toHaveBeenCalled()
     expect(present).not.toHaveBeenCalled()
     expect(share).not.toHaveBeenCalled()
