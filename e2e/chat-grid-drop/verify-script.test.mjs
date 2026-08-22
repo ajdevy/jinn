@@ -51,6 +51,18 @@ test("the scrub keeps the script's own knobs", () => {
   assert.match(script, /JINN_REPO="\$REPO"/)
 })
 
+/**
+ * The other half of the scrub: prove the sandbox is bound by its own config.yaml. If an
+ * inherited JINN_PORT ever slipped past the unset, applyGatewayEnvOverrides() would rebind the
+ * gateway away from $PORT, and the run would be aimed at whatever that named.
+ */
+test("the sandbox's own configured port is asserted before the daemon starts", () => {
+  const assertion = script.indexOf("CONFIGURED_PORT")
+  assert.ok(assertion >= 0, "expected the config.yaml port to be read")
+  assert.match(script, /if \[\[ "\$CONFIGURED_PORT" != "\$PORT" \]\]/)
+  assert.ok(assertion < script.indexOf('"$HELPER" start'), "must precede sandbox start")
+})
+
 test("the sandbox port stays out of the operator's range", () => {
   assert.match(script, /PORT < 8060/)
   assert.match(script, /"7777" \|\| "\$PORT" == "7788"/)

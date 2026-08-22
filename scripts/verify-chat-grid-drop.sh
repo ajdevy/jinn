@@ -83,6 +83,26 @@ trap 'exit 130' INT TERM
 mkdir -p "$HOST_HOME"
 env HOME="$HOST_HOME" JINN_REPO="$REPO" "$HELPER" create "$INSTANCE" --port "$PORT" --build --seed
 "$NODE_BIN" "$REPO/scripts/seed-chat-grid-drop.mjs" "$SANDBOX_HOME" "$REPO"
+# The sandbox must be bound by its own config.yaml, checked before the daemon reads it. This
+# is the other half of the scrub at the top: if an inherited JINN_PORT ever slips past it,
+# applyGatewayEnvOverrides() would silently rebind the gateway away from $PORT and the run
+# would be aimed somewhere nobody chose.
+CONFIGURED_PORT="$(SANDBOX_CONFIG="$SANDBOX_HOME/config.yaml" "$NODE_BIN" -e '
+const fs = require("node:fs")
+let inGateway = false
+for (const line of fs.readFileSync(process.env.SANDBOX_CONFIG, "utf8").split(/\r?\n/)) {
+  if (/^gateway:\s*$/.test(line)) { inGateway = true; continue }
+  if (inGateway && /^\S/.test(line)) break
+  const match = inGateway ? line.match(/^\s+port:\s*(\d+)\s*$/) : null
+  if (match) { process.stdout.write(match[1]); process.exit(0) }
+}
+process.exit(1)')"
+if [[ "$CONFIGURED_PORT" != "$PORT" ]]; then
+  echo "Sandbox config.yaml declares gateway port ${CONFIGURED_PORT:-<none>}, expected $PORT" >&2
+  exit 2
+fi
+echo "Sandbox config.yaml declares gateway port $CONFIGURED_PORT before start"
+
 STARTED=1
 env HOME="$HOST_HOME" JINN_REPO="$REPO" "$HELPER" start "$INSTANCE"
 
