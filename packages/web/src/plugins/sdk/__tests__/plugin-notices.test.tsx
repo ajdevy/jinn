@@ -142,6 +142,27 @@ it('clears a notice once its reading time is up', () => {
   expect(screen.queryByText('transient')).toBeNull()
 })
 
+/* The richer notice is the same surface, not a second one that happens to look
+ * alike: two stacks would drift apart in placement, dismissal and cap, and the
+ * operator would learn two of them. One container is what proves it. */
+it('raises a titled notice and a plain one into the one stack', () => {
+  mountDashboard()
+
+  act(() => {
+    host.notify('the mailbox is unreachable', 'error')
+    host.notify({
+      title: 'Import finished',
+      description: '42 messages arrived while you were away.',
+    })
+  })
+
+  const stacks = document.querySelectorAll('[data-plugin-notices]')
+  expect(stacks).toHaveLength(1)
+  expect(stacks[0]!.textContent).toContain('the mailbox is unreachable')
+  expect(stacks[0]!.textContent).toContain('Import finished')
+  expect(stacks[0]!.textContent).toContain('42 messages arrived while you were away.')
+})
+
 /* A watcher in a retry loop can call notify without limit. The stack is capped
  * so the newest is always readable and the app is never papered over. */
 it('keeps only the newest few when a plugin floods it', () => {

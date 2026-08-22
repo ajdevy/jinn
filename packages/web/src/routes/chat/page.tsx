@@ -16,17 +16,26 @@ import { useGateway } from '@/hooks/use-gateway'
 import { useModelRegistry } from '@/hooks/use-model-registry'
 import { PageLayout } from '@/components/page-layout'
 import { ChatSidebar, pickDeleteFallbackId, type SidebarOrder } from '@/components/chat/chat-sidebar'
-import { ChatHeaderPills } from '@/components/chat/chat-tabs'
 import { NavRibbon } from '@/components/pill-nav'
 import { MobileTabBar } from '@/components/chat/mobile-tab-bar'
-import { ChatPane, type FreshChatSourceSession } from '@/components/chat/chat-pane'
+import type { FreshChatSourceSession } from '@/components/chat/chat-pane'
 import { ThreadPeek, type CommsPeekData } from '@/components/chat/thread-peek'
 import { PeekPanel } from '@/components/peek/peek-panel'
 import { PeekProvider } from '@/components/peek/peek-stack'
 import { ChatErrorBoundary } from './chat-error-boundary'
 import { ChatHeaderMenu } from './chat-header-menu'
+import { MultiChatGrid } from './multi-chat-grid'
 import { usePaneIdentity } from './pane-identity'
+import { useChatPaneState } from './use-chat-pane-state'
+import { historyRecord, parseHistoryPreview } from './chat-history'
+import { ChatGridDropOverlay } from './chat-grid-drop'
+import { useChatGridAdd } from './use-chat-grid-add'
+import { ChatPageHeader } from './chat-page-header'
+import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
+import { useChatGridWorkspace } from './use-chat-grid-workspace'
+import { chatHeaderTitle } from './header-title'
+import { useMobileWorkingSet } from './use-mobile-working-set'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
 const FileView = lazy(() =>
@@ -44,34 +53,11 @@ import { useSettings } from '@/routes/settings-provider'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
-import { Check } from 'lucide-react'
-import { writeViewMode, type ViewMode } from '@/lib/view-mode'
+import type { ViewMode } from '@/lib/view-mode'
 import type { GatewayEvent } from '@jinn/gateway-events'
 import { shareDebugLog, clearDebugLog } from '@/lib/debug-log'
 import { buildNewSessionParams } from '@/components/chat/new-chat-helpers'
 import { buildContinuationPrompt } from '@/lib/stale-chat'
-
-function parseHistoryPreview(value: unknown): CommsPeekData | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const candidate = (value as { threadPreview?: unknown }).threadPreview
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-  const peek = candidate as Partial<CommsPeekData>
-  if (
-    typeof peek.kind !== 'string'
-    || typeof peek.employee !== 'string'
-    || typeof peek.displayName !== 'string'
-    || typeof peek.messageId !== 'string'
-    || typeof peek.timestamp !== 'number'
-    || typeof peek.preview !== 'string'
-  ) return null
-  return peek as CommsPeekData
-}
-
-function historyRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-}
 
 export default function ChatPageWrapper() {
   return (
@@ -117,19 +103,21 @@ function ChatPage() {
   const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>(
     () => initialMobileView(location.search),
   )
-  // sessionMeta carries the sessionId it belongs to so the tab-label effect
-  // can ignore stale meta from a previous session mid-switch (title flash fix).
-  const [sessionMeta, setSessionMeta] = useState<{ sessionId: string; engine?: string; engineSessionId?: string; model?: string; title?: string; employee?: string; archivedAt?: string | null } | null>(null)
   // Sibling sessions for the currently selected employee (empty if direct/single session)
   const [, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
   // When true, user explicitly started a new chat — don't auto-select first session
   const newChatIntentRef = useRef(false)
+  const [systemPrimedId, setSystemPrimedId] = useState<string | null>(null)
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
   const sessionsQuery = useSessions()
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
+  const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data, systemPrimedId)
+  const { viewport, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
+  const paneState = useChatPaneState(committedId, focusedSessionId)
+  const sessionMeta = paneState.meta
   // Show-both: the slim nav ribbon is always mounted (desktop); only the 280px
   // chat list folds. The ribbon's top toggle drives listOpen (persisted), so nav
   // never leaves the rail. There is no list⇄nav swap any more.
@@ -145,7 +133,6 @@ function ChatPage() {
   }, [])
   // Mobile: pop from the thread back to the chat list (the tab bar's Chat screen).
   const backToList = useCallback(() => setMobileView('sidebar'), [])
-  const [viewMode, setViewMode] = useState<ViewMode>('chat')
   const [threadPreview, setThreadPreview] = useState<CommsPeekData | null>(() => parseHistoryPreview(location.state))
   const previewHandoffTargetRef = useRef<string | null>(null)
   const previewAbortRef = useRef<AbortController | null>(null)
@@ -154,35 +141,9 @@ function ChatPage() {
   const returnFocusPendingRef = useRef(false)
   const destinationFocusPendingRef = useRef(false)
 
-  // Persist view mode per session — the COMMITTED one, because that is the pane
-  // that is mounted. Keyed off the URL, a switch blanked the held transcript.
-  const setAndPersistViewMode = useCallback((mode: ViewMode) => {
-    setViewMode(mode)
-    if (committedId) writeViewMode(committedId, mode)
-  }, [committedId])
-
-  // When the mounted session changes, sync viewMode with its persisted value. A
-  // FRESHLY CREATED session has nothing stored yet and inherits the current local
-  // viewMode, so picking "CLI" on New Chat before sending opens the new session in
-  // CLI; back on New Chat (committedId = null) the mode stays as-is.
-  const viewModeRef = useRef(viewMode)
-  useEffect(() => { viewModeRef.current = viewMode }, [viewMode])
-  useEffect(() => {
-    if (!committedId) return
-    const raw = typeof window !== 'undefined'
-      ? window.localStorage.getItem(`jinn-view-mode-${committedId}`)
-      : null
-    if (raw === 'cli' || raw === 'chat') {
-      setViewMode(raw)
-    } else {
-      writeViewMode(committedId, viewModeRef.current)
-    }
-  }, [committedId])
+  const viewMode = paneState.viewMode
   const [showMoreMenu, setShowMoreMenu] = useState(false)
-  const [showSessionPicker, setShowSessionPicker] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  const [focusTrigger, setFocusTrigger] = useState(0)
-  const sessionPickerRef = useRef<HTMLDivElement>(null)
   const { events, connectionSeq, skillsVersion, subscribe } = useGateway()
   const { data: engineRegistry } = useModelRegistry() // PTY capability per engine — drives the CLI view toggle
   const chatTabs = useChatTabs()
@@ -190,9 +151,9 @@ function ChatPage() {
   const archiveSessionMutation = useArchiveSession()
   const unarchiveSessionMutation = useUnarchiveSession()
   const duplicateSessionMutation = useDuplicateSession()
-  const selectedDelegatedActivity = useMemo(
-    () => selectedDelegatedActivityFromList(sessionsQuery.data, selectedId),
-    [selectedId, sessionsQuery.data],
+  const focusedDelegatedActivity = useMemo(
+    () => selectedDelegatedActivityFromList(sessionsQuery.data, focusedSessionId),
+    [focusedSessionId, sessionsQuery.data],
   )
   const qc = useQueryClient()
   const [showShortcutOverlay, setShowShortcutOverlay] = useState(false)
@@ -206,19 +167,16 @@ function ChatPage() {
   // would be seen as "outside" and close the menu. Use a data-attribute
   // ancestor check instead so both copies count as "inside".
   useEffect(() => {
-    if (!showMoreMenu && !showSessionPicker) return
+    if (!showMoreMenu) return
     function handleClick(e: MouseEvent) {
       const target = e.target as HTMLElement | null
       if (showMoreMenu && target && !target.closest('[data-more-menu]')) {
         setShowMoreMenu(false)
       }
-      if (showSessionPicker && sessionPickerRef.current && !sessionPickerRef.current.contains(e.target as Node)) {
-        setShowSessionPicker(false)
-      }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [showMoreMenu, showSessionPicker])
+  }, [showMoreMenu])
 
   const copyToClipboard = useCallback((text: string, field: string) => {
     void platformCopyText(text).then((result) => { if (result.status === 'performed') setCopiedField(field) })
@@ -248,14 +206,6 @@ function ChatPage() {
       employeeName: sessionMeta.employee || undefined,
     })
   }, [selectedId, sessionMeta, portalName, updateTabStatus])
-
-  // Clear sessionMeta synchronously when the active session changes — the new
-  // ChatPane will repopulate it via onSessionMetaChange once it loads. This
-  // prevents the title-flash where the effect above would otherwise stamp the
-  // OLD session's title onto the NEW tab between switch and ChatPane mount.
-  useEffect(() => {
-    setSessionMeta((current) => (current && current.sessionId !== selectedId ? null : current))
-  }, [selectedId])
 
   // Subscribe to session lifecycle events so chat tabs reflect real-time
   // running/idle/error status, get their label updated on rename, and close
@@ -324,11 +274,11 @@ function ChatPage() {
   // tab restore) pass `replace`. `from` is a drill-in's origin, carried in
   // history state for the back chip.
   const handleSelect = useCallback(
-    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin }) => {
+    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin; system?: boolean }) => {
       const currentId = selectedIdRef.current
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
-      newChatIntentRef.current = false
+      newChatIntentRef.current = false; setSystemPrimedId(opts?.system ? id : null)
       // On mobile, opening a session pushes from the list into the thread, and the
       // pane arrives with it (see revealSelection). The one exception is the
       // background auto-select of the most-recent session (handleSessionsLoaded):
@@ -352,15 +302,34 @@ function ChatPage() {
     [chatTabs, navigate, revealSelection]
   )
 
+  const handleFocusPane = useCallback((sessionId: string) => {
+    workingSet.focus(sessionId)
+    if (sessionId !== selectedIdRef.current) {
+      handleSelect(sessionId, { navigateMobile: false })
+    }
+  }, [handleSelect, workingSet])
+
+  const handleMobileWorkingSetSelect = useCallback((sessionId: string) => {
+    handleSelect(sessionId, { navigateMobile: false })
+  }, [handleSelect])
+
+  const gridAdd = useChatGridAdd(workingSet.add, workingSet.insert, selectedId, handleSelect)
+  const handleRemovePane = useCallback((sessionId: string) => {
+    const next = removeWorkingSetSession(workingSet.state, sessionId)
+    workingSet.remove(sessionId)
+    if (workingSet.state.focusedId === sessionId && next.focusedId) {
+      handleSelect(next.focusedId, { replace: true, navigateMobile: false })
+    }
+  }, [handleSelect, workingSet])
+
   // URL → tab/intent sync: covers selections that did NOT come through
   // handleSelect — back/forward (POP), deep links, manual URL edits. openTab
   // dedupes and bails when already active, so re-running after a handleSelect
   // push is a no-op.
   const didMountRef = useRef(false)
   useEffect(() => {
-    // A selectedId change means a navigation landed — any in-flight sentinel
-    // is done (ours just arrived; a competing user navigation obsoletes it).
     pendingNavRef.current = undefined
+    if (navigationType === 'POP') setSystemPrimedId(null)
     if (selectedId) {
       newChatIntentRef.current = false
       chatTabs.openTab({ sessionId: selectedId, label: 'Loading...', status: 'idle', unread: false })
@@ -385,8 +354,8 @@ function ChatPage() {
   useEffect(() => {
     if (previewHandoffTargetRef.current === selectedId) return
     if (typeof window !== 'undefined' && window.innerWidth < 1024) return
-    setFocusTrigger(prev => prev + 1)
-  }, [selectedId])
+    paneState.bumpFocus(selectedId)
+  }, [paneState.bumpFocus, selectedId])
 
   const handleNewChat = useCallback(() => {
     newChatIntentRef.current = true
@@ -396,7 +365,7 @@ function ChatPage() {
     setEmployeeSessions([])
     chatTabs.clearActiveTab()
     // Leaving a session for the composer is a navigation — push, so back
-    // returns to the thread you left. (sessionMeta clears via the sync effect.)
+    // returns to the thread you left. (The header names the composer, not a chat.)
     if (selectedIdRef.current) {
       pendingNavRef.current = null
       navigate('/')
@@ -469,7 +438,7 @@ function ChatPage() {
         // thread, but stays on the chat LIST on mobile (navigateMobile: false),
         // so tapping the Chat tab opens the list to pick/start a chat. REPLACE —
         // a system pick must not create a history entry.
-        handleSelect(sessions[0].id, { navigateMobile: false, replace: true })
+        handleSelect(sessions[0].id, { navigateMobile: false, replace: true, system: true })
       }
     },
     [selectedId, handleSelect]
@@ -611,12 +580,6 @@ function ChatPage() {
   // the tab-label effect) can ignore stale meta from a previous session.
   // We read selectedId via a ref (declared with the URL model above) so this
   // callback stays stable.
-  const handleSessionMetaChange = useCallback((meta: { title?: string; employee?: string; engine?: string; engineSessionId?: string; model?: string; archivedAt?: string | null }) => {
-    const sid = selectedIdRef.current
-    if (!sid) return
-    setSessionMeta({ sessionId: sid, ...meta })
-  }, [])
-
   const handleRefresh = useCallback(() => {
     qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
   }, [qc])
@@ -626,9 +589,13 @@ function ChatPage() {
   // sidebar/session selections continue through handleSelect without a preview.
   const sessionMetaRef = useRef(sessionMeta)
   useEffect(() => { sessionMetaRef.current = sessionMeta }, [sessionMeta])
-  const requestThreadPreview = useCallback((peek: CommsPeekData) => {
-    const currentId = selectedIdRef.current
-    const scroller = document.querySelector<HTMLElement>('.chat-messages-scroll')
+  const requestThreadPreview = useCallback((currentId: string, peek: CommsPeekData) => {
+    const escapedSessionId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(currentId)
+      : currentId.replace(/["\\]/g, '\\$&')
+    const scroller = document.querySelector<HTMLElement>(
+      `[data-chat-pane-session="${escapedSessionId}"] .chat-messages-scroll`,
+    )
     if (currentId && scroller?.clientHeight) sessionScrollRef.current.set(currentId, scroller.scrollTop)
     previewSourceRef.current = {
       sessionId: currentId,
@@ -720,10 +687,10 @@ function ChatPage() {
     if (!destinationFocusPendingRef.current) return
     destinationFocusPendingRef.current = false
     requestAnimationFrame(() => {
-      if (window.innerWidth >= 1024) setFocusTrigger((value) => value + 1)
+      if (window.innerWidth >= 1024 && focusedSessionId) paneState.bumpFocus(focusedSessionId)
       else document.querySelector<HTMLElement>('button[aria-label^="Back"]')?.focus({ preventScroll: true })
     })
-  }, [])
+  }, [focusedSessionId, paneState.bumpFocus])
 
   // The in-app way back for a drill-in: POP the entry the jump pushed (never
   // push a new one) — browser back and the chip walk the same trail.
@@ -762,9 +729,9 @@ function ChatPage() {
   }, [sessionMeta, handleSelect])
 
   const copyChat = useCallback(async () => {
-    if (!selectedId) return
+    if (!focusedSessionId) return
     try {
-      const session = await api.getSession(selectedId) as { messages?: Array<{ role: string; content: string }> }
+      const session = await api.getSession(focusedSessionId) as { messages?: Array<{ role: string; content: string }> }
       const messages = session.messages ?? []
       const text = messages
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -774,7 +741,7 @@ function ChatPage() {
       setCopiedField('chat')
       setTimeout(() => setCopiedField(null), 1500)
     } catch { /* silently fail */ }
-  }, [selectedId])
+  }, [focusedSessionId])
 
   // Tab activation = session selection (pushes a history entry) for session
   // tabs; file tabs stay a pure tab-model switch (they live outside the URL).
@@ -797,15 +764,15 @@ function ChatPage() {
     { key: 'j', category: 'Navigation', description: 'Next session', action: () => navigateSession(1) },
     { key: 'k', category: 'Navigation', description: 'Previous session', action: () => navigateSession(-1) },
     { key: 'e', category: 'Navigation', description: 'Next employee', action: cycleEmployee },
-    { key: 'Backspace', category: 'Actions', description: 'Delete session', action: () => { if (selectedId && window.confirm('Delete this session?')) handleDeleteSession(selectedId) }, enabled: !!selectedId },
-    { key: 'Delete', category: 'Actions', description: 'Delete session', action: () => { if (selectedId && window.confirm('Delete this session?')) handleDeleteSession(selectedId) }, enabled: !!selectedId },
-    { key: 'c', category: 'Actions', description: 'Copy chat', action: copyChat, enabled: !!selectedId },
+    { key: 'Backspace', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
+    { key: 'Delete', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
+    { key: 'c', category: 'Actions', description: 'Copy chat', action: copyChat, enabled: !!focusedSessionId },
     { key: 'Escape', category: 'Navigation', description: 'Close overlay', action: () => {
       if (showShortcutOverlay) setShowShortcutOverlay(false)
       else if (showMoreMenu) setShowMoreMenu(false)
     }},
     { key: '/', category: 'Actions', description: 'Focus chat', action: () => {
-      const el = document.getElementById('chat-textarea')
+      const el = document.querySelector<HTMLElement>('[data-chat-pane-active="true"] [data-chat-textarea]')
       if (el) el.focus()
     }},
     { key: '?', category: 'Help', description: 'Keyboard shortcuts', action: () => setShowShortcutOverlay(v => !v) },
@@ -825,7 +792,7 @@ function ChatPage() {
       description: `Tab ${i + 1}`,
       action: () => activateTab(i),
     })),
-  ], [handleNewChat, navigateSession, cycleEmployee, copyChat, selectedId, showShortcutOverlay, showMoreMenu, chatTabs, toggleList, activateTab, cycleTab])
+  ], [handleNewChat, navigateSession, cycleEmployee, copyChat, focusedSessionId, showShortcutOverlay, showMoreMenu, chatTabs, toggleList, activateTab, cycleTab])
 
   useKeyboardShortcuts(shortcuts)
 
@@ -857,7 +824,7 @@ function ChatPage() {
     if (!tabChanged || urlMoved) return
 
     if (at && at.kind === 'session' && at.sessionId !== selectedId) {
-      handleSelect(at.sessionId, { replace: true, navigateMobile: false })
+      handleSelect(at.sessionId, { replace: true, navigateMobile: false, system: true })
       return
     }
 
@@ -872,7 +839,7 @@ function ChatPage() {
 
   const cliModeAvailable = !sessionMeta?.engine || engineRegistry?.engines?.[sessionMeta.engine]?.supportsPty === true
   const activeSessionTab = chatTabs.activeTab?.kind === 'session' ? chatTabs.activeTab : null
-  const viewSwitchLocked = sessionMeta?.engine === 'codex' && activeSessionTab?.sessionId === selectedId && activeSessionTab.status === 'running'
+  const viewSwitchLocked = sessionMeta?.engine === 'codex' && activeSessionTab?.sessionId === focusedSessionId && activeSessionTab.status === 'running'
   const cliTitle = viewSwitchLocked
     ? 'Codex view switching is locked while a turn is running'
     : cliModeAvailable ? undefined : 'CLI view is not available for this engine'
@@ -882,14 +849,14 @@ function ChatPage() {
     <ChatHeaderMenu
       open={showMoreMenu}
       onOpenChange={setShowMoreMenu}
-      selectedId={selectedId}
+      selectedId={focusedSessionId}
       sessionMeta={sessionMeta}
       openGlobalSearch={openGlobalSearch}
       effectiveViewMode={effectiveViewMode}
       cliModeAvailable={cliModeAvailable}
       viewSwitchLocked={viewSwitchLocked}
       cliTitle={cliTitle}
-      setAndPersistViewMode={setAndPersistViewMode}
+      setAndPersistViewMode={paneState.setViewMode}
       onDuplicate={handleDuplicate}
       duplicatePending={duplicateSessionMutation.isPending}
       onArchive={handleArchiveSession}
@@ -898,15 +865,16 @@ function ChatPage() {
       onShareDebugLog={shareDebugLog}
       onClearDebugLog={clearDebugLog}
       onDeleteSession={handleDeleteSession}
+      onOpenChatBeside={gridPicker.open}
     />
   )
-
-  // The conversation title — slim inline title (desktop) / centered nav-bar title
-  // (mobile thread). "New chat" on a fresh composer, else nothing until meta loads.
-  const headerTitle = sessionMeta?.title?.trim() || (selectedId ? '' : 'New chat')
-
+  // The conversation title — slim inline (desktop) / centered nav bar (mobile).
+  const headerTitle = chatHeaderTitle({ focusedSessionId, meta: sessionMeta, sessions: sessionsQuery.data })
+  const mobileWorkingSet = useMobileWorkingSet({
+    sessionIds: mobileSessionIds, activeId: focusedSessionId, sessions: sessionsQuery.data ?? [],
+    subscribe, connectionSeq, onSelect: handleMobileWorkingSetSelect,
+  })
   const onMobileList = mobileView === 'sidebar'
-
   return (
     <FileOpenContext.Provider value={openFile}>
     <PeekProvider>
@@ -963,20 +931,16 @@ function ChatPage() {
 
           {/* Frosted corner pills replace the solid header. Hidden over the mobile
               chat-list view (the sidebar has its own header); shown on desktop + thread. */}
-          <ChatHeaderPills
+          <ChatPageHeader
             hideOnMobile={onMobileList}
             title={headerTitle}
             backTo={backTo}
             onBack={backToList}
             onNew={handleNewChat}
             moreMenu={moreMenu}
+            mobileWorkingSet={mobileWorkingSet}
+            copiedField={copiedField}
           />
-
-          {copiedField && (
-            <div className="absolute right-4 top-[58px] z-10 flex items-center gap-1 rounded-full bg-[var(--material-thick)] px-2.5 py-1 text-caption1 font-medium text-[var(--accent)] shadow-[var(--shadow-overlay)]">
-              <Check className="size-3" /> Copied!
-            </div>
-          )}
 
           <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
             {/* Mobile: the chat list is the full-width body; the bottom tab bar
@@ -997,8 +961,14 @@ function ChatPage() {
             />
           </div>
 
-          <div ref={paneSlotRef} className={cn(
-            "flex-1 overflow-hidden flex flex-col",
+          <div
+            ref={paneSlotRef}
+            data-chat-grid-drop-surface
+            data-chat-grid-drop-state={gridAdd.drop.active ? 'eligible' : 'idle'}
+            {...gridAdd.drop.handlers}
+            className={cn(
+            "relative flex-1 overflow-hidden flex flex-col",
+            "mobile-working-set-thread",
             mobileView === 'sidebar' ? 'hidden lg:flex' : 'flex'
           )}>
             {/* File tab → render the in-app file viewer inside the same bounded
@@ -1010,33 +980,45 @@ function ChatPage() {
                 <FileView path={chatTabs.activeTab.path} embedded onBack={handleFileBack} />
               </Suspense>
             ) : awaitingOpen ? <div className="flex-1" /> : (
-              <ChatPane
-                key={paneKey}
-                sessionId={committedId}
-                initialScrollTop={committedId ? sessionScrollRef.current.get(committedId) : undefined}
-                initialEmployee={committedId ? undefined : pendingEmployee}
-                isActive={true}
-                onFocus={() => {}}
-                onSessionCreated={handleSessionCreated}
-                onNewChat={handleNewChat}
-                onSessionMetaChange={handleSessionMetaChange}
-                onRefresh={handleRefresh}
-                portalName={portalName}
-                subscribe={subscribe}
-                engineRegistry={engineRegistry}
-                connectionSeq={connectionSeq}
-                skillsVersion={skillsVersion}
-                events={events}
-                viewMode={effectiveViewMode}
-                focusTrigger={focusTrigger}
-                onShortcutsClick={() => setShowShortcutOverlay(true)}
-                pendingUserMessage={pendingMessage}
+              <MultiChatGrid
+                sessionIds={mountedSessionIds}
+                focusedId={focusedSessionId}
+                primary={{
+                  paneKey,
+                  sessionId: committedId,
+                  pendingUserMessage: pendingMessage,
+                  initialEmployee: committedId ? undefined : pendingEmployee,
+                  onSessionCreated: handleSessionCreated,
+                  viewMode: effectiveViewMode,
+                  focusTrigger: paneState.focusTriggerFor(committedId),
+                  delegatedActivity: focusedDelegatedActivity,
+                }}
+                viewport={viewport}
+                onFocus={handleFocusPane}
+                onRemove={handleRemovePane}
+                metaById={paneState.metaById} sessionTitleFor={(id) => sessionsQuery.data?.find((session) => String(session.id ?? '') === id)?.title}
+                runtime={{ portalName, subscribe, engineRegistry, connectionSeq, skillsVersion, events }}
+                scrollTopFor={(sessionId) => sessionScrollRef.current.get(sessionId)}
+                viewModeFor={paneState.viewModeFor}
+                focusTriggerFor={paneState.focusTriggerFor}
+                delegatedActivityFor={(sessionId) => selectedDelegatedActivityFromList(sessionsQuery.data, sessionId)}
+                onMeta={paneState.updateMeta}
+                onNewMeta={paneState.updateNewMeta}
+                onOpenFile={(sessionId, path) => {
+                  fileBackTargetRef.current = sessionId
+                  chatTabs.openFileTab(path)
+                  setMobileView('chat')
+                }}
                 onPeek={requestThreadPreview}
+                onNewChat={handleNewChat}
+                onRefresh={handleRefresh}
+                onShortcutsClick={() => setShowShortcutOverlay(true)}
                 onContentReady={handlePaneContentReady}
-                delegatedActivity={selectedDelegatedActivity}
                 onStartFreshChat={handleStartFreshChat}
+                pickerPane={gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)}
               />
             )}
+            <ChatGridDropOverlay placement={gridAdd.drop.placement} />
           </div>
 
           {/* Stable above the session-keyed ChatPane: it survives route remount

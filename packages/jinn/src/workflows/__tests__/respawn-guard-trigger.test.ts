@@ -16,12 +16,20 @@ type Store = typeof import("../../work-items/store.js");
 type Claims = typeof import("../../work-items/claims.js");
 type Runs = typeof import("../../work-items/runs.js");
 type RouteClaims = typeof import("../../gateway/todo-claim.js");
+type Transitions = typeof import("../../work-items/transitions.js");
+type Feeds = typeof import("../../work-items/workflow-event-feed.js");
+type Resumes = typeof import("../../work-items/availability-resume.js");
+type ResumePort = typeof import("../../gateway/availability-resume.js");
 type Triggers = typeof import("../trigger-service.js");
 
 let store: Store;
 let claims: Claims;
 let runs: Runs;
 let routeClaims: RouteClaims;
+let transitions: Transitions;
+let feeds: Feeds;
+let resumes: Resumes;
+let resumePort: ResumePort;
 let triggers: Triggers;
 
 const trigger: WorkflowNode = {
@@ -49,16 +57,19 @@ const runner = { start: async (runId: string) => ({ id: runId, status: "complete
 const feed: WorkflowTodoEventFeed = {
   claimEvent: (_id, definitionIds) => ({ state: "acquired", definitionIds }),
   completeEvent: (_id: string, outcomes: WorkflowTodoEventClaimOutcome[]) => { reported = outcomes; },
+  deferEvent: (_id: string, _definitionIds: string[], outcomes: WorkflowTodoEventClaimOutcome[]) => { reported = outcomes; },
   releaseEvent: () => {},
   listPendingEvents: () => pending,
 };
 
 let pending: WorkflowTodoStatusEvent[] = [];
 
-function event(id: string, workItemId: string): WorkflowTodoStatusEvent {
+function event(id: string, workItemId: string, quotaWindowDecided = false): WorkflowTodoStatusEvent {
   return {
     id, workItemId, fromStatus: "executing", toStatus: "in_review", actor: "operator", armedAsDelegate: null,
-    item: { source: "human", department: null, assignee: null, labels: [], live: { assignee: null, parentId: null } },
+    quotaWindowDecided,
+    item: { source: "human", department: null, assignee: null, labels: [],
+      live: { assignee: null, parentId: null, status: "in_review" } },
   };
 }
 
@@ -85,6 +96,10 @@ beforeAll(async () => {
   claims = await import("../../work-items/claims.js");
   runs = await import("../../work-items/runs.js");
   routeClaims = await import("../../gateway/todo-claim.js");
+  transitions = await import("../../work-items/transitions.js");
+  feeds = await import("../../work-items/workflow-event-feed.js");
+  resumes = await import("../../work-items/availability-resume.js");
+  resumePort = await import("../../gateway/availability-resume.js");
   triggers = await import("../trigger-service.js");
 });
 
@@ -146,5 +161,90 @@ describe("human-initiated pickup is not guarded", () => {
     const claim = routeClaims.claimTodoForDelegation(response(), id);
     expect(claim).toBeDefined();
     expect(claims.getWorkItemClaim(id)?.owner).toBe(claim?.owner);
+  });
+});
+
+/* The availability resume sweep and this trigger are one path (PLA-153): the
+ * sweep decides a quota window has reopened and re-arms the Todo, and the status
+ * event that re-arm writes is what actually starts the run. Both halves ask the
+ * same guards, so a cooldown the sweep has already outranked must not refuse the
+ * event a second time — and the three guards it did not answer still must. */
+describe("a Todo the availability resume sweep re-armed", () => {
+  const MINUTE_MS = 60_000;
+
+  /** A quota window whose own text names a reopening five minutes ago. Both
+   *  halves read the wall clock, so the window is built off it rather than off a
+   *  fixed instant only one of them would be told about. */
+  const reopenedQuota = () => `Usage limit exceeded; try again at ${new Date(Date.now() - 5 * MINUTE_MS).toISOString()}`;
+
+  /** A Todo `guarded-flow` was driving when a provider window killed its attempt
+   *  ten minutes ago — inside `rate_limit_cooldown`, past the reset it stated. */
+  function parkedTodo(title: string, outcome: "rate_limited" | "crashed", error: string): string {
+    const item = store.createWorkItem({ title, status: "executing" });
+    const attempt = runs.openWorkItemRun({ workItemId: item.id, sessionId: `s-${item.id}` });
+    runs.closeWorkItemRun(attempt.id, { outcome, error, endedAt: new Date(Date.now() - 10 * MINUTE_MS).toISOString() });
+    store.appendWorkItemEvent({
+      workItemId: item.id, kind: "status_change", fromStatus: "assigned", toStatus: "executing",
+      actor: "workflow:run", detail: { workflowId: definition.id, runId: "run_1", nodeId: "plan" },
+      versionEffect: "audit",
+    });
+    return item.id;
+  }
+
+  /** One sweep tick, re-arming through the same port the gateway wires up. */
+  function sweepOnce(): void {
+    resumes.sweepAvailabilityResumes({ rearm: (todoId) => resumePort.availabilityRearm(todoId, repository) });
+  }
+
+  const resumesOf = (id: string) => store.listWorkItemEvents(id).filter((entry) => entry.kind === "availability_resumed");
+  const holdsOn = (id: string) => store.listWorkItemEvents(id)
+    .filter((entry) => entry.kind === "respawn_guard_held").map((entry) => String(entry.detail?.guard));
+
+  it("defers at its own guard check when one it cannot answer stands, burning no resume", () => {
+    const id = parkedTodo("credentials, not a clock", "crashed", `${reopenedQuota()}; invalid api key`);
+
+    sweepOnce();
+
+    expect(resumesOf(id)).toHaveLength(0);
+    expect(holdsOn(id)).toEqual(["blocker_auth"]);
+    expect(store.getWorkItem(id)?.status).toBe("executing");
+  });
+
+  it("is still refused by the guards its decision does not answer", async () => {
+    const id = parkedTodo("held on credentials anyway", "crashed", `${reopenedQuota()}; invalid api key`);
+    pending = [event("event-resumed-auth", id, true)];
+
+    const service = new triggers.WorkflowTriggerService(repository, runner, () => "now", feed);
+    expect(await service.recoverTodoEvents()).toBe(0);
+
+    expect(started).toEqual([]);
+    expect(reported).toEqual([{
+      workflowId: definition.id,
+      outcome: "suppressed",
+      detail: expect.stringContaining("blocker_auth") as unknown as string,
+    }]);
+  });
+
+  it("starts the run its stated reset says is due, inside the generic cooldown", async () => {
+    const id = parkedTodo("quota window has reopened", "rate_limited", reopenedQuota());
+
+    sweepOnce();
+    const service = new triggers.WorkflowTriggerService(repository, runner, () => "now", feeds.createWorkflowTodoEventFeed());
+    expect(await service.recoverTodoEvents()).toBe(1);
+
+    expect(started).toHaveLength(1);
+    expect(store.getWorkItem(id)?.status).toBe("in_review");
+    expect(resumesOf(id)).toHaveLength(1);
+  });
+
+  it("does not lend its bypass to an ordinary move made inside the same cooldown", async () => {
+    const id = parkedTodo("moved by hand, not by the sweep", "rate_limited", reopenedQuota());
+    transitions.transition(id, "in_review", "operator");
+
+    const service = new triggers.WorkflowTriggerService(repository, runner, () => "now", feeds.createWorkflowTodoEventFeed());
+    expect(await service.recoverTodoEvents()).toBe(0);
+
+    expect(started).toEqual([]);
+    expect(holdsOn(id)).toEqual(["rate_limit_cooldown"]);
   });
 });

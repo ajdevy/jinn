@@ -30,6 +30,7 @@ export interface TodoListProps {
   now: number
   onOpen: (id: string, item: WorkItemCompactWire) => void
   onQuickAdd: (askAssignee: boolean) => void
+  onKeep?: (vars: { id: string; kept: boolean }) => void
   /** The scrollport this list lives in — a long list windows against it. */
   scrollRef: React.RefObject<HTMLDivElement | null>
   /** Which statuses this view was asked for — see `groupTodoListItems`. */
@@ -47,6 +48,7 @@ export function TodoList({
   now,
   onOpen,
   onQuickAdd,
+  onKeep,
   scrollRef,
   statusInScope,
   closedInitiallyOpen = false,
@@ -70,7 +72,7 @@ export function TodoList({
   // mounting it whole is the cheaper of the two.
   const todoCount = rows.reduce((count, row) => count + (row.kind === "item" ? 1 : 0), 0)
 
-  const handlers: TodoListRowHandlers = { byName, trees, now, onOpen, onQuickAdd, onToggleClosed: toggleClosed }
+  const handlers: TodoListRowHandlers = { byName, trees, now, onOpen, onQuickAdd, onKeep, onToggleClosed: toggleClosed }
   return todoCount >= VIRTUALIZE_THRESHOLD
     ? <WindowedTodoList rows={rows} scrollRef={scrollRef} className={PADDING} handlers={handlers} />
     : <PlainTodoList sections={sections} handlers={handlers} />
@@ -91,6 +93,7 @@ function PlainTodoList({ sections, handlers }: { sections: TodoListSection[]; ha
           onToggle={section.group.key === "closed" ? handlers.onToggleClosed : undefined}
           onQuickAdd={() => handlers.onQuickAdd(section.group.key === "assigned")}
           onOpen={handlers.onOpen}
+          onKeep={handlers.onKeep}
           hasMore={section.hasMore}
           loadingMore={section.loadingMore}
           onLoadMore={section.onLoadMore}

@@ -168,46 +168,58 @@
    source, which would silently leave `text-[length:var(--text-…)]` call sites
    holding a size with no leading — the exact defect this replaces. */
 @theme static {
-  --text-caption2: clamp(0.625rem, 0.5866rem + 0.1577vw, 0.6875rem);
+  --text-caption2: calc(clamp(0.625rem, 0.5866rem + 0.1577vw, 0.6875rem) * var(--text-scale));
   --text-caption2--line-height: 1.35;
   --text-caption2--letter-spacing: 0.006em;
 
-  --text-caption1: clamp(0.6875rem, 0.6491rem + 0.1577vw, 0.75rem);
+  --text-caption1: calc(clamp(0.6875rem, 0.6491rem + 0.1577vw, 0.75rem) * var(--text-scale));
   --text-caption1--line-height: 1.35;
   --text-caption1--letter-spacing: 0em;
 
-  --text-footnote: clamp(0.75rem, 0.7116rem + 0.1577vw, 0.8125rem);
+  --text-footnote: calc(clamp(0.75rem, 0.7116rem + 0.1577vw, 0.8125rem) * var(--text-scale));
   --text-footnote--line-height: 1.4;
   --text-footnote--letter-spacing: -0.006em;
 
-  --text-subheadline: clamp(0.875rem, 0.8366rem + 0.1577vw, 0.9375rem);
+  --text-subheadline: calc(clamp(0.875rem, 0.8366rem + 0.1577vw, 0.9375rem) * var(--text-scale));
   --text-subheadline--line-height: 1.45;
   --text-subheadline--letter-spacing: -0.016em;
 
-  --text-body: clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem);
+  --text-body: calc(clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem) * var(--text-scale));
   --text-body--line-height: 1.47;
   --text-body--letter-spacing: -0.024em;
 
   /* Same size as body, per HIG — the difference is weight, which call sites set. */
-  --text-headline: clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem);
+  --text-headline: calc(clamp(1rem, 0.9616rem + 0.1577vw, 1.0625rem) * var(--text-scale));
   --text-headline--line-height: 1.4;
   --text-headline--letter-spacing: -0.024em;
 
-  --text-title3: clamp(1.125rem, 1.0481rem + 0.3155vw, 1.25rem);
+  --text-title3: calc(clamp(1.125rem, 1.0481rem + 0.3155vw, 1.25rem) * var(--text-scale));
   --text-title3--line-height: 1.3;
   --text-title3--letter-spacing: -0.019em;
 
-  --text-title2: clamp(1.1875rem, 1.0722rem + 0.4732vw, 1.375rem);
+  --text-title2: calc(clamp(1.1875rem, 1.0722rem + 0.4732vw, 1.375rem) * var(--text-scale));
   --text-title2--line-height: 1.25;
   --text-title2--letter-spacing: -0.019em;
 
-  --text-title1: clamp(1.5rem, 1.3462rem + 0.6309vw, 1.75rem);
+  --text-title1: calc(clamp(1.5rem, 1.3462rem + 0.6309vw, 1.75rem) * var(--text-scale));
   --text-title1--line-height: 1.2;
   --text-title1--letter-spacing: -0.021em;
 
-  --text-large-title: clamp(1.75rem, 1.5193rem + 0.9464vw, 2.125rem);
+  --text-large-title: calc(clamp(1.75rem, 1.5193rem + 0.9464vw, 2.125rem) * var(--text-scale));
   --text-large-title--line-height: 1.12;
   --text-large-title--letter-spacing: -0.024em;
+
+  /* Tailwind's own steps, redeclared only to carry the same multiplier. A
+     handful of call sites still say `text-sm` / `text-xs` / `text-lg` /
+     `text-xl`, and without this they would be the one part of the UI the Text
+     size setting does not move. Their leading is a unitless ratio, so it
+     follows the scaled size untouched. Converting those call sites to the HIG
+     steps above is a separate cleanup. */
+  --text-xs: calc(0.75rem * var(--text-scale));
+  --text-sm: calc(0.875rem * var(--text-scale));
+  --text-base: calc(1rem * var(--text-scale));
+  --text-lg: calc(1.125rem * var(--text-scale));
+  --text-xl: calc(1.25rem * var(--text-scale));
 }
 
 @theme {
@@ -304,6 +316,12 @@
      fades it. The previous +52px reserved space for the removed solid header
      and left a dead gap above the first message. */
   --chat-top-clearance: max(var(--safe-top), 12px);
+  /* Multiplier on every type step, from the Text size setting. The blocking
+     bootstrap in index.html sets it on <html> before first paint and the
+     settings provider rewrites it on change; this is the unscaled fallback for
+     a device that has never picked one. Declared outside @theme because an
+     inline style on <html> only wins the cascade against a :root declaration. */
+  --text-scale: 1;
 }
 
 /* LEDGER DARK — warm charcoal + amber (default) */
@@ -610,18 +628,26 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* No `touch-action` here, deliberately. It read as free — the 350ms double-tap
+   delay it was there to kill is already gone, because the page ships
+   `user-scalable=no` (see the viewport meta in index.html) and there is no zoom
+   left to wait for. What it cost was momentum: a non-`auto` touch-action on an
+   ancestor takes inertial scrolling away from every scroller below it in WebKit,
+   so a flick anywhere in the app stopped dead on finger-lift. The two gestures
+   that genuinely need a declared value keep their own — the edge-back gutter
+   (`touch-pan-y` in edge-back-layer.tsx) and the terminal (`.xterm` below). */
 html {
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
 }
 
 /* Prevent iOS Safari zoom on input focus (requires font-size >= 16px). The body
-   step bottoms out at 1rem and only grows from there, so it clears the threshold
-   across this whole range while still following the user's text-size setting —
-   which a flat 16px would not. */
+   step tracks the Text size setting and drops under 1rem at the smaller ones, so
+   the floor is taken here rather than assumed — the page ships user-scalable=no,
+   which makes a zoom on focus something the reader cannot undo. Above the floor
+   the size still follows the setting, which a flat 16px would not. */
 @media screen and (max-width: 768px) {
   input, select, textarea, .apple-input {
-    font-size: var(--text-body) !important;
+    font-size: max(1rem, var(--text-body)) !important;
   }
 }
 
@@ -855,7 +881,10 @@ h1, h2, h3, h4, h5, h6 {
   animation: jinn-msg-send-in var(--duration-base) var(--ease-smooth) backwards;
   transform-origin: 100% 100%;
 }
-.assistant-transcript[data-msg-enter] {
+/* The bubble is the fallback target: a row that is all blocks — a
+   company-activity card, a task list — has no transcript to carry the mark. */
+.assistant-transcript[data-msg-enter],
+.assistant-msg-bubble[data-msg-enter] {
   animation: jinn-msg-receive-in var(--duration-slow) var(--ease-smooth) backwards;
 }
 @keyframes jinn-msg-send-in { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: none; } }
@@ -893,9 +922,31 @@ h1, h2, h3, h4, h5, h6 {
    resting state, so the transform is gone once it finishes and the transcript's
    ancestor is not left promoted underneath a scroll. */
 [data-chat-pane-session] { animation: jinn-chat-open var(--duration-base) var(--ease-smooth); }
+
+@keyframes jinn-mobile-chat-crossfade { from { opacity: 0; } }
+@keyframes jinn-mobile-preview-in { from { opacity: 0; } }
+
+/* The switch belongs to the wrapper in multi-chat-grid.tsx, which is keyed on
+   the committed pane and so replays once per switch. Leaving the pane's own
+   open animation underneath would fade the same pixels a second time, and
+   slide them while it did. */
+@media (max-width: 1023px) {
+  .mobile-working-set-thread [data-chat-pane-session] { animation: none; }
+}
 @keyframes jinn-chat-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   [data-chat-pane-session] { animation: none; }
+}
+
+/* The conversation title. It swaps whole chats under a fixed-height nav bar, so
+   opacity and a 2px rise are all it may touch: the back control and the compose
+   button share that row, and neither may move. Marked per change and never on
+   mount, so returning to a thread does not animate a title already on screen.
+   No fill, like the chat open above it — the end state is the resting state. */
+[data-title-enter] { animation: jinn-title-enter var(--duration-base) var(--ease-smooth); }
+@keyframes jinn-title-enter { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-title-enter] { animation: none; }
 }
 
 /* ============================================

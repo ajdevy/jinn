@@ -14,7 +14,7 @@ describe("viewPrefix", () => {
   })
 
   it("has nothing to offer from a route that carries no Todo id", () => {
-    expect(viewPrefix("/todos/b/my")).toBeNull()
+    expect(viewPrefix("/todos/b/home")).toBeNull()
     expect(viewPrefix("/")).toBeNull()
     expect(viewPrefix("/workflow/nightly-digest")).toBeNull()
   })

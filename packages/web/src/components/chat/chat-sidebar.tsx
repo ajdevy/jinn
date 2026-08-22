@@ -64,34 +64,10 @@ import {
   SessionRowMenu,
   workflowRunPath,
 } from "@/components/chat/session-row-menu"
+import { writeChatSessionDrag } from "@/routes/chat/chat-session-dnd"
+import type { ChatSidebarProps } from "@/components/chat/chat-sidebar-types"
 
-export interface SidebarOrder {
-  sessionIds: string[]
-  employeeNames: string[]
-  employeeSessionMap: Record<string, string[]>
-}
-
-interface ChatSidebarProps {
-  selectedId: string | null
-  /** Select a session. System-initiated selections (e.g. the post-delete
-   *  neighbour fallback) pass `replace` so they collapse into the current
-   *  history entry instead of pushing a new one. */
-  onSelect: (id: string, opts?: { replace?: boolean; navigateMobile?: boolean }) => void
-  onNewChat: () => void
-  onDelete?: (id: string) => void
-  onArchive?: (id: string) => void
-  onUnarchive?: (id: string) => void
-  onDuplicate?: (newSessionId: string) => void
-  onSessionsLoaded?: (sessions: Session[]) => void
-  onEmployeeSessionsAvailable?: (sessions: Session[]) => void
-  onOrderComputed?: (order: SidebarOrder) => void
-  /** Start a new chat with a session-less roster employee (contactable list). */
-  onContactEmployee?: (name: string) => void
-  /** "mobile" swaps every session row for the touch-native one. The chat route
-   *  mounts this list twice — a desktop column and a phone body — so the row
-   *  shape is chosen by the mount, not by a media query inside the row. */
-  variant?: "desktop" | "mobile"
-}
+export type { SidebarOrder } from "@/components/chat/chat-sidebar-types"
 
 interface FlatItem {
   type: "employee" | "direct"
@@ -302,6 +278,9 @@ const SessionRow = React.memo(function SessionRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <RowTag
+          draggable={!isRenaming}
+          data-chat-session-row={session.id}
+          onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
           {...(!isRenaming && { onClick: () => {
             onSelect(session.id)
             onEmployeeSessionsAvailable?.(parentSessions ?? [session])
@@ -373,6 +352,7 @@ const SessionRow = React.memo(function SessionRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                draggable={false}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Session actions"
                 className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-2 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:hidden group-hover/session:lg:flex group-has-[[data-state=open]]/session:lg:flex"
@@ -492,6 +472,9 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           )}
         >
           <button
+            draggable
+            data-chat-session-row={session.id}
+            onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
             onClick={() => {
               onSelect(session.id)
               onEmployeeSessionsAvailable?.([session])
@@ -554,6 +537,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                draggable={false}
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Chat actions"
                 className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-2 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:hidden group-hover/flat:lg:flex group-has-[[data-state=open]]/flat:lg:flex"
@@ -1085,11 +1069,12 @@ export function ChatSidebar({
       }
     }
 
-    // ---- Default mode. The recency buckets (Today / Yesterday / Older) hold
-    // the operator's own top-level chats (isFocusedSession) — delegated and
-    // automated sessions never flood the switcher. "All" additionally surfaces
-    // workflow runs as flat rows and reveals the per-employee Team directory
-    // (every employee's full session history, grouped, with true counts).
+    // ---- Default mode. In Focused, the recency buckets (Today / Yesterday /
+    // Older) hold only the operator's own top-level chats (isFocusedSession) —
+    // delegated and automated sessions never flood the switcher. "All" shows
+    // every visible session as flat rows (children, workflow runs, the lot)
+    // and reveals the per-employee Team directory (every employee's full
+    // session history, grouped, with true counts).
     // Cron sessions are excluded entirely: Scheduled lives on the Cron page,
     // reachable through the quiet link-row at the end of the list.
     const now = new Date()
@@ -1126,10 +1111,11 @@ export function ChatSidebar({
         pinnedRows.push(toRow(s))
         continue
       }
-      // Workflow runs are first-class rows in ALL mode (badged by the indigo
-      // WorkflowSessionChip); Focused stays strictly the operator's own chats.
-      // Delegated/automated child sessions stay grouped in the Team directory.
-      if (!isFocusedSession(s) && !(focusMode === "all" && s.source === "workflow")) {
+      // All means all: every visible non-cron session is a flat recency row —
+      // delegated children, workflow runs (badged by the indigo
+      // WorkflowSessionChip), the lot. Focused stays strictly the operator's
+      // own chats; the Team directory keeps the grouped per-employee view.
+      if (focusMode !== "all" && !isFocusedSession(s)) {
         hiddenAutomated += 1
         continue
       }
@@ -1661,7 +1647,7 @@ export function ChatSidebar({
           className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
           style={{ background: "linear-gradient(to bottom, var(--sidebar-bg), transparent)" }}
         />
-        <div ref={scrollContainerRef} data-chat-list-scroll onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
+        <div ref={scrollContainerRef} data-chat-list-scroll data-scrollable onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
         {loading ? (
           <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             Loading chats…

@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Copy, MoreHorizontal, Pin, PinOff, Search, Share2, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Search, Share2, Trash2 } from 'lucide-react'
 import { usePins, useTogglePin } from '@/hooks/use-pins'
 import { cn } from '@/lib/utils'
 import type { ViewMode } from '@/lib/view-mode'
@@ -24,15 +24,16 @@ interface ChatHeaderMenuProps {
   onShareDebugLog: () => void
   onClearDebugLog: () => void
   onDeleteSession: (id: string) => void
+  onOpenChatBeside: () => void
 }
 
 /** The items below the view toggle, where a session is guaranteed to exist. */
 type SelectedChatProps = Omit<ChatHeaderMenuProps, 'selectedId'> & { selectedId: string }
 
 // More (…) menu — rendered as the last control inside the right header pill.
-// D7: ALWAYS rendered (even on a new chat, where it carries Search + the view
-// toggle) so the right pill is consistent. When a session is selected the items
-// are grouped: primary (Search · view toggle · Pin · Duplicate) → Developer
+// D7: ALWAYS rendered (even on a new chat, where it carries Search, Open chat
+// beside, and the view toggle) so the right pill is consistent. When a session
+// is selected the items are grouped: primary (Search · Open chat beside · view toggle · Pin · Duplicate) → Developer
 // cluster → destructive Delete, each separated.
 //
 // Open state lives in the route, not here: the outside-click handler there
@@ -53,7 +54,7 @@ export function ChatHeaderMenu(props: ChatHeaderMenuProps) {
 
       {open && (
         <div className="absolute right-0 top-full z-[200] mt-2 min-w-[220px] overflow-hidden rounded-[var(--radius-md)] border border-border bg-[var(--material-thick)] shadow-[var(--shadow-overlay)] backdrop-blur-xl">
-          {/* PRIMARY group — Search (⌘K), then the Chat/CLI view toggle, then
+          {/* PRIMARY group — Search (⌘K), Open chat beside, then the Chat/CLI view toggle, then
               Pin and Duplicate (only when a session is selected). */}
           {/* D4: Search lives at the very top — the only visible ⌘K entry point on desktop. */}
           <button
@@ -63,6 +64,13 @@ export function ChatHeaderMenu(props: ChatHeaderMenuProps) {
             <Search className="size-3.5" />
             <span className="flex-1">Search…</span>
             <kbd className="font-mono text-caption2 text-[var(--text-quaternary)]">⌘K</kbd>
+          </button>
+          <button
+            onClick={() => { props.onOpenChatBeside(); onOpenChange(false) }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
+          >
+            <PanelRightOpen className="size-3.5" />
+            <span className="flex-1">Open chat beside</span>
           </button>
           <ViewModeToggle {...props} />
           {selectedId && <SelectedChatItems {...props} selectedId={selectedId} />}

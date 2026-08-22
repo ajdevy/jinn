@@ -40,7 +40,7 @@ import { HookRegistry } from "./hook-registry.js";
 import { writeGatewayInfo, readGatewayInfo, updateGatewayPtyPids, startupGatewayPids, gatewayBaseUrl } from "./gateway-info.js";
 import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure, verifyGatewayAuth } from "./auth.js";
 import { reconcileWorkItemsOnStartup, startWorkItemReconciler } from "../work-items/reconcile.js";
-import { setTodoLiveEmitter } from "../work-items/live-events.js";
+import { setTodoLabelsChangeListener, setTodoLiveEmitter } from "../work-items/live-events.js";
 import { setTodoStatusChangeListener } from "../work-items/transitions.js";
 import { firstOperatorCommentAfter } from "../work-items/comments.js";
 import { watchTodoReplies } from "./todo-reply-sweep.js";
@@ -53,6 +53,7 @@ import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
 import { isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
+import { startAvailabilityResumes } from "./availability-resume.js";
 import { createGatewayRequestHandler } from "./request-handler.js";
 import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
 import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
@@ -954,16 +955,15 @@ export async function startGateway(
   const stopStatusReconciler = startStatusReconciler({ engines, emit });
   const stopHeartbeatScheduler = startHeartbeatScheduler();
 
-  // Todos ledger truth-keeping (GRS-021a): periodically re-derive work-item
-  // status from linked-session evidence, so a session settling mid-process moves
-  // its item to in_review/done (trust) without waiting for the next boot.
+  // Todos ledger truth-keeping: derive status from linked-session evidence so a mid-process settle lands without a boot (GRS-021a), and resume a Todo parked on a provider window that has since reopened (PLA-153).
   const stopWorkItemReconciler = startWorkItemReconciler();
+  const stopAvailabilityResumes = startAvailabilityResumes(workflowRepository);
 
-  setTodoStatusChangeListener(() => {
-    void workflowService.recover(new Date().toISOString()).catch((error) => {
-      logger.warn(`Workflow Todo trigger recovery failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
-  });
+  // A todo-status trigger's label filter reads the Todo when its event DRAINS rather than when it moved, so a label landing after the move re-opens the drain too.
+  const drainTodoTriggers = (): void => { void workflowService.recover(new Date().toISOString())
+    .catch((error) => logger.warn(`Workflow Todo trigger recovery failed: ${error instanceof Error ? error.message : String(error)}`)); };
+  setTodoStatusChangeListener(drainTodoTriggers);
+  setTodoLabelsChangeListener(drainTodoTriggers);
 
   const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
@@ -1262,7 +1262,7 @@ export async function startGateway(
     logger.info("Gateway cleanup starting...");
 
     // Stop the periodic sweeps before we start marking sessions interrupted below — a mid-shutdown sweep must not race the teardown.
-    stopStatusReconciler(); stopWorkItemReconciler(); stopHeartbeatScheduler();
+    stopStatusReconciler(); stopWorkItemReconciler(); stopAvailabilityResumes(); stopHeartbeatScheduler();
     clearInterval(modelRefreshTimer);
     workflowService.dispose(); workflowDatabase.close();
 
@@ -1313,7 +1313,7 @@ export async function startGateway(
 
     // Stop cron scheduler
     stopScheduler();
-    setTodoStatusChangeListener(null);
+    setTodoStatusChangeListener(null); setTodoLabelsChangeListener(null);
     stopReplyWatch();
     setTodoApprovalDecisionListener(null);
 

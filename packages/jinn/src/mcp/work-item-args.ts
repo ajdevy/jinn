@@ -1,6 +1,7 @@
 import { JinnMcpToolError } from "./toolkit.js";
 import { parseTodoId } from "../work-items/id.js";
 import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
+import { validateVerifyPolicy, type VerifyPolicy } from "../work-items/verify-policy.js";
 
 /**
  * Argument validation for the Todo tools: the shape checks every handler runs
@@ -66,6 +67,19 @@ export function requireLabelRefs(args: Record<string, unknown>): string[] {
   return (args.labels as string[]).map((entry) => entry.trim());
 }
 
+/** Which label operation this call is, as the route's own body: `mode` names what
+ *  to do with `labels`, and its absence is what replacing the whole set looks like. */
+export function requireLabelChange(args: Record<string, unknown>): Record<string, string[]> {
+  const refs = requireLabelRefs(args);
+  const mode = optionalEnum(args, "mode", ["add", "remove"] as const);
+  // An empty `labels` deliberately clears the set; an empty add or remove names
+  // nothing, which is a caller that has lost track of what it meant to send.
+  if (mode !== undefined && refs.length === 0) {
+    throw new JinnMcpToolError(`labels must name at least one label to ${mode} — an empty list would change nothing`);
+  }
+  return { [mode ?? "labels"]: refs };
+}
+
 export function optionalString(args: Record<string, unknown>, name: string, max = FILTER_CHAR_CAP): string | undefined {
   const v = args[name];
   if (v === undefined || v === null) return undefined;
@@ -97,4 +111,13 @@ export function requireSkillNames(args: Record<string, unknown>): string[] {
     throw new JinnMcpToolError(`skills must be an array of up to ${TODO_SKILLS_MAX} installed skill names (non-empty strings) — each names a skills/<name>/SKILL.md, not an MCP tool`);
   }
   return (args.skills as string[]).map((entry) => entry.trim());
+}
+
+/** The declared verify policy, refused with the same named error the gateway
+ *  route would give it, or undefined when the caller declared none. */
+export function validatedVerifyPolicy(args: Record<string, unknown>): VerifyPolicy | null | undefined {
+  if (args.verifyPolicy === undefined || args.verifyPolicy === null) return undefined;
+  const validated = validateVerifyPolicy(args.verifyPolicy);
+  if (!validated.ok) throw new JinnMcpToolError(validated.error);
+  return validated.value;
 }

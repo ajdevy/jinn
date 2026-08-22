@@ -137,9 +137,26 @@ describe("ImageLightbox close controls", () => {
     await waitFor(() => expect(screen.queryByTestId("attachment-lightbox")).toBeNull())
   })
 
-  it("unmounts from a backdrop tap", async () => {
+  it("unmounts from a completed backdrop click, not from the press alone", async () => {
     render(<LightboxHarness />)
-    fireEvent.pointerDown(screen.getByTestId("attachment-lightbox"), { pointerId: 1 })
+    const backdrop = screen.getByTestId("attachment-lightbox")
+
+    fireEvent.pointerDown(backdrop, { pointerId: 1 })
+    expect(screen.getByTestId("attachment-lightbox")).toBeTruthy()
+
+    fireEvent.click(backdrop)
     await waitFor(() => expect(screen.queryByTestId("attachment-lightbox")).toBeNull())
+  })
+
+  it("stays open when a drag starts on the image and releases over the backdrop", () => {
+    render(<LightboxHarness />)
+    const backdrop = screen.getByTestId("attachment-lightbox")
+    const image = previewImage()
+
+    fireEvent.pointerDown(image, { pointerId: 1, clientX: 120, clientY: 100 })
+    fireEvent.pointerUp(image, { pointerId: 1, clientX: 138, clientY: 108 })
+    fireEvent.click(backdrop)
+
+    expect(screen.getByTestId("attachment-lightbox")).toBeTruthy()
   })
 })

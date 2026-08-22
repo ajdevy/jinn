@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Puzzle } from 'lucide-react'
 import { contributions } from '@/contrib/registry'
 import { AREAS } from '@/contrib/types'
 import { plugins } from '@/contrib/plugins-store'
+import { navigationFor } from '@/lib/nav'
 import { loadRuntimePlugin, unloadRuntimePlugin } from '../runtime-loader'
 import { useDataUrlModules } from './data-url-modules'
 
@@ -69,6 +71,17 @@ describe('examples/plugins/inbox-demo/client.js', () => {
 
     expect((page?.data as { path?: string }).path).toBe('/inbox-demo')
     expect((nav?.data as { href?: string }).href).toBe('/inbox-demo')
+  })
+
+  /* The demo is what an author copies, so its nav row has to arrive with a glyph
+   * of its own rather than the fallback every iconless row shares. */
+  it('resolves its nav row to a real icon rather than the fallback glyph', async () => {
+    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+
+    const row = navigationFor(false).items.find((item) => item.href === '/inbox-demo')
+
+    expect(row?.icon).toBeDefined()
+    expect(row?.icon).not.toBe(Puzzle)
   })
 
   it('namespaces its local contribution ids under the plugin', async () => {

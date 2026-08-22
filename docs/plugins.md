@@ -132,12 +132,15 @@ The default export is checked field by field before anything is registered. `id`
 What the module exports:
 
 - **React and the jsx runtime.** `React`, `jsx`, `jsxs`, `Fragment`.
-- **UI primitives.** `Button`, `Card` and its parts, `Dialog` and its parts, `Select` and its parts, `Skeleton`, `Switch`, `Tabs` and its parts, `Textarea`, plus `cn` for merging Tailwind classes.
+- **UI primitives.** `Badge`, `Button`, `Card` and its parts, `Dialog` and its parts, `DropdownMenu` and its parts, `Input`, `ScrollArea`, `Select` and its parts, `Skeleton`, `Switch`, `Tabs` and its parts, `Textarea`, `Tooltip` and its parts, plus `cn` for merging Tailwind classes.
+- **Icons.** `Icon`, which takes a `name` out of the app's curated set rather than a component, because a plugin cannot import an icon library. `IconName` is the union of names it accepts; an unknown one renders nothing and says so on the console.
 - **The query client.** `queryClient`, the app's single instance with its cache and defaults already set.
 - **Areas.** `AREAS`, the ids a contribution may target.
 - **Route parameters.** `useRouteParams()`, what the current contributed page's path captured.
 - **The host.** `host`, plus the `PluginSdkError` and `PluginHostDeniedError` classes so a plugin can tell an SDK failure from one of its own.
 - **The contract version.** `SDK_CONTRACT_VERSION`, so a plugin can refuse to load against a contract it predates.
+
+`host.notify` takes either a line of text with an optional level, or a `HostNotice` — `{ title, description?, level? }` — for a title with the detail under it. Both land on the same notice stack the app raises its own on, and both are dismissible; there is no second toast surface to learn.
 
 The `host` object is three tiers of increasing authority: `host.state` (readonly snapshot of the active session and gateway status, with a `subscribe` shaped for `useSyncExternalStore`), curated actions (`host.navigate`, `host.notify`, `host.onEvent`), and the typed verb door below. Every verb is named and individually deniable later; v1 grants all of them. The verbs are typed rather than a generic `request(method, params)` for one reason: an untyped door cannot be narrowed afterwards without breaking every plugin at once. Nothing on `host` takes a method name or a path as an argument, which is what keeps that true.
 
@@ -152,7 +155,7 @@ Sixteen verbs, spelled identically on both halves — `PLUGIN_HOST_VERBS` in `pa
 | `todos.comment` | W | `(todoId, body) → HostTodoComment` |
 | `sessions.spawn` | W | `(request: HostSessionSpawn) → HostSession` |
 | `employees.list` | R | `() → HostEmployee[]` |
-| `notify` | W | `(message, level?) → void` |
+| `notify` | W | `(message, level?) → void` or `(notice: HostNotice) → void` |
 | `workflows.list` | R | `() → HostWorkflow[]` (one page, at the gateway's default size) |
 | `workflows.get` | R | `(workflowId) → HostWorkflow` |
 | `workflows.start` | W | `(workflowId, input?) → HostWorkflowRun` |
@@ -173,7 +176,7 @@ The `AREAS` values are the contract, and the property names are only an ergonomi
 | Constant | Value | Insertion point |
 |----------|-------|-----------------|
 | `AREAS.routes` | `routes` | A full page at `data.path`, rendered by `render` |
-| `AREAS.sidebarNav` | `sidebar.nav` | A nav row (`data: { href, label, icon? }`), visible on desktop, mobile, and overflow |
+| `AREAS.sidebarNav` | `sidebar.nav` | A nav row (`data: { href, label, icon? }`, `icon` an `IconName`), visible on desktop, mobile, and overflow |
 | `AREAS.statusBarRight` | `statusbar.right` | A chip in the status bar, at its right edge |
 | `AREAS.todoDetailActions` | `todo.detail.actions` | A chip in the Todo detail crumb bar's right-hand action group, ahead of copy-link and ⋯ |
 | `AREAS.todoDetailSections` | `todo.detail.sections` | A section in the Todo detail body, after the app's own sections and before the properties rail and Activity |
@@ -189,7 +192,7 @@ Every one of them is hosted, and every one behaves the same way in the two respe
 
 There is no dashboard route to host a widget on: `/` is the chat page, so `home.widgets` is hosted on the chat sidebar, which is the app's home surface on both form factors.
 
-`icon` on a `sidebar.nav` row is optional because the loader's import allowlist does not reach an icon library; a row without one gets the app's fallback glyph.
+`icon` on a `sidebar.nav` row is an optional `IconName` — the same curated names accepted by `Icon` — because the loader's import allowlist does not reach an icon library. A row without one, or with an unknown runtime value, gets the app's fallback glyph.
 
 ### What a `routes` path may say
 

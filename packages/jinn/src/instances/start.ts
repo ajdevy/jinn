@@ -10,6 +10,7 @@ import {
   type ExecFileFn,
 } from "./access.js";
 import { assertSecondaryInstancesSupported, isPortAvailable } from "./create.js";
+import { buildSandboxChildEnv } from "../shared/sandbox-env.js";
 import {
   loadInstances,
   saveInstances,
@@ -88,14 +89,12 @@ export async function startInstance(
   }
 
   const execFile = dependencies.execFile ?? defaultExecFile;
+  // The child is a different instance: it inherits none of this one's identity —
+  // not the binding it would start on, and not the session credentials it would act as.
   const childEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    JINN_HOME: input.instance.home,
-    JINN_INSTANCE: input.instance.name,
+    ...buildSandboxChildEnv({ home: input.instance.home, instance: input.instance.name }),
     JINN_NO_OPEN: "1",
   };
-  delete childEnv.JINN_HOST;
-  delete childEnv.JINN_PORT;
   await execFile(process.execPath, [dependencies.cliEntry ?? resolveCliEntry(), "start", "--daemon"], {
     env: childEnv,
     timeout: 30_000,

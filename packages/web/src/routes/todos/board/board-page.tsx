@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom"
-import { ListFilter, Plus, Search } from "lucide-react"
+import { ListFilter, Plus } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { ApiError, type WorkItemCompactWire, type WorkItemStatusWire } from "@/lib/api"
 import {
@@ -30,17 +30,11 @@ import { NeedsYouView } from "../needs-you-view"
 import { NewTodoDialog } from "../new-todo-dialog"
 import { TodoList } from "../list/todo-list"
 import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
+import { FilteredEmptyCard, HomeEmptyCard } from "./board-empty"
 import { BoardColumn, DragSlot } from "./column"
 import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail"
 import { BoardSwitcher, departmentTitle } from "./board-switcher"
-import {
-  boardDetailIds,
-  useBoardData,
-  useBoardRank,
-  useBoardTransition,
-  useBoardTrees,
-  useCreateSubTask,
-} from "./use-board"
+import { boardDetailIds, useBoardData, useBoardRank, useBoardTransition, useBoardTrees, useCreateSubTask, useKeepWorkItem } from "./use-board"
 import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
 } from "./status-scope"
@@ -442,11 +436,9 @@ export default function TodoBoardPage() {
 
   // ── Derived chrome ──────────────────────────────────────────────────────────
   const deptSummary = board.kind === "department" ? departments.data?.find((d) => d.slug === board.slug) : undefined
-  const title =
-    board.kind === "my" ? "My requests"
+  const title = board.kind === "department" ? departmentTitle(board.slug)
     : board.kind === "attention" ? "Attention"
-    : board.kind === "everything" ? "Everything"
-    : departmentTitle(board.slug)
+    : board.kind === "everything" ? "Everything" : "Home"
   const blockedTotal = countByStatus.blocked ?? 0
   const escalatedTotal = countByStatus.escalated ?? 0
   const closedTotal = CLOSED_STATUSES.reduce((sum, status) => sum + (countByStatus[status] ?? 0), 0)
@@ -464,9 +456,13 @@ export default function TodoBoardPage() {
 
   // Filtered-empty (states mock §6): zero visible items with filters/search
   // set always offers the way back. An unfiltered empty board celebrates
-  // quietly — the columns and their quick-adds ARE the empty state.
+  // quietly — the columns and their quick-adds ARE the empty state — except
+  // Home, which is empty until the operator pins something and so has to name
+  // the gesture rather than look broken (PLA-172).
   const filterCount = activeFilterCount(filters) + (filters.q ? 1 : 0)
-  const filteredEmpty = !data.isLoading && filterCount > 0 && visibleItemCount(filters.status, itemsByStatus) === 0
+  const boardEmpty = !data.isLoading && visibleItemCount(filters.status, itemsByStatus) === 0
+  const filteredEmpty = boardEmpty && filterCount > 0
+  const homeEmpty = boardEmpty && filterCount === 0 && board.kind === "home"
   const listStatusInScope = useCallback((s: WorkItemStatusWire) => isColumnInStatusFilter(filters.status, s), [filters.status])
   const listColumns = useMemo(() => {
     const columns = {} as typeof data.columns
@@ -480,6 +476,7 @@ export default function TodoBoardPage() {
     }
     return columns
   }, [data.columns, itemsByStatus, filters.due])
+  const keep = useKeepWorkItem(announce)
   const clearAllFilters = useCallback(() => {
     const params = new URLSearchParams()
     setSearchParams(params, { replace: false })
@@ -502,6 +499,7 @@ export default function TodoBoardPage() {
             onOpen={onOpen}
             onOpenChild={onOpen}
             onAddSubTask={addSubTask}
+            onKeep={keep.mutate}
             onLiftPointerDown={liftPointerDown}
           />
         </div>,
@@ -552,6 +550,7 @@ export default function TodoBoardPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />
               </div>
+              {board.kind === "home" && <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">The Todos you pinned.</p>}
               <div className="mt-1 flex items-center gap-2 text-[13px] text-[var(--text-tertiary)]">
                 {deptSummary && (
                   <>
@@ -606,7 +605,7 @@ export default function TodoBoardPage() {
                 onChange={setFilters}
                 onSearchChange={setSearch}
                 employees={org.data?.employees ?? []}
-                departments={board.kind === "everything" || board.kind === "my" ? org.data?.departments ?? [] : []}
+                departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
                 byName={byName}
                 hideStatus
                 hideDepartment={board.kind === "department"}
@@ -693,6 +692,8 @@ export default function TodoBoardPage() {
                 testId="todo-list-filtered-empty"
                 clearTestId="todo-list-clear-filters"
               />
+            ) : homeEmpty ? (
+              <HomeEmptyCard testId="todo-list-home-empty" />
             ) : (
               <TodoList
                 columns={listColumns}
@@ -704,10 +705,8 @@ export default function TodoBoardPage() {
                 trees={trees.data}
                 now={now}
                 onOpen={onOpen}
-                onQuickAdd={(askAssignee) => setCreating({
-                  department: board.kind === "department" ? board.slug : undefined,
-                  askAssignee: askAssignee || undefined,
-                })}
+                onKeep={keep.mutate}
+                onQuickAdd={(askAssignee) => setCreating({ department: board.kind === "department" ? board.slug : undefined, askAssignee: askAssignee || undefined })}
               />
             )}
           </div>
@@ -725,6 +724,8 @@ export default function TodoBoardPage() {
               <BoardSkeleton />
             ) : filteredEmpty ? (
               <FilteredEmptyCard count={filterCount} onClear={clearAllFilters} />
+            ) : homeEmpty ? (
+              <HomeEmptyCard />
             ) : (
             <div className="flex min-h-full items-start gap-3 px-10 pb-8 pt-5">
               {visibleStatuses.map((status) => columnFor(status))}
@@ -814,7 +815,7 @@ export default function TodoBoardPage() {
           filters={filters}
           onChange={setFilters}
           employees={org.data?.employees ?? []}
-          departments={board.kind === "everything" || board.kind === "my" ? org.data?.departments ?? [] : []}
+          departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
           byName={byName}
           onClose={() => setMobileFilterOpen(false)}
           hideStatus
@@ -877,46 +878,6 @@ function BoardErrorCard({ error, testId = "board-error" }: { error: unknown; tes
   )
 }
 
-/** Filtered-empty always offers the way back (states mock §6). */
-function FilteredEmptyCard({
-  count,
-  onClear,
-  testId = "board-filtered-empty",
-  clearTestId = "board-clear-filters",
-}: {
-  count: number
-  onClear: () => void
-  testId?: string
-  clearTestId?: string
-}) {
-  const caption =
-    count === 1 ? "One filter is set on this board."
-    : count === 2 ? "Two filters are set on this board."
-    : `${count} filters are set on this board.`
-  return (
-    <div className="flex justify-center px-6 pb-10 pt-14" data-testid={testId}>
-      <div className="flex w-[330px] flex-col items-center rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] p-[36px_24px] text-center shadow-[var(--shadow-card)]">
-        <div
-          className="grid size-16 place-items-center rounded-[22px] bg-[var(--fill-tertiary)] text-[var(--text-tertiary)]"
-          style={{ boxShadow: "var(--inset-shine)" }}
-          aria-hidden
-        >
-          <Search size={24} strokeWidth={2} />
-        </div>
-        <div className="mt-4 text-[20px] font-bold tracking-[-0.41px] text-[var(--text-primary)]">No todos match.</div>
-        <p className="mt-1.5 text-[14px] leading-[1.5] text-[var(--text-tertiary)]">{caption}</p>
-        <button
-          type="button"
-          data-testid={clearTestId}
-          onClick={onClear}
-          className="focus-ring mt-3 rounded-full px-2.5 py-1 text-[13px] font-semibold text-[var(--accent)] outline-none hover:bg-[var(--accent-fill)]"
-        >
-          Clear filters
-        </button>
-      </div>
-    </div>
-  )
-}
 
 /** Loading keeps exact card geometry so nothing shifts when data lands
  *  (states mock §6 .skel-col: 56px overline bar, 85%/55% title bars). */

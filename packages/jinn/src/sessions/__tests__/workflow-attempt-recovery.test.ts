@@ -105,8 +105,10 @@ describe("workflow attempt restart recovery", () => {
       attemptOutcome: "interrupted",
       attemptTerminalVersion: 1,
       attemptTurn: 1,
-      attemptInterruptionCause: null,
-      attemptInterruptionTurn: null,
+      // The restart overwrites the same-turn `user-message` marker rather than
+      // clearing it: the turn did not end on a message, it died with the gateway.
+      attemptInterruptionCause: "gateway-restart",
+      attemptInterruptionTurn: 1,
       lastError: expect.stringMatching(/gateway restart/i),
     });
     expect(registry.getQueueItem(runningDispatch)?.status).toBe("cancelled");
@@ -151,7 +153,7 @@ describe("workflow attempt restart recovery", () => {
       outcome: "interrupted",
       terminalVersion: 1,
       turn: 1,
-      interruptionCause: "attempt-stop",
+      interruptionCause: "gateway-restart",
     });
   });
 });

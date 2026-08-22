@@ -1,76 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PassThrough } from "node:stream";
 import type { EngineResult } from "../../shared/types.js";
-
-interface FakeProc {
-  stdout: PassThrough;
-  stderr: PassThrough;
-  stdin: {
-    on: (event: string, cb: (...a: any[]) => void) => void;
-    write: (chunk: string) => void;
-    end: () => void;
-  };
-  stdinWrites: string[];
-  stdinEnded: boolean;
-  exitCode: number | null;
-  killed: boolean;
-  kill: (sig?: string) => boolean;
-  pid: number;
-  on: (event: string, cb: (...a: any[]) => void) => FakeProc;
-  _handlers: Record<string, (...a: any[]) => void>;
-  emitStdout: (s: string) => void;
-  emitStderr: (s: string) => void;
-  close: (code: number | null) => void;
-}
-
-interface SpawnCall {
-  bin: string;
-  args: string[];
-  opts: unknown;
-  proc: FakeProc;
-}
+import { makeFakeProc, flush, agentEnd, type SpawnCall } from "./support/pi-spawn-harness.js";
 
 const spawnCalls: SpawnCall[] = [];
-
-function makeFakeProc(): FakeProc {
-  const stdout = new PassThrough();
-  const stderr = new PassThrough();
-  const handlers: Record<string, (...a: any[]) => void> = {};
-  const p: FakeProc = {
-    stdout,
-    stderr,
-    stdin: {
-      on: () => {},
-      write: (chunk: string) => { p.stdinWrites.push(chunk); },
-      end: () => { p.stdinEnded = true; },
-    },
-    stdinWrites: [],
-    stdinEnded: false,
-    exitCode: null,
-    killed: false,
-    pid: 8888,
-    kill: () => {
-      p.killed = true;
-      return true;
-    },
-    _handlers: handlers,
-    on(event, cb) {
-      handlers[event] = cb;
-      return p;
-    },
-    emitStdout(s) {
-      stdout.write(Buffer.from(s));
-    },
-    emitStderr(s) {
-      stderr.write(Buffer.from(s));
-    },
-    close(code) {
-      p.exitCode = code;
-      handlers.close?.(code);
-    },
-  };
-  return p;
-}
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn((bin: string, args: string[], opts: unknown) => {
@@ -81,16 +13,6 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { PiEngine } from "../pi.js";
-
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
-const agentEnd = (text: string) => JSON.stringify({
-  type: "agent_end",
-  messages: [{
-    role: "assistant",
-    content: [{ type: "text", text }],
-  }],
-});
 
 async function startRun(): Promise<{ engine: PiEngine; promise: Promise<EngineResult>; call: SpawnCall }> {
   const engine = new PiEngine();

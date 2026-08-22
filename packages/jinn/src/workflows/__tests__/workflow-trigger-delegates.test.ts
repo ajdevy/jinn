@@ -42,6 +42,7 @@ class TodoFeed implements WorkflowTodoEventFeed {
       : { state: "acquired" as const, definitionIds };
   }
   completeEvent(id: string, outcomes: WorkflowTodoEventClaimOutcome[]): void { this.processed.set(id, outcomes); }
+  deferEvent(id: string, _definitionIds: string[], outcomes: WorkflowTodoEventClaimOutcome[]): void { this.processed.set(id, outcomes); }
   releaseEvent(): void {}
   listPendingEvents(): WorkflowTodoStatusEvent[] { return this.pending.filter((event) => !this.processed.has(event.id)); }
 }
@@ -54,8 +55,9 @@ let now: string;
 
 function todoEvent(id: string, actor: string, armedAsDelegate: string | null): WorkflowTodoStatusEvent {
   return { id, workItemId: "ICI-1", fromStatus: "backlog", toStatus: "assigned", actor, armedAsDelegate,
+    quotaWindowDecided: false,
     item: { source: "human", department: "platform", assignee: "worker", labels: [],
-      live: { assignee: "worker", parentId: null } } };
+      live: { assignee: "worker", parentId: null, status: "assigned" } } };
 }
 function save(id: string, config: Omit<Extract<TriggerNode["config"], { kind: "todo-status" }>, "kind" | "status">): WorkflowDefinition {
   const draft = service.createDefinition({ id, title: id });

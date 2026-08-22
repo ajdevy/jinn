@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Employee, WorkItemCompactWire, WorkItemTreeWire } from "@/lib/api"
+import { useVirtualBlockOffset } from "@/components/chat/virtual-block-offset"
 import { TodoListGroupEmpty, TodoListGroupHeader, TodoListShowMore } from "./list-group"
 import { TodoListRow } from "./list-row"
 import { useTodoListVirtualizer, type TodoListVirtualRow } from "./list-virtualizer"
@@ -14,6 +15,7 @@ export interface TodoListRowHandlers {
   onOpen: (id: string, item: WorkItemCompactWire) => void
   onQuickAdd: (askAssignee: boolean) => void
   onToggleClosed: () => void
+  onKeep?: (vars: { id: string; kept: boolean }) => void
 }
 
 /** A section header as one windowed row: the `<section>` carries the group's
@@ -55,6 +57,7 @@ function WindowedRow({ row, handlers }: { row: TodoListVirtualRow; handlers: Tod
           byName={handlers.byName}
           now={handlers.now}
           onOpen={handlers.onOpen}
+          onKeep={handlers.onKeep}
         />
       )
     case "empty":
@@ -92,11 +95,16 @@ export function WindowedTodoList({
   // the element into state is what gives it a second look.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   useEffect(() => setScrollEl(scrollRef.current), [scrollRef])
-  const virtualizer = useTodoListVirtualizer(rows, keys, useCallback(() => scrollEl, [scrollEl]))
+  const getScrollElement = useCallback(() => scrollEl, [scrollEl])
+  // The block's offset goes back in as `scrollMargin`, and comes back off the
+  // row transforms below — see the header of list-virtualizer.ts.
+  const blockRef = useRef<HTMLDivElement>(null)
+  const scrollMargin = useVirtualBlockOffset(blockRef, getScrollElement)
+  const virtualizer = useTodoListVirtualizer(rows, keys, getScrollElement, scrollMargin)
 
   return (
     <div className={className}>
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      <div ref={blockRef} style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((virtualRow) => (
           // `data-index` is what the virtualizer measures by, so a row's own
           // test id stays exactly where it is on the plain path.
@@ -104,7 +112,7 @@ export function WindowedTodoList({
             key={virtualRow.key}
             ref={virtualizer.measureElement}
             data-index={virtualRow.index}
-            style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+            style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
           >
             <WindowedRow row={rows[virtualRow.index]} handlers={handlers} />
           </div>

@@ -75,6 +75,7 @@ function capStatusText(text: string): string {
 }
 
 export interface SessionMetaUpdate {
+  sessionId?: string
   engine?: string
   engineSessionId?: string
   model?: string
@@ -1009,7 +1010,7 @@ export function useLiveSession(
       // Seed background-activity from the authoritative fetch (absent → null);
       // session:background WS events keep it live from here.
       setBackgroundActivity((session.backgroundActivity as BackgroundActivity | null) ?? null)
-      onMetaRef.current?.(sessionMetaOf(session))
+      onMetaRef.current?.({ ...sessionMetaOf(session), sessionId: id })
 
       const history = session.messages || session.history || []
       const { messages: normalizedMessages, firstPartialIndex } = normalizeHistoryMessages(history)
@@ -1216,13 +1217,12 @@ export function useLiveSession(
     // through to the (non-blocking) revalidate below.
     if (cached && !pending && isRestingSnapshot(cached)) {
       // Deferred a microtask: this effect belongs to the freshly-mounted CHILD
-      // pane, and child effects flush before the parent page's ref-sync
-      // effects — an immediate emit would be attributed to the PREVIOUS
-      // session's id and discarded. The fetch path never hits this because
-      // its await already lands after the flush.
+      // pane, and child effects flush before the parent page's ref-sync effects.
+      // The payload names its own session, so the emit can no longer be filed
+      // under the previous one; the guard just drops it if the pane has moved on.
       const cachedSession = cached.session
       if (cachedSession) queueMicrotask(() => {
-        if (sessionIdRef.current === sessionId) onMetaRef.current?.(sessionMetaOf(cachedSession))
+        if (sessionIdRef.current === sessionId) onMetaRef.current?.({ ...sessionMetaOf(cachedSession), sessionId })
       })
       return
     }

@@ -16,6 +16,20 @@ export function formatRelativeTime(iso: string, now = Date.now()): string {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
+/** The forward-looking counterpart of `formatRelativeTime`, which clamps the
+ *  future away by construction: how long a park has left, for a chip that ticks
+ *  down. Empty once the moment has passed or when it will not parse, so the
+ *  caller renders nothing rather than a countdown stuck at zero. */
+export function formatCountdown(iso: string, now = Date.now()): string {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t) || t <= now) return ""
+  const min = Math.ceil((t - now) / 60000)
+  if (min < 60) return `${min}m`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return min % 60 === 0 ? `${hr}h` : `${hr}h ${min % 60}m`
+  return `${Math.floor(hr / 24)}d`
+}
+
 /** An escalation event's own reason, phrased for the banner and the card. A
  *  guard that escalates without one of these leaves the why-line blank. */
 export function escalationReasonLabel(reason: unknown): string | null {

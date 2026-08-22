@@ -11,7 +11,8 @@ import { parseTeammateReply, TeammateReply } from './teammate-reply'
 import { parseAgentRelay, AgentRelay } from './agent-relay'
 import { DispatchRow } from './dispatch-row'
 import { BURST_WINDOW_MS, CallbackBurst, type BurstEntry } from './callback-burst'
-import { FoldRegion, type FoldSummaryData } from './fold-region'
+import { FoldRegion } from './fold-region'
+import type { FoldSummaryData } from './fold-summary'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
 import { formatMessage } from './message-markdown'
@@ -32,12 +33,14 @@ import {
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
 } from './transcript-virtualizer'
+import { OlderPageRow } from './older-page-row'
+import { useVirtualBlockOffset } from './virtual-block-offset'
 import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
 import { formatTimestamp, shouldShowTimestamp, TimestampDivider, validTimestamp } from './message-timestamps'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { TimestampDivider } from './message-timestamps'
-export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
+export { collapseState, shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
 export { turnSpacerClass } from './turn-spacer'
 
@@ -474,7 +477,10 @@ export type RenderGroup =
   | { kind: 'plain'; item: MessageItem }
   | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number; animated: boolean }
 
-export function shouldFoldAfterNextAsk(messages: Message[], answerIndex: number): boolean {
+/** A later ask exists, so this answered region is a candidate to file itself
+ *  away. Whether it actually may is geometry the region owns — see
+ *  `foldIsAboveViewport`: a send moves nothing the reader can see. */
+export function hasLaterAsk(messages: Message[], answerIndex: number): boolean {
   return answerIndex >= 0 && messages.slice(answerIndex + 1).some((message) => message.role === 'user')
 }
 
@@ -563,7 +569,7 @@ export function partitionForFold(
             : [item.msg]
         return rows.some((message) => message.blocks?.some((block) => liveTerminalDelegationIds.has(block.id)))
       }),
-      collapseRequested: shouldFoldAfterNextAsk(messages, answer),
+      collapseRequested: hasLaterAsk(messages, answer),
       summary: buildFoldSummary(run, messages, answer),
       answerIdx: answer,
       animated: true,
@@ -597,7 +603,9 @@ export function partitionForFold(
 export function AssistantRowShell({ transcript, entering, children }: { transcript?: React.ReactNode; entering?: boolean; children?: React.ReactNode }) {
   return (
     <div className="assistant-msg-row flex min-w-0 justify-start mb-[var(--space-1)]">
-      <div className="assistant-msg-bubble flex min-w-0 flex-col">
+      {/* A row that is all blocks has no transcript to carry the enter mark,
+          so the bubble carries it — the same keyframe, one element out. */}
+      <div data-msg-enter={(transcript == null && entering) || undefined} className="assistant-msg-bubble flex min-w-0 flex-col">
         {transcript != null && (
           <div data-msg-enter={entering || undefined} className="assistant-transcript py-[var(--space-1)] text-[var(--text-primary)] text-[length:var(--text-body)]">
             {transcript}
@@ -679,12 +687,6 @@ function MessageActions({ id, text, onRetry, retryDisabled }: { id: string; text
 
 /* ── MessageRow — memoized per-message renderer ─────────── */
 
-// Offscreen rows skip layout and paint on the plain path. It is deliberately
-// absent once virtualised: a skipped element reports its containIntrinsicSize to
-// the ResizeObserver, so the virtualizer would cache the placeholder height
-// instead of the row's own and every offset below it would be wrong.
-const ROW_SKIP_STYLE: React.CSSProperties = { contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }
-
 /** Row-position facts for each message, resolved once per transcript commit. */
 export interface RowMeta {
   showTimestamp: boolean
@@ -727,11 +729,9 @@ interface MessageRowProps {
   /** The row arrived live and owes its one enter animation. */
   entering?: boolean
   blockArrivals?: ReadonlyMap<string, LiveBlockArrival>
-  /** Windowed rows must not skip their own layout — see ROW_SKIP_STYLE. */
-  virtualized?: boolean
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, isFinalAnswer, loading, onRetry, onPeek, arrival, entering, blockArrivals, virtualized }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp, prevRole, prevUserText, isFinalAnswer, loading, onRetry, onPeek, arrival, entering, blockArrivals }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
   const media = messageMedia(msg)
@@ -777,11 +777,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
   const formattedTimestamp = useMemo(() => formatTimestamp(msg.timestamp), [msg.timestamp])
 
   return (
-    <div
-      key={msg.id || i}
-      data-message-id={msg.id || `idx-${i}`}
-      style={virtualized ? undefined : ROW_SKIP_STYLE}
-    >
+    <div key={msg.id || i} data-message-id={msg.id || `idx-${i}`}>
       {/* Timestamp divider */}
       {showTimestamp && <TimestampDivider label={formattedTimestamp} />}
 
@@ -1018,12 +1014,13 @@ export function ChatMessages({
   const virtualized = !footer && groupedMessages.length >= VIRTUALIZE_THRESHOLD
   const virtualizedRef = useRef(virtualized)
   virtualizedRef.current = virtualized
-  const virtualizer = useTranscriptVirtualizer(
-    renderGroups,
-    groupKeys,
-    virtualized,
-    useCallback(() => scrollContainerRef.current, []),
-  )
+  // The block's offset goes back in as `scrollMargin`: it is the only way the
+  // virtualizer's row offsets and the scroller's own `scrollTop` describe the
+  // same place, and a re-measured row is classified by comparing the two.
+  const getScrollElement = useCallback(() => scrollContainerRef.current, [])
+  const virtualBlockRef = useRef<HTMLDivElement>(null)
+  const virtualBlockOffset = useVirtualBlockOffset(virtualBlockRef, getScrollElement)
+  const virtualizer = useTranscriptVirtualizer(renderGroups, groupKeys, virtualized, getScrollElement, virtualBlockOffset)
   const expansionStore = useTranscriptExpansionStore()
 
   // The true bottom of a virtualised thread is only known once the last row has
@@ -1110,7 +1107,7 @@ export function ChatMessages({
     pendingVirtualAnchorRef.current = null
   })
 
-  const { commsArrivals, commsArrival, isEntering } = useMessageArrivals(messages, streamingText ?? '')
+  const { commsArrivals, commsArrival, isEntering } = useMessageArrivals(messages, streamingText ?? '', groupedMessages)
 
   // Captured when the first token lands so the streaming container can render
   // the same timestamp-divider decision as the final row that will replace it.
@@ -1204,7 +1201,6 @@ export function ChatMessages({
         arrival={commsArrival(msg.id)}
         entering={isEntering(msg.id)}
         blockArrivals={blockArrivals}
-        virtualized={virtualized}
       />
     )
   }
@@ -1236,18 +1232,9 @@ export function ChatMessages({
       {messages.length === 0 && !loading && !hydrating && <TranscriptEmptyState>{emptyState}</TranscriptEmptyState>}
       <div ref={setScrollContainerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll h-full overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
         <div className={`mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] lg:pt-[88px] ${footer ? 'flex min-h-full flex-col justify-end pb-0' : 'pb-[var(--space-6)]'}`}>
-          {loadingOlderMessages && (
-            <div role="status" aria-label="Loading older messages" className="flex h-8 items-center justify-center">
-              <span className="size-3 rounded-full bg-[var(--fill-tertiary)] animate-[jinn-pulse_1.4s_infinite]" />
-            </div>
-          )}
-          {olderMessagesError && hasOlderMessages && (
-            <div className="flex h-8 items-center justify-center text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-              Older messages could not load
-            </div>
-          )}
+          {hasOlderMessages && <OlderPageRow loading={loadingOlderMessages} error={olderMessagesError} />}
           {virtualized ? (
-            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            <div ref={virtualBlockRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
               {virtualizer.getVirtualItems().map((row) => (
                 // `data-index` is what the virtualizer measures by, so the row's
                 // own `data-message-id` stays where scroll-anchor.ts looks for it.
@@ -1255,7 +1242,9 @@ export function ChatMessages({
                   key={row.key}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start}px)` }}
+                  // `row.start` counts from the scrollport's top now that
+                  // `scrollMargin` is declared, and the block is already there.
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start - virtualBlockOffset}px)` }}
                 >
                   {renderGroup(renderGroups[row.index])}
                 </div>

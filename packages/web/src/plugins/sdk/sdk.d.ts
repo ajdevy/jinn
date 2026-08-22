@@ -9,7 +9,7 @@
  * A test holds the contract in exact two-way sync with the runtime barrel:
  * every name it declares is exported by `index.ts`, and every name `index.ts`
  * exports is declared by it. The contract is this file plus the `sdk-ui.d.ts`
- * it re-exports, and the test reads both.
+ * and `sdk-host.d.ts` halves it re-exports, and the test reads all three.
  */
 import type * as ReactModule from 'react'
 import type { ElementType, ReactElement } from 'react'
@@ -88,6 +88,14 @@ export type HostEventHandler = (frame: HostEvent) => void
 
 export type HostNotifyLevel = 'info' | 'warning' | 'error'
 
+/** A notification with more to say than one line: the title carries the event
+ *  and the description the detail. `level` defaults to `info`. */
+export interface HostNotice {
+  title: string
+  description?: string
+  level?: HostNotifyLevel
+}
+
 /* The typed verb tier is split out so this entry point stays below the size
  * ratchet while plugin authors still read one public module. */
 export type {
@@ -132,8 +140,11 @@ export interface PluginHost {
    *  mounted, rather than dropping the call. */
   navigate(path: string): void
   /** Show a notification, or log it when no surface is mounted. Throws only
-   *  when the verb itself is refused, never for want of a surface. */
+   *  when the verb itself is refused, never for want of a surface. Pass a
+   *  `HostNotice` for a title with a description under it; both forms land on
+   *  the one stack. */
   notify(message: string, level?: HostNotifyLevel): void
+  notify(notice: HostNotice): void
   todos: PluginHostTodos
   sessions: PluginHostSessions
   employees: PluginHostEmployees

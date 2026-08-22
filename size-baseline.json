@@ -121,7 +121,7 @@
       ]
     },
     "packages/jinn/src/cron/__tests__/runner.test.ts": {
-      "lines": 582
+      "lines": 490
     },
     "packages/jinn/src/cron/run-summary.ts": {
       "exempt": [
@@ -129,7 +129,6 @@
       ]
     },
     "packages/jinn/src/cron/runner.ts": {
-      "lines": 302,
       "exempt": [
         "complexity",
         "max-depth",
@@ -345,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5761,
+      "lines": 5742,
       "exempt": [
         "complexity",
         "max-depth",
@@ -403,7 +402,7 @@
       ]
     },
     "packages/jinn/src/gateway/lifecycle.ts": {
-      "lines": 750,
+      "lines": 725,
       "exempt": [
         "complexity",
         "max-depth",
@@ -487,7 +486,6 @@
       ]
     },
     "packages/jinn/src/gateway/workflow-todo-surface.ts": {
-      "lines": 308,
       "exempt": [
         "complexity"
       ]
@@ -623,7 +621,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 752,
+      "lines": 666,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -914,7 +912,7 @@
       ]
     },
     "packages/jinn/src/work-items/migrate.ts": {
-      "lines": 975,
+      "lines": 963,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -927,14 +925,14 @@
       ]
     },
     "packages/jinn/src/work-items/store.ts": {
-      "lines": 995,
+      "lines": 990,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/jinn/src/work-items/transitions.ts": {
-      "lines": 311,
+      "lines": 302,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -992,7 +990,7 @@
       "lines": 417
     },
     "packages/jinn/src/workflows/__tests__/workflow-triggers.test.ts": {
-      "lines": 371
+      "lines": 366
     },
     "packages/jinn/src/workflows/__tests__/workflow-vertical.test.ts": {
       "lines": 768
@@ -1049,7 +1047,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1060,
+      "lines": 1044,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1152,7 +1150,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1074,
+      "lines": 1071,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1160,7 +1158,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1349,
+      "lines": 1338,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1168,7 +1166,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 638,
+      "lines": 598,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1176,7 +1174,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-sidebar.tsx": {
-      "lines": 1781,
+      "lines": 1767,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1563,7 +1561,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1086,
+      "lines": 1068,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1571,14 +1569,14 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 355,
+      "lines": 318,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 379,
+      "lines": 346,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1670,7 +1668,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1615,
+      "lines": 1576,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1703,7 +1701,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 964,
+      "lines": 925,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1722,7 +1720,7 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 338,
+      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1860,7 +1858,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/task-page.tsx": {
-      "lines": 653,
+      "lines": 649,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

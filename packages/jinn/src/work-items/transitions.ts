@@ -3,6 +3,8 @@ import { initDb } from '../shared/db.js';
 import { clearBlockRecord, DEFAULT_BLOCK_KIND, recordBlock, resolveBlock, type BlockKind } from './blocks.js';
 import { cascadeCloseDescendants } from './cascade.js';
 import { holdLiveSignalsUntilCommit, notifyTodoChanged, notifyTodoStatusChange } from './live-events.js';
+import { clearStopCause, writeStopCause, type TodoStopCause } from './stop-cause.js';
+import { EDGES } from './transition-edges.js';
 import {
   appendWorkItemEvent,
   effectiveMaxRounds,
@@ -26,26 +28,6 @@ import {
  * the policy's max rounds instead of looping. The GRS-003a reconciler and the
  * (phase-2) dispatcher are consumers of this module, not competitors to it.
  */
-
-/** Declared edges: from → the set of legal targets (design §1.1's diagram).
- *  Governs the human and derived lanes; the agent lane (`opts.agent`) and the
- *  workflow re-arm lane (`opts.requeue`) are bounded by their caller's target
- *  allowlist instead. */
-const EDGES: Readonly<Record<WorkItemStatus, ReadonlySet<WorkItemStatus>>> = {
-  // `done` from backlog/assigned covers trivially-completed work (e.g. a
-  // gate-only workflow run that finishes without ever spawning a session) —
-  // rare, but refusing it would strand a truthful terminal.
-  backlog: new Set(['assigned', 'executing', 'in_review', 'blocked', 'done', 'cancelled', 'escalated']),
-  assigned: new Set(['backlog', 'executing', 'in_review', 'blocked', 'done', 'cancelled', 'escalated']),
-  executing: new Set(['in_review', 'blocked', 'done', 'cancelled', 'escalated']),
-  in_review: new Set(['executing', 'done', 'blocked', 'cancelled', 'escalated']),
-  blocked: new Set(['backlog', 'assigned', 'executing', 'in_review', 'done', 'cancelled', 'escalated']),
-  // Sticky terminals: leaving them is HUMAN-ONLY (enforced below, not by edge absence —
-  // the operator can route an escalated/closed item anywhere sensible).
-  escalated: new Set(['backlog', 'assigned', 'executing', 'in_review', 'done', 'blocked', 'cancelled']),
-  done: new Set(['backlog']),
-  cancelled: new Set(['backlog']),
-};
 
 export type TransitionErrorCode =
   | 'not-found'
@@ -124,6 +106,10 @@ export interface TransitionOptions {
    * asserts an answer nobody gave. Saying so explicitly is the answer.
    */
   acknowledgeEscalated?: boolean;
+  /** Why this stop will end (PLA-157): the moment a clock-wait is over, or what
+   *  has to happen and who has to do it. Stored only when the move lands in
+   *  `blocked`/`escalated`; leaving either deletes whatever was stored. */
+  stopCause?: TodoStopCause;
   /** Free-form audit payload (critique text, verdict, reason) stored on the event. */
   detail?: Record<string, unknown>;
 }
@@ -268,6 +254,11 @@ export function transition(id: string, to: WorkItemStatus, actor: string, opts: 
     // Only a successful completion resets the block history; `cancelled` keeps
     // it, because abandoning work is not evidence its blocks were resolved.
     if (target === 'done') clearBlockRecord(db, id);
+    // The stop's cause belongs to the stop (PLA-157), so it is written with the
+    // status that made it true and deleted the moment the Todo is no longer
+    // stopped — a countdown can never outlive the wait it was counting.
+    if (target !== 'blocked' && target !== 'escalated') clearStopCause(db, id);
+    else if (opts.stopCause) writeStopCause(db, id, opts.stopCause, now);
 
     const event = appendWorkItemEvent({
       workItemId: id,

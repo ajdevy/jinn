@@ -8,6 +8,7 @@ import { WhisperDownloadModal } from '@/components/stt/whisper-download-modal'
 import { MicWaveform } from './mic-waveform'
 import { EmployeeAvatar } from '@/components/ui/employee-avatar'
 import { useChatComposerControl } from './chat-composer-control'
+import { composerCardPresentation } from './chat-composer-presentation'
 import { resolveSendTap, resolveTranscriptLanding } from './armed-send'
 
 export { resolveSendTap, resolveTranscriptLanding } from './armed-send'
@@ -88,6 +89,8 @@ export function nextSpeechProvenance(current: boolean, event: SpeechProvenanceEv
 interface ChatInputProps {
   /** Existing chat owned by this composer. Null is the new-chat composer. */
   sessionId?: string | null
+  /** Only the focused pane may receive global composer commands or autofocus. */
+  isActive?: boolean
   disabled: boolean
   loading: boolean
   onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean, speech?: boolean) => boolean | void | Promise<boolean | void>
@@ -177,6 +180,7 @@ async function fileToAttachment(file: File): Promise<MediaAttachment> {
 
 export function ChatInput({
   sessionId = null,
+  isActive = true,
   disabled,
   loading,
   onSend,
@@ -251,11 +255,11 @@ export function ChatInput({
   // Defer with requestAnimationFrame so the textarea has finished mounting
   // after ChatPane's key-driven remount.
   useEffect(() => {
-    if (!focusTrigger || focusTrigger <= 0) return
+    if (!isActive || !focusTrigger || focusTrigger <= 0) return
     if (window.innerWidth < 768) return
     const raf = requestAnimationFrame(() => textareaRef.current?.focus())
     return () => cancelAnimationFrame(raf)
-  }, [focusTrigger])
+  }, [focusTrigger, isActive])
   const mentionItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
 
   // applyTranscript is defined below; the ref lets this stable callback reach it.
@@ -500,7 +504,7 @@ export function ChatInput({
   sendTextRef.current = sendText
 
   useChatComposerControl({
-    sessionId, textareaRef, disabledRef, submittingRef, valueRef, speechRef,
+    sessionId, isActive, textareaRef, disabledRef, submittingRef, valueRef, speechRef,
     pendingAttachmentsRef, sendTextRef, setValue, setSendArmed, setShowMentions, setShowCommands,
   })
 
@@ -692,7 +696,7 @@ export function ChatInput({
   const sttPending = stt.state === 'recording' || stt.state === 'transcribing'
 
   return (
-    <div className="pt-[var(--space-3)] pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))] bg-[var(--bg)] shrink-0 relative">
+    <div data-chat-composer className="pt-[var(--space-3)] pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))] bg-[var(--bg)] shrink-0 relative">
       {/* Soft top scrim — fades scrolling content into the composer instead of a
           hard 1px divider. Borderless, readable over the thread in both themes.
           Stays full-bleed (spans the whole thread width). */}
@@ -775,16 +779,7 @@ export function ChatInput({
           hairline at rest. A low-opacity accent ring (not a 1px border) marks
           the streaming state. */}
       <div
-        className="composer-card rounded-[22px] bg-[var(--bg-secondary)] px-[var(--space-4)] pt-[var(--space-3)] pb-[var(--space-2)] transition-shadow duration-200 ease-in-out"
-        style={
-          // While streaming, the inline accent ring overrides the CSS class so
-          // it always wins over the :focus-within ring. When idle, no inline
-          // boxShadow → the .composer-card stylesheet rule governs (base shadow
-          // + soft :focus-within accent ring).
-          loading
-            ? { boxShadow: 'var(--shadow-card), 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent)' }
-            : undefined
-        }
+        {...composerCardPresentation(isActive, loading)}
         onPointerDown={(e) => {
           // Click-to-focus: tapping anywhere in the card (including the gaps
           // between toolbar buttons) lands the caret in the textarea. Real
@@ -796,7 +791,9 @@ export function ChatInput({
       >
         {/* Textarea */}
         <textarea
-          id="chat-textarea"
+          id={isActive ? 'chat-textarea' : undefined}
+          data-chat-textarea
+          data-chat-session={sessionId ?? 'new'}
           ref={textareaRef}
           value={value}
           onChange={handleChange}
@@ -1066,8 +1063,8 @@ export function ChatInput({
         /* Idle base shadow + soft accent ring when the composer holds focus.
            Not a 1px border — a 4px --accent-fill wash. Overridden inline while
            streaming so the brighter loading ring takes precedence. */
-        .composer-card { box-shadow: var(--shadow-card); }
-        .composer-card:focus-within { box-shadow: var(--shadow-card), 0 0 0 4px var(--accent-fill); }
+        .composer-card-active { box-shadow: var(--shadow-card); }
+        .composer-card-active:focus-within { box-shadow: var(--shadow-card), 0 0 0 4px var(--accent-fill); }
       `}</style>
     </div>
   )

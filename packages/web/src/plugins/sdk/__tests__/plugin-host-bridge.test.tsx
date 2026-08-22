@@ -90,7 +90,7 @@ it('delivers a backend notice into the same notification sink host.notify uses',
     payload: { pluginId: 'mailbox', message: '3 new messages', level: 'warning' },
   })
 
-  expect(sink).toHaveBeenCalledWith('3 new messages', 'warning')
+  expect(sink).toHaveBeenCalledWith({ title: '3 new messages', level: 'warning' })
 })
 
 it('leaves every other frame out of the notification sink', () => {

@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { contributions } from "@/contrib/registry"
 import { AREAS } from "@/contrib/types"
+import { lookupIcon, type IconName } from "@/components/ui/icon"
 
 export interface NavItem {
   href: string
@@ -26,15 +27,16 @@ export interface NavItem {
 /**
  * What a `sidebar.nav` contribution declares.
  *
- * `icon` is optional because a disk plugin has no way to supply one: the runtime
- * loader's allowlist is the SDK, React and the JSX runtime, so `lucide-react` is
- * not importable from a plugin. A row without one gets the fallback glyph rather
- * than a hole in the rail.
+ * `icon` takes a component from the app's own code, or a name out of the SDK's
+ * curated set — which is how a disk plugin supplies one, since the loader's
+ * import allowlist is the SDK, React and the JSX runtime and no icon library.
+ * A row with neither, or with a name the set does not carry, gets the fallback
+ * glyph rather than a hole in the rail.
  */
 export interface NavContributionData {
   href: string
   label: string
-  icon?: LucideIcon
+  icon?: LucideIcon | IconName
 }
 
 function contributedNavItems(): NavItem[] {
@@ -42,7 +44,8 @@ function contributedNavItems(): NavItem[] {
     const data = contribution.data as Partial<NavContributionData> | undefined
     if (typeof data?.href !== "string" || !data.href.startsWith("/")) return []
     if (typeof data.label !== "string" || !data.label) return []
-    return [{ href: data.href, label: data.label, icon: data.icon ?? Puzzle }]
+    const icon = typeof data.icon === "string" ? lookupIcon(data.icon) : data.icon
+    return [{ href: data.href, label: data.label, icon: icon ?? Puzzle }]
   })
 }
 

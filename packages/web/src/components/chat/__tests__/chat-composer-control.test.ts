@@ -5,9 +5,10 @@ import {
   type ChatComposerControl,
 } from "../chat-composer-control"
 
-function control(sessionId: string): ChatComposerControl {
+function control(sessionId: string, isActive = () => true): ChatComposerControl {
   return {
     sessionId,
+    isActive,
     isVisible: () => true,
     execute: () => ({ ok: true, characters: 0 }),
   }
@@ -22,5 +23,18 @@ describe("the mounted composer control", () => {
     expect(activeChatComposerControl()?.sessionId).toBe("B")
     cleanB()
     expect(activeChatComposerControl()).toBeNull()
+  })
+
+  it("selects the focused composer instead of the last mounted pane", () => {
+    let focused = "A"
+    const cleanA = registerChatComposerControl(control("A", () => focused === "A"))
+    const cleanB = registerChatComposerControl(control("B", () => focused === "B"))
+
+    expect(activeChatComposerControl()?.sessionId).toBe("A")
+    focused = "B"
+    expect(activeChatComposerControl()?.sessionId).toBe("B")
+
+    cleanB()
+    cleanA()
   })
 })

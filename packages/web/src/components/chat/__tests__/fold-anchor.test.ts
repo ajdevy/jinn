@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anchorScrollDuring, canAnchorFold } from '../fold-anchor'
+import { anchorScrollDuring, canAnchorFold, foldIsAboveViewport } from '../fold-anchor'
 
 /**
  * The fold's scroll compensation, as arithmetic. Both pieces are pure enough to
@@ -83,6 +83,39 @@ describe('anchorScrollDuring', () => {
     expect(top).toBe(860)
     expect(frames).toHaveLength(0)
   })
+
+  it('stops on the first frame of a finger drag and never writes again', () => {
+    // The sticky-swipe symptom: the reader drags while a fold is compensating.
+    // A drag moves the scroller EVERY frame, so the loop has to give up on the
+    // first one it sees rather than fighting a moving target frame after frame.
+    let top = 1000
+    let bottom = 500
+    const writes: number[] = []
+    const scroller = {
+      get scrollTop() { return top },
+      set scrollTop(next: number) { writes.push(next); bottom -= next - top; top = next },
+    } as unknown as Element
+    // The fold is still shrinking, so every frame there is a delta to chase.
+    const anchor = { getBoundingClientRect: () => ({ bottom: bottom -= 6 }) } as unknown as Element
+    const frames: FrameRequestCallback[] = []
+    let now = 0
+    anchorScrollDuring(scroller, anchor, 480, { raf: (cb) => { frames.push(cb); return 1 }, now: () => now })
+
+    // Frame 1: nobody else has touched the scroller, so it compensates.
+    now = 16
+    frames.shift()!(now)
+    expect(writes).toHaveLength(1)
+
+    // The finger takes over, moving the scroller a little every frame.
+    for (const step of [40, 80, 120]) {
+      top -= step
+      now += 16
+      frames.shift()?.(now)
+    }
+
+    expect(writes).toHaveLength(1)
+    expect(frames).toHaveLength(0)
+  })
 })
 
 describe('fold slack gate', () => {
@@ -96,5 +129,27 @@ describe('fold slack gate', () => {
     expect(canAnchorFold(296, 331)).toBe(false)
     // A tiny region folds even at scrollTop 0 (delta ≤ summary height).
     expect(canAnchorFold(0, 32)).toBe(true)
+  })
+})
+
+describe('off-screen gate', () => {
+  // The scroller's viewport, with the transcript header above it.
+  const viewport = { top: 64, bottom: 864 }
+
+  it.each([
+    ['scrolled clear of the top edge', { top: -420, bottom: -60 }, true],
+    ['bottom edge one pixel above the viewport', { top: -300, bottom: 63 }, true],
+    ['bottom edge flush with the viewport top', { top: -300, bottom: 64 }, false],
+    ['a sliver still showing', { top: -300, bottom: 71 }, false],
+    ['fully on screen', { top: 120, bottom: 480 }, false],
+    ['still below the fold', { top: 900, bottom: 1200 }, false],
+  ])('%s → %s', (_case, fold, expected) => {
+    expect(foldIsAboveViewport(fold, viewport)).toBe(expected)
+  })
+
+  it('answers no when there is no geometry to answer with', () => {
+    // A display:none transcript reads all zeros on both sides. An unproven
+    // collapse is the one that moves a pixel the reader was looking at.
+    expect(foldIsAboveViewport({ top: 0, bottom: 0 }, { top: 0, bottom: 0 })).toBe(false)
   })
 })

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { describe, expect, it } from "vitest"
-import { RunRow } from "../detail"
+import { RunRow } from "../run-row"
 import type { CronRunWire } from "../shared"
 
 const NOW = new Date("2026-08-01T04:00:00.000Z")
@@ -26,9 +26,9 @@ describe("RunRow", () => {
   })
 
   it("renders a run with no session as an inert row with no hover fill", () => {
-    const { container } = renderRow({ timestamp: "2026-08-01T03:00:00.000Z", status: "skipped" })
+    const { container } = renderRow({ timestamp: "2026-08-01T03:00:00.000Z", status: "error" })
     expect(screen.queryByRole("link")).toBeNull()
-    expect(screen.getByText("skipped")).toBeTruthy()
+    expect(screen.getByText("error")).toBeTruthy()
     expect(container.firstElementChild?.className).not.toContain("hover:bg-")
   })
 })

@@ -2,10 +2,10 @@
  * Scroll compensation for a folding region.
  *
  * A fold changes its own height while the reader is looking at the transcript,
- * so everything below it would jump. These two pieces decide whether the
- * scroller can absorb that change and hold the content below it still while it
- * happens. They live apart from the component because the component is about
- * the choreography and these are about the scroller.
+ * so everything below it would jump. These pieces decide whether the change is
+ * visible at all, whether the scroller can absorb it, and hold the content
+ * below it still while it happens. They live apart from the component because
+ * the component is about the choreography and these are about the scroller.
  */
 
 /** How long the compensation follows a fold, in ms. */
@@ -68,4 +68,24 @@ export function anchorScrollDuring(
   return () => {
     cancelled = true
   }
+}
+
+/** The vertical extent of a rect, in viewport coordinates. */
+export interface VerticalEdges {
+  top: number
+  bottom: number
+}
+
+/**
+ * Whether a fold sits entirely above what the reader can see.
+ *
+ * A send adds content below and moves nothing on screen, so a fold only
+ * auto-collapses on the next ask once it has scrolled past the top of the
+ * scroller. Anything still on screen — or below it — keeps the state the reader
+ * left it in. Geometry that cannot answer the question (a detached node
+ * measures as all zeros) answers no: an unproven collapse is exactly the one
+ * that moves a pixel the reader was looking at.
+ */
+export function foldIsAboveViewport(fold: VerticalEdges, scroller: VerticalEdges): boolean {
+  return fold.bottom < scroller.top
 }

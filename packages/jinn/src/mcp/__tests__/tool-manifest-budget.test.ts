@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5932;
+const MAX_MANIFEST_TOKENS = 5952;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -123,9 +123,43 @@ const ATTESTED = {
   // definition" on rerun_workflow_run, whose `definition` enum is
   // `["original","current"]`. The remaining 3 fit under the unchanged ceiling —
   // Pi sits two below it, so the next addition still has to pay its own way.
-  rpc: { tokens: 5424, sha256: "91d3619df025c1caae8310453fab4d18d546922cf1c1c784d535420d0297541d" },
-  pi: { tokens: 5930, sha256: "a626d94d3e049c62ef5c4fb8c747235aeddeaf5886f9aef1894bd8bec79e1d6c" },
-  openai: { tokens: 5629, sha256: "968b132e47eee9c3ef06b953d90a085e72d6262407f144913f2340e8a97b12b2" },
+  // Rebased for `parkedUntil` and `unblockHint` on update_work_item (PLA-157) —
+  // the two fields that let a stopped Todo say whether it is waiting on a clock
+  // or on a person. They cost 39. Three redundant clauses and two tightenings
+  // bought 36 of that back:
+  //   - the field list on set_work_item_dispatch ("skills to preload,
+  //     engine/model override"), which its schema properties enumerate.
+  //   - "supports threaded replies and local attachments" on comment_work_item,
+  //     enumerated by its own `parentCommentId` and `attachments`.
+  //   - "last=0 returns the whole transcript" on read_session, said again by
+  //     `last`'s own "0=all (default 30)" one line below.
+  //   - update_work_item's own `cascade` and `acknowledgeEscalated`, said in
+  //     fewer words without losing either rule.
+  // The two employee-selection clauses look like the same kind of duplication
+  // and are NOT: exact-string tests in delegation-tools.test.ts and
+  // session-tools.test.ts pin them, so they are contract, not prose.
+  // `parkedUntil` carries no description of its own because the refusal names
+  // the format at the moment it matters. The remaining 3 are the fields' honest
+  // cost.
+  // Rebased again for `mode` on label_work_item (PLA-155). Replace was the only
+  // mode this tool had, so an agent told to drop one label had to re-send every
+  // other label from memory to keep it — and a Todo that lost its arming label
+  // that way sits at its arming status forever, because its lane trigger filters
+  // on that label. The whole addition is one enum property and six words: `mode`
+  // is `{"type":"string","enum":["add","remove"]}` at 14 tokens, and the tool's
+  // own description went from "Set existing Todo labels." to "Set Todo labels;
+  // mode add/remove keeps the rest." for 6 more. The alternative shape — sibling
+  // `add` and `remove` arrays — cost 8 tokens more and let a caller name two
+  // modes at once. No enum is restated in prose anywhere on this surface any more
+  // and no field list duplicates its own properties, so unlike the earlier
+  // rebases there was nothing dead left to buy the 20 back from; the ceiling
+  // moves by exactly that. PLA-157's 3 land in the same release and take the
+  // headroom the move would otherwise have left, so Pi sits exactly ON the moved
+  // ceiling: the next addition to this surface has to buy its room BEFORE it
+  // spends any.
+  rpc: { tokens: 5446, sha256: "cfc8b9a7df51e4b28ac4382a9bc94a7b5bc23309fbd57769daa4858107fe30b5" },
+  pi: { tokens: 5952, sha256: "05bc26e60d6178aa96db272183d4fea17cf3bc91b79b3e91fdaf4840b70ce131" },
+  openai: { tokens: 5651, sha256: "90f1818ae5a7e8e9c4a2e9094dd395e729630835a6b69ddb9fc0897b0a351e54" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

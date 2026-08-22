@@ -62,6 +62,26 @@ describe('enter motion', () => {
     )
   })
 
+  it('enters the conversation title with a duration token and no literal', () => {
+    const rule = block('[data-title-enter] {')
+    expect(rule).toContain('animation: jinn-title-enter var(--duration-base) var(--ease-smooth)')
+    expect(rule).not.toMatch(/\d+m?s/)
+  })
+
+  it('enters the title on opacity and transform alone', () => {
+    // The mobile title sits in a fixed-height nav bar between the back control
+    // and the compose button. Anything that changed its box would move both.
+    const keyframes = block('@keyframes jinn-title-enter')
+    expect(keyframes).not.toContain('filter')
+    expect(keyframes).not.toMatch(/\b(width|height|top|left|right|bottom|margin|padding|font|inset|scale)\s*:/)
+  })
+
+  it('switches the title entrance off under reduced motion', () => {
+    expect(GLOBALS).toContain(
+      '@media (prefers-reduced-motion: reduce) {\n  [data-title-enter] { animation: none; }\n}',
+    )
+  })
+
   it('animates an arriving tool call with a duration token and no literal', () => {
     const rule = block('.tool-arrive {')
     expect(rule).toContain('animation: jinn-tool-rise var(--duration-base) var(--ease-smooth) backwards')

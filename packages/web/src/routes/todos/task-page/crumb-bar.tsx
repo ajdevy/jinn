@@ -10,6 +10,7 @@ import { AREAS } from "@/contrib/types"
 import { todoPath } from "@/lib/todo-id"
 import { gatewayTransport } from "@/lib/gateway-transport"
 import { copyText as platformCopyText } from "@/platform"
+import { KeepToggle } from "../board/keep-control"
 
 /* Todos v2 slice 6 — the task page's breadcrumb bar (design-doc §7.1, mock
  * task-detail.html). Board context › ancestor IDs › current ID + title. The
@@ -42,6 +43,8 @@ export function CrumbBar({
   onOpenAncestor,
   onCopyId,
   mobile,
+  kept,
+  onKeep,
 }: {
   boardLabel: string
   onBack: () => void
@@ -51,6 +54,9 @@ export function CrumbBar({
   onOpenAncestor: (id: string) => void
   onCopyId: () => void
   mobile: boolean
+  /** ICI-1357: whether this Todo is on the operator's Home board. */
+  kept?: boolean
+  onKeep?: (vars: { id: string; kept: boolean }) => void
 }) {
   const copyText = (text: string) => void platformCopyText(text)
   return (
@@ -123,6 +129,8 @@ export function CrumbBar({
           variant="chip"
           className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
         />
+        {/* Absent while the Todo is still loading: no state to toggle yet. */}
+        {kept !== undefined && onKeep && <KeepToggle id={id} kept={kept} onToggle={onKeep} className="size-[34px] rounded-[10px]" />}
         <button
           type="button"
           aria-label={`Copy link to ${id}`}

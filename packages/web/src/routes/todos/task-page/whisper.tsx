@@ -1,4 +1,4 @@
-import { Bell, ChevronRight, CornerDownRight, Link2, Paperclip, Pencil, Plus, Tags } from "lucide-react"
+import { Bell, ChevronRight, CornerDownRight, Link2, Paperclip, Pencil, Plus, RotateCw, Tags } from "lucide-react"
 import type { Employee, WorkItemEventWire } from "@/lib/api"
 import { STATUS_LABEL } from "@/lib/todos"
 import { displayNameOf, formatRelativeTime } from "../util"
@@ -41,6 +41,17 @@ const WHISPERS: Record<string, WhisperRule> = {
     Icon: CornerDownRight,
     text: `held the dispatch${typeof detail.guard === "string" ? ` — ${detail.guard}` : ""}`,
     tinted: true,
+  }),
+  // The counterpart to the hold above: the window that ended the wait, and the
+  // answer that decided when. The window leads instead of a verb because
+  // "resumed" behind an actor reads as somebody having stepped in, which is the
+  // one thing that did not happen — and because this line clips at 390px, where
+  // a lead-in would push the source past the ellipsis. The comma is load-bearing
+  // for the same reason: " · " measured 297px into a 295px box.
+  availability_resumed: (detail) => ({
+    Icon: RotateCw,
+    text: `${typeof detail.engine === "string" ? `${detail.engine} ` : ""}window reopened${
+      typeof detail.source === "string" ? `, ${detail.source}` : ""}`,
   }),
   note: (detail) => {
     if (typeof detail.assignee === "string") return { Icon: Pencil, text: `assigned ${detail.assignee}` }

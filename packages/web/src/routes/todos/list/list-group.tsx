@@ -97,6 +97,7 @@ export function TodoListGroup({
   onToggle,
   onQuickAdd,
   onOpen,
+  onKeep,
   hasMore,
   loadingMore,
   onLoadMore,
@@ -109,6 +110,7 @@ export function TodoListGroup({
   onToggle?: () => void
   onQuickAdd: () => void
   onOpen: (id: string, item: WorkItemCompactWire) => void
+  onKeep?: (vars: { id: string; kept: boolean }) => void
   hasMore: boolean
   loadingMore: boolean
   onLoadMore: () => void
@@ -127,6 +129,7 @@ export function TodoListGroup({
               byName={byName}
               now={now}
               onOpen={onOpen}
+              onKeep={onKeep}
             />
           ))}
           {group.items.length === 0 && <TodoListGroupEmpty />}

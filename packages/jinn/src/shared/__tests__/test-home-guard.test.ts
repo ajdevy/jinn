@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assertIsolatedTestHome,
   canonicalPath,
@@ -11,6 +11,7 @@ import {
 import vitestConfig from '../../../vitest.config.js';
 import setupVitest from '../../../vitest.global-setup.js';
 import { JINN_HOME, SESSIONS_DB, assertTestRunIsIsolated } from '../paths.js';
+import { assertNotProductionGateway } from '../sandbox-env.js';
 import { initDb } from '../db.js';
 import { createWorkItem } from '../../work-items/store.js';
 
@@ -118,6 +119,29 @@ describe('Vitest JINN_HOME guard', () => {
 
     expect(row).toEqual({ title: 'test-home guard integration' });
     expect(fs.existsSync(SESSIONS_DB)).toBe(true);
+  });
+});
+
+describe('worker gateway-binding scrub', () => {
+  // Reproduce by running the suite from inside a live gateway session, which exports
+  // the gateway's own JINN_PORT/JINN_HOST into every child: without the vitest.setup.ts
+  // scrub they land in each worker, and JINN_PORT outranks the config.yaml of whatever
+  // fixture home a test just wrote.
+  it.each(['JINN_PORT', 'JINN_HOST', 'JINN_INSTANCE'])('leaves no ambient %s in the worker', (name) => {
+    expect(process.env[name]).toBeUndefined();
+  });
+
+  it('refuses to run a worker that still resolves the default instance home', () => {
+    // Fabricated under the temp root, so the assertion never names this machine's home.
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jinn-default-home-'));
+    createdHomes.push(homeDir);
+    vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+
+    expect(() => assertNotProductionGateway({ home: path.join(homeDir, '.jinn') }))
+      .toThrow(/default instance home/);
+    expect(() => assertNotProductionGateway({ home: process.env.JINN_HOME })).not.toThrow();
+
+    vi.restoreAllMocks();
   });
 });
 

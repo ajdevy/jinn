@@ -7,6 +7,7 @@ import type { Employee, Engine, JinnConfig, ModelRegistry, WorkflowAttemptComman
   WorkflowAttemptCompletionListener } from "../../shared/types.js";
 import type { WorkflowDefinition, WorkflowNode } from "../model.js";
 import type { SessionManager } from "../../sessions/manager.js";
+import { resumableEngineSession } from "../../sessions/attempt-continuation.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
@@ -47,6 +48,7 @@ class DurableExecutor {
   readTerminalCompletion(sessionId: string): WorkflowAttemptCompletion | null {
     return this.terminalReader?.(sessionId) ?? this.receipts.get(sessionId) ?? null;
   }
+  resumableEngineSession(sessionId: string, engine: string): string | null { return resumableEngineSession(sessionId, engine); }
   async settle(nodeId: string, outcome: "succeeded" | "failed", at: string): Promise<void> {
     const command = this.commands.filter((item) => item.owner.nodeId === nodeId).at(-1)!;
     const key = `${command.owner.runId}:${nodeId}:${command.owner.attempt}`;
@@ -308,11 +310,9 @@ describe("Workflow retry, cancellation, and restart recovery", () => {
     await service.recover(now.toISOString());
 
     const recovered = service.getRun(definition.id, created.id)!;
-    expect(recovered.nodeRuns.find((node) => node.nodeId === "work")).toMatchObject({
-      status: "waiting",
-      resumeAt: expect.any(String),
-    });
-    expect(recovered.status).toBe("waiting");
+    expect(recovered.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2]);
+    expect(recovered.nodeRuns.find((node) => node.nodeId === "work")).toMatchObject({ status: "running" });
+    expect(recovered.status).toBe("running");
   });
 
   it("recovers persisted dispatch intent and post-dispatch crash without duplicate session or attempt", async () => {

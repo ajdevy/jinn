@@ -10,7 +10,17 @@ export type HostNavigator = (path: string) => void
 /** How loud a notification is; the host decides what each one looks like. */
 export type HostNotifyLevel = 'info' | 'warning' | 'error'
 
-export type HostNotificationSink = (message: string, level: HostNotifyLevel) => void
+/** A notification with more to say than one line: the title carries the event
+ *  and the description the detail. `level` defaults to `info`. */
+export interface HostNotice {
+  title: string
+  description?: string
+  level?: HostNotifyLevel
+}
+
+/** The surface receives the notice with its level already resolved, so it never
+ *  has to decide what an absent one meant. */
+export type HostNotificationSink = (notice: HostNotice & { level: HostNotifyLevel }) => void
 
 let navigate: HostNavigator | null = null
 let notificationSink: HostNotificationSink | null = null

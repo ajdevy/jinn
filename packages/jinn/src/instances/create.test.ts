@@ -125,6 +125,45 @@ describe("workspace creation", () => {
     expect(loadInstances({ registryPath, legacyRegistryPath })).toHaveLength(1);
   });
 
+  it("bootstraps the new workspace without the parent instance's gateway session", async () => {
+    vi.stubEnv("JINN_GATEWAY_URL", "http://127.0.0.1:7802");
+    vi.stubEnv("JINN_GATEWAY_TOKEN", "parent-token");
+    vi.stubEnv("JINN_SESSION_ID", "parent-session");
+    vi.stubEnv("JINN_SESSION_CAPABILITY", "parent-capability");
+    const root = tempDir();
+    const calls: Array<{ args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    const execFile = vi.fn(async (_file: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+      calls.push({ args, env: options?.env });
+      if (args[1] === "setup") {
+        const home = options?.env?.JINN_HOME as string;
+        fs.mkdirSync(home, { recursive: true });
+        fs.writeFileSync(path.join(home, "config.yaml"), "gateway:\n  port: 7802\n");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    await createInstance({ name: "John", currentPort: 7802 }, {
+      homeDir: root,
+      registryPath: path.join(root, "host", "instances.json"),
+      legacyRegistryPath: path.join(root, "missing.json"),
+      cliEntry: "/package/dist/bin/jinn.js",
+      execFile,
+      isPortAvailable: async () => true,
+      waitForHealth: async () => true,
+      provisionAccess: async () => ({ status: "not-detected" }),
+    });
+
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.env?.JINN_GATEWAY_URL).toBeUndefined();
+      expect(call.env?.JINN_GATEWAY_TOKEN).toBeUndefined();
+      expect(call.env?.JINN_SESSION_ID).toBeUndefined();
+      expect(call.env?.JINN_SESSION_CAPABILITY).toBeUndefined();
+      expect(call.env?.JINN_HOME).toBe(path.join(root, ".jinn-john"));
+      expect(call.env?.JINN_INSTANCE).toBe("jinn-john");
+    }
+  });
+
   it("skips registered and occupied ports and removes a partial home when setup fails", async () => {
     const root = tempDir();
     const registryPath = path.join(root, "host", "instances.json");

@@ -1,0 +1,72 @@
+import { Pin } from "lucide-react"
+import type { WorkItemCompactWire } from "@/lib/api"
+import { departmentTitle } from "./board-switcher"
+
+/* ICI-1357 — keeping a Todo on Home, and saying whose work a kept Todo is.
+ *
+ * Home is only what the operator pinned (PLA-172), so both parts have to be
+ * legible from a board they did not pin: the pin says "this can go on Home",
+ * and the caption says whose work the kept one is.
+ *
+ * Both parts are presentational — the mutation lives in use-board.ts with the
+ * board's others, and reaches the card as a callback like every other action. */
+
+/**
+ * The toggle. It shows at rest wherever it is mounted: an affordance nobody
+ * can see is one nobody uses, and hover-gating it hid the whole gesture on the
+ * board where it matters most. Unkept it rests at `--text-tertiary`, which
+ * clears 3:1 on the card in both themes where the quietest ink measured 1.9:1,
+ * and strengthens under the pointer; kept it is the accent, filled. The button
+ * occupies the same box in every state, so a card cannot resize as the pointer
+ * crosses it.
+ */
+export function KeepToggle(
+  { id, kept = false, onToggle, className = "" }:
+  { id: string; kept?: boolean; onToggle: (vars: { id: string; kept: boolean }) => void; className?: string },
+) {
+  return (
+    <button
+      type="button"
+      data-testid={`keep-toggle-${id}`}
+      aria-pressed={kept}
+      aria-label={kept ? `Kept on Home — remove ${id} from Home` : `Keep ${id} on Home`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle({ id, kept: !kept })
+      }}
+      className={[
+        "focus-ring grid size-[22px] flex-none place-items-center rounded-md outline-none transition-colors duration-150",
+        kept
+          ? "text-[var(--accent)] hover:bg-[var(--accent-fill)]"
+          : "text-[var(--text-tertiary)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)]",
+        className,
+      ].join(" ")}
+    >
+      <Pin size={13} strokeWidth={2} aria-hidden className={kept ? "fill-current" : ""} />
+    </button>
+  )
+}
+
+/** Whose work a kept Todo is — only when there is a department to name, so the
+ *  line never reads `Kept · undefined`. Every kept Todo captions: `created_by`
+ *  says nothing about who asked for it (PLA-172), so a Todo the operator
+ *  "created" is no more theirs than one an agent raised. */
+export function keptCaptionOf(item: WorkItemCompactWire): string | null {
+  if (item.kept !== true || !item.department) return null
+  return `Kept · ${departmentTitle(item.department)}`
+}
+
+export function KeptCaption({ item, className = "" }: { item: WorkItemCompactWire; className?: string }) {
+  const caption = keptCaptionOf(item)
+  if (!caption) return null
+  return (
+    <div
+      data-testid={`kept-caption-${item.id}`}
+      className={`flex items-center gap-1.5 text-[12px] text-[var(--text-quaternary)] ${className}`}
+    >
+      <Pin size={10} strokeWidth={2} aria-hidden className="flex-none" />
+      {caption}
+    </div>
+  )
+}

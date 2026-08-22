@@ -53,6 +53,7 @@ export function ImageLightbox({
   const imageRef = useRef<HTMLImageElement | null>(null)
   const pointers = useRef(new Map<number, Point>())
   const gesture = useRef<Gesture | null>(null)
+  const pressedBackdrop = useRef(false)
 
   const resetView = useCallback(() => {
     setZoom(1)
@@ -140,9 +141,8 @@ export function ImageLightbox({
         showCloseButton={false}
         aria-describedby={undefined}
         data-testid="attachment-lightbox"
-        onPointerDown={(event) => {
-          if (event.target === event.currentTarget) onClose()
-        }}
+        onPointerDown={(event) => { pressedBackdrop.current = event.target === event.currentTarget }}
+        onClick={(event) => { if (pressedBackdrop.current && event.target === event.currentTarget) onClose() }}
         overlayClassName="bg-[var(--scrim)]"
         className="inset-0 flex h-dvh w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center overflow-hidden rounded-none border-0 bg-transparent p-0 shadow-none sm:max-w-none"
         style={{ left: 0, top: 0, transform: "none", maxWidth: "none" }}

@@ -30,8 +30,9 @@ export function QueuePanel({ sessionId, events, paused: initialPaused = false }:
     if (!events.length) return
     const latest = events[events.length - 1]
     if (latest.event === 'queue:updated') {
-      refresh()
       const payload = latest.payload as Record<string, unknown>
+      if (payload?.sessionId !== sessionId) return
+      refresh()
       if (typeof payload?.paused === 'boolean') {
         setPaused(payload.paused as boolean)
       }

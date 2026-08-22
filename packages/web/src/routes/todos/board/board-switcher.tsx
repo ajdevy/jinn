@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react"
+import { Bell, ChevronDown, Globe, House } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
@@ -13,10 +13,14 @@ import { boardPath, isSameBoard, type BoardId } from "./board-route"
 import { useBoardMenuCounts } from "./use-board"
 
 /* Todos v2 slice 6 — the switcher-in-title (design-doc §1.1, HIG title-menu).
- * The page title IS the menu trigger: current board name + chevron. Rows, in
- * order: My requests (home) · Attention (the ONLY badge anywhere — §8's one
- * ambient signal) · Boards (one per department, mono prefix glyph, open count)
- * · Everything. Open counts load lazily when the menu opens. */
+ * The page title IS the menu trigger: current board name + chevron.
+ *
+ * ICI-1357 splits the rows into lenses and places. The three lenses lead —
+ * Home · Attention (the ONLY badge anywhere, §8's one ambient signal) ·
+ * Everything — and the departments follow under their own group label. Order
+ * is the whole point: Everything used to sit last, so at fourteen departments
+ * the operator had to scroll the menu to reach it. Open counts load lazily
+ * when the menu opens. */
 
 const MENU_CLASS =
   "w-[min(300px,calc(100vw-24px))] rounded-[var(--radius-xl)] border-0 bg-[var(--material-thick)] p-1.5 shadow-[var(--shadow-overlay)] backdrop-blur-xl"
@@ -58,11 +62,13 @@ export function BoardSwitcher({ board, title, departments, attentionCount }: Boa
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={MENU_CLASS}>
-        <DropdownMenuItem className={ROW_CLASS} data-testid="board-menu-my" onClick={() => go({ kind: "my" })}>
-          My requests
-          {countOf(counts.data?.my)}
+        <DropdownMenuItem className={ROW_CLASS} data-testid="board-menu-home" onClick={() => go({ kind: "home" })}>
+          <LensIcon of={House} />
+          Home
+          {countOf(counts.data?.home)}
         </DropdownMenuItem>
         <DropdownMenuItem className={ROW_CLASS} data-testid="board-menu-attention" onClick={() => go({ kind: "attention" })}>
+          <LensIcon of={Bell} />
           Attention
           {attentionCount > 0 && (
             <span className="ml-auto rounded-full bg-[var(--accent-fill)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--accent)]">
@@ -70,10 +76,15 @@ export function BoardSwitcher({ board, title, departments, attentionCount }: Boa
             </span>
           )}
         </DropdownMenuItem>
+        <DropdownMenuItem className={ROW_CLASS} data-testid="board-menu-everything" onClick={() => go({ kind: "everything" })}>
+          <LensIcon of={Globe} />
+          Everything
+          {countOf(counts.data?.everything)}
+        </DropdownMenuItem>
         {(departments?.length ?? 0) > 0 && (
           <>
             <DropdownMenuLabel className="px-2.5 pb-1 pt-2.5 text-[length:var(--text-caption1)] font-semibold uppercase tracking-[0.06em] text-[var(--text-tertiary)]">
-              Boards
+              Departments
             </DropdownMenuLabel>
             {departments!.map((dept) => (
               <DropdownMenuItem
@@ -94,12 +105,15 @@ export function BoardSwitcher({ board, title, departments, attentionCount }: Boa
             ))}
           </>
         )}
-        <DropdownMenuItem className={ROW_CLASS} data-testid="board-menu-everything" onClick={() => go({ kind: "everything" })}>
-          Everything
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+/** The lens rows' leading glyph. Departments use their mono prefix instead —
+ *  a place has a name in the ID scheme, a lens does not. */
+function LensIcon({ of: Icon }: { of: typeof House }) {
+  return <Icon size={15} strokeWidth={2} aria-hidden className="flex-none text-[var(--text-tertiary)]" />
 }
 
 export function departmentTitle(slug: string): string {

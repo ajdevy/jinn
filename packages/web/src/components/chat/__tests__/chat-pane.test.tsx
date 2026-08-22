@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type React from 'react'
 import { ChatPane } from '../chat-pane'
 import type { GatewayEvent } from '@jinn/gateway-events'
+import { CHAT_SESSION_DND_MIME } from '@/routes/chat/chat-session-dnd'
 
 let featuresState = {
   notesEnabled: false,
@@ -59,19 +60,22 @@ const liveSessionDefaults: LiveSessionMockState = {
 let liveSessionState: LiveSessionMockState
 let composerOnSend: ((message: string) => Promise<boolean>) | null
 let messagesOnRetry: ((message: string) => void) | null
+let composerActive: boolean | undefined
 
 vi.mock('@/hooks/use-live-session', () => ({
   useLiveSession: () => liveSessionState,
 }))
 
 vi.mock('@/components/chat/chat-input', () => ({
-  ChatInput: ({ selectorSlot, statusSlot, onSend }: {
+  ChatInput: ({ selectorSlot, statusSlot, onSend, isActive }: {
     selectorSlot?: React.ReactNode
     statusSlot?: React.ReactNode
     onSend: (message: string) => Promise<boolean>
+    isActive?: boolean
   }) => {
     composerOnSend = onSend
-    return <div data-testid="chat-input">{selectorSlot}{statusSlot}</div>
+    composerActive = isActive
+    return <div data-testid="chat-input" data-active={String(isActive)}>{selectorSlot}{statusSlot}</div>
   },
 }))
 
@@ -141,7 +145,38 @@ describe('ChatPane', () => {
     apiMocks.sendMessage.mockResolvedValue({})
     composerOnSend = null
     messagesOnRetry = null
+    composerActive = undefined
     localStorage.clear()
+  })
+
+  it('makes focus state real at the pane and composer boundaries', () => {
+    const onFocus = vi.fn()
+    const { container } = renderPane({ isActive: false, onFocus })
+
+    expect(container.querySelector('[data-chat-pane-active="false"]')).toBeTruthy()
+    expect(composerActive).toBe(false)
+    fireEvent.focusIn(screen.getByTestId('chat-input'))
+    expect(onFocus).toHaveBeenCalledOnce()
+  })
+
+  it('lets session drags bubble to the grid while retaining file drops', () => {
+    const outerDrop = vi.fn()
+    const { container } = render(
+      <div onDrop={outerDrop}>
+        <ChatPane sessionId="s1" isActive onFocus={() => {}} subscribe={() => () => {}} events={[]} />
+      </div>,
+    )
+    const pane = container.querySelector<HTMLElement>('[data-chat-pane-session="s1"]')!
+    fireEvent.drop(pane, {
+      dataTransfer: { types: [CHAT_SESSION_DND_MIME], files: [], getData: () => 's2' },
+    })
+    expect(outerDrop).toHaveBeenCalledOnce()
+    outerDrop.mockClear()
+
+    fireEvent.drop(pane, {
+      dataTransfer: { types: ['Files'], files: [new File(['x'], 'x.txt')] },
+    })
+    expect(outerDrop).not.toHaveBeenCalled()
   })
 
   it('returns failed delivery while retaining the optimistic bubble and retry path', async () => {

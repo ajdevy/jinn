@@ -30,10 +30,10 @@ describe("describing the operator's location", () => {
   })
 
   it("keeps the home board's implied status filter, which is what the board shows", () => {
-    expect(describeLocation("/todos/b/my", "")).toEqual({
+    expect(describeLocation("/todos/b/home", "")).toEqual({
       kind: "todos",
-      path: "/todos/b/my",
-      params: { board: "my" },
+      path: "/todos/b/home",
+      params: { board: "home" },
       filters: { status: "open" },
       selection: null,
     })
