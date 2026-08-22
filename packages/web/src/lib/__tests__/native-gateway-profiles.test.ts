@@ -261,6 +261,36 @@ describe("native gateway profiles", () => {
     expect(reloaded.snapshot()).toMatchObject({ status: "ready", activeReachable: true, failedProfileId: undefined })
   })
 
+  it("retries the active gateway, not the profile a failed switch named", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    await profiles.select(beta.id)
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+    await expect(profiles.select(alpha.id)).rejects.toThrow("connection refused")
+
+    await profiles.retry()
+
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: beta.origin } }))
+    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
+  })
+
+  it("does not strand a retry when the profile a failed switch named is removed", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+    await expect(profiles.select(beta.id)).rejects.toThrow("connection refused")
+
+    await profiles.remove(beta.id)
+
+    expect(profiles.snapshot()).toMatchObject({ status: "ready", failedProfileId: undefined, error: undefined })
+    await expect(profiles.retry()).resolves.toBeUndefined()
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: alpha.origin } }))
+  })
+
   it("cannot activate a profile removed while its selection check is in flight", async () => {
     const { bridge, requests } = bridgeFixture()
     const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })

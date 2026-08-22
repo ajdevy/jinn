@@ -24,6 +24,7 @@ export interface NativeGatewayProfilesSnapshot {
   status: NativeGatewayStatus
   /** The profile a switch is reaching for. Distinct from the one it failed on. */
   switchingProfileId?: string
+  /** The profile the last failure was about, whichever kind. Whether the ACTIVE gateway answers is `activeReachable`, never this. */
   failedProfileId?: string
   error?: string
   /** Whether the ACTIVE gateway has answered since it became active. Storage remembers which gateway was open last, never that it still runs. */
@@ -176,20 +177,28 @@ export class NativeGatewayProfiles {
       if (fallback) await this.select(fallback.id)
       else await this.#commit(undefined)
     }
-    this.#update({ ...this.#snapshot, profiles: remaining })
+    const failed = this.#snapshot.failedProfileId === id ? undefined : this.#snapshot.failedProfileId
+    this.#update({
+      ...this.#snapshot,
+      profiles: remaining,
+      failedProfileId: failed,
+      error: failed ? this.#snapshot.error : undefined,
+      status: !failed && this.#snapshot.activeReachable ? "ready" : this.#snapshot.status,
+    })
     await this.options.bridge.forget({ target: { origin: profile.origin } })
   }
 
+  /**
+   * Re-check the ACTIVE gateway. Retry is offered on the active row, so it must
+   * reach that origin even once a later failed switch is the failure on record;
+   * a failed switch is retried by selecting that profile again.
+   */
   async retry(): Promise<void> {
-    const id = this.#snapshot.failedProfileId ?? this.#snapshot.activeId
+    const id = this.#snapshot.activeId
     if (!id) return
-    if (id === this.#snapshot.activeId) {
-      const profile = this.#profile(id)
-      await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
-      this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
-      return
-    }
-    await this.select(id)
+    const profile = this.#profile(id)
+    await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
+    this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
   }
 
   #createTransport(): GatewayTransport {

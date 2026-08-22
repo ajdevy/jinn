@@ -76,6 +76,22 @@ describe("NativePairingScreen", () => {
     expect(select).not.toHaveBeenCalled()
   })
 
+  it("keeps naming the unreachable active gateway after a switch to another one fails", () => {
+    snapshot = {
+      profiles: [alpha, beta],
+      activeId: alpha.id,
+      generation: 1,
+      status: "unreachable",
+      // The later failed switch overwrote the record of alpha's own failure.
+      failedProfileId: beta.id,
+      error: "connection refused",
+      activeReachable: false,
+    }
+    render(<NativePairingScreen />)
+
+    expect(screen.getByRole("heading", { name: "Cannot reach Alpha" })).toBeTruthy()
+  })
+
   it("waits on the connecting state while the remembered gateway is being checked", () => {
     snapshot = { profiles: [alpha], activeId: alpha.id, generation: 0, status: "checking", activeReachable: false }
     render(<NativePairingScreen />)
