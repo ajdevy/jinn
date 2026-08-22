@@ -10,6 +10,8 @@ import { FOLD_LANDING_PAD_MS, FOLD_MS } from '../fold-motion'
  * is not the only one: the pointer can rest on a region the transcript has
  * since scrolled past, and focus can be inside it. Either one means the reader
  * is still using it, and the next ask is not a reason to close it under them.
+ * But a decline is "not now", not "never": the ask stands, and the region
+ * answers it as soon as the reader's attention moves on.
  */
 
 const SUMMARY = { durationMs: 5_000, tools: 1, teammates: 0, updates: 0 }
@@ -100,6 +102,34 @@ describe('auto-collapse declines while the reader is on the region', () => {
     fireEvent.mouseOut(fold.wrap())
 
     fold.nextAsk()
+
+    expect(fold.control().getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('honours the standing ask once the pointer leaves afterwards', () => {
+    // The ask arrives while the reader is on the region, so it is declined —
+    // and there is no second edge coming. Leaving has to be the edge, or the
+    // region never files itself away for the rest of the session.
+    const fold = mount()
+    fireEvent.mouseOver(fold.wrap())
+    fold.nextAsk()
+    expect(fold.control().getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.mouseOut(fold.wrap())
+
+    expect(fold.control().getAttribute('aria-expanded')).toBe('false')
+    expect(fold.wrap().hasAttribute('data-folded')).toBe(true)
+  })
+
+  it('honours the standing ask once focus leaves afterwards', () => {
+    const fold = mount()
+    const inside = screen.getByRole('button', { name: 'evidence' })
+    act(() => { inside.focus() })
+    fold.nextAsk()
+    expect(fold.control().getAttribute('aria-expanded')).toBe('true')
+
+    act(() => { inside.blur() })
+    fireEvent.blur(inside, { relatedTarget: null })
 
     expect(fold.control().getAttribute('aria-expanded')).toBe('false')
   })

@@ -95,10 +95,10 @@ describe('fold region toggle', () => {
     { start: 'expand not yet framed', arrive: (fold: Fold) => { fold.click() }, expected: 'closed' },
   ]
 
-  it('from mid-auto-collapse, one click rests it open', () => {
-    // The automatic fold plays the same animation as the manual one, so a click
-    // arriving during it has to be answered the same way. Reading the region as
-    // open here aims the click at the collapse that is already running.
+  it('a region that filed itself away opens again on one click', () => {
+    // The automatic fold is instant and happens off-screen, so by the time the
+    // reader scrolls back to it, it is already closed. One click has to reopen
+    // it, the same as any other closed region.
     const scroller = { top: 64, bottom: 864 }
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('chat-messages-scroll')) return asRect(scroller.top, 800)
@@ -122,7 +122,6 @@ describe('fold region toggle', () => {
         <FoldRegion answered liveCompletion collapseRequested summary={SUMMARY}><div>evidence</div></FoldRegion>
       </div>,
     )
-    // The fold is animating and its landing timer has not run.
     frames.flush()
 
     fold.click()

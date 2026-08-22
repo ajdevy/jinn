@@ -11,7 +11,7 @@ import { parseAgentRelay, AgentRelay } from './agent-relay'
 import { DispatchRow } from './dispatch-row'
 import { BURST_WINDOW_MS, CallbackBurst, type BurstEntry } from './callback-burst'
 import { FoldRegion } from './fold-region'
-import { turnIdByIndex } from './turn-ids'
+import { openTurnIds, turnIdByIndex } from './turn-ids'
 import type { FoldSummaryData } from './fold-summary'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
@@ -473,7 +473,7 @@ export function buildFoldSummary(run: MessageItem[], messages: Message[], answer
 
 export type RenderGroup =
   | { kind: 'plain'; item: MessageItem }
-  | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number; animated: boolean }
+  | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number }
 
 /** A later ask exists, so this answered region is a candidate to file itself
  *  away. Whether it actually may is geometry the region owns — see
@@ -564,20 +564,16 @@ export function partitionForFold(
       collapseRequested: hasLaterAsk(messages, answer),
       summary: buildFoldSummary(run, messages, answer),
       answerIdx: answer,
-      animated: true,
     })
   }
   // When an exempt row splits one turn into several regions they all answer at
-  // the same instant — per-region scroll anchoring would double-compensate the
-  // shared scroller. Only the region nearest the answer owns the settled
-  // duration and plays the anchored choreography; earlier siblings fold with
-  // the instant path.
+  // the same instant, so only the region nearest the answer states the settled
+  // duration; the earlier siblings drop it rather than repeat it.
   const seenAnswers = new Set<number>()
   for (let g = groups.length - 1; g >= 0; g--) {
     const group = groups[g]
     if (group.kind !== 'fold' || group.answerIdx === -1) continue
     if (seenAnswers.has(group.answerIdx)) {
-      group.animated = false
       group.summary = { ...group.summary, durationMs: null }
     }
     seenAnswers.add(group.answerIdx)
@@ -687,21 +683,22 @@ export interface RowMeta {
   /** The user message a retry on this row would resend. */
   prevUserText: string
   /** This row closes its engine segment of a FINISHED turn: it is the answer
-   *  the reader acts on. While the turn is still running there is no such row —
-   *  the newest prose is interim until the turn says otherwise. */
+   *  the reader acts on. A turn still running — or interrupted with a half
+   *  written row in it — has no such row; its newest prose is still interim. */
   isFinalAnswer: boolean
 }
 
 export function buildRowMeta(messages: Message[], pendingTurnId: string | null): RowMeta[] {
   const answers = finalAnswerIndices(messages)
   const turnIds = turnIdByIndex(messages)
+  const openTurns = openTurnIds(messages, turnIds)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
       showTimestamp: shouldShowTimestamp(messages, i),
       prevRole: i > 0 ? messages[i - 1].role : null,
       prevUserText: lastUserText,
-      isFinalAnswer: answers[i] === i && turnIds[i] !== pendingTurnId,
+      isFinalAnswer: answers[i] === i && turnIds[i] !== pendingTurnId && !openTurns.has(turnIds[i]),
     }
     if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
     return meta
@@ -1211,7 +1208,6 @@ export function ChatMessages({
         liveCompletion={group.liveCompletion}
         collapseRequested={group.collapseRequested}
         summary={group.summary}
-        animated={group.animated}
         windowed={virtualized}
       >
         {group.items.map(renderItem)}

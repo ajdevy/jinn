@@ -93,6 +93,21 @@ describe('assistant action row placement', () => {
     expect(actions[0].closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('a2')
   })
 
+  it('leaves an interrupted turn without an action row, half-written row and all', () => {
+    // The stream stopped mid-row. `partial` rows are not answers, so the last
+    // whole row looks like one — but the turn never closed, and offering copy
+    // and retry on prose with a severed stream under it is offering the wrong
+    // thing.
+    const { container } = renderTranscript([
+      { id: 'pi-u1', role: 'user', content: 'Ship it.', timestamp: T0 },
+      { id: 'pi-a1', role: 'assistant', content: 'Looking into it.', timestamp: T0 + 1_000 },
+      { id: 'pi-a2', role: 'assistant', content: 'Half-finished stream', timestamp: T0 + 2_000, partial: true },
+    ])
+
+    expect(container.textContent).toContain('Half-finished stream')
+    expect(container.querySelectorAll('[data-message-id] .msg-actions')).toHaveLength(0)
+  })
+
   it('keeps the reserved band on the streaming row, which is the presumptive answer', () => {
     const { container } = renderTranscript([MULTI_PROSE_TURN[0]], { loading: true, streamingText: 'Ship' })
 

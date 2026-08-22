@@ -11,3 +11,12 @@ export function turnIdByIndex(messages: Message[]): string[] {
     return turnId
   })
 }
+
+/**
+ * The turns that still hold a half-written row. A turn whose stream stopped
+ * mid-row never produced its answer — the last whole row it managed is still
+ * interim prose, whether the stream is live or was interrupted.
+ */
+export function openTurnIds(messages: Message[], turnIds: string[]): Set<string> {
+  return new Set(turnIds.filter((_, i) => messages[i].partial))
+}
