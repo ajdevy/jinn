@@ -8,6 +8,20 @@ export interface GridDropTargetContext {
   pickerPaneKey?: string | null
 }
 
+export function gridPaneKeysForSessions(
+  sessionIds: readonly string[],
+  primaryPaneKey: string,
+  committedSessionId: string | null,
+  pickerPaneKey?: string | null,
+): string[] {
+  const sessionPaneKeys = committedSessionId
+    ? sessionIds.map((sessionId) => sessionId === committedSessionId ? primaryPaneKey : sessionId)
+    : sessionIds.length === 1
+      ? [primaryPaneKey]
+      : [...sessionIds, primaryPaneKey]
+  return pickerPaneKey ? [...sessionPaneKeys, pickerPaneKey] : sessionPaneKeys
+}
+
 function sessionForPaneKey(paneKey: string, context: GridDropTargetContext): string | null {
   if (paneKey === context.pickerPaneKey) return null
   if (paneKey !== context.primaryPaneKey) {

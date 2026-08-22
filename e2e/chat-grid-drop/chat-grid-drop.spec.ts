@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { cellRectForIndex } from '../../packages/web/src/routes/chat/grid-cells'
 
 type Rect = { left: number; top: number; width: number; height: number }
+type DropRegion = 'left' | 'right' | 'top' | 'bottom' | 'between' | 'end'
 
 const home = process.env.JINN_VERIFY_HOME
 const baseUrl = process.env.JINN_VERIFY_BASE_URL
@@ -44,6 +45,7 @@ async function seededSessionIds(page: Page): Promise<string[]> {
     '#3 - Design pass',
     '#4 - Release notes',
     '#5 - Incident review',
+    '#6 - Accessibility pass',
   ].map((title) => {
     const entry = sessions.find((session) => typeof session.title === 'string' && session.title.includes(title))
     if (typeof entry?.id !== 'string' || !entry.id) throw new Error(`missing seeded session: ${title}`)
@@ -52,24 +54,56 @@ async function seededSessionIds(page: Page): Promise<string[]> {
 }
 
 async function dragSessionToRightQuarter(page: Page, sessionId: string, targetPaneId: string) {
+  return dragSession(page, sessionId, targetPaneId, 'right')
+}
+
+async function dragSession(
+  page: Page,
+  sessionId: string,
+  targetPaneId: string,
+  region: DropRegion,
+  expectedIndex?: number,
+) {
   const source = page.locator(`[data-chat-session-row="${sessionId}"]`).first()
   const target = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${targetPaneId}"])`)
+  const grid = page.getByTestId('chat-grid')
   await expect(source).toBeVisible()
   await expect(target).toBeVisible()
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
+  const gridBox = await grid.boundingBox()
   expect(sourceBox).not.toBeNull()
   expect(targetBox).not.toBeNull()
+  expect(gridBox).not.toBeNull()
 
   const from = { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 }
-  const to = { x: targetBox!.x + targetBox!.width * 0.875, y: targetBox!.y + targetBox!.height / 2 }
+  const fractions: Record<Exclude<DropRegion, 'between' | 'end'>, { x: number; y: number }> = {
+    left: { x: 0.125, y: 0.5 },
+    right: { x: 0.875, y: 0.5 },
+    top: { x: 0.5, y: 0.125 },
+    bottom: { x: 0.5, y: 0.875 },
+  }
+  const to = region === 'end'
+    ? { x: gridBox!.x + gridBox!.width * 0.75, y: gridBox!.y + gridBox!.height * 0.75 }
+    : region === 'between'
+      ? { x: targetBox!.x + targetBox!.width * 0.875, y: targetBox!.y + targetBox!.height / 2 }
+      : {
+        x: targetBox!.x + targetBox!.width * fractions[region].x,
+        y: targetBox!.y + targetBox!.height * fractions[region].y,
+      }
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 16 })
+  await page.waitForTimeout(100)
+  await page.mouse.move(to.x + 0.5, to.y + 0.5, { steps: 2 })
 
   const overlay = page.getByTestId('chat-grid-drop-zone')
   await expect(overlay).toBeVisible()
-  await expect(overlay).toHaveAttribute('data-drop-region', 'right')
+  await page.waitForTimeout(300)
+  await expect(overlay).toHaveAttribute('data-drop-region', region === 'between' ? 'right' : region)
+  if (expectedIndex !== undefined) {
+    await expect(overlay).toHaveAttribute('data-drop-index', String(expectedIndex))
+  }
   const previewBox = await overlay.boundingBox()
   expect(previewBox).not.toBeNull()
 
@@ -81,6 +115,31 @@ async function dragSessionToRightQuarter(page: Page, sessionId: string, targetPa
   const resultBox = await droppedPane.boundingBox()
   expect(resultBox).not.toBeNull()
   return { preview: rect(previewBox!), result: rect(resultBox!) }
+}
+
+async function setWorkingSet(page: Page, sessionIds: string[]): Promise<void> {
+  await page.evaluate(({ ids }) => {
+    localStorage.setItem('jinn-chat-working-set', JSON.stringify({
+      version: 1,
+      sessionIds: ids,
+      focusedId: ids[0],
+      focusHistory: ids,
+    }))
+  }, { ids: sessionIds })
+  await page.goto(`/?session=${sessionIds[0]}`, { waitUntil: 'networkidle' })
+  const panes = page.locator('[data-chat-grid-pane]')
+  await expect(panes).toHaveCount(sessionIds.length)
+  for (let index = 0; index < sessionIds.length; index += 1) {
+    await expect(panes.nth(index)).toHaveAttribute('data-grid-motion', 'idle')
+  }
+  await page.waitForTimeout(100)
+}
+
+function expectGeometryMatch(preview: Rect, result: Rect, label: string): void {
+  const delta = rectDelta(preview, result)
+  for (const [axis, value] of Object.entries(delta)) {
+    expect(Math.abs(value), `${label}; ${axis} delta ${value}`).toBeLessThanOrEqual(1)
+  }
 }
 
 test('real pointer preview matches the 2-to-3 pane right-region result', async ({ browser }) => {
@@ -172,6 +231,54 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
           expect(Math.abs(value), `${count} panes, index ${index}, ${axis}`).toBeLessThanOrEqual(1)
         }
       }
+    }
+    await context.close()
+  })
+
+  test(`preview simulation matches pointer drops at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
+    test.setTimeout(180_000)
+    const context = await browser.newContext({
+      viewport,
+      screen: viewport,
+      colorScheme: 'light',
+      extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
+    })
+    await context.addInitScript(() => {
+      localStorage.setItem('jinn-theme', 'light')
+      localStorage.setItem('jinn-onboarded', 'true')
+      localStorage.setItem('jinn-chat-list-open', 'true')
+    })
+    const page = await context.newPage()
+    await page.goto('/', { waitUntil: 'networkidle' })
+    const ids = await seededSessionIds(page)
+    const cases: Array<{ count: number; region: DropRegion; target: number }> = [
+      { count: 2, region: 'left', target: 0 },
+      { count: 2, region: 'right', target: 1 },
+      { count: 2, region: 'between', target: 0 },
+      { count: 3, region: 'top', target: 0 },
+      { count: 3, region: 'bottom', target: 0 },
+      { count: 3, region: 'end', target: 2 },
+      { count: 4, region: 'right', target: 1 },
+    ]
+    if (viewport.width >= 1920) cases.push({ count: 5, region: 'left', target: 0 })
+
+    for (const scenario of cases) {
+      console.log(`PLA-174 matrix: ${viewport.width}x${viewport.height} ${scenario.count} panes ${scenario.region}`)
+      await setWorkingSet(page, ids.slice(0, scenario.count))
+      const geometry = await dragSession(
+        page,
+        ids[scenario.count],
+        ids[scenario.target],
+        scenario.region,
+        scenario.region === 'end'
+          ? scenario.count
+          : scenario.target + (scenario.region === 'right' || scenario.region === 'bottom' || scenario.region === 'between' ? 1 : 0),
+      )
+      expectGeometryMatch(
+        geometry.preview,
+        geometry.result,
+        `${scenario.count} panes ${scenario.region} at ${viewport.width}x${viewport.height}`,
+      )
     }
     await context.close()
   })

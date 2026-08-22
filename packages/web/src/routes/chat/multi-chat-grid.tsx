@@ -5,6 +5,7 @@ import type { CommsPeekData } from '@/components/chat/thread-peek'
 import type { DelegatedActivity } from '@/lib/api'
 import type { ViewMode } from '@/lib/view-mode'
 import { ChatGrid } from './chat-grid'
+import { gridPaneKeysForSessions } from './grid-drop-target'
 import { SessionPicker } from './session-picker'
 import type { SessionMeta } from './use-chat-pane-state'
 
@@ -148,15 +149,15 @@ function GridChatPane({
 
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
-  const sessionGridIds = props.primary.sessionId
-    ? props.sessionIds.map((sessionId) => sessionId === props.primary.sessionId ? primaryKey : sessionId)
-    : props.sessionIds.length === 1
-      ? [primaryKey]
-      : [...props.sessionIds, primaryKey]
   const mobilePickerKey = props.viewport.mobile ? props.pickerPane?.paneKey : undefined
   const gridIds = mobilePickerKey
     ? [mobilePickerKey]
-    : props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
+    : gridPaneKeysForSessions(
+      props.sessionIds,
+      primaryKey,
+      props.primary.sessionId,
+      props.pickerPane?.paneKey,
+    )
   const focusedGridId = mobilePickerKey ?? (
     !props.primary.sessionId || props.focusedId === props.primary.sessionId
       ? primaryKey

@@ -12,6 +12,7 @@ const now = new Date().toISOString()
 const rows = [
   ['sandbox:4', '#4 - Release notes'],
   ['sandbox:5', '#5 - Incident review'],
+  ['sandbox:6', '#6 - Accessibility pass'],
 ]
 const insert = db.prepare(`
   INSERT OR IGNORE INTO sessions (

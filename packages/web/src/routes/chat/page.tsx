@@ -311,7 +311,7 @@ function ChatPage() {
     handleSelect(sessionId, { navigateMobile: false })
   }, [handleSelect])
 
-  const gridAdd = useChatGridAdd(workingSet.add, workingSet.insert, selectedId, handleSelect)
+  const gridAdd = useChatGridAdd(workingSet.add, workingSet.insert, selectedId, handleSelect, { workingSet: workingSet.state, primaryPaneKey: paneKey, committedSessionId: committedId, pickerPaneKey: gridPicker.paneKey, viewport })
   const handleRemovePane = useCallback((sessionId: string) => {
     const next = removeWorkingSetSession(workingSet.state, sessionId)
     workingSet.remove(sessionId)

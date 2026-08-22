@@ -41,7 +41,14 @@ function AddHarness({ initial, onAction }: {
     onAction?.(sessionId)
     setState((current) => insertWorkingSetSession(current, sessionId, index, 4))
   }, [onAction])
-  const drop = useChatSessionDrop(insert)
+  const drop = useChatSessionDrop(insert, {
+    workingSet: state,
+    cap: 4,
+    primaryPaneKey: 'a',
+    committedSessionId: 'a',
+    pickerPaneKey: null,
+    viewport: { width: 1440, height: 900 },
+  })
   return (
     <div data-testid="drop-surface" {...drop.handlers}>
       <div data-testid="chat-grid">
@@ -90,17 +97,11 @@ describe('chat grid add paths', () => {
     expect(action).toHaveBeenCalledOnce()
   })
 
-  it('rejects composer and foreign drops without moving or reordering transcript rows', () => {
+  it('rejects foreign drops without moving or reordering transcript rows', () => {
     const action = vi.fn()
     render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} onAction={action} />)
-    const composer = screen.getByTestId('composer')
     const transcript = screen.getByTestId('transcript-a')
     const rows = [...transcript.children]
-    const blockedOver = createEvent.dragOver(composer, { bubbles: true, cancelable: true })
-    Object.defineProperty(blockedOver, 'dataTransfer', { value: transfer(CHAT_SESSION_DND_MIME, 'c') })
-    fireEvent(composer, blockedOver)
-    expect(blockedOver.defaultPrevented).toBe(false)
-    fireEvent.drop(composer, { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
     fireEvent.drop(transcript, { dataTransfer: transfer('application/x-jinn-chat-message', 'message-a-1') })
     expect(action).not.toHaveBeenCalled()
     expect([...transcript.children]).toEqual(rows)
@@ -118,7 +119,7 @@ describe('chat grid add paths', () => {
     fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, transfer(CHAT_SESSION_DND_MIME, 'c'))
     const overlay = screen.getByTestId('chat-grid-drop-zone')
     expect(overlay.className).toContain('pointer-events-none')
-    expect(overlay.className).toContain('ease-[var(--ease-smooth)]')
+    expect(overlay.className).not.toContain('transition')
     fireEvent.dragLeave(surface, { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
     expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
   })

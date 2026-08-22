@@ -64,7 +64,7 @@ import {
   SessionRowMenu,
   workflowRunPath,
 } from "@/components/chat/session-row-menu"
-import { writeChatSessionDrag } from "@/routes/chat/chat-session-dnd"
+import { clearChatSessionDrag, writeChatSessionDrag } from "@/routes/chat/chat-session-dnd"
 import type { ChatSidebarProps } from "@/components/chat/chat-sidebar-types"
 
 export type { SidebarOrder } from "@/components/chat/chat-sidebar-types"
@@ -280,7 +280,7 @@ const SessionRow = React.memo(function SessionRow({
         <RowTag
           draggable={!isRenaming}
           data-chat-session-row={session.id}
-          onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
+          onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)} onDragEnd={clearChatSessionDrag}
           {...(!isRenaming && { onClick: () => {
             onSelect(session.id)
             onEmployeeSessionsAvailable?.(parentSessions ?? [session])
@@ -474,7 +474,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           <button
             draggable
             data-chat-session-row={session.id}
-            onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
+            onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)} onDragEnd={clearChatSessionDrag}
             onClick={() => {
               onSelect(session.id)
               onEmployeeSessionsAvailable?.([session])
