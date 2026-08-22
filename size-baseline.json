@@ -88,14 +88,14 @@
       ]
     },
     "packages/jinn/src/connectors/discord/index.ts": {
-      "lines": 359,
+      "lines": 351,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/jinn/src/connectors/slack/index.ts": {
-      "lines": 517,
+      "lines": 512,
       "exempt": [
         "complexity",
         "max-depth",
@@ -114,7 +114,7 @@
       ]
     },
     "packages/jinn/src/connectors/whatsapp/index.ts": {
-      "lines": 332,
+      "lines": 329,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -344,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5742,
+      "lines": 5676,
       "exempt": [
         "complexity",
         "max-depth",
@@ -442,7 +442,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1366,
+      "lines": 1331,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -718,7 +718,7 @@
       ]
     },
     "packages/jinn/src/sessions/manager.ts": {
-      "lines": 568,
+      "lines": 530,
       "exempt": [
         "complexity",
         "max-lines-per-function",
@@ -739,7 +739,6 @@
       ]
     },
     "packages/jinn/src/sessions/rate-limit-handler.ts": {
-      "lines": 400,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1150,7 +1149,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1071,
+      "lines": 1046,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1158,7 +1157,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1338,
+      "lines": 1334,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1166,7 +1165,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 598,
+      "lines": 589,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1561,7 +1560,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1068,
+      "lines": 1064,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1668,7 +1667,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1576,
+      "lines": 1568,
       "exempt": [
         "complexity",
         "max-lines-per-function"

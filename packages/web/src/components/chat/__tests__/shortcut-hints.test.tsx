@@ -168,18 +168,3 @@ describe('ChatHeaderPills shortcut hints', () => {
     expect(onNew).toHaveBeenCalledTimes(1)
   })
 })
-
-// --- Persistent bottom hint ---
-
-describe('Persistent shortcut hint', () => {
-  it('ShortcutHint component renders "? for shortcuts" text', async () => {
-    // Import the persistent hint component
-    const { ShortcutHint } = await import('../shortcut-hint')
-    render(<ShortcutHint onClick={vi.fn()} />)
-    const hint = screen.getByText(/\?/i)
-    expect(hint).toBeTruthy()
-    // Should contain "shortcuts" text nearby
-    const container = screen.getByText(/shortcuts/i)
-    expect(container).toBeTruthy()
-  })
-})

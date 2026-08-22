@@ -64,6 +64,9 @@ export function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Re
     limit: page.limit,
     offset: page.offset,
     nextOffset: page.nextOffset,
+    // Only a text query produces one, and its absence is how a caller tells a
+    // filter-only page from a search that matched nothing on every row.
+    ...(page.matches ? { matches: page.matches } : {}),
   };
 }
 

@@ -29,10 +29,12 @@ export function startPluginRuntime(
       if (!target) return { ok: false, error: `no connector "${connector}" is configured` };
       // The same redaction `POST /api/connectors/:name/send` applies, so a
       // plugin cannot use the in-process path to leak what the route would mask.
-      await target.sendMessage(
-        { channel: message.channel, ...(message.thread ? { thread: message.thread } : {}) },
-        redactText(message.text),
-      );
+      try {
+        const to = { channel: message.channel, ...(message.thread ? { thread: message.thread } : {}) };
+        await target.sendMessage(to, redactText(message.text));
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
       return { ok: true };
     },
   });

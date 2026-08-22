@@ -9,6 +9,7 @@ import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
 import { KEPT_EXISTS_SQL } from './kept.js';
+import { searchWorkItemIds, workItemMatchReasons, type WorkItemMatch } from './search.js';
 import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
 
@@ -185,7 +186,7 @@ export interface ListWorkItemsFilter {
   /** Items carrying this label, matched by exact label id (`lbl_…`) or stored
    *  (normalized kebab-case) name — callers normalize display names first. */
   label?: string;
-  /** Escaped-LIKE substring over title + body (%/_/backslash are literal). */
+  /** Free text, matched by the FTS5 indexes over title, body and comments. Relevance-ordered, exact Todo id first. */
   text?: string;
   /** Inclusive ISO timestamp bounds over `updated_at`. */
   since?: string;
@@ -209,6 +210,9 @@ export interface WorkItemPage {
   limit: number;
   offset: number;
   nextOffset: number | null;
+  /** Why each returned Todo matched, best reason first, keyed by Todo id.
+   *  Present only when the query carried `text`. */
+  matches?: Record<string, WorkItemMatch[]>;
 }
 
 function parseVerifyPolicy(raw: unknown): VerifyPolicy | null {
@@ -559,24 +563,12 @@ const WORK_ITEM_STATUS_VALUES: readonly WorkItemStatus[] = [
 const EQUALITY_FILTERS = [['status', 'status'], ['department', 'department'], ['assignee', 'assignee'],
   ['source', 'source'], ['createdBy', 'created_by']] as const;
 
-function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unknown[] } {
+function workItemWhere(filter: ListWorkItemsFilter, textIds?: readonly string[]): { sql: string; values: unknown[] } {
   const conditions: string[] = [];
   const values: unknown[] = [];
-  if (filter.text) {
-    const like = `%${filter.text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    let exactTodoId: string | null = null;
-    try {
-      exactTodoId = parseTodoId(filter.text);
-    } catch {
-      // Non-ID text remains an ordinary title/body query.
-    }
-    if (exactTodoId) {
-      conditions.push("(id = ? OR title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')");
-      values.push(exactTodoId, like, like);
-    } else {
-      conditions.push("(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')");
-      values.push(like, like);
-    }
+  if (textIds) {
+    conditions.push('work_items.id IN (SELECT value FROM json_each(?))');
+    values.push(JSON.stringify(textIds));
   }
   for (const [key, column] of EQUALITY_FILTERS) {
     const value = filter[key];
@@ -629,16 +621,20 @@ function workItemWhere(filter: ListWorkItemsFilter): { sql: string; values: unkn
  * masquerade as the full ledger. */
 export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
   const db = initDb();
-  const { sql: where, values } = workItemWhere(filter);
+  const textIds = filter.text ? searchWorkItemIds(db, filter.text) : null;
+  const { sql: where, values } = workItemWhere(filter, textIds ?? undefined);
   const limit = typeof filter.limit === 'number' && Number.isFinite(filter.limit)
     ? Math.max(0, Math.floor(filter.limit))
     : 20;
   const offset = typeof filter.offset === 'number' && Number.isFinite(filter.offset)
     ? Math.max(0, Math.floor(filter.offset))
     : 0;
+  // Relevance leads only when text was given; otherwise the order is byte-identical to before, and it still breaks relevance ties.
+  const relevance = textIds ? '(SELECT key FROM json_each(?) WHERE value = work_items.id) ASC, ' : '';
+  const orderValues = textIds ? [JSON.stringify(textIds)] : [];
   const rows = db
-    .prepare(`SELECT * FROM work_items ${where} ORDER BY (rank IS NULL) ASC, rank ASC, updated_at DESC, created_at DESC, id ASC LIMIT ? OFFSET ?`)
-    .all(...values, limit, offset) as Record<string, unknown>[];
+    .prepare(`SELECT * FROM work_items ${where} ORDER BY ${relevance}(rank IS NULL) ASC, rank ASC, updated_at DESC, created_at DESC, id ASC LIMIT ? OFFSET ?`)
+    .all(...values, ...orderValues, limit, offset) as Record<string, unknown>[];
   const counts = db
     .prepare(`SELECT status, COUNT(*) AS total FROM work_items ${where} GROUP BY status`)
     .all(...values) as Array<{ status: WorkItemStatus; total: number }>;
@@ -647,7 +643,7 @@ export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
   const total = counts.reduce((sum, count) => sum + count.total, 0);
   const workItems = hydrateApprovals(rows.map(rowToWorkItem));
   const consumed = offset + workItems.length;
-  return {
+  const page: WorkItemPage = {
     workItems,
     total,
     totals,
@@ -655,6 +651,10 @@ export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
     offset,
     nextOffset: workItems.length > 0 && consumed < total ? consumed : null,
   };
+  // Reasons are asked for the page, not for the whole match set: `snippet()` is
+  // the expensive half, and only the rows actually returned need one.
+  if (filter.text) page.matches = workItemMatchReasons(db, filter.text, workItems.map((item) => item.id));
+  return page;
 }
 
 /** List work items, recently-updated first, optionally filtered. Compatibility
@@ -969,7 +969,7 @@ export function getWorkItemSpend(id: string): number {
  * redundant re-link (e.g. a cron re-fire re-linking the same item to the same session)
  * does not churn `work_items.updated_at` or the event log.
  */
-export function linkSession(workItemId: string, sessionId: string): void {
+export function linkSession(workItemId: string, sessionId: string, actor?: string | null): void {
   const db = initDb();
   const todoId = parseTodoId(workItemId);
   const now = new Date().toISOString();
@@ -984,7 +984,7 @@ export function linkSession(workItemId: string, sessionId: string): void {
     if (session.work_item_id === todoId) return;
     db.prepare('UPDATE sessions SET work_item_id = ? WHERE id = ?').run(todoId, sessionId);
     db.prepare('UPDATE work_items SET updated_at = ?, version = version + 1 WHERE id = ?').run(now, todoId);
-    appendWorkItemEvent({ workItemId: todoId, kind: 'session_linked', detail: { sessionId } });
+    appendWorkItemEvent({ workItemId: todoId, kind: 'session_linked', actor, detail: { sessionId } });
   });
   txn();
 }

@@ -134,3 +134,41 @@ describe('resolveDispatch and the bound Todo', () => {
     expect(() => resolveDispatch(run('JIN-1'), employeeNode(), unavailable)).toThrow(/not available/);
   });
 });
+
+/** PLA-202: a model id belongs to exactly one provider, so no engine rewrite may
+ *  leave one on an attempt bound for a different engine. dispatchTarget already
+ *  resolves the stand-in's own default; this holds it there. */
+describe('resolveDispatch and the chain substitution', () => {
+  /** A run whose only attempt on this node died on codex, the way an engine out
+   *  of allowance settles one. */
+  function afterCodexLimit(): WorkflowRunDetail {
+    const detail = run('JIN-1');
+    detail.attempts = [{
+      nodeId: 'work', attempt: 1, error: { code: 'workflow-step-failed', message: 'Codex usage limit reached' },
+      resolvedConfig: { employeeId: 'worker', engine: 'codex', model: 'gpt-5.6-sol' },
+    }] as unknown as WorkflowRunDetail['attempts'];
+    return detail;
+  }
+
+  const chained: DispatchResolutionDeps = { ...deps(), engineFallback: { chainFor: (engine) => (engine === 'codex' ? ['claude'] : []) } };
+
+  it('runs the stand-in on a model it serves, never the model the limited engine was on', () => {
+    const resolved = resolveDispatch(afterCodexLimit(), employeeNode(), chained);
+
+    expect(resolved.engine).toBe('claude');
+    expect(resolved.model).toBe('opus');
+    expect(MODELS.claude.models.map((model) => model.id)).toContain(resolved.model);
+  });
+
+  it('drops a node pin that belongs to the limited engine rather than carrying it over', () => {
+    const config = { model: { source: 'fixed' as const, value: 'gpt-5.5' } };
+    const detail = afterCodexLimit();
+    detail.definition = definition(config);
+
+    const resolved = resolveDispatch(detail, employeeNode(config), chained);
+
+    expect(resolved.engine).toBe('claude');
+    expect(resolved.model).not.toBe('gpt-5.5');
+    expect(MODELS.claude.models.map((model) => model.id)).toContain(resolved.model);
+  });
+});

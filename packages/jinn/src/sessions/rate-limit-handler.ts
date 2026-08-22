@@ -23,130 +23,26 @@
  * or the order of side effects without auditing both call sites.
  */
 
-import type { Employee, Engine, EngineResult, JinnConfig, ResolvedMcpConfig, Session, StreamDelta } from "../shared/types.js";
+import type { RateLimitHandlerOpts, RateLimitOutcome } from "./rate-limit-contract.js";
 import { JINN_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
-import { resolveEffort } from "../shared/effort.js";
-import { effortLevelsForModel, engineAvailable, type EngineName } from "../shared/models.js";
-import { computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, rateLimitEngineLabel } from "../shared/rateLimit.js";
+import { engineAvailable, type EngineName } from "../shared/models.js";
+import {
+  computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, nextUnstatedParkDelayMs,
+  rateLimitEngineLabel, MAX_UNSTATED_PARK_ATTEMPTS,
+} from "../shared/rateLimit.js";
 import { recordClaudeRateLimit } from "../shared/usageAwareness.js";
 import { readEngineHealth, recordEngineUnavailable, resolveHealthyFallbackEngine } from "../shared/engine-health.js";
+import { beginEngineSubstitution } from "./engine-override.js";
 import { resolveEngineRunMcp } from "./engine-run-mcp.js";
-import { getSession, getMessages, updateSessionForAttempt, getEngineSessionRef, nextEngineSessionFields } from "./registry.js";
+import { getSession, getMessages, updateSessionForAttempt, nextEngineSessionFields } from "./registry.js";
 import { runtimeSessionSource } from "./context.js";
 
 const WAIT_CANCEL_POLL_MS = 5000;
 
-/** What detectRateLimit returned for the original turn. */
-export interface RateLimitInfo {
-  /** Unix timestamp (seconds) when the limit is expected to reset, if known. */
-  resetsAt?: number;
-}
-
-/** Outcome categories returned by handleRateLimit so callers can drive transport-side completion. */
-export type RateLimitOutcome =
-  | { kind: "fallback"; result: EngineResult }
-  | { kind: "resumed"; result: EngineResult }
-  | { kind: "timeout" }
-  | { kind: "cancelled" };
-
-export interface RateLimitHandlerHooks {
-  /**
-   * Called when entering the fallback branch (before the substitute engine runs).
-   * Use this to: notify the user we're switching engines (UI message, Discord, etc.).
-   */
-  onFallbackStart?: (info: { resumeAt: Date | null; until: Date }) => void | Promise<void>;
-
-  /**
-   * Optional stream callback for the fallback engine's run (web emits deltas here).
-   */
-  onFallbackStream?: (delta: StreamDelta) => void;
-
-  /**
-   * Called after the fallback engine finishes, before the handler returns.
-   * The persistence of the assistant message and any "completed" event emission
-   * is done here (caller-specific).
-   */
-  onFallbackComplete?: (result: EngineResult) => void | Promise<void>;
-
-  /**
-   * Called once when entering the wait-and-retry loop. Use this to: switch UI
-   * to "waiting", post a "I'll continue automatically" message, notify Discord, etc.
-   */
-  onWaitingStart?: (info: { resumeAt: Date | null; rateLimit: RateLimitInfo }) => void | Promise<void>;
-
-  /**
-   * Called each retry iteration BEFORE the retry engine.run — switch UI back
-   * to "thinking" state.
-   */
-  onRetryAttempt?: (info: { attempt: number }) => void | Promise<void>;
-
-  /**
-   * Called each iteration when the retry was STILL rate-limited — switch UI
-   * back to "waiting" state, log, etc.
-   */
-  onStillLimited?: (info: { attempt: number; resumeAt: Date | null }) => void | Promise<void>;
-
-  /**
-   * Optional stream callback for the retry engine's run (web emits deltas).
-   */
-  onRetryStream?: (delta: StreamDelta) => void;
-
-  /**
-   * Called when a retry succeeds (or fails with a non-rate-limit error).
-   * Persist the assistant message + emit completion event here.
-   */
-  onRetrySuccess?: (result: EngineResult) => void | Promise<void>;
-
-  /**
-   * Called when the deadline expires before the limit clears. Notify the user,
-   * mark session errored, emit completion event with the timeout error.
-   */
-  onTimeout?: () => void | Promise<void>;
-
-  /**
-   * Called when the session was deleted/cancelled while waiting. The handler
-   * has already returned — this is just a hook to log or emit cleanup.
-   */
-  onCancelled?: () => void | Promise<void>;
-}
-
-export interface RateLimitHandlerOpts {
-  session: Session;
-  /** Generation token minted when this turn entered running state. */
-  attemptToken: string;
-  /** The original prompt that hit the rate limit — used unchanged for retries. */
-  prompt: string;
-  systemPrompt?: string;
-  /** Explicit refresh for retries on the same resumed native transcript. Never
-   *  forwarded to a different fallback engine. */
-  platformContextRefresh?: string;
-  /** Engine config used by the original turn (bin + model + …). */
-  engineConfig: { bin?: string; model?: string };
-  effortLevel?: string;
-  /** Optional employee-level CLI flag overrides (passed to retry engine.run calls). */
-  cliFlags?: string[];
-  /** Path to MCP config JSON file, if applicable to the original turn. */
-  mcpConfigPath?: string;
-  /** In-memory resolved MCP server set from the original turn (preserved on retry
-   *  so the payload is not silently dropped; a substitute engine resolves its own). */
-  resolvedMcp?: ResolvedMcpConfig;
-  /** Optional attachment file paths from the original turn (preserved on retry). */
-  attachments?: string[];
-  /** The current jinn config (used to look up the fallback chain + the substitute's engine config). */
-  config: JinnConfig;
-  /** Map of available engines (for substitute lookup). */
-  engines: Map<string, Engine>;
-  /** Optional employee record (for substitute effort + cliFlags). */
-  employee?: Employee;
-  /** The engine used for retries — the engine that returned the rate-limited result. */
-  engine: Engine;
-  /** Result of detectRateLimit() on the original turn. */
-  rateLimit: RateLimitInfo;
-  /** The original failed result — used for its sessionId field when recording the engine's thread id. */
-  originalResult: EngineResult;
-  hooks: RateLimitHandlerHooks;
-}
+export type {
+  RateLimitHandlerHooks, RateLimitHandlerOpts, RateLimitInfo, RateLimitOutcome,
+} from "./rate-limit-contract.js";
 
 /**
  * Drive the rate-limit recovery state machine. Returns once the situation
@@ -178,44 +74,20 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
     const syncSince = new Date().toISOString();
     const substituteLabel = rateLimitEngineLabel(substituteName);
 
-    await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until });
+    await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until, substitute: substituteName });
 
-    const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-    nextMeta.engineOverride = {
-      originalEngine: session.engine,
-      originalEngineSessionId: session.engineSessionId,
-      until: until.toISOString(),
-      syncSince,
-    };
-
-    const fallbackStarted = updateSessionForAttempt(session.id, attemptToken, {
-      // The limited engine's thread id moves to its own typed ref (the override record
-      // keeps a second copy). The mirror belongs to whichever engine is actually running,
-      // so it goes null until the substitute returns a thread id of its own.
-      ...(session.engineSessionId ? nextEngineSessionFields(session, session.engine, session.engineSessionId) : {}),
-      engine: substituteName,
-      engineSessionId: null,
-      transportMeta: nextMeta as any,
-      status: "running",
-      lastActivity: new Date().toISOString(),
+    const substitution = beginEngineSubstitution({
+      session, attemptToken, config, employee, substitute: substituteName, until, syncSince,
       lastError: resumeAt
         ? `${engineLabel} usage limit — using ${substituteLabel} until ${resumeAt.toISOString()}`
         : `${engineLabel} usage limit — using ${substituteLabel} temporarily`,
     });
-    if (!fallbackStarted) {
+    if (!substitution) {
       await hooks.onCancelled?.();
       return { kind: "cancelled" };
     }
 
-    const substituteConfig: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string } =
-      config.engines[substituteName] ?? {};
-    const substituteEffort = resolveEffort(
-      substituteConfig,
-      session,
-      employee,
-      effortLevelsForModel(config, substituteName, substituteConfig.model),
-    );
-    const substituteResume = getEngineSessionRef(session, substituteName).id;
+    const substituteResume = substitution.resumeSessionId;
     const history = getMessages(session.id)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
@@ -229,11 +101,11 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       resumeSessionId: substituteResume,
       systemPrompt,
       cwd: JINN_HOME,
-      // The substitute runs as itself: its own binary, its own configured model, and the
-      // MCP payload resolved for it — the limited engine's model would be meaningless here.
-      bin: substituteConfig.bin,
-      model: substituteConfig.model,
-      effortLevel: substituteEffort,
+      // The substitute runs as itself: its own binary, the MCP payload resolved for it,
+      // and a model it actually serves — the limited engine's would be meaningless here.
+      bin: substitution.engineConfig.bin,
+      model: substitution.model ?? substitution.engineConfig.model,
+      effortLevel: substitution.effortLevel,
       cliFlags: employee?.cliFlags ?? cliFlags,
       ...resolveEngineRunMcp({ config, employee, engine: substituteName, sessionId: session.id }),
       attachments: attachments?.length ? attachments : undefined,
@@ -290,6 +162,10 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
   try {
     let attempt = 0;
     let nextDelayMs = delayMs;
+    // Consecutive retries against a limit that has still named no reset. Reset
+    // to zero the moment one does, so a limit that starts stating a window goes
+    // back to being slept to rather than guessed at.
+    let unstatedAttempts = 0;
 
     while (Date.now() < deadlineMs) {
       const stillWaiting = await waitWhileSessionWaiting(session.id, nextDelayMs);
@@ -353,7 +229,13 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
         logger.info(`Session ${session.id} still rate limited (attempt ${attempt})`);
 
         const next = computeNextRetryDelayMs(retryRateLimit.resetsAt);
-        nextDelayMs = next.delayMs;
+        if (next.resumeAt) {
+          unstatedAttempts = 0;
+          nextDelayMs = next.delayMs;
+        } else {
+          unstatedAttempts++;
+          nextDelayMs = nextUnstatedParkDelayMs(nextDelayMs);
+        }
 
         const waitingAgain = updateSessionForAttempt(session.id, attemptToken, {
           ...(retryResult.sessionId?.trim() ? nextEngineSessionFields(currentSession, currentSession.engine, retryResult.sessionId) : {}),
@@ -369,6 +251,12 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
         }
 
         await hooks.onStillLimited?.({ attempt, resumeAt: next.resumeAt ?? null });
+        if (unstatedAttempts >= MAX_UNSTATED_PARK_ATTEMPTS) {
+          logger.warn(
+            `Session ${session.id} stopping after ${unstatedAttempts} retries against a ${engineLabel} usage limit that never named a reset`,
+          );
+          break;
+        }
         continue;
       }
 
@@ -378,7 +266,7 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       return { kind: "resumed", result: retryResult };
     }
 
-    // Deadline exhausted without recovery.
+    // Deadline exhausted, or the unstated-reset park gave up, without recovery.
     await hooks.onTimeout?.();
     logger.warn(`Session ${session.id} exhausted usage limit retries`);
     return { kind: "timeout" };

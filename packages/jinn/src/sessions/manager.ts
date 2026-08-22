@@ -9,6 +9,7 @@ import type {
   Target, WorkflowAttemptCommand, WorkflowAttemptCompletion, WorkflowAttemptCompletionListener,
 } from "../shared/types.js";
 import { isInterruptibleEngine } from "../shared/types.js";
+import { newSessionEngineSelection } from "./new-session-engine.js";
 import { removeCodexSessionHome } from "../engines/codex.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
@@ -19,7 +20,6 @@ import {
   getMessages,
   insertMessage,
   updateSession,
-  getEngineSessionRef, nextEngineSessionFields,
   beginSessionAttempt, claimWorkflowAttemptDispatch, cancelWorkflowAttemptDispatch,
   listPendingWorkflowAttemptDispatches, interruptSessionAttempt,
   listChildSessions,
@@ -31,6 +31,9 @@ import { setCronJobEnabled, triggerCronJob } from "../cron/scheduler.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
 import { continueWorkflowAttemptSession } from "./attempt-continuation.js";
 import { workflowAttemptInterruptionCause } from "./workflow-interruptions.js";
+// Re-exported because the gateway API reverts an expired override on session reads.
+import { maybeRevertEngineOverride } from "./engine-override.js";
+export { maybeRevertEngineOverride };
 import { runTurn } from "./turn/runner.js";
 import { resolveTurnHierarchy } from "./turn/preflight.js";
 import { createConnectorTurnSurface } from "./turn/connector-surface.js";
@@ -45,46 +48,7 @@ export interface RouteOptions {
 }
 
 const WORKFLOW_CAPABILITIES = { threading: false, messageEdits: false, reactions: false, attachments: false };
-const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
-/** Restore the pre-rate-limit engine once the override window has expired. */
-export function maybeRevertEngineOverride(session: Session): Session {
-  const meta = (session.transportMeta || {}) as Record<string, unknown>;
-  const override = meta["engineOverride"] as Record<string, unknown> | undefined;
-  if (!override) return session;
-
-  const originalEngine = typeof override.originalEngine === "string" ? override.originalEngine : null;
-  const originalEngineSessionId = typeof override.originalEngineSessionId === "string"
-    ? override.originalEngineSessionId
-    : null;
-  const syncSince = typeof override.syncSince === "string" ? override.syncSince : null;
-  const untilIso = typeof override.until === "string" ? override.until : null;
-  if (!originalEngine || !untilIso) return session;
-
-  const until = new Date(untilIso);
-  if (Number.isNaN(until.getTime())) return session;
-  if (until.getTime() > Date.now()) return session;
-
-  // Park the fallback engine's own thread id under its typed ref before handing
-  // the mirror back to the engine being restored.
-  const preserved = session.engineSessionId
-    ? nextEngineSessionFields(session, session.engine, session.engineSessionId)
-    : {};
-  const restoredSessionId = originalEngineSessionId ?? getEngineSessionRef(session, originalEngine).id ?? null;
-
-  const nextMeta = { ...meta } as Record<string, unknown>;
-  if (originalEngine === "claude" && syncSince && session.engine !== "claude") {
-    nextMeta["claudeSyncSince"] = syncSince;
-  }
-  delete nextMeta["engineOverride"];
-  return updateSession(session.id, {
-    ...preserved,
-    engine: originalEngine,
-    engineSessionId: restoredSessionId,
-    transportMeta: nextMeta as any,
-    lastError: null,
-  }) ?? session;
-}
-
+const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() { return undefined; }, async replyMessage() { return undefined; }, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
 export function mergeTransportMeta(
   existing: Session["transportMeta"],
   incoming: IncomingMessage["transportMeta"],
@@ -243,7 +207,7 @@ export class SessionManager {
     let session = getSessionBySessionKey(msg.sessionKey);
     if (!session) {
       session = createSession({
-        engine: opts.engine ?? opts.employee?.engine ?? this.config.engines.default,
+        ...newSessionEngineSelection(this.config, this.engines, opts),
         source: msg.source,
         sourceRef: msg.sessionKey,
         connector: msg.connector,
@@ -252,8 +216,6 @@ export class SessionManager {
         messageId: msg.messageId,
         transportMeta: msg.transportMeta,
         employee: opts.employee?.name ?? undefined,
-        model: opts.model ?? opts.employee?.model ?? undefined,
-        effortLevel: opts.effortLevel ?? opts.employee?.effortLevel ?? undefined,
         title: opts.title,
         prompt: msg.text,
         portalName: this.config.portal?.portalName,

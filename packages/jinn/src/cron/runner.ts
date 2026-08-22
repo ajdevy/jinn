@@ -134,8 +134,14 @@ export async function runCronJob(
       connector,
       {
         employee,
-        engine: job.engine || employee?.engine || config.engines.default,
-        model: job.model || employee?.model || config.engines[(job.engine || config.engines.default) as "claude" | "codex" | "antigravity"]?.model,
+        // Only the JOB's own overrides are a caller-named pick. Materializing the
+        // employee and config defaults here would read as "the caller named codex"
+        // and pin an engine that is out of allowance; route() resolves the same
+        // defaults itself, where a spent engine can still give way to its chain.
+        // The engine's configured model is not materialized either — preflight
+        // resolves `session.model ?? engineConfig.model` for whichever engine runs.
+        engine: job.engine || undefined,
+        model: job.model || undefined,
         // A cron job's configured effort is a per-fire override; pass it as the
         // session-level effortLevel only. Do NOT merge it onto the employee,
         // otherwise an invalid job.effortLevel would clobber the employee's valid

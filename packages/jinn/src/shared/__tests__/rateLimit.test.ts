@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { EngineResult } from "../types.js";
-import { isDeadSessionError, detectRateLimit } from "../rateLimit.js";
+import {
+  computeNextRetryDelayMs, detectRateLimit, isDeadSessionError, nextUnstatedParkDelayMs,
+  MAX_UNSTATED_PARK_ATTEMPTS, MAX_UNSTATED_PARK_DELAY_MS,
+} from "../rateLimit.js";
 
 function makeResult(overrides: Partial<EngineResult> = {}): EngineResult {
   return {
@@ -118,5 +121,54 @@ describe("isDeadSessionError", () => {
     });
     expect(detectRateLimit(rateLimited).limited).toBe(true);
     expect(isDeadSessionError(rateLimited)).toBe(false);
+  });
+});
+
+/**
+ * A park against a limit that named no reset used to sleep a flat minute inside
+ * a six-hour deadline: ~360 pokes at an engine already known to be out. These
+ * cover the bound rather than the wiring — the sequence itself is the rule.
+ */
+describe("the unstated-reset park", () => {
+  /** Every delay the park would sleep, from its first, until it gives up. */
+  function parkDelays(): number[] {
+    const delays = [computeNextRetryDelayMs(undefined).delayMs];
+    for (let attempt = 1; attempt < MAX_UNSTATED_PARK_ATTEMPTS; attempt++) {
+      delays.push(nextUnstatedParkDelayMs(delays[delays.length - 1]!));
+    }
+    return delays;
+  }
+
+  it("gives up in far fewer attempts than the flat-minute park's ~360", () => {
+    expect(parkDelays()).toHaveLength(MAX_UNSTATED_PARK_ATTEMPTS);
+    expect(MAX_UNSTATED_PARK_ATTEMPTS).toBeLessThan(30);
+  });
+
+  it("never shortens a wait and never exceeds the cap", () => {
+    const delays = parkDelays();
+    for (const [index, delay] of delays.entries()) {
+      expect(delay).toBeLessThanOrEqual(MAX_UNSTATED_PARK_DELAY_MS);
+      if (index > 0) expect(delay).toBeGreaterThanOrEqual(delays[index - 1]!);
+    }
+    expect(delays[0]).toBe(60_000);
+    expect(delays.at(-1)).toBe(MAX_UNSTATED_PARK_DELAY_MS);
+  });
+
+  it("settles at the cap rather than growing past it", () => {
+    expect(nextUnstatedParkDelayMs(MAX_UNSTATED_PARK_DELAY_MS)).toBe(MAX_UNSTATED_PARK_DELAY_MS);
+    expect(nextUnstatedParkDelayMs(5 * 60 * 60_000)).toBe(MAX_UNSTATED_PARK_DELAY_MS);
+  });
+
+  it("spends its whole run inside the six-hour deadline it parks under", () => {
+    const total = parkDelays().reduce((sum, delay) => sum + delay, 0);
+    expect(total).toBeLessThan(6 * 60 * 60_000);
+  });
+
+  it("leaves a stated reset on the path it already used — slept to, not guessed at", () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 900;
+    const { delayMs, resumeAt } = computeNextRetryDelayMs(resetsAt);
+    expect(resumeAt).toEqual(new Date(resetsAt * 1000));
+    expect(delayMs).toBeGreaterThan(900_000 - 5_000);
+    expect(delayMs).toBeLessThanOrEqual(910_000);
   });
 });

@@ -15,7 +15,15 @@ Use this skill for deliberately authored, durable work ownership and status trac
 - Use `get_work_item` before changing a Todo so you understand its acceptance criteria, assignee, source/provenance, verification policy, and current status.
 - Use `get_work_item_tree` when the work has child Todos; it returns the nested breakdown and roll-up.
 
-The statuses are backlog, assigned, executing, in_review, done, blocked, escalated, and cancelled. Agent updates intentionally expose only in_review, blocked, escalated, and done; other lifecycle decisions stay on their owning surface.
+The statuses are backlog, assigned, executing, in_review, done, blocked, escalated, and cancelled. Agent updates reach every status but cancelled, which has no agent tool at all.
+
+## Who may move a stopped Todo
+
+done, cancelled, and escalated are sticky: an ordinary agent move does not release them, so work that stopped there stays stopped until someone with standing decides otherwise.
+
+The top-level orchestrator session — the one the operator is talking to, which carries no employee identity of its own — is that someone. It passes `asOperator: true` to move a stopped Todo back into flow: an escalated Todo whose question the operator has answered in chat, or a closed one being reopened. The audit event then records the operator as the actor, names the calling session under `asOperator`, and keeps the note, so the instruction behind the move is on the record. Put the operator's actual instruction in that note.
+
+Every other session is refused, by name: an employee, and anything an employee spawns. Three guards hold for everyone, the orchestrator included — an approval routed to the operator still refuses an agent decider, a producer still cannot close its own work (`done` belongs to the reviewer), and closing a Todo's open descendants along with it stays on the human surface.
 
 ## Shape the hierarchy
 
@@ -114,6 +122,8 @@ Example:
 ```
 
 Use `archive_work_item` for obsolete or historical clutter while preserving its row and audit trail. Cancellation is a human lifecycle decision, not an agent status shortcut.
+
+Archiving a Todo, or delegating onto one that already exists, asks for standing over it: its owner, that owner's manager, or the org root. The top-level orchestrator session holds that standing over any Todo despite having no employee identity, so it does not need a workaround to tidy the ledger. A session spawned beneath it does not inherit it.
 
 ## Review loop
 

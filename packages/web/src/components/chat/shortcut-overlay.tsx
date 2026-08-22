@@ -2,24 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { ShortcutDef } from '@/hooks/use-keyboard-shortcuts'
-
-const MODIFIER_SYMBOLS: Record<string, string> = {
-  meta: '⌘',
-  shift: '⇧',
-  alt: '⌥',
-}
-
-const CATEGORY_ORDER: ShortcutDef['category'][] = ['Navigation', 'Actions', 'Help']
-
-function formatKeyLabel(shortcut: ShortcutDef): string {
-  const parts: string[] = []
-  for (const mod of shortcut.modifiers ?? []) {
-    parts.push(MODIFIER_SYMBOLS[mod] ?? mod)
-  }
-  const keyLabel = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key
-  parts.push(keyLabel)
-  return parts.join('')
-}
+import { SHORTCUT_CATEGORY_ORDER, formatShortcutKeys } from '@/lib/shortcut-catalog'
 
 interface ShortcutOverlayProps {
   shortcuts: ShortcutDef[]
@@ -46,7 +29,7 @@ export function ShortcutOverlay({ shortcuts, onClose }: ShortcutOverlayProps) {
   }, [handleClose])
 
   const enabled = shortcuts.filter(s => s.enabled !== false)
-  const grouped = CATEGORY_ORDER
+  const grouped = SHORTCUT_CATEGORY_ORDER
     .map(cat => ({
       category: cat,
       items: enabled.filter(s => s.category === cat),
@@ -81,7 +64,7 @@ export function ShortcutOverlay({ shortcuts, onClose }: ShortcutOverlayProps) {
               {group.items.map(s => (
                 <div key={s.key + (s.modifiers?.join('') ?? '')} className="flex items-center gap-2 py-0.5">
                   <kbd className="inline-flex min-w-[24px] items-center justify-center rounded-[var(--radius-sm)] bg-[var(--fill-tertiary)] px-1.5 py-0.5 font-mono text-caption1 font-medium text-foreground">
-                    {formatKeyLabel(s)}
+                    {formatShortcutKeys(s)}
                   </kbd>
                   <span className="text-caption1 text-muted-foreground">{s.description}</span>
                 </div>
