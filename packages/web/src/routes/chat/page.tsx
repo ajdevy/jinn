@@ -46,6 +46,7 @@ import { ShortcutOverlay } from '@/components/chat/shortcut-overlay'
 import { useChatTabs, type ChatTab } from '@/hooks/use-chat-tabs'
 import { invalidateLiveSessionSnapshot, prefetchLiveSessionSnapshot } from '@/hooks/use-live-session'
 import { useKeyboardShortcuts, type ShortcutDef } from '@/hooks/use-keyboard-shortcuts'
+import { buildShortcuts } from '@/lib/shortcut-catalog'
 import { useArchiveSession, useDeleteSession, useDuplicateSession, useSessions, useUnarchiveSession } from '@/hooks/use-sessions'
 import { clearIntermediateMessages } from '@/lib/conversations'
 import type { Message } from '@/lib/conversations'
@@ -758,41 +759,37 @@ function ChatPage() {
     activateTab((chatTabs.activeIndex + direction + count) % count)
   }, [chatTabs, activateTab])
 
-  // Centralized keyboard shortcut registry
-  const shortcuts = useMemo<ShortcutDef[]>(() => [
-    { key: 'n', category: 'Actions', description: 'New chat', action: handleNewChat },
-    { key: 'j', category: 'Navigation', description: 'Next session', action: () => navigateSession(1) },
-    { key: 'k', category: 'Navigation', description: 'Previous session', action: () => navigateSession(-1) },
-    { key: 'e', category: 'Navigation', description: 'Next employee', action: cycleEmployee },
-    { key: 'Backspace', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
-    { key: 'Delete', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
-    { key: 'c', category: 'Actions', description: 'Copy chat', action: copyChat, enabled: !!focusedSessionId },
-    { key: 'Escape', category: 'Navigation', description: 'Close overlay', action: () => {
-      if (showShortcutOverlay) setShowShortcutOverlay(false)
-      else if (showMoreMenu) setShowMoreMenu(false)
-    }},
-    { key: '/', category: 'Actions', description: 'Focus chat', action: () => {
-      const el = document.querySelector<HTMLElement>('[data-chat-pane-active="true"] [data-chat-textarea]')
-      if (el) el.focus()
-    }},
-    { key: '?', category: 'Help', description: 'Keyboard shortcuts', action: () => setShowShortcutOverlay(v => !v) },
-    { key: 'w', modifiers: ['meta'], category: 'Actions', description: 'Close tab', action: () => {
-      if (chatTabs.activeIndex >= 0) chatTabs.closeTab(chatTabs.activeIndex)
-    }},
-    { key: '[', modifiers: ['meta', 'shift'], category: 'Navigation', description: 'Previous tab', action: () => cycleTab(-1) },
-    { key: ']', modifiers: ['meta', 'shift'], category: 'Navigation', description: 'Next tab', action: () => cycleTab(1) },
-    // Fold/unfold the chat list. ⌥⌘S is the macOS-native sidebar toggle; ⌘\ is
-    // the web-friendly alias (Linear/VS Code class).
-    { key: 's', modifiers: ['meta', 'alt'], category: 'Navigation', description: 'Toggle chat list', action: toggleList },
-    { key: '\\', modifiers: ['meta'], category: 'Navigation', description: 'Toggle chat list', action: toggleList },
-    ...Array.from({ length: 9 }, (_, i) => ({
-      key: String(i + 1),
-      modifiers: ['meta' as const, 'alt' as const],
-      category: 'Navigation' as const,
-      description: `Tab ${i + 1}`,
-      action: () => activateTab(i),
-    })),
-  ], [handleNewChat, navigateSession, cycleEmployee, copyChat, focusedSessionId, showShortcutOverlay, showMoreMenu, chatTabs, toggleList, activateTab, cycleTab])
+  // Centralized keyboard shortcut registry. SHORTCUT_CATALOG describes the keys
+  // (and is what Settings lists); this map is the behaviour behind each one.
+  const shortcuts = useMemo<ShortcutDef[]>(() => {
+    const deleteSession = { action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId }
+    return buildShortcuts({
+      'new-chat': { action: handleNewChat },
+      'next-session': { action: () => navigateSession(1) },
+      'prev-session': { action: () => navigateSession(-1) },
+      'next-employee': { action: cycleEmployee },
+      'delete-session': deleteSession,
+      'delete-session-forward': deleteSession,
+      'copy-chat': { action: copyChat, enabled: !!focusedSessionId },
+      'close-overlay': { action: () => { if (showShortcutOverlay) setShowShortcutOverlay(false); else if (showMoreMenu) setShowMoreMenu(false) } },
+      'focus-chat': { action: () => document.querySelector<HTMLElement>('[data-chat-pane-active="true"] [data-chat-textarea]')?.focus() },
+      'keyboard-shortcuts': { action: () => setShowShortcutOverlay(v => !v) },
+      'close-tab': { action: () => { if (chatTabs.activeIndex >= 0) chatTabs.closeTab(chatTabs.activeIndex) } },
+      'prev-tab': { action: () => cycleTab(-1) },
+      'next-tab': { action: () => cycleTab(1) },
+      'toggle-chat-list': { action: toggleList },
+      'toggle-chat-list-alias': { action: toggleList },
+      'tab-1': { action: () => activateTab(0) },
+      'tab-2': { action: () => activateTab(1) },
+      'tab-3': { action: () => activateTab(2) },
+      'tab-4': { action: () => activateTab(3) },
+      'tab-5': { action: () => activateTab(4) },
+      'tab-6': { action: () => activateTab(5) },
+      'tab-7': { action: () => activateTab(6) },
+      'tab-8': { action: () => activateTab(7) },
+      'tab-9': { action: () => activateTab(8) },
+    })
+  }, [handleNewChat, navigateSession, cycleEmployee, copyChat, focusedSessionId, handleDeleteSession, showShortcutOverlay, showMoreMenu, chatTabs, toggleList, activateTab, cycleTab])
 
   useKeyboardShortcuts(shortcuts)
 
@@ -1012,7 +1009,6 @@ function ChatPage() {
                 onPeek={requestThreadPreview}
                 onNewChat={handleNewChat}
                 onRefresh={handleRefresh}
-                onShortcutsClick={() => setShowShortcutOverlay(true)}
                 onContentReady={handlePaneContentReady}
                 onStartFreshChat={handleStartFreshChat}
                 pickerPane={gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)}

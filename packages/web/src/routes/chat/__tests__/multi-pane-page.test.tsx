@@ -250,11 +250,9 @@ describe('the routed multi-pane surface', () => {
       focusHistory: ['a', 'b'],
     }))
     renderRoute()
-
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
     expect(pane('a').textContent).toContain('transcript-a')
     const chipOrder = () => Array.from(document.querySelectorAll('[data-mobile-working-set-chip]')).map((node) => node.getAttribute('data-mobile-working-set-chip'))
-    // The strip seats once the persisted touch log is read, not on first paint.
     await waitFor(() => expect(chipOrder()).toEqual(sessionIds))
 
     fireEvent.click(await screen.findByRole('button', { name: /Title d/ }))

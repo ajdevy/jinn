@@ -8,8 +8,6 @@ import { api } from "@/lib/api"
 import { authFetch } from "@/lib/auth"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
-import { RemoteAccessPanel } from "@/components/auth/remote-access-panel"
-import { useAuth } from "@/routes/auth-provider"
 import { cn } from "@/lib/utils"
 import { resolveTodoIdPrefix } from "@/lib/todo-id"
 import {
@@ -26,6 +24,8 @@ import type { EnginesConfig } from "./engines/chain-model"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
+import { PairingSection } from "./pairing-section"
+import { ShortcutsSection } from "./shortcuts-section"
 import {
   CONTROL_CLASS,
   FieldRow,
@@ -157,7 +157,6 @@ export default function SettingsPage() {
     setTalkOrb,
     resetAll,
   } = useSettings()
-  const auth = useAuth()
 
   // Local branding inputs
   const [companyNameValue, setCompanyNameValue] = useState(settings.companyName ?? "")
@@ -613,16 +612,9 @@ export default function SettingsPage() {
             </div>
           </Section>
 
-          {/* -- Pairing -- */}
-          <Section title="Pairing">
-            <RemoteAccessPanel
-              authState={auth.authState}
-              devices={auth.devices}
-              onCreatePairingCode={auth.createPairingCode}
-              onLogout={auth.logout}
-              onUnpairDevice={auth.unpairDevice}
-            />
-          </Section>
+          <PairingSection />
+
+          <ShortcutsSection />
 
           {/* Gateway config feedback */}
           {feedback && (
