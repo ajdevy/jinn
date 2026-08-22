@@ -1,13 +1,12 @@
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { cellRectForIndex } from '../../packages/web/src/routes/chat/grid-cells'
+import { artifactPath, openGridPage } from './chat-grid-drop.context'
 import {
   describeRect,
   dragSession,
   dragSessionToRightQuarter,
   expectGeometryMatch,
   expectNoDropOverlay,
-  gatewayToken,
   rect,
   rectDelta,
   seededSessionIds,
@@ -16,21 +15,7 @@ import {
 } from './chat-grid-drop.helpers'
 
 test('real pointer preview matches the 2-to-3 pane right-region result', async ({ browser }) => {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    screen: { width: 1440, height: 900 },
-    colorScheme: 'light',
-    extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    recordVideo: { dir: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'videos'), size: { width: 1440, height: 900 } },
-  })
-  await context.addInitScript(() => {
-    localStorage.setItem('jinn-theme', 'light')
-    localStorage.setItem('jinn-onboarded', 'true')
-    localStorage.setItem('jinn-chat-list-open', 'true')
-    localStorage.removeItem('jinn-chat-working-set')
-  })
-  const page = await context.newPage()
-  await page.goto('/', { waitUntil: 'networkidle' })
+  const { context, page } = await openGridPage(browser, { video: true, clearWorkingSet: true })
 
   const [sessionA, sessionB, sessionC] = await seededSessionIds(page)
 
@@ -52,19 +37,7 @@ test('real pointer preview matches the 2-to-3 pane right-region result', async (
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
   test(`grid-cell oracle reproduces rendered panes at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport,
-      screen: viewport,
-      colorScheme: 'light',
-      extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    })
-    await context.addInitScript(() => {
-      localStorage.setItem('jinn-theme', 'light')
-      localStorage.setItem('jinn-onboarded', 'true')
-      localStorage.setItem('jinn-chat-list-open', 'true')
-    })
-    const page = await context.newPage()
-    await page.goto('/', { waitUntil: 'networkidle' })
+    const { context, page } = await openGridPage(browser, { viewport })
     const ids = await seededSessionIds(page)
 
     const renderedCounts = viewport.width === 1440 ? [2, 3, 4] : [2, 3, 5]
@@ -110,19 +83,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
 
   test(`preview simulation matches pointer drops at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     test.setTimeout(180_000)
-    const context = await browser.newContext({
-      viewport,
-      screen: viewport,
-      colorScheme: 'light',
-      extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    })
-    await context.addInitScript(() => {
-      localStorage.setItem('jinn-theme', 'light')
-      localStorage.setItem('jinn-onboarded', 'true')
-      localStorage.setItem('jinn-chat-list-open', 'true')
-    })
-    const page = await context.newPage()
-    await page.goto('/', { waitUntil: 'networkidle' })
+    const { context, page } = await openGridPage(browser, { viewport })
     const ids = await seededSessionIds(page)
     const cases: Array<{ count: number; region: DropRegion; target: number }> = [
       { count: 2, region: 'left', target: 0 },
@@ -158,20 +119,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
 }
 
 test('the composer clears a prior pane preview and rejects the drop', async ({ browser }) => {
-  const viewport = { width: 1440, height: 900 }
-  const context = await browser.newContext({
-    viewport,
-    screen: viewport,
-    colorScheme: 'light',
-    extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-  })
-  await context.addInitScript(() => {
-    localStorage.setItem('jinn-theme', 'light')
-    localStorage.setItem('jinn-onboarded', 'true')
-    localStorage.setItem('jinn-chat-list-open', 'true')
-  })
-  const page = await context.newPage()
-  await page.goto('/', { waitUntil: 'networkidle' })
+  const { context, page } = await openGridPage(browser)
   const ids = await seededSessionIds(page)
   await setWorkingSet(page, ids.slice(0, 2))
 
@@ -200,22 +148,7 @@ test('the composer clears a prior pane preview and rejects the drop', async ({ b
 
 test('ten consecutive member moves have no geometry drift or stale overlay', async ({ browser }) => {
   test.setTimeout(180_000)
-  const viewport = { width: 1440, height: 900 }
-  const context = await browser.newContext({
-    viewport,
-    screen: viewport,
-    colorScheme: 'light',
-    reducedMotion: 'reduce',
-    extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    recordVideo: { dir: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'videos'), size: viewport },
-  })
-  await context.addInitScript(() => {
-    localStorage.setItem('jinn-theme', 'light')
-    localStorage.setItem('jinn-onboarded', 'true')
-    localStorage.setItem('jinn-chat-list-open', 'true')
-  })
-  const page = await context.newPage()
-  await page.goto('/', { waitUntil: 'networkidle' })
+  const { context, page } = await openGridPage(browser, { reducedMotion: true, video: true })
   const ids = await seededSessionIds(page)
   await setWorkingSet(page, ids.slice(0, 4))
 
@@ -228,26 +161,12 @@ test('ten consecutive member moves have no geometry drift or stale overlay', asy
     expectGeometryMatch(geometry.preview, geometry.result, `repeat ${index + 1} ${region}`)
     await expectNoDropOverlay(page)
   }
-  await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'pla-174-light-1440.png') })
+  await page.screenshot({ path: artifactPath('pla-174-light-1440.png') })
   await context.close()
 })
 
 test('dark-theme cap drop matches its preview with token-only overlay styling', async ({ browser }) => {
-  const viewport = { width: 1440, height: 900 }
-  const context = await browser.newContext({
-    viewport,
-    screen: viewport,
-    colorScheme: 'dark',
-    extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    recordVideo: { dir: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'videos'), size: viewport },
-  })
-  await context.addInitScript(() => {
-    localStorage.setItem('jinn-theme', 'dark')
-    localStorage.setItem('jinn-onboarded', 'true')
-    localStorage.setItem('jinn-chat-list-open', 'true')
-  })
-  const page = await context.newPage()
-  await page.goto('/', { waitUntil: 'networkidle' })
+  const { context, page } = await openGridPage(browser, { theme: 'dark', video: true })
   const ids = await seededSessionIds(page)
   await setWorkingSet(page, ids.slice(0, 4))
 
@@ -272,7 +191,7 @@ test('dark-theme cap drop matches its preview with token-only overlay styling', 
   })
   expect(overlayStyle.borderWidth).toBe('0px')
   expect(overlayStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
-  await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'pla-174-dark-1440-held.png') })
+  await page.screenshot({ path: artifactPath('pla-174-dark-1440-held.png') })
   await page.mouse.up()
   const droppedPane = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[4]}"])`)
   await expect(droppedPane).toHaveAttribute('data-grid-motion', 'idle')
@@ -280,26 +199,13 @@ test('dark-theme cap drop matches its preview with token-only overlay styling', 
   expect(resultBox).not.toBeNull()
   expectGeometryMatch(rect(previewBox!), rect(resultBox!), 'dark cap eviction')
   await expectNoDropOverlay(page)
-  await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'pla-174-dark-1440.png') })
+  await page.screenshot({ path: artifactPath('pla-174-dark-1440.png') })
   await context.close()
 })
 
 test('Open beside follows the view toggle and opens the picker in both themes', async ({ browser }) => {
   for (const theme of ['light', 'dark'] as const) {
-    const viewport = { width: 1440, height: 900 }
-    const context = await browser.newContext({
-      viewport,
-      screen: viewport,
-      colorScheme: theme,
-      extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
-    })
-    await context.addInitScript((value) => {
-      localStorage.setItem('jinn-theme', value)
-      localStorage.setItem('jinn-onboarded', 'true')
-      localStorage.setItem('jinn-chat-list-open', 'true')
-    }, theme)
-    const page = await context.newPage()
-    await page.goto('/', { waitUntil: 'networkidle' })
+    const { context, page } = await openGridPage(browser, { theme })
     const [sessionId] = await seededSessionIds(page)
     await page.locator(`[data-chat-session-row="${sessionId}"]`).first().click()
     const more = page.locator('[data-more-menu]:visible').first()
@@ -311,7 +217,7 @@ test('Open beside follows the view toggle and opens the picker in both themes', 
     const pinIndex = labels.findIndex((label) => label.trim() === 'Pin')
     expect(openIndex).toBe(cliIndex + 1)
     expect(openIndex).toBe(pinIndex - 1)
-    await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, `pla-174-${theme}-menu-1440.png`) })
+    await page.screenshot({ path: artifactPath(`pla-174-${theme}-menu-1440.png`) })
     await buttons.nth(openIndex).click()
     await expect(page.getByTestId('session-picker-scroll')).toBeVisible()
     await context.close()
