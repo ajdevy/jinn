@@ -46,10 +46,12 @@ export function CliKeybar({
     }
 
     document.addEventListener('mousedown', handleMouseDown)
-    document.addEventListener('keydown', handleKeyDown)
+    // Capture phase: in the CLI view focus sits in xterm's textarea, which
+    // handles keydown itself and stops it before it reaches document.
+    document.addEventListener('keydown', handleKeyDown, true)
     return () => {
       document.removeEventListener('mousedown', handleMouseDown)
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [open])
 

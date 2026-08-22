@@ -92,4 +92,21 @@ describe('CliKeybar', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('toolbar', { name: 'Terminal keys' })).toBeNull()
   })
+
+  it('closes on Escape while the terminal holds focus', () => {
+    // The CLI view keeps focus in xterm's textarea, which handles keydown itself
+    // and stops it before it reaches document — so only a capture-phase listener
+    // ever sees the key.
+    const focused = document.createElement('div')
+    focused.addEventListener('keydown', (e) => e.stopPropagation())
+    document.body.appendChild(focused)
+    try {
+      openKeybar()
+      expect(screen.getByRole('toolbar', { name: 'Terminal keys' })).toBeTruthy()
+      fireEvent.keyDown(focused, { key: 'Escape' })
+      expect(screen.queryByRole('toolbar', { name: 'Terminal keys' })).toBeNull()
+    } finally {
+      focused.remove()
+    }
+  })
 })
