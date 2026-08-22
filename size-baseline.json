@@ -442,7 +442,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1331,
+      "lines": 1313,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

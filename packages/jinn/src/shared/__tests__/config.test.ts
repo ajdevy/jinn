@@ -76,6 +76,13 @@ describe("validateConfigShape", () => {
     expect(problems.some((p) => p.includes("gateway.notesEnabled"))).toBe(true);
   });
 
+  it("accepts a boolean gateway.resumeInterruptedSessions flag and rejects other values", () => {
+    expect(validateConfigShape({ gateway: { resumeInterruptedSessions: false }, engines: { claude: {} } })).toEqual([]);
+    expect(validateConfigShape({ gateway: {}, engines: { claude: {} } })).toEqual([]);
+    const problems = validateConfigShape({ gateway: { resumeInterruptedSessions: "no" }, engines: { claude: {} } });
+    expect(problems.some((p) => p.includes("gateway.resumeInterruptedSessions"))).toBe(true);
+  });
+
   it("rejects missing engines / engines.claude", () => {
     expect(validateConfigShape({})[0]).toContain("engines");
     const problems = validateConfigShape({ engines: { default: "codex" } });
