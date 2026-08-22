@@ -926,10 +926,12 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes jinn-mobile-chat-crossfade { from { opacity: 0; } }
 @keyframes jinn-mobile-preview-in { from { opacity: 0; } }
 
+/* The switch belongs to the wrapper in multi-chat-grid.tsx, which is keyed on
+   the committed pane and so replays once per switch. Leaving the pane's own
+   open animation underneath would fade the same pixels a second time, and
+   slide them while it did. */
 @media (max-width: 1023px) {
-  .mobile-working-set-thread [data-chat-pane-session] {
-    animation-name: jinn-mobile-chat-crossfade;
-  }
+  .mobile-working-set-thread [data-chat-pane-session] { animation: none; }
 }
 @keyframes jinn-chat-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {

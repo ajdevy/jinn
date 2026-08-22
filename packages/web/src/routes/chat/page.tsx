@@ -106,13 +106,14 @@ function ChatPage() {
   const [, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
   // When true, user explicitly started a new chat — don't auto-select first session
   const newChatIntentRef = useRef(false)
+  const [systemPrimedId, setSystemPrimedId] = useState<string | null>(null)
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
   const sessionsQuery = useSessions()
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
-  const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data)
+  const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data, systemPrimedId)
   const { viewport, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
@@ -273,11 +274,11 @@ function ChatPage() {
   // tab restore) pass `replace`. `from` is a drill-in's origin, carried in
   // history state for the back chip.
   const handleSelect = useCallback(
-    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin }) => {
+    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin; system?: boolean }) => {
       const currentId = selectedIdRef.current
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
-      newChatIntentRef.current = false
+      newChatIntentRef.current = false; setSystemPrimedId(opts?.system ? id : null)
       // On mobile, opening a session pushes from the list into the thread, and the
       // pane arrives with it (see revealSelection). The one exception is the
       // background auto-select of the most-recent session (handleSessionsLoaded):
@@ -327,9 +328,8 @@ function ChatPage() {
   // push is a no-op.
   const didMountRef = useRef(false)
   useEffect(() => {
-    // A selectedId change means a navigation landed — any in-flight sentinel
-    // is done (ours just arrived; a competing user navigation obsoletes it).
     pendingNavRef.current = undefined
+    if (navigationType === 'POP') setSystemPrimedId(null)
     if (selectedId) {
       newChatIntentRef.current = false
       chatTabs.openTab({ sessionId: selectedId, label: 'Loading...', status: 'idle', unread: false })
@@ -438,7 +438,7 @@ function ChatPage() {
         // thread, but stays on the chat LIST on mobile (navigateMobile: false),
         // so tapping the Chat tab opens the list to pick/start a chat. REPLACE —
         // a system pick must not create a history entry.
-        handleSelect(sessions[0].id, { navigateMobile: false, replace: true })
+        handleSelect(sessions[0].id, { navigateMobile: false, replace: true, system: true })
       }
     },
     [selectedId, handleSelect]
@@ -824,7 +824,7 @@ function ChatPage() {
     if (!tabChanged || urlMoved) return
 
     if (at && at.kind === 'session' && at.sessionId !== selectedId) {
-      handleSelect(at.sessionId, { replace: true, navigateMobile: false })
+      handleSelect(at.sessionId, { replace: true, navigateMobile: false, system: true })
       return
     }
 

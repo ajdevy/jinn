@@ -1,21 +1,44 @@
 import { useEffect, useMemo, useState } from 'react'
 import { overflowForViewport } from './grid-layout'
 import { mobileWorkingSetIds } from './mobile-working-set-activity'
+import { useChatTouchOrder, type ChatTouchOrder } from './use-chat-touch-order'
 import { useChatViewport } from './use-chat-viewport'
 import type { ChatWorkingSet } from './working-set'
+
+function useMobileSlots(
+  memberIds: readonly string[],
+  sessions: ReadonlyArray<{ id?: unknown }> | undefined,
+  focusedSessionId: string | null,
+  touchOrder: ChatTouchOrder,
+): string[] {
+  const [slots, setSlots] = useState<string[]>([])
+  useEffect(() => {
+    if (!touchOrder.hydrated) return
+    setSlots((current) => {
+      const next = mobileWorkingSetIds(memberIds, sessions ?? [], current, focusedSessionId, touchOrder.ids)
+      return next.length === current.length && next.every((id, index) => id === current[index])
+        ? current
+        : next
+    })
+  }, [focusedSessionId, memberIds, sessions, touchOrder])
+  return slots
+}
 
 export function useChatGridState({
   committedId,
   workingSet,
   sessions,
   pickerOpen = false,
+  systemPrimedId = null,
 }: {
   committedId: string | null
   workingSet: ChatWorkingSet
-  sessions: ReadonlyArray<{ id?: unknown }>
+  sessions: ReadonlyArray<{ id?: unknown }> | undefined
   pickerOpen?: boolean
+  systemPrimedId?: string | null
 }) {
   const viewport = useChatViewport()
+  const touchOrder = useChatTouchOrder(committedId, sessions, systemPrimedId)
   // A URL selection can commit one render before working-set reconciliation.
   // Replace the primary member synchronously so both identities never mount.
   const gridSessionIds = useMemo(() => {
@@ -39,18 +62,6 @@ export function useChatGridState({
   const mountedSessionIds = viewport.mobile
     ? (focusedSessionId ? [focusedSessionId] : [])
     : visibleWorkingSet.sessionIds
-  const initialMobileSessionIds = useMemo(
-    () => mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions, [], focusedSessionId),
-    [focusedSessionId, sessions, visibleWorkingSet.sessionIds],
-  )
-  const [mobileSessionIds, setMobileSessionIds] = useState(initialMobileSessionIds)
-  useEffect(() => {
-    setMobileSessionIds((current) => {
-      const next = mobileWorkingSetIds(visibleWorkingSet.sessionIds, sessions, current, focusedSessionId)
-      return next.length === current.length && next.every((id, index) => id === current[index])
-        ? current
-        : next
-    })
-  }, [focusedSessionId, sessions, visibleWorkingSet.sessionIds])
+  const mobileSessionIds = useMobileSlots(visibleWorkingSet.sessionIds, sessions, focusedSessionId, touchOrder)
   return { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds }
 }
