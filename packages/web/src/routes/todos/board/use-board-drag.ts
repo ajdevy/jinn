@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { WorkItemCompactWire, WorkItemStatusWire } from "@/lib/api"
 import { canDropOn } from "@/lib/legal-targets"
-import { tap } from "@/lib/native/haptics"
+import { selectionFeedback } from "@/platform"
 
 /* Todos v2 slice 6 — board drag (design-doc §5, states mock specimen 4).
  * Hand-rolled pointer engine in the group.tsx idiom (no dnd-kit):
@@ -129,7 +129,7 @@ export function useBoardDrag(
         lifted = true
         // The touch path lifts after a 300ms hold with nothing to confirm it.
         // That silent wait is what the OS uses a haptic for.
-        tap()
+        selectionFeedback()
         const from = item.status
         const legal = new Set<WorkItemStatusWire>([from])
         const ctx = { openChildren: openChildrenOf(item.id) }

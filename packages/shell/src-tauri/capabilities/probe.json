@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "probe",
+  "description": "The shell-owned refresh probe has no gateway or credential capability.",
+  "windows": ["probe"],
+  "permissions": ["core:default"]
+}

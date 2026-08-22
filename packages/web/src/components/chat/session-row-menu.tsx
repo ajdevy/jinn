@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { Archive, ArchiveRestore, Copy, ExternalLink, Pencil, Pin, PinOff, Square, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
+import { copyText } from "@/platform"
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -52,8 +53,7 @@ function CopySessionIdItem({ variant, sessionId, onCopyId }: {
 }) {
   const copy = () => {
     if (onCopyId) return onCopyId()
-    const pending = navigator.clipboard?.writeText(sessionId)
-    if (pending) void pending.catch(() => {})
+    void copyText(sessionId)
   }
   const content = <><Copy aria-hidden />Copy Session ID</>
   if (variant === "dropdown") return <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={copy}>{content}</DropdownMenuItem>

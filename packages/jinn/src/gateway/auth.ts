@@ -4,8 +4,7 @@ import { isIP } from "node:net";
 import path from "node:path";
 import type { IncomingMessage } from "node:http";
 import type { JinnConfig } from "../shared/types.js";
-import { resolveJinnInstance } from "../shared/home.js";
-
+import { resolveDefaultJinnHome, resolveJinnInstance } from "../shared/home.js";
 export const AUTH_COOKIE = "jinn_auth";
 export const AUTH_DEVICE_COOKIE = "jinn_device";
 export const LOCAL_BOOTSTRAP_GRANT_HEADER = "x-jinn-bootstrap-grant";
@@ -291,17 +290,17 @@ export function validateGatewayExposure(config: Pick<JinnConfig, "gateway">): { 
  * Cookies are scoped by host but NOT by port (RFC 6265), so two gateway
  * instances on the same host (e.g. one behind `tailscale serve`) would clobber
  * each other's `jinn_auth`/`jinn_device` cookie and log each other out. Namespace
- * the cookie name per instance to keep their sessions independent. Only real
- * `~/.<name>` instance homes are namespaced: the default `jinn` keeps the bare
- * names (no forced re-pair on upgrade) and ad-hoc/test homes stay hermetic.
+ * the cookie name per instance to keep their sessions independent. The default
+ * `~/.jinn` home keeps the bare names (no forced re-pair on upgrade); every
+ * other explicit home is namespaced, including throwaway sandbox homes.
  */
 function cookieNamespace(jinnHome?: string): string {
   const home = jinnHome ?? process.env.JINN_HOME;
   if (!home) return "";
-  const base = path.basename(path.resolve(home));
-  if (!base.startsWith(".")) return "";
-  const name = base.slice(1).replace(/[^A-Za-z0-9_-]/g, "");
-  return name && name !== "jinn" ? name : "";
+  const resolved = path.resolve(home);
+  if (resolved === resolveDefaultJinnHome()) return "";
+  const base = path.basename(resolved).replace(/^\./, "");
+  return base.replace(/[^A-Za-z0-9_-]/g, "") || "instance";
 }
 
 export function authCookieName(jinnHome?: string): string {

@@ -360,7 +360,7 @@ describe("control-plane writes require operator authority", () => {
 
     const bootstrap = await call("POST", "/api/auth/bootstrap", {}, headers);
     expect(bootstrap.status).toBe(200);
-    expect(String(bootstrap.header("set-cookie"))).toContain("jinn_auth=");
+    expect(String(bootstrap.header("set-cookie"))).toContain(`${auth.authCookieName(tmpHome)}=`);
 
     const replay = await call("POST", "/api/auth/bootstrap", {}, headers);
     expect(replay.status).toBe(401);
@@ -395,7 +395,7 @@ describe("control-plane writes require operator authority", () => {
       [auth.LOCAL_BOOTSTRAP_GRANT_HEADER]: auth.issueLocalBootstrapGrant(),
     });
     expect(bootstrap.status).toBe(200);
-    expect(String(bootstrap.header("set-cookie"))).toContain("jinn_auth=");
+    expect(String(bootstrap.header("set-cookie"))).toContain(`${auth.authCookieName(tmpHome)}=`);
 
     const bootstrapCookies = Array.isArray(bootstrap.header("set-cookie")) ? bootstrap.header("set-cookie") : [bootstrap.header("set-cookie")];
     const bootstrapCookieHeader = (bootstrapCookies as string[]).map((part) => part.split(";")[0]).join("; ");
@@ -404,7 +404,7 @@ describe("control-plane writes require operator authority", () => {
 
     const pair = await call("POST", "/api/auth/pair", { code: pairingCode.body.code });
     expect(pair.status).toBe(200);
-    expect(String(pair.header("set-cookie"))).toContain("jinn_auth=");
+    expect(String(pair.header("set-cookie"))).toContain(`${auth.authCookieName(tmpHome)}=`);
     const rawCookies = Array.isArray(pair.header("set-cookie")) ? pair.header("set-cookie") : [pair.header("set-cookie")];
     const cookieHeader = (rawCookies as string[]).map((part) => part.split(";")[0]).join("; ");
 

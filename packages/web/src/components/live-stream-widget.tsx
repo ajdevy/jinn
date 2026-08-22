@@ -1,9 +1,9 @@
-
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Copy, Minimize2, X } from "lucide-react"
 import { api } from "@/lib/api"
 import { parseLogLine } from "@/components/activity/log-browser"
 import type { ParsedLogEntry } from "@/components/activity/log-browser"
+import { copyText } from "@/platform"
 
 /* ── Constants ────────────────────────────────────────────────── */
 
@@ -151,7 +151,7 @@ export function LiveStreamWidget() {
 
   const handleCopy = useCallback(async () => {
     const text = entries.map(formatCopyLine).join("\n")
-    await navigator.clipboard.writeText(text)
+    if ((await copyText(text)).status !== "performed") return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }, [entries])

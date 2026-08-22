@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { tap } from "@/lib/native/haptics"
+import { selectionFeedback } from "@/platform"
 import {
   api,
   ApiError,
@@ -88,7 +88,7 @@ export function useTaskPickers({
       if (!id) return
       // On the gesture, not in onSuccess: the row already moves optimistically,
       // so a tap that waited for the round trip would trail its own animation.
-      tap()
+      selectionFeedback()
       // Optimistic: the row shows the new value immediately; useSetWorkItemStatus
       // invalidates on settle so the server's truth reasserts either way.
       qc.setQueryData<WorkItemDetailWire>(["work-item", id], (current) =>

@@ -5,6 +5,7 @@ import {
   WS_WATCHDOG_TIMEOUT_MS,
 } from '../ws'
 import { WS_RECONNECT_MAX_MS } from '../ws-backoff'
+import { createBrowserGatewayTransport, installGatewayTransport } from '../gateway-transport'
 
 /**
  * Minimal controllable WebSocket stand-in. jsdom doesn't implement WebSocket,
@@ -53,12 +54,21 @@ class FakeWebSocket {
 const live = () => FakeWebSocket.instances
 
 describe('createGatewaySocket', () => {
+  let restoreTransport: (() => void) | null = null
+
   beforeEach(() => {
     FakeWebSocket.instances = []
     vi.stubGlobal('WebSocket', FakeWebSocket)
     vi.useFakeTimers()
+    restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+      origin: 'https://qa-a.example:7779',
+      request: vi.fn(),
+      navigate: vi.fn(),
+    }))
   })
   afterEach(() => {
+    restoreTransport?.()
+    restoreTransport = null
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -67,6 +77,7 @@ describe('createGatewaySocket', () => {
     const onOpen = vi.fn()
     const sock = createGatewaySocket(() => {}, { onOpen })
     expect(live()).toHaveLength(1)
+    expect(live()[0].url).toBe('wss://qa-a.example:7779/ws')
     expect(sock.isOpen()).toBe(false)
     live()[0]._open()
     expect(onOpen).toHaveBeenCalledTimes(1)

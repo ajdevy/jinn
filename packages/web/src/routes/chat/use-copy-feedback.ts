@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { copyText } from '@/platform'
 
 export function useCopyFeedback() {
   const [copiedField, setCopiedField] = useState<string | null>(null)
@@ -18,8 +19,9 @@ export function useCopyFeedback() {
   }, [])
 
   const copyToClipboard = useCallback((text: string, field: string, paneId: string | null = null) => {
-    void navigator.clipboard.writeText(text)
-    showFeedback(field, paneId)
+    // Platform-aware copy (the shell has no navigator.clipboard); feedback
+    // follows the write, and is anchored to the pane that fired it.
+    void copyText(text).then((result) => { if (result.status === 'performed') showFeedback(field, paneId) })
   }, [showFeedback])
 
   const copyChat = useCallback(async (sessionId: string) => {
@@ -29,7 +31,7 @@ export function useCopyFeedback() {
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .map((message) => `[${message.role}]: ${message.content}`)
         .join('\n\n')
-      await navigator.clipboard.writeText(text)
+      if ((await copyText(text)).status !== 'performed') return
       showFeedback('chat', sessionId)
     } catch { /* Copy feedback appears only after both reads succeed. */ }
   }, [showFeedback])

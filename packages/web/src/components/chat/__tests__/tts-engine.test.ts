@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { createTtsStart, createFrameReader, defaultTtsDeps, type TtsEngineDeps, type StreamPlayer } from "../tts-engine"
+import { createBrowserGatewayTransport, installGatewayTransport } from "@/lib/gateway-transport"
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -247,5 +248,27 @@ describe("defaultTtsDeps().speak (Web Speech fallback)", () => {
     cancel.mockClear() // ignore the pre-speak clear cancel()
     stop()
     expect(cancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("defaultTtsDeps() gateway requests", () => {
+  it("opens synthesis streams through the active transport with credentials", async () => {
+    const body = streamOf(framesBytes("hello"))
+    const request = vi.fn(async () => new Response(body, { status: 200 }))
+    const restore = installGatewayTransport(createBrowserGatewayTransport({
+      origin: "https://qa-a.example:7779",
+      request,
+      navigate: vi.fn(),
+    }))
+
+    try {
+      await expect(defaultTtsDeps().openStream("hello", new AbortController().signal)).resolves.toBe(body)
+      expect(request).toHaveBeenCalledWith(
+        "https://qa-a.example:7779/api/tts",
+        expect.objectContaining({ method: "POST", credentials: "include" }),
+      )
+    } finally {
+      restore()
+    }
   })
 })

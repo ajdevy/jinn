@@ -90,8 +90,12 @@ const RULE_CASES = [
   {
     rule: "privacy-leak",
     triggers: { "docs/notes.md": "Reported by dev@acme-widgets.io\n" },
-    passes: { "docs/illustrative.md": "Reported by someone@example.com\n" },
-    passesBecause: "an address on a reserved documentation domain belongs to nobody",
+    passes: {
+      "docs/illustrative.md": "Reported by someone@example.com\n",
+      "packages/shell/AppIcon.appiconset/Contents.json":
+        '{"filename":"AppIcon-20x20@2x.png"}\n{"filename":"AppIcon-29x29@2x-1.png"}\n',
+    },
+    passesBecause: "reserved documentation domains and asset scale suffixes are not personal addresses",
   },
   {
     rule: "hardcoded-port",

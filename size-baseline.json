@@ -344,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5676,
+      "lines": 5564,
       "exempt": [
         "complexity",
         "max-depth",
@@ -359,7 +359,7 @@
       ]
     },
     "packages/jinn/src/gateway/auth.ts": {
-      "lines": 595,
+      "lines": 594,
       "exempt": [
         "complexity"
       ]
@@ -1318,7 +1318,7 @@
       ]
     },
     "packages/web/src/components/cli-terminal.tsx": {
-      "lines": 585,
+      "lines": 578,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1612,7 +1612,6 @@
       ]
     },
     "packages/web/src/routes/more/page.tsx": {
-      "lines": 312,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1858,7 +1857,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/task-page.tsx": {
-      "lines": 653,
+      "lines": 649,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

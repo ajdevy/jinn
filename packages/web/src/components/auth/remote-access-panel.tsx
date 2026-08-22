@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { Copy, KeyRound, Laptop, LogOut, ShieldCheck, Smartphone, Unlink } from "lucide-react"
 import type { AuthState, PairedDevice, PairingCode } from "@/lib/auth"
+import { gatewayTransport } from "@/lib/gateway-transport"
+import { copyText } from "@/platform"
 import { AuthStateIcon, AuthStateLabel } from "./auth-motion"
 
 interface RemoteAccessPanelProps {
@@ -17,7 +19,7 @@ export function RemoteAccessPanel({ authState, devices = [], onCreatePairingCode
   const [forgetting, setForgetting] = useState(false)
   const [unpairingId, setUnpairingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dashboardUrl = typeof window !== "undefined" ? window.location.origin : ""
+  const dashboardUrl = gatewayTransport().profile.origin
   const canCreatePairingCode = Boolean(authState?.authRequired && authState.authenticated && authState.canBootstrapLocal)
 
   async function createCode() {
@@ -118,7 +120,7 @@ export function RemoteAccessPanel({ authState, devices = [], onCreatePairingCode
             </div>
             <button
               type="button"
-              onClick={() => navigator.clipboard?.writeText(pairingCode.code).catch(() => {})}
+              onClick={() => void copyText(pairingCode.code)}
               className="inline-flex size-10 items-center justify-center rounded-full text-[var(--text-secondary)] transition-[transform,background-color,color] duration-150 [transition-timing-function:var(--ease-snappy)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:scale-[0.96]"
               aria-label="Copy pairing code"
             >

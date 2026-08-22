@@ -113,13 +113,6 @@ export default defineConfig(() => {
         },
       }),
     ],
-    // App reads a NEXT_PUBLIC_* var (legacy from the Next era). Vite doesn't
-    // auto-replace process.env in the browser, so define it explicitly.
-    define: {
-      'process.env.NEXT_PUBLIC_GATEWAY_URL': JSON.stringify(
-        process.env.NEXT_PUBLIC_GATEWAY_URL ?? '',
-      ),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
