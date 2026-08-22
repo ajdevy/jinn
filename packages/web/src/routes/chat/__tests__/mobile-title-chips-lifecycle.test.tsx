@@ -39,41 +39,38 @@ function NavBar({ title, memberIds }: { title: string; memberIds: string[] }) {
 const entering = (container: HTMLElement) => container.querySelectorAll('[data-title-enter]')
 const chipsUp = (container: HTMLElement) =>
   container.querySelectorAll('[data-mobile-working-set-chip]').length > 0
+/** The centred nav-bar title, the span the chips take the track from. */
+const centredTitle = (container: HTMLElement) => container.querySelector('span.text-center')
 
 describe('chat title entrance across the working-set chips lifecycle', () => {
-  it('does not replay an entrance the reader watched before the chips took the track', () => {
+  it('drops an entrance the chips interrupted, so the span they hand back mounts unmarked', () => {
     const { container, rerender } = render(<NavBar title="Release plan" memberIds={['a']} />)
     expect(chipsUp(container)).toBe(false)
+    expect(entering(container)).toHaveLength(0)
 
-    // The reader watches this one arrive, and it animates — once.
+    // The reader watches this one arrive, so it animates. The mark it takes here
+    // stays live, inside its one-second TTL, for the rest of the case.
     rerender(<NavBar title="Weekly digest" memberIds={['a']} />)
     expect(entering(container)).toHaveLength(1)
 
     // A second member joins the working set, so the chips take the centre track
-    // and the span that animated is unmounted.
+    // and the span is unmounted mid-entrance.
     rerender(<NavBar title="Weekly digest" memberIds={['a', 'b']} />)
     expect(chipsUp(container)).toBe(true)
     expect(entering(container)).toHaveLength(0)
 
-    // Well inside the mark's TTL the member leaves, the chips stand down, and
-    // the same title comes back. A span that comes back is a mount, and mounts
-    // animate nothing.
-    rerender(<NavBar title="Weekly digest" memberIds={['a']} />)
-    expect(chipsUp(container)).toBe(false)
-    expect(entering(container)).toHaveLength(0)
-  })
-
-  it('leaves a title that changed entirely behind the chips unmarked', () => {
-    const { container, rerender } = render(<NavBar title="Release plan" memberIds={['a', 'b']} />)
+    // The conversation switches entirely behind the chips.
+    rerender(<NavBar title="Sprint retro" memberIds={['a', 'b']} />)
     expect(chipsUp(container)).toBe(true)
-
-    // Both titles come and go while the chips hold the track, so the span that
-    // returns never saw either of them arrive.
-    rerender(<NavBar title="Weekly digest" memberIds={['a', 'b']} />)
     expect(entering(container)).toHaveLength(0)
 
-    rerender(<NavBar title="Weekly digest" memberIds={['a']} />)
+    // The member leaves well inside the TTL and the chips stand down. A span that
+    // comes back is a mount, and mounts animate nothing.
+    rerender(<NavBar title="Sprint retro" memberIds={['a']} />)
     expect(chipsUp(container)).toBe(false)
+    const returned = centredTitle(container)
+    expect(returned?.textContent).toBe('Sprint retro')
+    expect(returned?.hasAttribute('data-title-enter')).toBe(false)
     expect(entering(container)).toHaveLength(0)
   })
 })
