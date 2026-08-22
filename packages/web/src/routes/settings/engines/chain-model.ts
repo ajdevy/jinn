@@ -7,7 +7,9 @@ export interface EngineSettings {
   effortLevel?: string
   fallback?: string[]
   /** `<model this engine serves>: <model the stand-in serves>`, applied when a
-   *  turn falls through the chain. Edited in config.yaml, read-only here. */
+   *  turn falls through the chain. Edited on the card by model-map-editor.tsx,
+   *  and by hand in config.yaml; the two agree because both refuse an entry in
+   *  the same words, off `@jinn/fallback-map-wire`. */
   fallbackModelMap?: Record<string, string>
 }
 
