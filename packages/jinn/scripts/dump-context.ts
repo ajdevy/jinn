@@ -14,7 +14,7 @@ import { writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildContext } from "../src/sessions/context.js";
 import { loadConfig } from "../src/shared/config.js";
-import { scanOrg, findEmployee } from "../src/gateway/org.js";
+import { scanOrg } from "../src/gateway/org.js";
 import { resolveOrgHierarchy } from "../src/gateway/org-hierarchy.js";
 import { JINN_HOME } from "../src/shared/paths.js";
 
@@ -25,7 +25,7 @@ mkdirSync(outDir, { recursive: true });
 const config = loadConfig();
 const registry = scanOrg();
 const hierarchy = resolveOrgHierarchy(registry);
-const employee = findEmployee(empName, registry);
+const employee = registry.get(empName);
 if (!employee) {
   console.error(`Employee "${empName}" not found. Available:`, [...registry.keys()].join(", "));
   process.exit(1);

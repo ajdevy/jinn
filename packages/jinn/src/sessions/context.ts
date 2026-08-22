@@ -747,85 +747,46 @@ function buildOrgContext(
   hierarchy?: OrgHierarchy,
   jinnMcpAttached?: boolean,
 ): string | null {
-  try {
-    // GRS-017b diet: with the jinn belt attached, the pasted roster tree is
-    // replaced by a short manifest pointing at the org tools. The employee
-    // COUNT stays (cheap, orients scale); everything else is discoverable.
-    if (jinnMcpAttached && hierarchy && Object.keys(hierarchy.nodes).length > 0) {
-      const count = Object.keys(hierarchy.nodes).length;
-      return [
-        `## Organization (${count} employee(s))`,
-        `Use MCP org tools for roster, personas, and reporting lines: list_employees, find_employees, get_employee.`,
-        `Create or change employees through the company/management tools; keep normal MCP-attached company work on the tool surface.`,
-      ].join("\n");
-    }
-    if (hierarchy && Object.keys(hierarchy.nodes).length > 0) {
-      const MAX_DEPTH = 3;
-      const count = Object.keys(hierarchy.nodes).length;
-      const lines: string[] = [`## Organization (${count} employee(s))`];
+  // GRS-017b diet: with the jinn belt attached, the pasted roster tree is
+  // replaced by a short manifest pointing at the org tools. The employee
+  // COUNT stays (cheap, orients scale); everything else is discoverable.
+  if (jinnMcpAttached && hierarchy && Object.keys(hierarchy.nodes).length > 0) {
+    const count = Object.keys(hierarchy.nodes).length;
+    return [
+      `## Organization (${count} employee(s))`,
+      `Use MCP org tools for roster, personas, and reporting lines: list_employees, find_employees, get_employee.`,
+      `Create or change employees through the company/management tools; keep normal MCP-attached company work on the tool surface.`,
+    ].join("\n");
+  }
+  if (hierarchy && Object.keys(hierarchy.nodes).length > 0) {
+    const MAX_DEPTH = 3;
+    const count = Object.keys(hierarchy.nodes).length;
+    const lines: string[] = [`## Organization (${count} employee(s))`];
 
-      let deepCount = 0;
-      for (const name of hierarchy.sorted) {
-        const node = hierarchy.nodes[name];
-        if (node.depth >= MAX_DEPTH) {
-          deepCount++;
-          continue;
-        }
-        const emp = node.employee;
-        const indent = "  ".repeat(node.depth);
-        lines.push(`${indent}- **${emp.displayName}** (${name}) — ${emp.department}, ${emp.rank}`);
+    let deepCount = 0;
+    for (const name of hierarchy.sorted) {
+      const node = hierarchy.nodes[name];
+      if (node.depth >= MAX_DEPTH) {
+        deepCount++;
+        continue;
       }
-      if (deepCount > 0) {
-        lines.push(`${"  ".repeat(MAX_DEPTH)}- ... and ${deepCount} more at deeper levels`);
-      }
-
-      lines.push(
-        `\nFull persona/details: \`GET /api/org/employees/:name\` or the YAML under \`${ORG_DIR}/\`. ` +
-        `Create new employees by writing YAML files there. ` +
-        `For non-MCP maintenance, editing YAML in \`~/.jinn/org/\` is available; keep hand-editing roster files narrow and format-preserving.`,
-      );
-      return lines.join("\n");
+      const emp = node.employee;
+      const indent = "  ".repeat(node.depth);
+      lines.push(`${indent}- **${emp.displayName}** (${name}) — ${emp.department}, ${emp.rank}`);
+    }
+    if (deepCount > 0) {
+      lines.push(`${"  ".repeat(MAX_DEPTH)}- ... and ${deepCount} more at deeper levels`);
     }
 
-    // Fallback: filesystem-based flat rendering (backwards compat)
-    // Recursively collect all employee yaml files (skip department.yaml)
-    const employeeFiles: { fullPath: string; name: string }[] = [];
-
-    function scanDir(dir: string) {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          scanDir(fullPath);
-        } else if (
-          (entry.name.endsWith(".yaml") || entry.name.endsWith(".yml")) &&
-          entry.name !== "department.yaml"
-        ) {
-          employeeFiles.push({ fullPath, name: entry.name.replace(/\.ya?ml$/, "") });
-        }
-      }
-    }
-
-    scanDir(ORG_DIR);
-    if (employeeFiles.length === 0) return null;
-
-    const lines: string[] = [`## Organization (${employeeFiles.length} employee(s))`];
-    for (const { fullPath, name } of employeeFiles) {
-      const content = fs.readFileSync(fullPath, "utf-8");
-      const displayMatch = content.match(/displayName:\s*(.+)/);
-      const deptMatch = content.match(/department:\s*(.+)/);
-      const rankMatch = content.match(/rank:\s*(.+)/);
-      lines.push(`- **${displayMatch?.[1] || name}** (${name}) — ${deptMatch?.[1] || "unassigned"}, ${rankMatch?.[1] || "employee"}`);
-    }
     lines.push(
       `\nFull persona/details: \`GET /api/org/employees/:name\` or the YAML under \`${ORG_DIR}/\`. ` +
       `Create new employees by writing YAML files there. ` +
       `For non-MCP maintenance, editing YAML in \`~/.jinn/org/\` is available; keep hand-editing roster files narrow and format-preserving.`,
     );
     return lines.join("\n");
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 /**
