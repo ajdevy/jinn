@@ -1007,7 +1007,7 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 325,
+      "lines": 323,
       "exempt": [
         "complexity"
       ]
@@ -1046,7 +1046,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1044,
+      "lines": 1042,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1073,7 +1073,7 @@
       ]
     },
     "packages/jinn/src/workflows/validation.ts": {
-      "lines": 481,
+      "lines": 480,
       "exempt": [
         "complexity"
       ]
