@@ -23,10 +23,21 @@ function prefersReducedMotion(): boolean {
 export function useTitleArrival(title: string, showing: boolean): boolean {
   const seenRef = useRef<string | null>(null)
   const enteringRef = useRef(false)
+  const expiryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const dropMark = () => {
+    enteringRef.current = false
+    if (expiryRef.current !== null) clearTimeout(expiryRef.current)
+    expiryRef.current = null
+  }
 
   // Mutated during render, deliberately: the mark has to reach the very commit
   // that paints the new title, or the entrance it describes is already over.
   useMemo(() => {
+    // A mark belongs to one continuous life of the span. The moment the title
+    // leaves the bar the entrance it described is over, so the mark goes with
+    // it — otherwise the span the chips hand back mounts already carrying it.
+    if (!showing) dropMark()
     const seen = seenRef.current
     if (seen === null) return
     // Recorded even while hidden, so a swap behind the chips is already old news
@@ -34,7 +45,7 @@ export function useTitleArrival(title: string, showing: boolean): boolean {
     seenRef.current = title
     if (!showing || seen === title || prefersReducedMotion()) return
     enteringRef.current = true
-    setTimeout(() => { enteringRef.current = false }, ENTER_MARK_TTL_MS)
+    expiryRef.current = setTimeout(dropMark, ENTER_MARK_TTL_MS)
   }, [title, showing])
 
   useEffect(() => {
