@@ -194,19 +194,16 @@ export class WhatsAppConnector implements Connector {
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
-    if (!this.sock || this.connectionStatus !== "running") return;
-    try {
-      const chunks = formatResponse(text);
-      let lastId: string | undefined;
-      for (const chunk of chunks) {
-        const result = await this.sock.sendMessage(target.channel, { text: chunk });
-        if (result?.key?.id) lastId = result.key.id;
-      }
-      return lastId;
-    } catch (err) {
-      logger.error(`WhatsApp replyMessage error: ${err instanceof Error ? err.message : err}`);
+    if (!this.sock || this.connectionStatus !== "running") {
+      throw new Error("WhatsApp connector is not connected");
     }
-    return undefined;
+    const chunks = formatResponse(text);
+    let lastId: string | undefined;
+    for (const chunk of chunks) {
+      const result = await this.sock.sendMessage(target.channel, { text: chunk });
+      if (result?.key?.id) lastId = result.key.id;
+    }
+    return lastId;
   }
 
   async editMessage(_target: Target, _text: string): Promise<void> {

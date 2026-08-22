@@ -13,6 +13,7 @@ const engineAvailableMock = vi.fn<(...args: unknown[]) => boolean>();
 vi.mock("../../shared/models.js", () => ({
   engineAvailable: (...args: unknown[]) => engineAvailableMock(...args),
   effortLevelsForModel: vi.fn(() => ["low", "medium", "high"]),
+  getModelRegistry: vi.fn(() => ({})), // no map is configured here, so it is never read from
   // The chain walker's module reads both of these at load time.
   ENGINE_NAMES: ["claude", "codex", "antigravity", "grok", "pi", "hermes"],
   isKnownEngine: (name: string) => ["claude", "codex", "antigravity", "grok", "pi", "hermes"].includes(name),
@@ -131,7 +132,7 @@ describe("handleRateLimit — chain fallback for any engine", () => {
     }));
   });
 
-  it("records the limited engine and its thread id on the override, expiring at the reset", async () => {
+  it("records the limited engine, its thread id and its model on the override, expiring at the reset", async () => {
     vi.mocked(computeNextRetryDelayMs).mockReturnValue({ delayMs: 0, resumeAt: RESETS_AT });
 
     await handleRateLimit(makeOpts(vi.fn(async () => ({ result: "ok" }) as EngineResult)));
@@ -139,6 +140,7 @@ describe("handleRateLimit — chain fallback for any engine", () => {
     expect(overrideRecord()).toEqual({
       originalEngine: "codex",
       originalEngineSessionId: "codex-thread-1",
+      originalModel: "gpt-5.6-sol", // the row loses it for the duration (PLA-202)
       until: RESETS_AT.toISOString(),
       syncSince: expect.any(String),
     });

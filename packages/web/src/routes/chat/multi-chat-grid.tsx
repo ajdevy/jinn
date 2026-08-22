@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { ChatPane } from '@/components/chat/chat-pane'
 import { resolvePaneTitle, safePaneTitle } from '@/components/chat/chat-pane-title-bar'
 import { FileOpenContext } from '@/components/chat/file-open-context'
@@ -48,7 +48,6 @@ interface MultiChatGridProps {
   onPeek: (sessionId: string, peek: CommsPeekData) => void
   onNewChat: PaneProps['onNewChat']
   onRefresh: PaneProps['onRefresh']
-  onShortcutsClick: PaneProps['onShortcutsClick']
   onContentReady: PaneProps['onContentReady']
   onStartFreshChat: PaneProps['onStartFreshChat']
   pickerPane?: {
@@ -78,7 +77,10 @@ function delegatedActivityForPane(owner: MultiChatGridProps, sessionId: string |
 }
 
 function updatePaneMeta(owner: MultiChatGridProps, sessionId: string | null, update: PaneMetaUpdate): void {
-  if (sessionId) owner.onMeta(sessionId, update)
+  // The payload wins: a pane can change identity without remounting (composer
+  // adoption), so the id captured in this closure may already be a step behind.
+  const owningId = update.sessionId || sessionId
+  if (owningId) owner.onMeta(owningId, update)
   else owner.onNewMeta(update)
 }
 
@@ -152,7 +154,6 @@ function GridChatPane({
       onRefresh={owner.onRefresh}
       viewMode={viewModeForPane(owner, sessionId, cliAvailable)}
       focusTrigger={focusTriggerForPane(owner, sessionId)}
-      onShortcutsClick={owner.onShortcutsClick}
       pendingUserMessage={primary ? owner.primary.pendingUserMessage : undefined}
       onPeek={panePeek(owner, sessionId)}
       onContentReady={owner.onContentReady}
@@ -168,6 +169,26 @@ function GridChatPane({
   )
 }
 
+function MobileThreadCrossfade({ paneId, children }: { paneId: string; children: ReactNode }) {
+  return (
+    <div
+      key={paneId}
+      data-mobile-thread-pane={paneId}
+      className="flex min-h-0 flex-1 overflow-hidden animate-[jinn-mobile-chat-crossfade_var(--duration-base)_var(--ease-smooth)] motion-reduce:animate-none"
+    >
+      {children}
+    </div>
+  )
+}
+
+function maybeCrossfadeMobileThread(mobile: boolean | undefined, paneId: string, grid: ReactNode): ReactNode {
+  return mobile ? <MobileThreadCrossfade paneId={paneId}>{grid}</MobileThreadCrossfade> : grid
+}
+
+function focusedGridId(primaryKey: string, primarySessionId: string | null, focusedId: string | null): string {
+  return !primarySessionId || focusedId === primarySessionId ? primaryKey : focusedId ?? primaryKey
+}
+
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
   const mobilePickerKey = props.viewport.mobile ? props.pickerPane?.paneKey : undefined
@@ -178,16 +199,12 @@ export function MultiChatGrid(props: MultiChatGridProps) {
     pickerPaneKey: props.pickerPane?.paneKey,
     mobile: props.viewport.mobile,
   })
-  const focusedGridId = mobilePickerKey ?? (
-    !props.primary.sessionId || props.focusedId === props.primary.sessionId
-      ? primaryKey
-      : props.focusedId
-  )
+  const focusedGridIdValue = mobilePickerKey ?? focusedGridId(primaryKey, props.primary.sessionId, props.focusedId)
 
-  return (
+  const grid = (
     <ChatGrid
       sessionIds={gridIds}
-      focusedId={focusedGridId}
+      focusedId={focusedGridIdValue}
       width={props.viewport.width}
       height={props.viewport.height}
       onFocus={(gridId) => {
@@ -197,4 +214,5 @@ export function MultiChatGrid(props: MultiChatGridProps) {
       renderPane={(gridId, active) => <GridChatPane gridId={gridId} active={active} owner={props} multiPane={gridIds.length > 1} />}
     />
   )
+  return maybeCrossfadeMobileThread(props.viewport.mobile, focusedGridIdValue, grid)
 }

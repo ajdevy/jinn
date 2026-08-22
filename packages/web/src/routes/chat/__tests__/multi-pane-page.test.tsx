@@ -35,12 +35,10 @@ describe('the routed multi-pane surface', () => {
     apiMocks.createSession.mockClear()
     seedWorkingSet()
   })
-
   afterEach(() => {
     pickerLayout?.release()
     pickerLayout = null
   })
-
   const installPickerLayout = () => {
     pickerLayout = installVirtualLayout(44, 360, {
       scroller: '[data-testid="session-picker-scroll"]',
@@ -252,11 +250,10 @@ describe('the routed multi-pane surface', () => {
       focusHistory: ['a', 'b'],
     }))
     renderRoute()
-
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
     expect(pane('a').textContent).toContain('transcript-a')
     const chipOrder = () => Array.from(document.querySelectorAll('[data-mobile-working-set-chip]')).map((node) => node.getAttribute('data-mobile-working-set-chip'))
-    expect(chipOrder()).toEqual(sessionIds)
+    await waitFor(() => expect(chipOrder()).toEqual(sessionIds))
 
     fireEvent.click(await screen.findByRole('button', { name: /Title d/ }))
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
@@ -271,6 +268,7 @@ describe('the routed multi-pane surface', () => {
     renderRoute()
 
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+    await waitFor(() => expect(document.querySelectorAll('[data-mobile-working-set-chip]')).toHaveLength(sessionIds.length))
     const activeBefore = pane('a').textContent
     const chipsBefore = sessionIds.map((id) => document.querySelector(`[data-mobile-working-set-chip="${id}"]`))
 

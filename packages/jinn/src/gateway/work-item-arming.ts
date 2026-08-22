@@ -38,6 +38,10 @@ export function workItemActor(caller: WorkItemCaller): string {
  * `operator` for the trigger, and its `detail.asOperator` names the session that
  * actually made the call.
  *
+ * A granted claim carries the operator's AUTHORITY too, not only their name:
+ * the status route passes `human` into `transition()` for it, which is what
+ * lets the COO release a sticky terminal on the operator's instruction.
+ *
  * `resolveArmingDelegate()` below reaches the same trigger by a deliberately
  * narrower road: it rewrites no actor, applies only to `assigned`, and is
  * granted per employee by config rather than inferred from session shape. An

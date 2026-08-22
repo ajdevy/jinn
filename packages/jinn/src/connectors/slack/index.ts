@@ -397,7 +397,10 @@ export class SlackConnector implements Connector {
       this.handler(msg);
     });
 
-    await this.app.start();
+    await this.app.start().catch((err: unknown) => {
+      this.lastError = err instanceof Error ? err.message : String(err);
+      throw err;
+    });
     this.started = true;
     this.lastError = null;
     logger.info("Slack connector started (socket mode)");
@@ -430,46 +433,38 @@ export class SlackConnector implements Connector {
     };
   }
 
-  async sendMessage(target: Target, text: string): Promise<string | undefined> {
-    if (!text || !text.trim()) return undefined;
+  /**
+   * Post the formatted chunks of `text`, optionally into a thread.
+   * Resolves with the last chunk's ts (delivered); rejects if a chunk failed to land.
+   */
+  private async post(op: string, channel: string, text: string, threadTs?: string): Promise<string | undefined> {
     try {
-      const chunks = formatResponse(text);
       let lastTs: string | undefined;
-      for (const chunk of chunks) {
+      for (const chunk of formatResponse(text)) {
         if (!chunk.trim()) continue;
         const res = await this.app.client.chat.postMessage({
-          channel: target.channel,
-          text: chunk,
+          channel, ...(threadTs ? { thread_ts: threadTs } : {}), text: chunk,
         });
         lastTs = res.ts;
       }
+      this.lastError = null;
       return lastTs;
     } catch (err) {
-      logger.error(`Slack sendMessage error: ${err instanceof Error ? err.message : err}`);
-      return undefined;
+      this.lastError = err instanceof Error ? err.message : String(err);
+      logger.error(`Slack ${op} error: ${this.lastError}`);
+      throw err;
     }
+  }
+
+  async sendMessage(target: Target, text: string): Promise<string | undefined> {
+    if (!text || !text.trim()) return undefined;
+    return this.post("sendMessage", target.channel, text);
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
     if (!text || !text.trim()) return undefined;
-    try {
-      const threadTs = target.thread || target.messageTs;
-      const chunks = formatResponse(text);
-      let lastTs: string | undefined;
-      for (const chunk of chunks) {
-        if (!chunk.trim()) continue;
-        const res = await this.app.client.chat.postMessage({
-          channel: target.channel,
-          thread_ts: threadTs,
-          text: chunk,
-        });
-        lastTs = res.ts;
-      }
-      return lastTs;
-    } catch (err) {
-      logger.error(`Slack replyMessage error: ${err instanceof Error ? err.message : err}`);
-      return undefined;
-    }
+    const threadTs = target.thread || target.messageTs;
+    return this.post("replyMessage", target.channel, text, threadTs);
   }
 
   async addReaction(target: Target, emoji: string) {

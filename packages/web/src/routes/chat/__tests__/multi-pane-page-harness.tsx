@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
-import { useEffect } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
 import ChatPageWrapper from '../page'
@@ -72,13 +71,46 @@ vi.mock('@/components/page-layout', () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-vi.mock('@/components/chat/chat-sidebar', () => ({
-  ChatSidebar: ({ onNewChat, onOrderComputed }: { onNewChat: () => void; onOrderComputed?: (order: unknown) => void }) => {
-    useEffect(() => onOrderComputed?.({ sessionIds, employeeNames: [], employeeSessionMap: {} }), [onOrderComputed])
-    return <div data-testid="chat-sidebar"><button type="button" onClick={onNewChat}>Start empty chat</button></div>
-  },
-  pickDeleteFallbackId: () => null,
-}))
+/** The sidebar reduced to what the route reacts to: the loaded session list it
+ *  primes the newest chat from, the computed order the pane suites navigate by,
+ *  the rows the operator taps, and the two ways into the composer. Rows and the
+ *  roster contact hang off the mobile instance only, so the desktop suites keep
+ *  the surface they were written against. */
+vi.mock('@/components/chat/chat-sidebar', async () => {
+  const { useEffect, useRef } = await import('react')
+  return {
+    ChatSidebar: ({ variant, onNewChat, onSelect, onSessionsLoaded, onOrderComputed, onContactEmployee }: {
+      variant?: string
+      onNewChat: () => void
+      onSelect: (id: string) => void
+      onSessionsLoaded?: (sessions: { id: string }[]) => void
+      onOrderComputed?: (order: unknown) => void
+      onContactEmployee?: (name: string) => void
+    }) => {
+      const announced = useRef(false)
+      useEffect(() => {
+        if (variant !== 'mobile' || announced.current) return
+        announced.current = true
+        onSessionsLoaded?.(sessionIds.map((id) => ({ id })))
+      })
+      useEffect(() => {
+        onOrderComputed?.({ sessionIds, employeeNames: [], employeeSessionMap: {} })
+      }, [onOrderComputed])
+      return (
+        <div data-testid="chat-sidebar">
+          <button type="button" onClick={onNewChat}>Start empty chat</button>
+          {variant === 'mobile' && sessionIds.map((id) => (
+            <button key={id} type="button" data-testid={`list-row-${id}`} onClick={() => onSelect(id)} />
+          ))}
+          {variant === 'mobile' && (
+            <button type="button" data-testid="contact-employee" onClick={() => onContactEmployee?.('alpha')} />
+          )}
+        </div>
+      )
+    },
+    pickDeleteFallbackId: () => null,
+  }
+})
 
 vi.mock('@/hooks/use-chat-tabs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/use-chat-tabs')>()

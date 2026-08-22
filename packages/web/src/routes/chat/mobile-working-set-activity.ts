@@ -53,7 +53,34 @@ function retainedMobileSlots(
   return slots
 }
 
-function seatRequiredMobileIds(slots: Array<string | undefined>, requiredIds: readonly string[]) {
+/** How long ago a slot was opened, largest first. A chat the operator has never
+ *  opened ranks behind every one they have, and equal staleness falls to the
+ *  trailing slot so an untouched strip keeps evicting from the end. */
+function evictableSlotIndex(
+  slots: ReadonlyArray<string | undefined>,
+  requiredIds: ReadonlySet<string>,
+  touchOrder: readonly string[],
+): number {
+  let victim = -1
+  let victimStaleness = -1
+  for (let index = 0; index < slots.length; index += 1) {
+    const id = slots[index]
+    if (!id || requiredIds.has(id)) continue
+    const touchedAt = touchOrder.indexOf(id)
+    const staleness = touchedAt < 0 ? touchOrder.length : touchedAt
+    if (staleness >= victimStaleness) {
+      victim = index
+      victimStaleness = staleness
+    }
+  }
+  return victim
+}
+
+function seatRequiredMobileIds(
+  slots: Array<string | undefined>,
+  requiredIds: readonly string[],
+  touchOrder: readonly string[],
+) {
   const requiredSet = new Set(requiredIds)
   for (const id of requiredIds) {
     if (slots.includes(id)) continue
@@ -62,8 +89,7 @@ function seatRequiredMobileIds(slots: Array<string | undefined>, requiredIds: re
       slots[vacancy] = id
       continue
     }
-    let replaceIndex = slots.length - 1
-    while (replaceIndex >= 0 && requiredSet.has(slots[replaceIndex] ?? '')) replaceIndex -= 1
+    const replaceIndex = evictableSlotIndex(slots, requiredSet, touchOrder)
     if (replaceIndex >= 0) slots[replaceIndex] = id
   }
 }
@@ -81,11 +107,22 @@ function fillMobileSlotVacancies(
   }
 }
 
+/**
+ * The four fixed mobile slots.
+ *
+ * `touchOrder` is the chats the operator has opened, most recent first. It
+ * outranks `sessions` — which arrives in gateway last-activity order — for both
+ * seating and eviction, so a chat an agent happens to be streaming into cannot
+ * take the slot of one the reader opened. Recency governs membership only:
+ * slots that survive keep their index, which is what makes the strip a place
+ * rather than a feed.
+ */
 export function mobileWorkingSetIds(
   memberIds: readonly string[],
   sessions: ReadonlyArray<{ id?: unknown }>,
   previousIds: readonly string[] = [],
   focusedId: string | null = null,
+  touchOrder: readonly string[] = [],
 ): string[] {
   const sessionIds = sessions.map((session) => String(session.id ?? '')).filter(Boolean)
   const availableIds = new Set(sessionIds)
@@ -93,8 +130,8 @@ export function mobileWorkingSetIds(
   const requiredIds = [...new Set([focusedId, ...memberIds])]
     .filter((id): id is string => !!id && availableIds.has(id))
     .slice(0, slots.length)
-  seatRequiredMobileIds(slots, requiredIds)
-  fillMobileSlotVacancies(slots, [...memberIds, ...sessionIds], availableIds)
+  seatRequiredMobileIds(slots, requiredIds, touchOrder)
+  fillMobileSlotVacancies(slots, [...memberIds, ...touchOrder, ...sessionIds], availableIds)
   return slots.filter((id): id is string => !!id)
 }
 

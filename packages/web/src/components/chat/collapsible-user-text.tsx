@@ -22,6 +22,38 @@ export function shouldCollapse(
   return fullHeight > threshold + slack
 }
 
+/** How a bubble renders, for a measured height and a collapse flag. */
+export interface CollapseState {
+  /** The clamp to render at. Absent when the bubble is short enough to skip one. */
+  maxHeight?: string
+  /** Clamped on a height we have actually measured — the only state the fade belongs in. */
+  faded: boolean
+  /** Measured and long enough to have earned its control. */
+  offersToggle: boolean
+}
+
+/**
+ * Resolve that state. Pure, so the rule lives in one readable place.
+ *
+ * `fullHeight` is 0 until the first measurement lands, and a windowed transcript
+ * remounts this row every time it re-enters the window, so that happens over and
+ * over. Rendering unclamped in the meantime would put the whole paste into the
+ * layout for one commit and take it back on the next, moving everything below it
+ * under a reader who only scrolled — so an unmeasured bubble rests clamped
+ * instead. max-height is a bound, not a height: one shorter than the clamp still
+ * renders at its own height, and one longer is already where it will settle.
+ */
+export function collapseState(fullHeight: number, collapsed: boolean): CollapseState {
+  const measured = fullHeight > 0
+  if (!(measured ? shouldCollapse(fullHeight) : collapsed)) return { faded: false, offersToggle: false }
+  return {
+    // +8px buffer absorbs sub-pixel/last-line rounding so expanded never clips.
+    maxHeight: collapsed ? `${USER_COLLAPSE_PX}px` : `${fullHeight + 8}px`,
+    faded: measured && collapsed,
+    offersToggle: measured,
+  }
+}
+
 // Bottom-edge fade for the collapsed state. A mask (alpha, not color) fades the
 // text into the bubble's own --accent-fill background, so it is theme-aware for
 // free — no hardcoded rgba, works identically in dark and light.
@@ -75,37 +107,36 @@ function ShowMoreToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   )
 }
 
-// Wraps the user bubble's formatted content. Measures the rendered height; when
-// it exceeds the threshold it clamps + fades the bottom edge and reveals a quiet
-// "Show more / Show less" text control. Height animates via max-height + the
-// smooth easing token; reduced-motion snaps with no animation. The collapsed
-// flag is keyed by message id so it outlives the row leaving the virtual window.
+// Wraps the user bubble's formatted content. Renders clamped until it has
+// measured itself, then keeps the clamp and its bottom-edge fade only if the
+// content is long enough to earn a quiet "Show more / Show less" text control.
+// Height animates via max-height + the smooth easing token; reduced-motion snaps
+// with no animation. The collapsed flag is keyed by message id so it outlives
+// the row leaving the virtual window.
 export function CollapsibleUserText({ messageId, children }: { messageId: string; children: React.ReactNode }) {
   const [contentRef, fullHeight] = useFullHeight(children)
   const [collapsed, setCollapsed] = usePersistentExpansion(`collapsed:${messageId}`, true)
   const reducedMotion = usePrefersReducedMotion()
 
-  const needsCollapse = shouldCollapse(fullHeight)
-  const clamped = needsCollapse && collapsed
-  // +8px buffer absorbs sub-pixel/last-line rounding so expanded never clips.
-  const expandedHeight = `${fullHeight + 8}px`
+  const { maxHeight, faded, offersToggle } = collapseState(fullHeight, collapsed)
 
   return (
     <>
       <div
         ref={contentRef}
         style={{
-          maxHeight: needsCollapse ? (collapsed ? `${USER_COLLAPSE_PX}px` : expandedHeight) : undefined,
-          overflow: needsCollapse ? 'hidden' : undefined,
-          transition:
-            needsCollapse && !reducedMotion ? 'max-height 320ms var(--ease-smooth)' : undefined,
-          maskImage: clamped ? COLLAPSE_FADE_MASK : undefined,
-          WebkitMaskImage: clamped ? COLLAPSE_FADE_MASK : undefined,
+          maxHeight,
+          overflow: maxHeight ? 'hidden' : undefined,
+          // Only once measured: animating would otherwise play the first settle
+          // as though the reader had tapped for it.
+          transition: offersToggle && !reducedMotion ? 'max-height 320ms var(--ease-smooth)' : undefined,
+          maskImage: faded ? COLLAPSE_FADE_MASK : undefined,
+          WebkitMaskImage: faded ? COLLAPSE_FADE_MASK : undefined,
         }}
       >
         {children}
       </div>
-      {needsCollapse && <ShowMoreToggle collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />}
+      {offersToggle && <ShowMoreToggle collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />}
     </>
   )
 }

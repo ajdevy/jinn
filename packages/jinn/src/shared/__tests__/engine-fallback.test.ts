@@ -3,9 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
-import { applyLegacyFallbackMigration, resolveFallbackEngine } from "../engine-fallback.js";
+import {
+  applyLegacyFallbackMigration, resolveFallbackEngine, resolveSubstituteModel, validateEngineFallbackModelMaps,
+} from "../engine-fallback.js";
+import { logger } from "../logger.js";
 import { ENGINE_NAMES, type EngineName } from "../models.js";
-import type { JinnConfig } from "../types.js";
+import type { JinnConfig, ModelRegistry } from "../types.js";
 
 /** A loaded config, as `loadConfig` hands it to the migration. */
 function configWith(
@@ -111,6 +114,130 @@ describe("engines.<name>.fallback round-trip", () => {
 
     saveConfigAtomic(loaded);
     expect(loadConfig().engines.claude.fallback).toEqual(["codex", "grok"]);
+  });
+
+  it("refuses to load a config whose model map is malformed, the same way a bad chain is refused", async () => {
+    const { loadConfig } = await import("../config.js");
+    fs.writeFileSync(path.join(tmpHome, "config.yaml"), yaml.dump({
+      gateway: { port: 7778, host: "127.0.0.1" },
+      engines: {
+        default: "claude",
+        claude: { bin: "claude", model: "opus" },
+        codex: { bin: "codex", model: "gpt-5.5", fallbackModelMap: ["haiku"] },
+      },
+    }));
+
+    expect(() => loadConfig()).toThrow(/engines\.codex\.fallbackModelMap/);
+  });
+
+  it("loads a valid map verbatim, and an absent one as absent", async () => {
+    const { loadConfig } = await import("../config.js");
+    fs.writeFileSync(path.join(tmpHome, "config.yaml"), yaml.dump({
+      gateway: { port: 7778, host: "127.0.0.1" },
+      engines: {
+        default: "claude",
+        claude: { bin: "claude", model: "opus" },
+        codex: { bin: "codex", model: "gpt-5.5", fallbackModelMap: { "gpt-5.6-luna": "haiku" } },
+      },
+    }));
+
+    const loaded = loadConfig();
+    expect(loaded.engines.codex.fallbackModelMap).toEqual({ "gpt-5.6-luna": "haiku" });
+    expect(loaded.engines.claude.fallbackModelMap).toBeUndefined();
+  });
+});
+
+describe("validateEngineFallbackModelMaps", () => {
+  it("accepts an absent map and a well-formed one", () => {
+    expect(validateEngineFallbackModelMaps({ codex: { bin: "codex", model: "gpt-5.5" } })).toEqual([]);
+    expect(validateEngineFallbackModelMaps({
+      codex: { fallbackModelMap: { "gpt-5.6-luna": "haiku", "gpt-5.6-sol": "opus" } },
+    })).toEqual([]);
+  });
+
+  it("refuses a map that is not a mapping, naming the config path", () => {
+    expect(validateEngineFallbackModelMaps({ codex: { fallbackModelMap: ["haiku"] } }))
+      .toEqual(["engines.codex.fallbackModelMap must be a mapping of model id to model id (got array)"]);
+    expect(validateEngineFallbackModelMaps({ codex: { fallbackModelMap: "haiku" } }))
+      .toEqual(["engines.codex.fallbackModelMap must be a mapping of model id to model id (got string)"]);
+  });
+
+  it("refuses a value that is not a model id, naming the entry it came from", () => {
+    // YAML hands every key over as a string, so a key that is not a model id is a blank one.
+    expect(validateEngineFallbackModelMaps({ claude: { fallbackModelMap: { opus: 3 } } }))
+      .toEqual(['engines.claude.fallbackModelMap["opus"] must be a nonempty model id (got number)']);
+    expect(validateEngineFallbackModelMaps({ claude: { fallbackModelMap: { opus: "  " } } }))
+      .toEqual(['engines.claude.fallbackModelMap["opus"] must be a nonempty model id (got string)']);
+  });
+
+  it("refuses a blank model id as a key, naming the config path", () => {
+    expect(validateEngineFallbackModelMaps({ claude: { fallbackModelMap: { "  ": "opus" } } }))
+      .toEqual(["engines.claude.fallbackModelMap has a blank model id as a key"]);
+  });
+
+  it("reports every bad entry rather than stopping at the first", () => {
+    const problems = validateEngineFallbackModelMaps({
+      claude: { fallbackModelMap: { opus: 3 } },
+      codex: { fallbackModelMap: { "gpt-5.5": null } },
+    });
+    expect(problems).toHaveLength(2);
+    expect(problems[0]).toContain("engines.claude.fallbackModelMap");
+    expect(problems[1]).toContain("engines.codex.fallbackModelMap");
+  });
+});
+
+describe("resolveSubstituteModel", () => {
+  /** Claude as the registry reports it: the only two models a substitution may land on. */
+  const registry = {
+    claude: {
+      name: "claude", available: true, defaultModel: "opus", effortMechanism: "claude-flag",
+      models: [
+        { id: "opus", label: "Opus", supportsEffort: true, effortLevels: ["high"] },
+        { id: "haiku", label: "Haiku", supportsEffort: true, effortLevels: ["high"] },
+      ],
+    },
+  } as unknown as ModelRegistry;
+
+  /** A config whose codex block carries the map under test, and nothing else. */
+  function withMap(fallbackModelMap?: Record<string, string>): JinnConfig {
+    return {
+      engines: {
+        default: "claude",
+        claude: { bin: "claude", model: "opus" },
+        codex: { bin: "codex", model: "gpt-5.6-sol", fallbackModelMap },
+      },
+    } as unknown as JinnConfig;
+  }
+
+  const swap = { from: "codex", to: "claude" };
+
+  it("drops a pin no map mentions, leaving the substitute on its own default", () => {
+    expect(resolveSubstituteModel(withMap(), registry, { ...swap, model: "gpt-5.6-luna" })).toBeUndefined();
+    expect(resolveSubstituteModel(withMap({ "gpt-5.6-sol": "opus" }), registry, { ...swap, model: "gpt-5.6-luna" }))
+      .toBeUndefined();
+  });
+
+  it("carries a mapped pin the substitute actually serves", () => {
+    expect(resolveSubstituteModel(withMap({ "gpt-5.6-luna": "haiku" }), registry, { ...swap, model: "gpt-5.6-luna" }))
+      .toBe("haiku");
+  });
+
+  it("drops a mapped id the substitute does not serve, and says which entry it came from", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    expect(resolveSubstituteModel(withMap({ "gpt-5.6-luna": "gpt-5.6-luna" }), registry, { ...swap, model: "gpt-5.6-luna" }))
+      .toBeUndefined();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("engines.codex.fallbackModelMap");
+    expect(warn.mock.calls[0][0]).toContain("gpt-5.6-luna");
+    warn.mockRestore();
+  });
+
+  it("resolves nothing for a turn that was never pinned", () => {
+    const map = withMap({ "gpt-5.6-luna": "haiku" });
+    expect(resolveSubstituteModel(map, registry, { ...swap, model: null })).toBeUndefined();
+    expect(resolveSubstituteModel(map, registry, { ...swap, model: undefined })).toBeUndefined();
   });
 });
 

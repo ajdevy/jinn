@@ -107,17 +107,13 @@ interface ChatInputProps {
   onDroppedFilesConsumed?: () => void
   /** Incrementing counter that triggers textarea focus when changed */
   focusTrigger?: number
-  /** Callback to open keyboard shortcuts overlay */
-  onShortcutsClick?: () => void
   /** Optional Engine/Model/Effort selector row, rendered just above the input. */
   selectorSlot?: React.ReactNode
   /** Optional ambient status (e.g. background-activity StateLine), rendered in
    *  the toolbar's flexible middle so it never shifts layout. */
   statusSlot?: React.ReactNode
-  /** Optional compact terminal controls rendered with the helper hints on desktop. */
+  /** Optional terminal-key control, rendered in the toolbar beside the mic. */
   terminalActionsSlot?: React.ReactNode
-  /** Optional compact terminal controls rendered as a tucked icon on mobile. */
-  mobileTerminalActionsSlot?: React.ReactNode
 }
 
 /* ── File to MediaAttachment ─────────────────────────────── */
@@ -192,11 +188,9 @@ export function ChatInput({
   droppedFiles,
   onDroppedFilesConsumed,
   focusTrigger,
-  onShortcutsClick,
   selectorSlot,
   statusSlot,
   terminalActionsSlot,
-  mobileTerminalActionsSlot,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -821,7 +815,7 @@ export function ChatInput({
           onChange={handleFileAttach}
         />
 
-        {/* Toolbar: [+ attach] · [model chip] · spacer · [mic] · [send] */}
+        {/* Toolbar: [+ attach] · [model chip] · spacer · [terminal keys] · [mic] · [send] */}
         <div className="flex items-center gap-[var(--space-2)]">
           {/* Attach */}
           <button
@@ -869,6 +863,15 @@ export function ChatInput({
             >
               {stt.selectedLanguage}
             </button>
+          )}
+
+          {/* Terminal keys — only in the CLI view, where they have something to
+              send. Sits with the mic so both read as one cluster of composer
+              controls. */}
+          {terminalActionsSlot && (
+            <div className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+              {terminalActionsSlot}
+            </div>
           )}
 
           {/* Voice input / STT button — tap-and-hold = push-to-talk, quick tap =
@@ -1000,34 +1003,6 @@ export function ChatInput({
           })()}
         </div>
       </div>
-
-      {/* Slim helper row — shortcuts + terminal access (CLI view). Quiet; the
-          command/mention hints were dropped (discoverable by typing / or @).
-          Shortcuts sits LAST so it always hugs the right edge; the terminal-keys
-          hint only occupies space (to its left) when the CLI view is active, so
-          chat mode has no reserved/wasted gap and toggling to CLI never shifts
-          shortcuts. */}
-      {(onShortcutsClick || terminalActionsSlot || mobileTerminalActionsSlot) && (
-        <div className="flex items-center justify-end gap-[var(--space-3)] mt-1.5 px-1.5 min-w-0">
-          {terminalActionsSlot && (
-            <span className="hidden sm:flex items-center text-[length:var(--text-caption2)] text-[var(--text-quaternary)]">
-              {terminalActionsSlot}
-            </span>
-          )}
-          {mobileTerminalActionsSlot && (
-            <div className="flex items-center sm:hidden">{mobileTerminalActionsSlot}</div>
-          )}
-          {onShortcutsClick && (
-            <button
-              onClick={onShortcutsClick}
-              className="hidden sm:flex items-center gap-1 text-[length:var(--text-caption2)] text-[var(--text-quaternary)] hover:text-[var(--text-tertiary)] transition-colors bg-transparent border-none cursor-pointer p-0 font-[inherit]"
-            >
-              <kbd className="font-mono text-[10px] leading-none not-italic">?</kbd>
-              <span>shortcuts</span>
-            </button>
-          )}
-        </div>
-      )}
 
       {/* STT error banner */}
       {stt.state === 'error' && stt.error && (

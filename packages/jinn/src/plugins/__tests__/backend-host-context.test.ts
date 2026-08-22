@@ -216,7 +216,7 @@ describe("what a plugin gets back from each new verb", () => {
     await reconcilePluginWatchers(() => config);
 
     expect((await verbResults())["cron.runs"]).toEqual([
-      { id: "run-9", jobId: "digest", status: "success", durationMs: 1200 },
+      { status: "success", durationMs: 1200 },
     ]);
   });
 });

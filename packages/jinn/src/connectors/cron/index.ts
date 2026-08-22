@@ -49,11 +49,11 @@ export class CronConnector implements Connector {
     };
   }
 
-  async sendMessage(target: Target, text: string): Promise<string | void> {
+  async sendMessage(target: Target, text: string): Promise<string | undefined> {
     return this.forward(target, text, false);
   }
 
-  async replyMessage(target: Target, text: string): Promise<string | void> {
+  async replyMessage(target: Target, text: string): Promise<string | undefined> {
     return this.forward(target, text, true);
   }
 
@@ -73,7 +73,7 @@ export class CronConnector implements Connector {
    *  the session manager directly. This exists as an outbound reply channel. */
   onMessage(_handler: (msg: IncomingMessage) => void): void {}
 
-  private async forward(target: Target, text: string, asReply: boolean): Promise<string | void> {
+  private async forward(target: Target, text: string, asReply: boolean): Promise<string | undefined> {
     if (!this.delivery) return undefined;
 
     const connector = this.connectors.get(this.delivery.connector);

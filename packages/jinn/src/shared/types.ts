@@ -250,14 +250,14 @@ export interface Connector {
   getCapabilities(): ConnectorCapabilities;
   getHealth(): ConnectorHealth;
   reconstructTarget(replyContext: ReplyContext): Target;
-  sendMessage(target: Target, text: string): Promise<string | void>;
-  replyMessage(target: Target, text: string): Promise<string | void>;
+  /** Resolve = delivered (`undefined` = no provider message id); reject = the message did not land. */
+  sendMessage(target: Target, text: string): Promise<string | undefined>;
+  replyMessage(target: Target, text: string): Promise<string | undefined>;
   addReaction(target: Target, emoji: string): Promise<void>;
   removeReaction(target: Target, emoji: string): Promise<void>;
   editMessage(target: Target, text: string): Promise<void>;
   setTypingStatus?(channelId: string, threadTs: string | undefined, status: string): Promise<void>;
   onMessage(handler: (msg: IncomingMessage) => void): void;
-  /** Return the bound employee name, if any */
   getEmployee?(): string | undefined;
 }
 

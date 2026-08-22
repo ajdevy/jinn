@@ -20,6 +20,7 @@ import {
 
 createTestHome("jinn-connector-receipts-");
 const dbModule = await import("../../shared/db.js");
+const { createConnectorTurnSurface } = await import("../turn/connector-surface.js");
 
 const notifyParentSession = vi.fn();
 vi.mock("../callbacks.js", async (importOriginal) => {
@@ -135,5 +136,41 @@ describe("connector-path terminal receipts", () => {
       cost: 0.5,
       durationMs: 1234,
     });
+  });
+
+  it("settles the turn without letting a rejected reply escape the surface", async () => {
+    const emit = vi.fn();
+    const manager = managerWith([engineResult({ result: "the answer" })]);
+    manager.setGatewayEmitter(emit);
+
+    const connector = connectorStub();
+    const reply = vi.fn(async () => { throw new Error("connector offline"); });
+    connector.replyMessage = reply as never;
+
+    const key = `stub:reply-rejects-${Math.random().toString(16).slice(2)}`;
+    const routed = await manager.route(connectorMessage(key, "probe"), connector, { employee: employee as never });
+    const id = routed!.sessionId;
+    await eventually(() => reply.mock.calls.length > 0 && registry.getSession(id)?.status === "idle", 40_000);
+
+    // The rejection is contained: one terminal receipt, one completion, nothing thrown.
+    expect(registry.getSession(id)!.attemptOutcome).toBe("succeeded");
+    expect(emit.mock.calls.filter(([event]) => event === "session:completed")).toHaveLength(1);
+  }, 60_000);
+
+  it("reports a reply that never landed as the completion's error", async () => {
+    const emit = vi.fn();
+    const connector = connectorStub();
+    connector.replyMessage = (async () => { throw new Error("connector offline"); }) as never;
+    const session = { id: "s-1", employee: EMPLOYEE, title: "t" } as never;
+    const surface = createConnectorTurnSurface({
+      connector, target: { channel: "c1" }, session, config: testConfig(), decorate: false, emit,
+    });
+
+    // `reply` is no-throw, so the answer that never landed shows up on the receipt instead.
+    await expect(surface.reply("the answer")).resolves.toBeUndefined();
+    await surface.settled({ session, result: "the answer", error: null });
+
+    const [, payload] = emit.mock.calls.find(([event]) => event === "session:completed")!;
+    expect((payload as { error: string | null }).error).toBe("connector offline");
   });
 });

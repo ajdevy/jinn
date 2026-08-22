@@ -44,7 +44,7 @@ interface ChatPaneProps {
   /** If set on mount, used as the initial user message before loadSession resolves — for the just-created-from-new-chat case. */
   pendingUserMessage?: Message
   /** Notify parent when session meta changes */
-  onSessionMetaChange?: (meta: { title?: string; employee?: string; engine?: string; engineSessionId?: string; model?: string; archivedAt?: string | null }) => void
+  onSessionMetaChange?: (meta: { sessionId?: string; title?: string; employee?: string; engine?: string; engineSessionId?: string; model?: string; archivedAt?: string | null }) => void
   /** Notify parent to refresh sidebar */
   onRefresh?: () => void
   /** Portal name from settings */
@@ -62,8 +62,6 @@ interface ChatPaneProps {
   viewMode?: 'chat' | 'cli'
   /** Incrementing counter that triggers input focus */
   focusTrigger?: number
-  /** Callback to open keyboard shortcuts overlay */
-  onShortcutsClick?: () => void
   /** Pre-selected employee for a NEW chat (e.g. contacting a session-less employee or an ?employee= deep-link). */
   initialEmployee?: string | null
   /** Ask the page-owned stable read-only preview controller to open. */
@@ -99,7 +97,6 @@ export function ChatPane({
   events,
   viewMode = 'chat',
   focusTrigger,
-  onShortcutsClick,
   pendingUserMessage,
   initialEmployee,
   onPeek,
@@ -552,7 +549,6 @@ export function ChatPane({
         droppedFiles={fileDrop.droppedFiles}
         onDroppedFilesConsumed={fileDrop.clearDroppedFiles}
         focusTrigger={focusTrigger}
-        onShortcutsClick={onShortcutsClick}
         statusSlot={
           // Background-work StateLine — the session is officially idle but
           // subagents / background tasks are still running. Informational only
@@ -582,11 +578,6 @@ export function ChatPane({
           />
         }
         terminalActionsSlot={
-          viewMode === 'cli' && sessionId ? (
-            <CliKeybar variant="hint" onKey={(data) => cliTerminalRef.current?.sendKey(data)} />
-          ) : undefined
-        }
-        mobileTerminalActionsSlot={
           viewMode === 'cli' && sessionId ? (
             <CliKeybar onKey={(data) => cliTerminalRef.current?.sendKey(data)} />
           ) : undefined

@@ -214,3 +214,29 @@ describe("GET /api/work-items and /api/search/work-items — pagination, totals,
     expect(cap.body.error).toMatch(message);
   });
 });
+
+describe("GET /api/work-items — the match reason on a searched page", () => {
+  it("carries field, commentId and snippet over HTTP, and omits them without a query", async () => {
+    const comments = await import("../../work-items/comment-add.js");
+    const wi = store.createWorkItem({ title: "Route match reason", body: "Nothing findable here." });
+    const comment = comments.addComment({
+      workItemId: wi.id,
+      body: "Hidden sporangiferous reason.",
+      author: "operator",
+      authorKind: "operator",
+    });
+
+    const searched = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/work-items?q=sporangiferous&limit=100"), searched.res, ctx);
+    expect(searched.status).toBe(200);
+    expect(searched.body.workItems.map((item: { id: string }) => item.id)).toEqual([wi.id]);
+    expect(searched.body.matches[wi.id]).toEqual([
+      { field: "comment", commentId: comment.id, snippet: expect.stringContaining("<mark>sporangiferous</mark>") },
+    ]);
+
+    const unsearched = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/work-items?limit=1"), unsearched.res, ctx);
+    expect(unsearched.status).toBe(200);
+    expect("matches" in unsearched.body).toBe(false);
+  });
+});

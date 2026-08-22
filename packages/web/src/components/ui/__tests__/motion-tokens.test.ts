@@ -24,6 +24,7 @@ const TOUCHED = [
   "components/peek/peek-panel.tsx",
   "components/pill-nav.tsx",
   "components/chat/mobile-tab-bar.tsx",
+  "components/chat/chat-tabs.tsx",
 ]
 
 /** The subset of those that open and close, and so owe both halves. */
