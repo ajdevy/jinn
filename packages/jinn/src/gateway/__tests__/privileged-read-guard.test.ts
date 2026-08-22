@@ -35,6 +35,7 @@ const READ_ROUTES = [
   { method: "GET", path: "/api/sessions/nope/transcript", label: "session transcript" },
   { method: "GET", path: "/api/search/sessions?employee=worker", label: "sessions search" },
   { method: "GET", path: "/api/search/messages?q=needle", label: "messages search" },
+  { method: "GET", path: "/api/search/global?q=needle", label: "global search" },
   { method: "GET", path: "/api/knowledge/search?q=needle", label: "knowledge search" },
   { method: "GET", path: "/api/knowledge/read?path=knowledge/demo.md", label: "knowledge read" },
   { method: "GET", path: "/api/cost/report", label: "cost report" },

@@ -39,13 +39,9 @@ import {
   getSessionGroupCounts,
   coercePortalEmployee,
   searchSessions,
-  searchMessages,
-  searchSessionsFiltered,
   getMessageContext,
   getCostReport,
   MESSAGE_CONTEXT_MAX_RADIUS,
-  type MessageSearchFilter,
-  type SearchSessionsFilter,
   listChildSessions,
   listSessionsByWorkItem,
   getSession,
@@ -130,6 +126,7 @@ export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
 import { handleSkillsApi } from "./skills-api.js";
+import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
 import { handlePluginsApi } from "./plugins-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
@@ -1991,102 +1988,13 @@ export async function handleApiRequest(
       });
     }
 
-    // GET /api/search/messages — GRS-020a company-reference search: FTS5 over
-    // user/assistant message bodies (injection-safe — the store sanitizes the
-    // query into quoted phrases), AND-composed bound-param filters, newest-first.
-    // GRS-020a-fix hardening: control bytes are stripped from every string param
-    // (an embedded NUL made FTS5 throw — finding 2) and the query length is
-    // capped route-side (finding 3; the MCP tools cap earlier and friendlier).
-    if (method === "GET" && pathname === "/api/search/messages") {
-      const readParam = (name: string): string | null => readCleanSearchParam(url, name);
-      const q = readParam("q");
-      if (!q) return badRequest(res, "q is required");
-      if (q.length > SEARCH_QUERY_ROUTE_CHAR_CAP) {
-        return badRequest(res, `q is too long (${q.length} chars, max ${SEARCH_QUERY_ROUTE_CHAR_CAP}) — shorten the query`);
-      }
-      const filter: MessageSearchFilter = {};
-      const sessionId = readParam("sessionId");
-      if (sessionId) filter.sessionId = sessionId;
-      const excludeSessionId = readParam("excludeSessionId");
-      if (excludeSessionId) filter.excludeSessionId = excludeSessionId;
-      const employee = readParam("employee");
-      if (employee) filter.employee = employee;
-      const engine = readParam("engine");
-      if (engine) filter.engine = engine;
-      const role = readParam("role");
-      if (role) {
-        if (role !== "user" && role !== "assistant") {
-          return badRequest(res, `role must be "user" or "assistant" (only those rows are indexed), got "${role}"`);
-        }
-        filter.role = role;
-      }
-      for (const [param, key] of [["since", "since"], ["until", "until"]] as const) {
-        const raw = readParam(param);
-        if (raw) {
-          const ms = Date.parse(raw);
-          if (Number.isNaN(ms)) return badRequest(res, `${param} must be an ISO-8601 timestamp, got "${raw}"`);
-          filter[key] = ms;
-        }
-      }
-      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200));
-      const results = searchMessages(q, limit, filter);
-      return json(res, { query: q, results });
-    }
-
-    // GET /api/search/sessions — GRS-020a: deterministic AND-composed session
-    // search (escaped-LIKE text over title/prompt_excerpt/id + structured
-    // filters). At least one filter required — the unbounded list stays on
-    // GET /api/sessions. Returns COMPACT summaries only (GRS-020a-fix finding
-    // 5: the reference layer's route contract is summaries, not the full
-    // serialized session); string params are control-stripped and the text
-    // filter is length-capped (findings 2+3).
-    if (method === "GET" && pathname === "/api/search/sessions") {
-      const readParam = (name: string): string | null => readCleanSearchParam(url, name);
-      const filter: SearchSessionsFilter = {};
-      const text = readParam("text");
-      if (text) {
-        if (text.length > SEARCH_QUERY_ROUTE_CHAR_CAP) {
-          return badRequest(res, `text is too long (${text.length} chars, max ${SEARCH_QUERY_ROUTE_CHAR_CAP}) — shorten the query`);
-        }
-        filter.text = text;
-      }
-      const employee = readParam("employee");
-      if (employee) filter.employee = employee;
-      const engine = readParam("engine");
-      if (engine) filter.engine = engine;
-      const status = readParam("status");
-      if (status) {
-        const valid: Session["status"][] = ["idle", "running", "error", "waiting", "interrupted"];
-        if (!valid.includes(status as Session["status"])) {
-          return badRequest(res, `status must be one of ${valid.join(", ")}, got "${status}"`);
-        }
-        filter.status = status as Session["status"];
-      }
-      const source = readParam("source");
-      if (source) filter.source = source;
-      const parentSessionId = readParam("parentSessionId");
-      if (parentSessionId) filter.parentSessionId = parentSessionId;
-      const workflowId = readParam("workflowId");
-      if (workflowId) filter.workflowId = workflowId;
-      const workflowRunId = readParam("workflowRunId");
-      if (workflowRunId) filter.workflowRunId = workflowRunId;
-      const workflowPhaseName = readParam("workflowPhaseName");
-      if (workflowPhaseName) filter.workflowPhaseName = workflowPhaseName;
-      for (const key of ["activeSince", "activeBefore"] as const) {
-        const raw = readParam(key);
-        if (raw) {
-          if (Number.isNaN(Date.parse(raw))) return badRequest(res, `${key} must be an ISO-8601 timestamp, got "${raw}"`);
-          filter[key] = new Date(raw).toISOString();
-        }
-      }
-      if (url.searchParams.get("needsAttention") === "true") filter.needsAttention = true;
-      if (Object.keys(filter).length === 0) {
-        return badRequest(res, "at least one filter is required (text, employee, engine, status, source, parentSessionId, workflowId, workflowRunId, workflowPhaseName, activeSince, activeBefore, needsAttention)");
-      }
-      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 50));
-      const sessions = searchSessionsFiltered(filter, limit);
-      return json(res, { sessions: sessions.map(compactSessionSummary) });
-    }
+    // `/api/search/*` — moved to search-api.ts when the global route was added:
+    // api.ts is at its size budget and cannot hold a fifth search route.
+    if (await handleSearchApi(req, res, { method, pathname, url }, {
+      context,
+      compactSessionSummary,
+      resolveNeedsAttentionTarget: (requested) => resolveNeedsAttentionTarget(req, res, requested, context),
+    })) return;
 
     // GET /api/cost/report — GRS-020c cost-only read surface. Deterministic
     // aggregate over existing sessions.total_cost/total_turns; no budgets,
@@ -2111,26 +2019,6 @@ export async function handleApiRequest(
         ...report,
         hint: "Costs are engine-reported per session; missing/zero rows mean the engine reported none.",
       });
-    }
-
-    // GET /api/search/work-items — GRS-021c: deterministic AND-composed Todo
-    // search. Text is escaped-LIKE over title+body (%/_/backslash literal) and
-    // structured filters are exact. Compact summaries only — body/acceptance
-    // dumps stay behind GET /api/work-items/:id.
-    if (method === "GET" && pathname === "/api/search/work-items") {
-      const parsedQuery = readWorkItemQueryParams(url);
-      if (!parsedQuery.ok) return badRequest(res, parsedQuery.error);
-      const { filter, limit, offset } = parsedQuery.value;
-      const needsAttentionFor = readCleanSearchParam(url, "needsAttentionFor");
-      if (needsAttentionFor) {
-        const target = resolveNeedsAttentionTarget(req, res, needsAttentionFor, context);
-        if (!target) return;
-        filter.needsAttentionFor = target;
-      }
-      if (Object.keys(filter).length === 0) {
-        return badRequest(res, "at least one filter is required (q, text, status, source, assignee, department, since, until, needsAttentionFor)");
-      }
-      return json(res, workItemPagePayload(queryWorkItems({ ...filter, limit, offset })));
     }
 
     // Notes is the editable projection of knowledge/**/*.md. docs/ remains on

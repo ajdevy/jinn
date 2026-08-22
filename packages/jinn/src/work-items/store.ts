@@ -548,7 +548,7 @@ export function getWorkItemBySourceRef(source: WorkItemSource, sourceRef: string
   return row ? overlayApproval(rowToWorkItem(row), currentApproval(row.id as string)) : undefined;
 }
 
-const WORK_ITEM_STATUS_VALUES: readonly WorkItemStatus[] = [
+export const WORK_ITEM_STATUS_VALUES: readonly WorkItemStatus[] = [
   'backlog',
   'assigned',
   'executing',
