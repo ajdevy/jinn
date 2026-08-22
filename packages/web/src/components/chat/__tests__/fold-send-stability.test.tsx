@@ -126,6 +126,19 @@ describe('a send never moves what the reader can see', () => {
     expect(Math.abs(state.top - before)).toBeLessThanOrEqual(1)
   })
 
+  it('leaves one the reader can only half see open too', () => {
+    // Top edge above the viewport, bottom edge 200px inside it. Part of it is
+    // still on screen, so collapsing it would move a pixel the reader is
+    // looking at — which is the whole reason the gate is "entirely above".
+    const { view, state, fold } = mount(1_300, 1_400)
+    const before = state.top
+
+    send(view)
+
+    expect(fold().hasAttribute('data-folded')).toBe(false)
+    expect(Math.abs(state.top - before)).toBeLessThanOrEqual(1)
+  })
+
   it('drops its compensation when the reader moves the scroller first', () => {
     // The instant paths — reduced motion, a fold with no slack to animate into
     // — hold the content below still by writing scrollTop a frame later. If the
@@ -181,5 +194,41 @@ describe('every answered region carries its control', () => {
 
     expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBe('true')
     expect(control(container)?.getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('an expanded region survives its turn growing', () => {
+  /** More work landing in the SAME turn, after its answer. */
+  const LATER_WORK: Message = { id: 't2', role: 'assistant', content: 'Used sed', timestamp: T0 + 2_500, toolCall: 'sed' }
+  /** More work landing INSIDE the run the region already holds. */
+  const MORE_EVIDENCE: Message = { id: 't1b', role: 'assistant', content: 'Used sed', timestamp: T0 + 1_500, toolCall: 'sed' }
+
+  const open = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-fold-region]')!
+
+  const grow = (messages: Message[]) => {
+    const view = render(<ChatMessages messages={ANSWERED} loading={false} liveFinalResponseId="a1" />)
+    const before = open(view.container)
+    expect(before.getAttribute('aria-hidden')).toBeNull()
+
+    view.rerender(<ChatMessages messages={messages} loading={false} liveFinalResponseId="a1" />)
+
+    return { before, after: open(view.container), container: view.container }
+  }
+
+  it('keeps the same region, open, when work appends after the answer', () => {
+    const { before, after, container } = grow([...ANSWERED, LATER_WORK])
+
+    // The same instance: a re-keyed region would mount fresh and rest folded,
+    // snapping shut on a reader who had just opened it.
+    expect(after).toBe(before)
+    expect(after.getAttribute('aria-hidden')).toBeNull()
+    expect(container.querySelector('[data-fold-summary]')?.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('keeps the same region, open, when the evidence it holds grows', () => {
+    const { before, after } = grow([ANSWERED[0], ANSWERED[1], MORE_EVIDENCE, ANSWERED[2]])
+
+    expect(after).toBe(before)
+    expect(after.getAttribute('aria-hidden')).toBeNull()
   })
 })

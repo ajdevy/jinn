@@ -11,6 +11,7 @@ import { parseAgentRelay, AgentRelay } from './agent-relay'
 import { DispatchRow } from './dispatch-row'
 import { BURST_WINDOW_MS, CallbackBurst, type BurstEntry } from './callback-burst'
 import { FoldRegion } from './fold-region'
+import { turnIdByIndex } from './turn-ids'
 import type { FoldSummaryData } from './fold-summary'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
@@ -489,13 +490,7 @@ export function partitionForFold(
   liveTerminalDelegationIds: ReadonlySet<string>,
 ): RenderGroup[] {
   const answerIdx = finalAnswerIndices(messages)
-
-  const turnIdFor = (rawIndex: number): string => {
-    for (let j = rawIndex; j >= 0; j--) {
-      if (messages[j].role === 'user') return messages[j].id || `t${j}`
-    }
-    return 'head'
-  }
+  const turnIds = turnIdByIndex(messages)
 
   // A fold wraps the work leading up to each visible answer: tool calls,
   // interim prose, the triggering callbacks/relays, delegation and dispatch
@@ -510,7 +505,7 @@ export function partitionForFold(
     if (item.kind === 'message' && isSystemBanner(item.msg)) return false
     if (itemHasAssistantMedia(item)) return false
     if (itemHasActiveDelegation(item)) return false
-    if (incompleteTurnIds.has(turnIdFor(itemFirstRawIndex(item)))) return false
+    if (incompleteTurnIds.has(turnIds[itemFirstRawIndex(item)])) return false
     const answer = answerIdx[itemFirstRawIndex(item)]
     // No true final answer means no fold DOM at all: active evidence renders in
     // the ordinary stream until completion creates the completed-turn region.
@@ -691,19 +686,22 @@ export interface RowMeta {
   prevRole: Message['role'] | null
   /** The user message a retry on this row would resend. */
   prevUserText: string
-  /** This row closes its engine segment: it is the answer the reader acts on. */
+  /** This row closes its engine segment of a FINISHED turn: it is the answer
+   *  the reader acts on. While the turn is still running there is no such row —
+   *  the newest prose is interim until the turn says otherwise. */
   isFinalAnswer: boolean
 }
 
-export function buildRowMeta(messages: Message[]): RowMeta[] {
+export function buildRowMeta(messages: Message[], pendingTurnId: string | null): RowMeta[] {
   const answers = finalAnswerIndices(messages)
+  const turnIds = turnIdByIndex(messages)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
       showTimestamp: shouldShowTimestamp(messages, i),
       prevRole: i > 0 ? messages[i - 1].role : null,
       prevUserText: lastUserText,
-      isFinalAnswer: answers[i] === i,
+      isFinalAnswer: answers[i] === i && turnIds[i] !== pendingTurnId,
     }
     if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
     return meta
@@ -856,9 +854,10 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
           {/* Media attachments */}
           {media.length > 0 && <MessageMedia media={media} isUser={false} />}
 
-          {/* Copy / read aloud / retry, once per turn: the answer the reader acts
-              on carries it, and the interim prose the fold puts away reserves no
-              band for one it never shows. */}
+          {/* Copy / read aloud / retry, once per COMPLETED turn: the answer the
+              reader acts on carries it, and the interim prose the fold puts
+              away reserves no band for one it never shows. A turn still
+              running has no answer yet, so none of its rows carries it. */}
           {textContent && isFinalAnswer && (
             <MessageActions
               id={msg.id || `idx-${i}`}
@@ -990,9 +989,10 @@ export function ChatMessages({
   const currentTurnId = latestTurnId(messages)
   const liveFinalPresent = effectiveLiveFinalResponseId === null
     || messages.some((message) => message.id === effectiveLiveFinalResponseId)
-  const incompleteTurnIds = (turnPending || !liveFinalPresent) && currentTurnId
-    ? new Set([currentTurnId])
-    : new Set<string>()
+  // The row facts key off the id, not the set: a fresh Set per render would
+  // rebuild them on every streamed token — the whole transcript, per token.
+  const pendingTurnId = turnPending || !liveFinalPresent ? currentTurnId : null
+  const incompleteTurnIds = pendingTurnId ? new Set([pendingTurnId]) : new Set<string>()
 
   // Memoize grouped messages to avoid re-running on streaming-only re-renders
   const groupedMessages = useMemo(() => groupMessages(messages), [messages])
@@ -1130,7 +1130,7 @@ export function ChatMessages({
   // Row-position facts, resolved once per commit instead of inside every row. A
   // memoised row that reads the whole message array re-renders on every append,
   // which on a long transcript is the whole transcript per message.
-  const rowMeta = useMemo(() => buildRowMeta(messages), [messages])
+  const rowMeta = useMemo(() => buildRowMeta(messages, pendingTurnId), [messages, pendingTurnId])
 
   // ONE renderer, used by both paths, so the windowed and plain transcripts
   // cannot drift apart.

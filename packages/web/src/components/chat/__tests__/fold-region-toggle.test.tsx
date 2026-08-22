@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FoldRegion } from '../fold-region'
+import { FOLD_LANDING_PAD_MS, FOLD_MS } from '../fold-motion'
 
 /**
  * One click, one outcome.
@@ -13,8 +14,8 @@ import { FoldRegion } from '../fold-region'
  */
 
 const SUMMARY = { durationMs: 5_000, tools: 1, teammates: 0, updates: 0 }
-/** The longer of the two landing timers (FOLD_MS + 20). */
-const SETTLE_MS = 460
+/** Past the landing timer (FOLD_MS + FOLD_LANDING_PAD_MS). */
+const SETTLE_MS = FOLD_MS + FOLD_LANDING_PAD_MS + 20
 
 /** Frames a test runs by hand, so a click can land before one of them does. */
 function stubFrames() {
