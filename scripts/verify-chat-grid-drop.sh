@@ -60,6 +60,7 @@ trap 'exit 130' INT TERM
 
 mkdir -p "$HOST_HOME"
 env HOME="$HOST_HOME" JINN_REPO="$REPO" "$HELPER" create "$INSTANCE" --port "$PORT" --build --seed
+"$NODE_BIN" "$REPO/scripts/seed-chat-grid-drop.mjs" "$SANDBOX_HOME" "$REPO"
 STARTED=1
 env HOME="$HOST_HOME" JINN_REPO="$REPO" "$HELPER" start "$INSTANCE"
 
@@ -69,4 +70,4 @@ export JINN_VERIFY_ARTIFACTS="$ARTIFACTS"
 mkdir -p "$ARTIFACTS"
 
 cd "$REPO"
-pnpm exec playwright test --config playwright.chat-grid-drop.config.ts
+pnpm exec playwright test --config playwright.chat-grid-drop.config.ts "$@"
