@@ -214,6 +214,53 @@ describe("native gateway profiles", () => {
     expect(profiles.transport.profile.origin).toBe(alpha.origin)
   })
 
+  it("names the profile a switch is reaching for while the switch is in flight", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    const validation = deferred<NativeResponsePayload>()
+    requests.mockImplementationOnce(() => validation.promise)
+
+    const selecting = profiles.select(beta.id)
+    expect(profiles.snapshot()).toMatchObject({ status: "switching", switchingProfileId: beta.id, activeId: alpha.id })
+
+    validation.resolve(response({ authRequired: true, authenticated: true, instance: "beta" }))
+    await selecting
+    expect(profiles.snapshot().switchingProfileId).toBeUndefined()
+  })
+
+  it("reports a remembered gateway that no longer answers instead of trusting storage", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const storage = new MemoryStorage()
+    const alpha = await createNativeGatewayProfiles({ bridge, storage }).pair("http://127.0.0.1:7779", "alpha", { activate: true })
+
+    // A reload: the profile is remembered, the gateway behind it is gone.
+    const reloaded = createNativeGatewayProfiles({ bridge, storage })
+    expect(reloaded.snapshot()).toMatchObject({ activeId: alpha.id, activeReachable: false })
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+
+    await expect(reloaded.verifyActive()).resolves.toBeUndefined()
+
+    expect(reloaded.snapshot()).toMatchObject({
+      activeId: alpha.id,
+      status: "unreachable",
+      failedProfileId: alpha.id,
+      activeReachable: false,
+      error: "connection refused",
+    })
+  })
+
+  it("proves a remembered gateway that still answers", async () => {
+    const { bridge, storage } = { ...bridgeFixture(), storage: new MemoryStorage() }
+    await createNativeGatewayProfiles({ bridge, storage }).pair("http://127.0.0.1:7779", "alpha", { activate: true })
+
+    const reloaded = createNativeGatewayProfiles({ bridge, storage })
+    await reloaded.verifyActive()
+
+    expect(reloaded.snapshot()).toMatchObject({ status: "ready", activeReachable: true, failedProfileId: undefined })
+  })
+
   it("cannot activate a profile removed while its selection check is in flight", async () => {
     const { bridge, requests } = bridgeFixture()
     const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })

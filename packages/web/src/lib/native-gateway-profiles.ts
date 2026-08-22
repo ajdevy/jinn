@@ -15,15 +15,19 @@ import {
 
 export type { NativeGatewayProfile } from "./native-gateway-profile-storage"
 
-export type NativeGatewayStatus = "ready" | "switching" | "unreachable"
+export type NativeGatewayStatus = "ready" | "checking" | "switching" | "unreachable"
 
 export interface NativeGatewayProfilesSnapshot {
   profiles: NativeGatewayProfile[]
   activeId?: string
   generation: number
   status: NativeGatewayStatus
+  /** The profile a switch is reaching for. Distinct from the one it failed on. */
+  switchingProfileId?: string
   failedProfileId?: string
   error?: string
+  /** Whether the ACTIVE gateway has answered since it became active. Storage remembers which gateway was open last, never that it still runs. */
+  activeReachable: boolean
 }
 
 interface NativeGatewayProfilesOptions {
@@ -98,6 +102,7 @@ export class NativeGatewayProfiles {
       activeId: stored.activeId,
       generation: 0,
       status: "ready",
+      activeReachable: false,
     }
     this.transport = this.#createTransport()
     this.#persist()
@@ -131,21 +136,34 @@ export class NativeGatewayProfiles {
   async select(id: string): Promise<void> {
     if (id === this.#snapshot.activeId) return
     const profile = this.#profile(id)
-    this.#update({ ...this.#snapshot, status: "switching", failedProfileId: undefined, error: undefined })
+    this.#update({ ...this.#snapshot, status: "switching", switchingProfileId: id, failedProfileId: undefined, error: undefined })
     try {
       await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
-      // Validation is asynchronous. Removal wins if it happened while the
-      // candidate gateway was answering.
+      // Validation is asynchronous: removal wins if it landed while the candidate answered.
       this.#profile(id)
       await this.#commit(id)
     } catch (error) {
-      this.#update({
-        ...this.#snapshot,
-        status: "unreachable",
-        failedProfileId: id,
-        error: error instanceof Error ? error.message : "Gateway is unreachable",
-      })
+      const reason = error instanceof Error ? error.message : "Gateway is unreachable"
+      this.#update({ ...this.#snapshot, status: "unreachable", switchingProfileId: undefined, failedProfileId: id, error: reason })
       throw error
+    }
+  }
+
+  /**
+   * Prove the remembered last-active gateway still answers before the app mounts
+   * against it, so a gateway that is simply gone reads as an honest native state
+   * that still offers the other paired gateways, not as an unpaired browser.
+   */
+  async verifyActive(): Promise<void> {
+    const id = this.#snapshot.activeId
+    if (!id) return
+    this.#update({ ...this.#snapshot, status: "checking", switchingProfileId: undefined, failedProfileId: undefined, error: undefined })
+    try {
+      await this.#authState(createNativeGatewayTransport(this.#profile(id).origin, this.options.bridge))
+      this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Gateway is unreachable"
+      this.#update({ ...this.#snapshot, status: "unreachable", failedProfileId: id, error: reason, activeReachable: false })
     }
   }
 
@@ -168,7 +186,7 @@ export class NativeGatewayProfiles {
     if (id === this.#snapshot.activeId) {
       const profile = this.#profile(id)
       await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
-      this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined })
+      this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
       return
     }
     await this.select(id)
@@ -245,8 +263,11 @@ export class NativeGatewayProfiles {
       activeId,
       generation: this.#snapshot.generation + 1,
       status: "ready",
+      switchingProfileId: undefined,
       failedProfileId: undefined,
       error: undefined,
+      // A commit only ever follows a gateway that just answered.
+      activeReachable: activeId !== undefined,
     }
     for (const socket of this.#sockets) {
       if (socket.readyState !== GATEWAY_SOCKET_CLOSED) socket.close(1000, "Gateway profile changed")

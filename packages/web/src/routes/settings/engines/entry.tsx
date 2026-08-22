@@ -6,6 +6,7 @@ import {
   chainFor,
   legacyFallbackEngine,
   legacyMigrationMutations,
+  modelMapFor,
   type EnginesConfig,
   type SessionsFallbackConfig,
 } from "./chain-model"
@@ -36,6 +37,7 @@ export function EnginesSection({ engines, sessions, onChange }: EnginesSectionPr
             key={entry.name}
             entry={entry}
             chain={chainFor(engines, entry.name)}
+            modelMap={modelMapFor(engines, entry.name)}
             registryEngines={registryEngines}
             onChange={(chain) => onChange(["engines", entry.name, "fallback"], chain)}
           />

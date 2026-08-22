@@ -220,7 +220,7 @@ describe("POST /api/work-items/:id/status — asOperator", () => {
     expect([cap.status, cap.body.error]).toEqual([400, "asOperator must be a boolean"]);
   });
 
-  it("uses the open reviewer lane for done, while asOperator still cannot buy cancelled or a terminal reopen", async () => {
+  it("uses the open reviewer lane for done, and reopens a closed Todo, while asOperator still cannot buy cancelled", async () => {
     const coo = portalSession("web:coo-terminals");
 
     const reviewing = store.createWorkItem({ title: "Someone else's review", status: "in_review" });
@@ -236,10 +236,63 @@ describe("POST /api/work-items/:id/status — asOperator", () => {
     expect(cancelled.status).toBe(403);
     expect(cancelled.body.error).toMatch(/cancelling a Todo is a human surface decision/);
 
+    // A closed Todo reopens for the COO lane too (PLA-185): the claim carries
+    // the operator's authority, and `done` is a sticky terminal like any other.
     const closed = store.createWorkItem({ title: "Closed for good", status: "done" });
     const reopened = await setStatus(closed.id, { status: "executing", asOperator: true }, toolHeaders(coo));
-    expect(reopened.status).toBe(403);
-    expect(reopened.body.error).toMatch(/leaving a sticky terminal is a human decision/);
-    expect(store.getWorkItem(closed.id)?.status).toBe("done");
+    expect([reopened.status, reopened.body.workItem.status]).toEqual([200, "executing"]);
+    expect(store.listWorkItemEvents(closed.id).at(-1)).toMatchObject({
+      fromStatus: "done",
+      toStatus: "executing",
+      actor: "operator",
+      detail: { asOperator: `session:${coo}` },
+    });
+  });
+
+  it("releases an escalated Todo for the COO lane, with the operator's instruction on the record", async () => {
+    const item = store.createWorkItem({ title: "Waiting on the operator", status: "escalated" });
+    const coo = portalSession("web:coo-releases");
+    const note = "Operator asked in chat for this to go back to platform.";
+
+    const cap = await setStatus(item.id, { status: "assigned", asOperator: true, note }, toolHeaders(coo));
+
+    expect([cap.status, cap.body.workItem.status]).toEqual([200, "assigned"]);
+    expect(store.listWorkItemEvents(item.id).at(-1)).toMatchObject({
+      fromStatus: "escalated",
+      toStatus: "assigned",
+      actor: "operator",
+      detail: { asOperator: `session:${coo}`, note },
+    });
+  });
+
+  it("keeps the escalated release on the COO lane: an employee and an employee-spawned child are still refused", async () => {
+    const child = reg.createSession({
+      engine: "codex",
+      source: "web",
+      sourceRef: "web:worker-child-releases",
+      parentSessionId: session("platform-worker", "web:worker-parent-releases"),
+    }).id;
+
+    for (const caller of [session("platform-worker", "web:worker-releases"), child]) {
+      const item = store.createWorkItem({ title: "Not theirs to release", status: "escalated" });
+      const cap = await setStatus(item.id, { status: "assigned", asOperator: true, note: "let me out" }, toolHeaders(caller));
+
+      expect(cap.status).toBe(403);
+      expect(cap.body.error).toMatch(/asOperator .*reserved for the operator surface and the top-level COO session/);
+      expect(store.getWorkItem(item.id)?.status).toBe("escalated");
+    }
+  });
+
+  it("keeps the cascade on the operator's own surface, claimed or not", async () => {
+    const item = store.createWorkItem({ title: "Parent of open work", status: "in_review" });
+    const coo = portalSession("web:coo-cascades");
+
+    const cap = await setStatus(item.id, { status: "done", asOperator: true, cascade: true }, toolHeaders(coo));
+
+    expect([cap.status, cap.body.error]).toEqual([
+      403,
+      "closing a Todo's open descendants with it is an operator-surface decision",
+    ]);
+    expect(store.getWorkItem(item.id)?.status).toBe("in_review");
   });
 });

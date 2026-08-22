@@ -344,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5742,
+      "lines": 5676,
       "exempt": [
         "complexity",
         "max-depth",
@@ -718,7 +718,7 @@
       ]
     },
     "packages/jinn/src/sessions/manager.ts": {
-      "lines": 567,
+      "lines": 530,
       "exempt": [
         "complexity",
         "max-lines-per-function",
@@ -739,7 +739,6 @@
       ]
     },
     "packages/jinn/src/sessions/rate-limit-handler.ts": {
-      "lines": 312,
       "exempt": [
         "complexity",
         "max-depth",

@@ -9,6 +9,11 @@ export function resolveJinnHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(path.join(os.homedir(), `.${instance}`));
 }
 
+/** Resolve the canonical default home without applying instance overrides. */
+export function resolveDefaultJinnHome(): string {
+  return path.resolve(path.join(os.homedir(), ".jinn"));
+}
+
 /** The comparable identity of a home: two paths naming one directory resolve equal. */
 export function resolveHomeIdentity(home: string): string {
   const absolute = path.resolve(home);
@@ -22,11 +27,6 @@ export function resolveHomeIdentity(home: string): string {
       return absolute;
     }
   }
-}
-
-/** Resolve the canonical default home without applying instance overrides. */
-export function resolveDefaultJinnHome(): string {
-  return path.resolve(path.join(os.homedir(), ".jinn"));
 }
 
 /** Resolve Claude Code's config dir at call time; CLAUDE_CONFIG_DIR moves credentials,
