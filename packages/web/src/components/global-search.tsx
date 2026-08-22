@@ -162,7 +162,7 @@ export function GlobalSearch({ initialOpen = false, initialScope }: GlobalSearch
               loading={loading}
             />
           </div>
-          <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:shadow-[var(--shadow-overlay)]">
+          <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:pb-[max(18px,env(safe-area-inset-bottom))] max-[480px]:shadow-[var(--shadow-overlay)]">
             <div aria-hidden="true" className="mx-auto mb-3.5 hidden h-[5px] w-9 rounded-[3px] bg-[var(--fill-primary)] max-[480px]:block" />
             <PreviewPane row={row} error={search.error} hint={hint} literal={literal} onSearchLiterally={toggleLiteral} />
           </div>
