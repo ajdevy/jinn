@@ -189,10 +189,45 @@ describe("native gateway profiles", () => {
     expect(reloaded.snapshot()).toMatchObject({
       activeId: alpha.id,
       status: "unreachable",
-      failedProfileId: alpha.id,
+      // The active gateway's own reachability says this, not a selection failure.
+      failedProfileId: undefined,
       activeReachable: false,
       error: "connection refused",
     })
+  })
+
+  it("retries the ACTIVE gateway, never the profile whose selection failed", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    await profiles.select(beta.id)
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+
+    await expect(profiles.select(alpha.id)).rejects.toThrow("connection refused")
+    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, failedProfileId: alpha.id })
+
+    requests.mockClear()
+    await profiles.retry()
+
+    expect(requests).toHaveBeenCalled()
+    for (const [input] of requests.mock.calls) expect(input.target.origin).toBe(beta.origin)
+    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
+  })
+
+  it("keeps retry working after the profile whose selection failed is removed", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+    await expect(profiles.select(beta.id)).rejects.toThrow("connection refused")
+
+    await profiles.remove(beta.id)
+
+    expect(profiles.snapshot().failedProfileId).toBeUndefined()
+    await expect(profiles.retry()).resolves.toBeUndefined()
+    expect(profiles.snapshot()).toMatchObject({ activeId: alpha.id, status: "ready", activeReachable: true })
   })
 
   it("proves a remembered gateway that still answers", async () => {

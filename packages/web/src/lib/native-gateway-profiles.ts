@@ -4,6 +4,7 @@ import {
   type GatewaySocketConnection,
   type GatewayTransport,
 } from "./gateway-transport"
+import { GuardedSocket, StaleGatewayGenerationError } from "./guarded-gateway-socket"
 import { createNativeGatewayTransport, pairNativeGateway } from "./native-gateway-transport"
 import {
   canonicalNativeGatewayOrigin,
@@ -14,6 +15,7 @@ import {
 } from "./native-gateway-profile-storage"
 
 export type { NativeGatewayProfile } from "./native-gateway-profile-storage"
+export { StaleGatewayGenerationError } from "./guarded-gateway-socket"
 
 export type NativeGatewayStatus = "ready" | "checking" | "switching" | "unreachable"
 
@@ -24,6 +26,9 @@ export interface NativeGatewayProfilesSnapshot {
   status: NativeGatewayStatus
   /** The profile a switch is reaching for. Distinct from the one it failed on. */
   switchingProfileId?: string
+  /** The profile whose last SELECTION attempt failed. Never the active one: the active
+   *  gateway's own reachability is `activeReachable`, and conflating the two made Retry
+   *  reach for a gateway the user never asked for. */
   failedProfileId?: string
   error?: string
   /** Whether the ACTIVE gateway has answered since it became active. Storage remembers which gateway was open last, never that it still runs. */
@@ -36,57 +41,8 @@ interface NativeGatewayProfilesOptions {
   beforeCommit?: () => void | Promise<void>
 }
 
-export class StaleGatewayGenerationError extends DOMException {
-  constructor() {
-    super("The gateway changed before this response arrived", "AbortError")
-  }
-}
-
 function stale(manager: NativeGatewayProfiles, generation: number): boolean {
   return manager.snapshot().generation !== generation
-}
-
-class GuardedSocket implements GatewaySocketConnection {
-  binaryType: BinaryType = "blob"
-  onopen: ((event: Event) => void) | null = null
-  onmessage: ((event: MessageEvent) => void) | null = null
-  onclose: ((event: CloseEvent) => void) | null = null
-  onerror: ((event: Event) => void) | null = null
-  readonly #listeners = new Set<(event: MessageEvent) => void>()
-
-  constructor(
-    private readonly inner: GatewaySocketConnection,
-    private readonly live: () => boolean,
-    private readonly release: () => void,
-  ) {
-    inner.onopen = (event) => { if (live()) this.onopen?.(event) }
-    inner.onmessage = (event) => {
-      if (!live()) return
-      this.onmessage?.(event)
-      for (const listener of this.#listeners) listener(event)
-    }
-    inner.onclose = (event) => {
-      release()
-      if (live()) this.onclose?.(event)
-    }
-    inner.onerror = (event) => { if (live()) this.onerror?.(event) }
-  }
-
-  get readyState() { return this.inner.readyState }
-
-  addEventListener(type: "message", listener: (event: MessageEvent) => void): void {
-    if (type === "message") this.#listeners.add(listener)
-  }
-
-  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
-    if (!this.live()) throw new StaleGatewayGenerationError()
-    this.inner.send(data)
-  }
-
-  close(code?: number, reason?: string): void {
-    this.release()
-    this.inner.close(code, reason)
-  }
 }
 
 export class NativeGatewayProfiles {
@@ -163,7 +119,7 @@ export class NativeGatewayProfiles {
       this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Gateway is unreachable"
-      this.#update({ ...this.#snapshot, status: "unreachable", failedProfileId: id, error: reason, activeReachable: false })
+      this.#update({ ...this.#snapshot, status: "unreachable", error: reason, activeReachable: false })
     }
   }
 
@@ -176,20 +132,30 @@ export class NativeGatewayProfiles {
       if (fallback) await this.select(fallback.id)
       else await this.#commit(undefined)
     }
-    this.#update({ ...this.#snapshot, profiles: remaining })
+    // A failure that named the profile just removed has nothing left to describe,
+    // and leaving it behind sent the next lookup after an id that is gone.
+    const cleared = this.#snapshot.failedProfileId === id
+    this.#update({
+      ...this.#snapshot,
+      profiles: remaining,
+      failedProfileId: cleared ? undefined : this.#snapshot.failedProfileId,
+      error: cleared ? undefined : this.#snapshot.error,
+    })
     await this.options.bridge.forget({ target: { origin: profile.origin } })
   }
 
+  /**
+   * Re-prove the ACTIVE gateway. This is the Retry the app offers when the
+   * gateway it is mounted against stopped answering, so it always asks that
+   * gateway. A failed selection of some other profile is reported on that
+   * profile's own row and never redirects this request to its origin.
+   */
   async retry(): Promise<void> {
-    const id = this.#snapshot.failedProfileId ?? this.#snapshot.activeId
+    const id = this.#snapshot.activeId
     if (!id) return
-    if (id === this.#snapshot.activeId) {
-      const profile = this.#profile(id)
-      await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
-      this.#update({ ...this.#snapshot, status: "ready", failedProfileId: undefined, error: undefined, activeReachable: true })
-      return
-    }
-    await this.select(id)
+    const profile = this.#profile(id)
+    await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
+    this.#update({ ...this.#snapshot, status: "ready", error: undefined, activeReachable: true })
   }
 
   #createTransport(): GatewayTransport {

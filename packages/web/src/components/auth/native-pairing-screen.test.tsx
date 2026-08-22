@@ -41,7 +41,6 @@ describe("NativePairingScreen", () => {
       activeId: alpha.id,
       generation: 1,
       status: "unreachable",
-      failedProfileId: alpha.id,
       error: "connection refused",
       activeReachable: false,
     }
@@ -65,7 +64,6 @@ describe("NativePairingScreen", () => {
       activeId: alpha.id,
       generation: 1,
       status: "unreachable",
-      failedProfileId: alpha.id,
       activeReachable: false,
     }
     retry.mockResolvedValue(undefined)
@@ -74,6 +72,22 @@ describe("NativePairingScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
     await waitFor(() => expect(retry).toHaveBeenCalled())
     expect(select).not.toHaveBeenCalled()
+  })
+
+  it("keeps naming the unreachable active gateway after a switch to another one fails", () => {
+    snapshot = {
+      profiles: [alpha, beta],
+      activeId: alpha.id,
+      generation: 1,
+      status: "unreachable",
+      // The failed switch names Beta. Alpha is still the gateway this window cannot reach.
+      failedProfileId: beta.id,
+      error: "connection refused",
+      activeReachable: false,
+    }
+    render(<NativePairingScreen />)
+
+    expect(screen.getByRole("heading", { name: "Cannot reach Alpha" })).toBeTruthy()
   })
 
   it("waits on the connecting state while the remembered gateway is being checked", () => {
