@@ -16,8 +16,9 @@ export interface PluginHostConnectors {
 
 export const connectors: PluginHostConnectors = {
   async send(connector, message) {
-    // The route answers `{ status: "sent" }` and drops the provider's message
-    // id, so there is nothing truthful to resolve with.
+    // On success the route answers `{ status: "sent" }` and drops the provider's
+    // message id, so there is nothing truthful to resolve with; a send that did
+    // not land comes back as an error status, and `write` rejects.
     await write<{ status: string }>(
       'connectors.send',
       `/api/connectors/${encodeURIComponent(connector)}/send`,

@@ -26,10 +26,10 @@ afterAll(async () => {
   await runtime.stopPluginRuntime();
 });
 
-/** The only part of the gateway the notice path travels: the event emitter the
- *  dashboard's socket reads from. */
-function gatewayApiContext(emit: ReturnType<typeof vi.fn>) {
-  return { emit } as unknown as import("../../gateway/api.js").ApiContext;
+/** The only parts of the gateway these paths travel: the event emitter the
+ *  dashboard's socket reads from, and the connector registry. */
+function gatewayApiContext(emit: ReturnType<typeof vi.fn>, connectors = new Map<string, unknown>()) {
+  return { emit, connectors } as unknown as import("../../gateway/api.js").ApiContext;
 }
 
 /** No plugin is enabled, so reconciling starts no watcher and the runtime under
@@ -63,5 +63,20 @@ describe("startPluginRuntime", () => {
     plugin.notify("after shutdown");
 
     expect(emit.mock.calls.length).toBe(emittedWhileRunning);
+  });
+
+  /* A send that never landed has to come back as a refusal the caller can read:
+   * `{ ok: true }` would be a lie, and a raw rejection would escape the host. */
+  it("answers a send the connector rejected with the reason, not with success", async () => {
+    const connectors = new Map<string, unknown>([
+      ["slack", { sendMessage: async () => { throw new Error("channel_not_found"); } }],
+    ]);
+    await runtime.startPluginRuntime(gatewayApiContext(vi.fn(), connectors), noPlugins);
+
+    const { requirePluginHostGateway } = await import("../host/gateway-link.js");
+    const gateway = requirePluginHostGateway("connectors.send");
+    const outcome = await gateway.sendConnectorMessage("slack", { channel: "C1", text: "hello" });
+
+    expect(outcome).toEqual({ ok: false, error: "channel_not_found" });
   });
 });

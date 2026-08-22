@@ -88,14 +88,14 @@
       ]
     },
     "packages/jinn/src/connectors/discord/index.ts": {
-      "lines": 359,
+      "lines": 351,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/jinn/src/connectors/slack/index.ts": {
-      "lines": 517,
+      "lines": 512,
       "exempt": [
         "complexity",
         "max-depth",
@@ -114,7 +114,7 @@
       ]
     },
     "packages/jinn/src/connectors/whatsapp/index.ts": {
-      "lines": 332,
+      "lines": 329,
       "exempt": [
         "complexity",
         "max-lines-per-function"
