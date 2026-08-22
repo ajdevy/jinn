@@ -124,6 +124,28 @@ describe('chat grid add paths', () => {
     expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
   })
 
+  it('clears an active preview on escape and an aborted window dragend', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'chat-grid') return new DOMRect(0, 0, 200, 100)
+      return this.dataset.chatGridPane === 'a'
+        ? new DOMRect(0, 0, 100, 100)
+        : new DOMRect(100, 0, 100, 100)
+    })
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
+    const surface = screen.getByTestId('drop-surface')
+    const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'c')
+
+    fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
+
+    fireDragAt(surface, 'dragOver', { x: 110, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+    fireEvent.dragEnd(window)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
+  })
+
   it('renders the placement model index and region for every pane slice', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.dataset.testid === 'chat-grid') return new DOMRect(0, 0, 250, 100)

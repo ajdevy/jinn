@@ -28,12 +28,17 @@ VERIFY_ROOT="$(mktemp -d "$TMP_BASE/jinn-chat-grid-drop.XXXXXX")"
 HOST_HOME="$VERIFY_ROOT/host"
 SANDBOX_HOME="$HOST_HOME/.jinn-$INSTANCE"
 ARTIFACTS="$SANDBOX_HOME/sandbox-artifacts/pla-174"
+RETAIN_DIR="${JINN_VERIFY_RETAIN_DIR:-}"
 BASE_URL="http://127.0.0.1:$PORT"
 STARTED=0
 
 cleanup() {
   local status=$?
   trap - EXIT
+  if [[ -n "$RETAIN_DIR" && -d "$ARTIFACTS" ]]; then
+    mkdir -p "$RETAIN_DIR"
+    cp -R "$ARTIFACTS"/. "$RETAIN_DIR"/
+  fi
   if [[ "$STARTED" -eq 1 ]]; then
     env HOME="$HOST_HOME" JINN_REPO="$REPO" "$HELPER" stop "$INSTANCE" >/dev/null 2>&1 || status=3
     for _ in {1..20}; do
