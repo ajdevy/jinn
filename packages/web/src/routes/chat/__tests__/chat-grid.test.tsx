@@ -56,18 +56,15 @@ function installMotionTokens(): void {
 }
 
 describe('live chat grid', () => {
-  it('mounts four stable panes, focuses one, and removes only through its X', () => {
+  it('mounts four stable panes and focuses one without legacy floating controls', () => {
     const onFocus = vi.fn()
-    const onRemove = vi.fn()
     const { rerender } = render(
       <ChatGrid
         sessionIds={['a', 'b', 'c', 'd']}
         focusedId="c"
         width={1440}
         height={900}
-        labelFor={(id) => `Close ${id}`}
         onFocus={onFocus}
-        onRemove={onRemove}
         renderPane={(id, active) => <output data-testid={`content-${id}`} data-active={String(active)} />}
       />,
     )
@@ -76,12 +73,10 @@ describe('live chat grid', () => {
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
     expect(screen.getByTestId('content-c').getAttribute('data-active')).toBe('true')
     expect(screen.getByTestId('chat-grid').getAttribute('data-columns')).toBe('2')
-    expect(screen.getByRole('button', { name: 'Close d' }).className).toContain('top-[58px]')
+    expect(document.querySelector('[class*="top-[58px]"]')).toBeNull()
 
     fireEvent.click(screen.getByTestId('pane-b'))
     expect(onFocus).toHaveBeenCalledWith('b')
-    fireEvent.click(screen.getByRole('button', { name: 'Close b' }))
-    expect(onRemove).toHaveBeenCalledWith('b')
 
     rerender(
       <ChatGrid
@@ -89,9 +84,7 @@ describe('live chat grid', () => {
         focusedId="c"
         width={1440}
         height={900}
-        labelFor={(id) => `Close ${id}`}
         onFocus={onFocus}
-        onRemove={onRemove}
         renderPane={(id, active) => <output data-testid={`content-${id}`} data-active={String(active)} />}
       />,
     )
@@ -106,36 +99,12 @@ describe('live chat grid', () => {
         width={1440}
         height={900}
         onFocus={vi.fn()}
-        onRemove={vi.fn()}
         renderPane={() => <output>Only pane</output>}
       />,
     )
 
     expect(screen.getByTestId('chat-grid').getAttribute('data-single-pane')).toBe('true')
-    expect(screen.queryByRole('button', { name: 'Close only' })).toBeNull()
-  })
-
-  it('uses supplied close names without exposing UUID pane identities', () => {
-    const firstId = '550e8400-e29b-41d4-a716-446655440000'
-    const secondId = '8c47858c-fac4-4e1d-b327-1e2da44d1403'
-    render(
-      <ChatGrid
-        sessionIds={[firstId, secondId]}
-        focusedId={firstId}
-        width={1440}
-        height={900}
-        labelFor={(id) => id === firstId ? 'Close Release planning' : `Close ${id}`}
-        onFocus={vi.fn()}
-        onRemove={vi.fn()}
-        renderPane={() => <output>Pane</output>}
-      />,
-    )
-
-    expect(screen.getByRole('button', { name: 'Close Release planning' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Close chat' })).toBeTruthy()
-    for (const button of screen.getAllByRole('button')) {
-      expect(button.getAttribute('aria-label')).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)
-    }
+    expect(screen.queryByTestId('chat-pane-title-bar')).toBeNull()
   })
 
   it('FLIPs removal through transform and opacity while retaining pane nodes', () => {
@@ -160,7 +129,6 @@ describe('live chat grid', () => {
         width={1440}
         height={900}
         onFocus={vi.fn()}
-        onRemove={vi.fn()}
         renderPane={(id) => <output data-testid={`content-${id}`} />}
       />
     )
@@ -193,7 +161,7 @@ describe('live chat grid', () => {
       return id === 'a' ? rect(0, 0) : id === 'b' ? rect(100, 0) : rect(0, 0, 0, 0)
     })
     const view = (ids: string[]) => (
-      <ChatGrid sessionIds={ids} focusedId="a" width={1440} height={900} onFocus={vi.fn()} onRemove={vi.fn()} renderPane={(id) => <output>{id}</output>} />
+      <ChatGrid sessionIds={ids} focusedId="a" width={1440} height={900} onFocus={vi.fn()} renderPane={(id) => <output>{id}</output>} />
     )
     const { rerender } = render(view(['a']))
     const original = screen.getByTestId('pane-a')
@@ -222,7 +190,7 @@ describe('live chat grid', () => {
       return rect(order.indexOf(id ?? '') * 100, 0)
     })
     const view = (ids: string[]) => (
-      <ChatGrid sessionIds={ids} focusedId="a" width={1440} height={900} onFocus={vi.fn()} onRemove={vi.fn()} renderPane={(id) => <output>{id}</output>} />
+      <ChatGrid sessionIds={ids} focusedId="a" width={1440} height={900} onFocus={vi.fn()} renderPane={(id) => <output>{id}</output>} />
     )
     const { rerender } = render(view(['a', 'b', 'c']))
     const nodes = new Map(['a', 'b', 'c'].map((id) => [id, screen.getByTestId(`pane-${id}`)]))
@@ -254,7 +222,6 @@ describe('live chat grid', () => {
         width={1440}
         height={900}
         onFocus={vi.fn()}
-        onRemove={vi.fn()}
         renderPane={(id) => <output>{id}</output>}
       />
     )

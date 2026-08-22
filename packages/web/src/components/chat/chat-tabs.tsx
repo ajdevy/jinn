@@ -40,7 +40,7 @@ export interface ChatHeaderPillsProps {
 // Split a leading "#NNNN - " id prefix off a session title so the desktop title
 // can render the id quietly (--text-tertiary) ahead of the name. Titles without
 // the prefix (e.g. employee chats) fall through unchanged.
-function splitTitleId(title?: string): { id?: string; rest: string } {
+export function splitTitleId(title?: string): { id?: string; rest: string } {
   if (!title) return { rest: "" }
   const m = title.match(/^(#\d+)\s*[-–—]\s*(.+)$/)
   return m ? { id: m[1], rest: m[2] } : { rest: title }

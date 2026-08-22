@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react'
 import { ChatPane } from '@/components/chat/chat-pane'
+import { resolvePaneTitle, safePaneTitle } from '@/components/chat/chat-pane-title-bar'
 import { FileOpenContext } from '@/components/chat/file-open-context'
 import type { CommsPeekData } from '@/components/chat/thread-peek'
 import type { DelegatedActivity } from '@/lib/api'
@@ -91,29 +92,31 @@ function paneCliAvailable(owner: MultiChatGridProps, sessionId: string | null): 
   return !engine || owner.runtime.engineRegistry?.engines?.[engine]?.supportsPty === true
 }
 
-const UUID_PATTERN = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
-
-function safePaneTitle(value: unknown): string | undefined {
-  const title = typeof value === 'string' ? value.trim() : ''
-  return title && !UUID_PATTERN.test(title) ? title : undefined
+function titleForGridId(owner: MultiChatGridProps, gridId: string): string {
+  const sessionId = sessionForGridId(owner, gridId)
+  if (!sessionId) return gridId === owner.pickerPane?.paneKey ? 'Open chat' : 'New chat'
+  return resolvePaneTitle(owner.metaById[sessionId]?.title, owner.sessionTitleFor(sessionId))
 }
 
-function closeLabelForGridId(owner: MultiChatGridProps, gridId: string): string {
+function removeGridPane(owner: MultiChatGridProps, gridId: string): void {
+  if (gridId === owner.pickerPane?.paneKey) {
+    owner.pickerPane.onClose()
+    return
+  }
   const sessionId = sessionForGridId(owner, gridId)
-  if (!sessionId) return 'Close chat'
-  const title = safePaneTitle(owner.metaById[sessionId]?.title)
-    ?? safePaneTitle(owner.sessionTitleFor(sessionId))
-  return title ? `Close ${title}` : 'Close chat'
+  if (sessionId) owner.onRemove(sessionId)
 }
 
 function GridChatPane({
   gridId,
   active,
   owner,
+  multiPane,
 }: {
   gridId: string
   active: boolean
   owner: MultiChatGridProps
+  multiPane: boolean
 }) {
   const sessionId = sessionForGridId(owner, gridId)
   const primary = gridId === owner.primary.paneKey
@@ -126,6 +129,10 @@ function GridChatPane({
       initialScrollTop={paneScrollTop(owner, sessionId)}
       initialEmployee={primary ? owner.primary.initialEmployee : undefined}
       isActive={active}
+      multiPane={multiPane}
+      paneTitle={titleForGridId(owner, gridId)}
+      paneEmployee={sessionId ? safePaneTitle(owner.metaById[sessionId]?.employee) : undefined}
+      onClose={() => removeGridPane(owner, gridId)}
       onFocus={() => { if (sessionId) owner.onFocus(sessionId) }}
       onSessionCreated={primary ? owner.primary.onSessionCreated : pickerPane?.onSessionCreated}
       onNewChat={owner.onNewChat}
@@ -171,20 +178,11 @@ export function MultiChatGrid(props: MultiChatGridProps) {
       focusedId={focusedGridId}
       width={props.viewport.width}
       height={props.viewport.height}
-      labelFor={(gridId) => closeLabelForGridId(props, gridId)}
       onFocus={(gridId) => {
         const sessionId = sessionForGridId(props, gridId)
         if (sessionId) props.onFocus(sessionId)
       }}
-      onRemove={(gridId) => {
-        if (gridId === props.pickerPane?.paneKey) {
-          props.pickerPane.onClose()
-          return
-        }
-        const sessionId = sessionForGridId(props, gridId)
-        if (sessionId) props.onRemove(sessionId)
-      }}
-      renderPane={(gridId, active) => <GridChatPane gridId={gridId} active={active} owner={props} />}
+      renderPane={(gridId, active) => <GridChatPane gridId={gridId} active={active} owner={props} multiPane={gridIds.length > 1} />}
     />
   )
 }
