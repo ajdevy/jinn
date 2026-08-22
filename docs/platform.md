@@ -41,7 +41,7 @@ internally and no product intent reaches it.
 | files | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
 | install | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
 | window | Unsupported | Unsupported | Shell only: geometry and menu | Unsupported | Unsupported |
-| device | Unsupported | Unsupported | Product intent unsupported; gateway auth uses Keychain internally | Product intent unsupported; Keychain path cross-compiles | Unsupported; secure persistence unverified |
+| device | Unsupported | Unsupported | Product intent unsupported; gateway auth uses Keychain internally | Product intent unsupported; Keychain path cross-compiles | Unsupported; no Android credential backend is compiled in |
 
 The table describes shipped code, not desired parity. Update it in the same
 change that implements and verifies a capability.

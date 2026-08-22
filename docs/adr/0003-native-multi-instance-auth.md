@@ -15,8 +15,10 @@ when two gateways use different ports.
 
 Native gateway profiles are keyed by exact canonical origin, including port.
 The versioned profile roster stores non-secret metadata and the last active
-profile in bundled-app local storage. Credentials remain in the operating
-system store under a SHA-256 account key derived from that exact origin.
+profile in bundled-app local storage. Credentials are held under a SHA-256
+account key derived from that exact origin. That key addresses the operating
+system store on the targets whose native keyring backend is compiled in; the
+build enables Apple's only, so Android has no OS-backed store behind it.
 
 Switching is a transaction:
 
