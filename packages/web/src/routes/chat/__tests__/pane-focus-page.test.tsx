@@ -3,6 +3,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { WORKING_SET_STORAGE_KEY } from '../working-set'
 import { apiMocks, gateway, pane, renderRoute, sessionIds } from './multi-pane-page-harness'
 
+const writeText = vi.fn().mockResolvedValue(undefined)
+
 describe('desktop pane focus', () => {
   beforeEach(() => {
     sessionIds.splice(0, sessionIds.length, 'a', 'b', 'c', 'd')
@@ -12,6 +14,8 @@ describe('desktop pane focus', () => {
     gateway.listeners.clear()
     apiMocks.deleteSession.mockClear()
     apiMocks.duplicateSession.mockClear()
+    writeText.mockClear()
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
       version: 1,
       sessionIds,
@@ -31,7 +35,14 @@ describe('desktop pane focus', () => {
     const menu = await screen.findByRole('menu')
     expect(pane('a').getAttribute('data-chat-pane-active')).toBe('true')
     expect(paneC.getAttribute('data-chat-pane-active')).toBe('false')
-    fireEvent.click(within(menu).getByRole('menuitem', { name: /Duplicate/ }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy Session ID' }))
+    expect(writeText).toHaveBeenCalledWith('c')
+    expect(await within(paneC).findByTestId('chat-pane-copy-toast')).toBeTruthy()
+    expect(pane('a').getAttribute('data-chat-pane-active')).toBe('true')
+
+    fireEvent.pointerDown(within(paneC).getByRole('button', { name: 'Actions for Title c' }), { button: 0, ctrlKey: false })
+    const duplicateMenu = await screen.findByRole('menu')
+    fireEvent.click(within(duplicateMenu).getByRole('menuitem', { name: /Duplicate/ }))
     await waitFor(() => expect(apiMocks.duplicateSession).toHaveBeenCalledWith('c'))
     expect(pane('a').getAttribute('data-chat-pane-active')).toBe('true')
 

@@ -5,10 +5,11 @@ import { useDuplicateSession, useStopSession, useUpdateSession } from '@/hooks/u
 
 const EMPTY_PINNED_IDS = new Set<string>()
 
-export function usePaneSessionActions({ archive: archiveSession, unarchive, delete: deleteSession }: {
+export function usePaneSessionActions({ archive: archiveSession, unarchive, delete: deleteSession, copyId }: {
   archive: (sessionId: string) => void
   unarchive: (sessionId: string) => void
   delete: (sessionId: string) => void
+  copyId: (sessionId: string) => void
 }): PaneSessionActions {
   const { data: pinnedIds = EMPTY_PINNED_IDS } = usePins()
   const { mutate: togglePinMutation } = useTogglePin()
@@ -32,6 +33,7 @@ export function usePaneSessionActions({ archive: archiveSession, unarchive, dele
     duplicate: duplicateMutation,
     archive,
     stop: stopMutation,
+    copyId,
     delete: deleteSession,
-  }), [archive, deleteSession, duplicateMutation, pinnedIds, rename, stopMutation, togglePin])
+  }), [archive, copyId, deleteSession, duplicateMutation, pinnedIds, rename, stopMutation, togglePin])
 }

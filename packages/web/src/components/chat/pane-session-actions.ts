@@ -5,5 +5,6 @@ export interface PaneSessionActions {
   duplicate: (sessionId: string) => void
   archive: (sessionId: string, archived: boolean) => void
   stop: (sessionId: string) => void
+  copyId: (sessionId: string) => void
   delete: (sessionId: string) => void
 }

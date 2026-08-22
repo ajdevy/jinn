@@ -1562,7 +1562,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1019,
+      "lines": 1005,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

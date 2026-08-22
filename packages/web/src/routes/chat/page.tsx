@@ -37,6 +37,7 @@ import { useChatGridWorkspace } from './use-chat-grid-workspace'
 import { useMobileWorkingSet } from './use-mobile-working-set'
 import { adjacentSessionId } from './session-navigation'
 import { usePaneSessionActions } from './use-pane-session-actions'
+import { useCopyFeedback } from './use-copy-feedback'
 import { useSessionLifecycleActions } from './use-session-lifecycle-actions'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
@@ -145,7 +146,10 @@ function ChatPage() {
 
   const viewMode = paneState.viewMode
   const [showMoreMenu, setShowMoreMenu] = useState(false)
-  const [copiedField, setCopiedField] = useState<string | null>(null)
+  const { copiedField, copiedPaneId, copyToClipboard, copyChat } = useCopyFeedback()
+  const copyFromHeader = useCallback((text: string, field: string) => {
+    copyToClipboard(text, field); setShowMoreMenu(false)
+  }, [copyToClipboard])
   const { events, connectionSeq, skillsVersion, subscribe } = useGateway()
   const { data: engineRegistry } = useModelRegistry() // PTY capability per engine — drives the CLI view toggle
   const chatTabs = useChatTabs()
@@ -176,13 +180,6 @@ function ChatPage() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showMoreMenu])
-
-  const copyToClipboard = useCallback((text: string, field: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedField(field)
-    setShowMoreMenu(false)
-    setTimeout(() => setCopiedField(null), 1500)
-  }, [])
 
   // D4: open the existing global search (⌘K). GlobalSearch listens for a
   // meta/ctrl+K keydown on window, so synthesize one — same mechanism the old
@@ -499,6 +496,7 @@ function ChatPage() {
     archive: handleArchiveSession,
     unarchive: handleUnarchiveSession,
     delete: handleDeleteSession,
+    copyId: (sessionId) => copyToClipboard(sessionId, 'id', sessionId),
   })
 
   const handleStartFreshChat = useCallback(async (previous: FreshChatSourceSession) => {
@@ -660,6 +658,7 @@ function ChatPage() {
     () => (threadOrigin && selectedId ? { label: threadOrigin.label, onClick: goBackToOrigin } : undefined),
     [threadOrigin, selectedId, goBackToOrigin],
   )
+  const backToFor = useCallback((sessionId: string) => sessionId === selectedId ? backTo : undefined, [backTo, selectedId])
 
   // Navigation helpers for keyboard shortcuts
   const navigateSession = useCallback((direction: 1 | -1) => {
@@ -677,21 +676,6 @@ function ChatPage() {
     const firstSession = employeeSessionMap[nextEmployee]?.[0]
     if (firstSession) handleSelect(firstSession)
   }, [sessionMeta, handleSelect])
-
-  const copyChat = useCallback(async () => {
-    if (!focusedSessionId) return
-    try {
-      const session = await api.getSession(focusedSessionId) as { messages?: Array<{ role: string; content: string }> }
-      const messages = session.messages ?? []
-      const text = messages
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => `[${m.role}]: ${m.content}`)
-        .join('\n\n')
-      await navigator.clipboard.writeText(text)
-      setCopiedField('chat')
-      setTimeout(() => setCopiedField(null), 1500)
-    } catch { /* silently fail */ }
-  }, [focusedSessionId])
 
   // Tab activation = session selection (pushes a history entry) for session
   // tabs; file tabs stay a pure tab-model switch (they live outside the URL).
@@ -716,7 +700,7 @@ function ChatPage() {
     { key: 'e', category: 'Navigation', description: 'Next employee', action: cycleEmployee },
     { key: 'Backspace', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
     { key: 'Delete', category: 'Actions', description: 'Delete session', action: () => { if (focusedSessionId && window.confirm('Delete this session?')) handleDeleteSession(focusedSessionId) }, enabled: !!focusedSessionId },
-    { key: 'c', category: 'Actions', description: 'Copy chat', action: copyChat, enabled: !!focusedSessionId },
+    { key: 'c', category: 'Actions', description: 'Copy chat', action: () => { if (focusedSessionId) void copyChat(focusedSessionId) }, enabled: !!focusedSessionId },
     { key: 'Escape', category: 'Navigation', description: 'Close overlay', action: () => {
       if (showShortcutOverlay) setShowShortcutOverlay(false)
       else if (showMoreMenu) setShowMoreMenu(false)
@@ -811,7 +795,7 @@ function ChatPage() {
       duplicatePending={duplicateSessionMutation.isPending}
       onArchive={handleArchiveSession}
       onUnarchive={handleUnarchiveSession}
-      onCopyToClipboard={copyToClipboard}
+      onCopyToClipboard={copyFromHeader}
       onShareDebugLog={shareDebugLog}
       onClearDebugLog={clearDebugLog}
       onDeleteSession={handleDeleteSession}
@@ -888,7 +872,7 @@ function ChatPage() {
             onNew={handleNewChat}
             moreMenu={moreMenu}
             mobileWorkingSet={mobileWorkingSet}
-            copiedField={copiedField}
+            copiedField={desktopMultiPane ? null : copiedField}
             hideDesktop={desktopMultiPane}
           />
 
@@ -949,6 +933,8 @@ function ChatPage() {
                 metaById={paneState.metaById} sessionTitleFor={(id) => sessionsQuery.data?.find((session) => String(session.id ?? '') === id)?.title}
                 runtime={{ portalName, subscribe, engineRegistry, connectionSeq, skillsVersion, events }}
                 sessionActions={paneSessionActions}
+                backToFor={backToFor}
+                copiedSessionId={desktopMultiPane ? copiedPaneId : null}
                 scrollTopFor={(sessionId) => sessionScrollRef.current.get(sessionId)}
                 viewModeFor={paneState.viewModeFor}
                 focusTriggerFor={paneState.focusTriggerFor}

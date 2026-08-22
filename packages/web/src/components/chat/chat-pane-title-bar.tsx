@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { ChevronLeft, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ChatPaneSessionMenu } from '@/components/chat/chat-pane-session-menu'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
@@ -64,6 +64,7 @@ interface ChatPaneTitleBarProps {
   title: string
   employee: string
   session: Session
+  backTo?: { label: string; onClick: () => void }
   onClose: () => void
   sessionActions?: PaneSessionActions
 }
@@ -92,7 +93,7 @@ function PaneTitleActions({ title, session, onClose, sessionActions, onRenamed }
   )
 }
 
-export function ChatPaneTitleBar({ active, title, employee, session, onClose, sessionActions }: ChatPaneTitleBarProps) {
+export function ChatPaneTitleBar({ active, title, employee, session, backTo, onClose, sessionActions }: ChatPaneTitleBarProps) {
   const [renamedTitle, setRenamedTitle] = useState<string>()
   useEffect(() => setRenamedTitle(undefined), [session.id, title])
   const visibleTitle = renamedTitle ?? title
@@ -103,6 +104,19 @@ export function ChatPaneTitleBar({ active, title, employee, session, onClose, se
       data-testid="chat-pane-title-bar"
       className={`flex h-[34px] shrink-0 items-center gap-2 px-[8px] pl-[12px] transition-colors duration-[var(--duration-fast)] ${active ? 'bg-[var(--fill-secondary)]' : 'bg-transparent'}`}
     >
+      {backTo ? (
+        <button
+          type="button"
+          data-pane-focus-preserving
+          aria-label={`Back to ${backTo.label}`}
+          title={`Back to ${backTo.label}`}
+          onClick={(event) => { event.stopPropagation(); backTo.onClick() }}
+          className="inline-flex min-w-0 shrink-0 items-center gap-0.5 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-tertiary)] transition-colors duration-[var(--duration-fast)] hover:text-[var(--text-primary)]"
+        >
+          <ChevronLeft size={14} strokeWidth={2.4} aria-hidden className="shrink-0" />
+          <span className="max-w-[90px] truncate">{backTo.label}</span>
+        </button>
+      ) : null}
       <span
         aria-hidden
         data-chat-pane-emoji

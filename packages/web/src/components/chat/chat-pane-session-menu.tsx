@@ -52,6 +52,7 @@ export function ChatPaneSessionMenu({
           onDuplicate={() => actions.duplicate(session.id)}
           onArchive={() => actions.archive(session.id, Boolean(session.archivedAt))}
           onStop={() => actions.stop(session.id)}
+          onCopyId={() => actions.copyId(session.id)}
           onDelete={() => { if (window.confirm('Delete this session?')) actions.delete(session.id) }}
         />
       </DropdownMenuContent>

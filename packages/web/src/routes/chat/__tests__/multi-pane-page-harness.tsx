@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
 import ChatPageWrapper from '../page'
 import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
@@ -120,14 +120,18 @@ export function emit(event: string, payload: unknown) {
 
 function BackProbe() {
   const navigate = useNavigate()
-  return <button type="button" onClick={() => navigate(-1)}>Test browser back</button>
+  const location = useLocation()
+  return <><output data-testid="route-location">{location.pathname}{location.search}</output><button type="button" onClick={() => navigate(-1)}>Test browser back</button></>
 }
 
-export function renderRoute(initialEntry = '/?session=a'): { unmount: () => void } {
+type RouteEntry = string | { pathname: string; search?: string; state?: unknown }
+
+export function renderRoute(initialEntry: RouteEntry | RouteEntry[] = '/?session=a'): { unmount: () => void } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const initialEntries = Array.isArray(initialEntry) ? initialEntry : [initialEntry]
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter initialEntries={initialEntries} initialIndex={initialEntries.length - 1}>
         <BackProbe />
         <Routes><Route path="/" element={<ChatPageWrapper />} /></Routes>
       </MemoryRouter>

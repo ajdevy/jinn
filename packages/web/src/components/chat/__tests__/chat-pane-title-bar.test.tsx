@@ -89,6 +89,33 @@ describe('ChatPaneTitleBar', () => {
     expect(onPaneClick).not.toHaveBeenCalled()
   })
 
+  it('leads with only its own truncated drill-in back control', () => {
+    const onBack = vi.fn()
+    const onPaneClick = vi.fn()
+    render(
+      <div onClick={onPaneClick}>
+        <ChatPaneTitleBar
+          active
+          title="Child thread"
+          employee="platform-lead"
+          session={{ id: 'child', status: 'idle' }}
+          backTo={{ label: 'A parent title long enough to truncate', onClick: onBack }}
+          onClose={vi.fn()}
+        />
+      </div>,
+    )
+
+    const back = screen.getByRole('button', { name: 'Back to A parent title long enough to truncate' })
+    const label = screen.getByText('A parent title long enough to truncate')
+    const emoji = screen.getByText(emojiForName('platform-lead'))
+    expect(label.className).toContain('max-w-[90px]')
+    expect(label.className).toContain('truncate')
+    expect(back.compareDocumentPosition(emoji) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(back)
+    expect(onBack).toHaveBeenCalledOnce()
+    expect(onPaneClick).not.toHaveBeenCalled()
+  })
+
   it('renames the owning pane immediately through its dropdown', async () => {
     const actions = {
       pinnedIds: new Set<string>(),
@@ -97,6 +124,7 @@ describe('ChatPaneTitleBar', () => {
       duplicate: vi.fn(),
       archive: vi.fn(),
       stop: vi.fn(),
+      copyId: vi.fn(),
       delete: vi.fn(),
     }
     vi.spyOn(window, 'prompt').mockReturnValue('New pane title')
@@ -126,6 +154,7 @@ describe('ChatPaneTitleBar', () => {
       duplicate: vi.fn(),
       archive: vi.fn(),
       stop: vi.fn(),
+      copyId: vi.fn(),
       delete: vi.fn(),
     }
     vi.spyOn(window, 'prompt').mockReturnValue('Temporary title')

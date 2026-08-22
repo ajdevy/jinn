@@ -14,6 +14,7 @@ import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
 import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
 import { ChatPaneTitleBar, paneTitleBarState } from '@/components/chat/chat-pane-title-bar'
+import { ChatCopyToast } from '@/components/chat/chat-copy-toast'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { useOnboardingSeed } from '@/components/chat/use-onboarding-seed'
 
@@ -82,7 +83,7 @@ interface ChatPaneProps {
   /** Warm list/meta fallback while the pane's authoritative session detail loads. */
   paneTitle?: string
   paneEmployee?: string
-  onClose?: () => void; sessionActions?: PaneSessionActions
+  onClose?: () => void; sessionActions?: PaneSessionActions; paneBackTo?: { label: string; onClick: () => void }; copyNotice?: boolean
 }
 export type { FreshChatSourceSession }
 
@@ -110,13 +111,11 @@ export function ChatPane({
   newChatEmptyState,
   multiPane = false,
   paneTitle, paneEmployee,
-  onClose, sessionActions,
+  onClose, sessionActions, paneBackTo, copyNotice,
 }: ChatPaneProps) {
   const seedFromOnboarding = useOnboardingSeed(sessionId, pendingUserMessage)
 
-  // Live read pipeline (messages, streaming, loading, session, reconnect/watchdog)
-  // is owned by useLiveSession; this pane keeps the composer + send on top and
-  // drives optimistic writes through the hook's write API.
+  // useLiveSession owns reads; this pane layers the composer and optimistic writes.
   const live = useLiveSession(sessionId, {
     subscribe,
     connectionSeq,
@@ -475,8 +474,9 @@ export function ChatPane({
         </div>
       )}
       {multiPane && onClose ? (
-        <ChatPaneTitleBar {...titleBarState} active={isActive} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} />
+        <ChatPaneTitleBar {...titleBarState} active={isActive} backTo={paneBackTo} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} />
       ) : null}
+      {multiPane && copyNotice ? <ChatCopyToast placement="pane" /> : null}
       {showSessionHydration && <ChatHydrationOverlay />}
 
       {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below

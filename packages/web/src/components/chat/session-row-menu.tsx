@@ -44,6 +44,21 @@ export function sessionMenuCapabilities(session: SessionMenuSession): {
   }
 }
 
+function CopySessionIdItem({ variant, sessionId, onCopyId }: {
+  variant: "dropdown" | "context"
+  sessionId: string
+  onCopyId?: () => void
+}) {
+  const copy = () => {
+    if (onCopyId) return onCopyId()
+    const pending = navigator.clipboard?.writeText(sessionId)
+    if (pending) void pending.catch(() => {})
+  }
+  const content = <><Copy aria-hidden />Copy Session ID</>
+  if (variant === "dropdown") return <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={copy}>{content}</DropdownMenuItem>
+  return <ContextMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={copy}>{content}</ContextMenuItem>
+}
+
 export function SessionRowMenu({
   variant,
   session,
@@ -54,6 +69,7 @@ export function SessionRowMenu({
   onDuplicate,
   onArchive,
   onStop,
+  onCopyId,
   onDelete,
 }: {
   variant: "dropdown" | "context"
@@ -65,16 +81,12 @@ export function SessionRowMenu({
   onDuplicate: () => void
   onArchive: () => void
   onStop: () => void
+  onCopyId?: () => void
   onDelete: () => void
 }) {
   const capabilities = sessionMenuCapabilities(session)
   const Item = variant === "dropdown" ? DropdownMenuItem : ContextMenuItem
   const Separator = variant === "dropdown" ? DropdownMenuSeparator : ContextMenuSeparator
-
-  const copySessionId = () => {
-    const copy = navigator.clipboard?.writeText(session.id)
-    if (copy) void copy.catch(() => {})
-  }
 
   return (
     <>
@@ -109,10 +121,7 @@ export function SessionRowMenu({
           Stop session
         </Item>
       ) : null}
-      <Item className={SESSION_MENU_ITEM_CLASS} onClick={copySessionId}>
-        <Copy aria-hidden />
-        Copy Session ID
-      </Item>
+      <CopySessionIdItem variant={variant} sessionId={session.id} onCopyId={onCopyId} />
       <Separator className={SESSION_MENU_SEPARATOR_CLASS} />
       <Item
         variant="destructive"

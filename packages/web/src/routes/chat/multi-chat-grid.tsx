@@ -34,6 +34,8 @@ interface MultiChatGridProps {
   sessionTitleFor: (sessionId: string) => unknown
   runtime: PaneRuntime
   sessionActions?: PaneProps['sessionActions']
+  backToFor?: (sessionId: string) => PaneProps['paneBackTo']
+  copiedSessionId?: string | null
   scrollTopFor: (sessionId: string) => number | undefined
   viewModeFor: (sessionId: string) => ViewMode
   focusTriggerFor: (sessionId: string) => number
@@ -108,6 +110,14 @@ function removeGridPane(owner: MultiChatGridProps, gridId: string): void {
   if (sessionId) owner.onRemove(sessionId)
 }
 
+function paneChrome(owner: MultiChatGridProps, sessionId: string | null): Pick<PaneProps, 'sessionActions' | 'paneBackTo' | 'copyNotice'> {
+  return {
+    sessionActions: owner.sessionActions,
+    paneBackTo: sessionId ? owner.backToFor?.(sessionId) : undefined,
+    copyNotice: Boolean(sessionId && owner.copiedSessionId === sessionId),
+  }
+}
+
 function GridChatPane({
   gridId,
   active,
@@ -126,6 +136,7 @@ function GridChatPane({
   const pane = (
     <ChatPane
       {...owner.runtime}
+      {...paneChrome(owner, sessionId)}
       sessionId={sessionId}
       initialScrollTop={paneScrollTop(owner, sessionId)}
       initialEmployee={primary ? owner.primary.initialEmployee : undefined}
@@ -134,7 +145,6 @@ function GridChatPane({
       paneTitle={titleForGridId(owner, gridId)}
       paneEmployee={sessionId ? safePaneTitle(owner.metaById[sessionId]?.employee) : undefined}
       onClose={() => removeGridPane(owner, gridId)}
-      sessionActions={owner.sessionActions}
       onFocus={() => { if (sessionId) owner.onFocus(sessionId) }}
       onSessionCreated={primary ? owner.primary.onSessionCreated : pickerPane?.onSessionCreated}
       onNewChat={owner.onNewChat}
