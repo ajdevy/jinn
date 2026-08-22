@@ -108,6 +108,22 @@ describe('assistant action row placement', () => {
     expect(container.querySelectorAll('[data-message-id] .msg-actions')).toHaveLength(0)
   })
 
+  it('keeps actions on a finished turn that only holds its partial row as evidence', () => {
+    // A restored transcript can retain a half-written row from BEFORE the model
+    // recovered and answered. That row is spent evidence, not a severed stream:
+    // the turn did close, and the block that closed it still owns the actions.
+    const { container } = renderTranscript([
+      { id: 'ev-u1', role: 'user', content: 'Ship it.', timestamp: T0 },
+      { id: 'ev-a1', role: 'assistant', content: 'Half-written attempt', timestamp: T0 + 1_000, partial: true },
+      { id: 'ev-a2', role: 'assistant', content: 'Shipped. Here is the summary.', timestamp: T0 + 2_000 },
+    ])
+
+    const actions = container.querySelectorAll('.msg-actions')
+    expect(actions).toHaveLength(1)
+    expect(actions[0].closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('ev-a2')
+    expect(container.querySelector('[data-message-id="ev-a1"] .msg-actions')).toBeNull()
+  })
+
   it('keeps the reserved band on the streaming row, which is the presumptive answer', () => {
     const { container } = renderTranscript([MULTI_PROSE_TURN[0]], { loading: true, streamingText: 'Ship' })
 

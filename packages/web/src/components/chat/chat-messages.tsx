@@ -691,7 +691,7 @@ export interface RowMeta {
 export function buildRowMeta(messages: Message[], pendingTurnId: string | null): RowMeta[] {
   const answers = finalAnswerIndices(messages)
   const turnIds = turnIdByIndex(messages)
-  const openTurns = openTurnIds(messages, turnIds)
+  const openTurns = openTurnIds(messages, turnIds, answers)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
