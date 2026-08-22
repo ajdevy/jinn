@@ -7,6 +7,9 @@ const engineAvailableMock = vi.fn<(...args: unknown[]) => boolean>();
 vi.mock("../../shared/models.js", () => ({
   engineAvailable: (...args: unknown[]) => engineAvailableMock(...args),
   effortLevelsForModel: vi.fn(() => ["low", "medium", "high"]),
+  // No engine here configures a fallbackModelMap, so the substitute-model
+  // resolver never gets as far as asking the registry what it serves.
+  getModelRegistry: vi.fn(() => ({})),
   // The chain walker's module reads both of these at load time.
   ENGINE_NAMES: ["claude", "codex", "antigravity", "grok", "pi", "hermes"],
   isKnownEngine: (name: string) => ["claude", "codex", "antigravity", "grok", "pi", "hermes"].includes(name),
@@ -150,6 +153,9 @@ describe("handleRateLimit — Codex fallback guard (#40)", () => {
     expect(updateSessionForAttemptMock).toHaveBeenCalledWith("sess-1", "attempt-1", expect.objectContaining({
       engine: "codex",
       engineSessionId: null,
+      // Claude's model goes with Claude: nothing is mapped, so the substitute
+      // runs on its own default rather than on a pin it cannot serve (PLA-202).
+      model: null,
       engineSessions: { claude: { id: "claude-thread-1" } },
     }));
     // The post-run write records the fallback's own thread id, typed.

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
-import { applyLegacyFallbackMigration, validateEngineFallbackChains } from "./engine-fallback.js";
+import { applyLegacyFallbackMigration, validateEngineFallbackChains, validateEngineFallbackModelMaps } from "./engine-fallback.js";
 import type { JinnConfig } from "./types.js";
 
 type ClaudeEngineConfig = JinnConfig["engines"]["claude"];
@@ -75,6 +75,7 @@ export function validateConfigShape(config: unknown): string[] {
       problems.push("engines.claude must be a mapping");
     }
     problems.push(...validateEngineFallbackChains(c.engines));
+    problems.push(...validateEngineFallbackModelMaps(c.engines));
   }
 
   return problems;

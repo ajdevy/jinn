@@ -173,7 +173,7 @@ describe("engine session refs", () => {
   });
 
   it("reverts a codex-primary session to its own parked thread once the override window passes", async () => {
-    const { maybeRevertEngineOverride } = await import("../manager.js");
+    const { maybeRevertEngineOverride } = await import("../engine-override.js");
     const s = reg.createSession({ engine: "codex", source: "web", sourceRef: "web:codex-override" });
     reg.recordEngineSessionId(s.id, "codex", "codex-native-1");
 
@@ -200,6 +200,49 @@ describe("engine session refs", () => {
     // The substitute's own thread stays parked under its ref, and the spent record goes.
     expect(reg.getEngineSessionRef(reverted, "claude").id).toBe("claude-substitute-1");
     expect(reverted.transportMeta?.engineOverride).toBeUndefined();
+  });
+
+  it("restores the model the pin belonged to alongside the engine it belonged to (PLA-202)", async () => {
+    const { maybeRevertEngineOverride } = await import("../engine-override.js");
+    const s = reg.createSession({ engine: "codex", source: "web", sourceRef: "web:codex-model-revert" });
+
+    // The state the swap now writes: the pin off the row and parked on the record,
+    // because a codex model id means nothing while claude is the one running.
+    reg.updateSession(s.id, {
+      engine: "claude",
+      engineSessionId: null,
+      model: null,
+      transportMeta: {
+        engineOverride: {
+          originalEngine: "codex",
+          originalEngineSessionId: "codex-native-1",
+          originalModel: "gpt-5.6-luna",
+          until: "2020-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    const reverted = maybeRevertEngineOverride(reg.getSession(s.id)!);
+
+    expect(reverted.engine).toBe("codex");
+    expect(reverted.model).toBe("gpt-5.6-luna");
+  });
+
+  it("restores no pin from an override record that parked none, rather than inventing one", async () => {
+    const { maybeRevertEngineOverride } = await import("../engine-override.js");
+    const s = reg.createSession({ engine: "codex", source: "web", sourceRef: "web:codex-no-parked-model" });
+    reg.updateSession(s.id, {
+      engine: "claude",
+      model: "opus",
+      transportMeta: {
+        engineOverride: { originalEngine: "codex", originalEngineSessionId: "codex-native-1", until: "2020-01-01T00:00:00.000Z" },
+      },
+    });
+
+    const reverted = maybeRevertEngineOverride(reg.getSession(s.id)!);
+
+    expect(reverted.engine).toBe("codex");
+    expect(reverted.model).toBe("opus");
   });
 
   it("does not resume a saved Grok native session when switching back with a different Grok model", () => {

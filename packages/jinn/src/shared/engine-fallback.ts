@@ -1,5 +1,6 @@
+import { logger } from "./logger.js";
 import { ENGINE_NAMES, isKnownEngine, type EngineName } from "./models.js";
-import type { JinnConfig } from "./types.js";
+import type { JinnConfig, ModelRegistry } from "./types.js";
 
 const KNOWN_ENGINES = ENGINE_NAMES.join(", ");
 
@@ -36,6 +37,90 @@ export function validateEngineFallbackChains(engines: Record<string, unknown>): 
   }
 
   return problems;
+}
+
+/** A YAML mapping, as opposed to a scalar, a list, or a key left with no value. */
+function isYamlMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** What a config value turned out to be, phrased for the operator reading the error. */
+function shapeOf(value: unknown): string {
+  if (value === null) return "null";
+  return Array.isArray(value) ? "array" : typeof value;
+}
+
+/** Problems with the entries of one engine's map, which is already a mapping. */
+function modelMapEntryProblems(engine: string, map: Record<string, unknown>): string[] {
+  const problems: string[] = [];
+
+  for (const [from, to] of Object.entries(map)) {
+    // YAML hands every key over as a string, so "not a model id" is a blank one.
+    if (!from.trim()) {
+      problems.push(`engines.${engine}.fallbackModelMap has a blank model id as a key`);
+    }
+    if (typeof to !== "string" || !to.trim()) {
+      problems.push(`engines.${engine}.fallbackModelMap["${from}"] must be a nonempty model id (got ${shapeOf(to)})`);
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * Problems with the `fallbackModelMap` tables under an `engines` mapping (empty = valid).
+ * The map is read with the pinned model as the key at the moment of a swap, so an entry
+ * that is not a model id on both sides is one that can never match — refused here rather
+ * than left to look like a mapping that simply never fires.
+ */
+export function validateEngineFallbackModelMaps(engines: Record<string, unknown>): string[] {
+  const problems: string[] = [];
+
+  for (const name of ENGINE_NAMES) {
+    const section = engines[name];
+    if (!isYamlMapping(section)) continue;
+
+    const map = section.fallbackModelMap;
+    if (map === undefined) continue;
+    if (!isYamlMapping(map)) {
+      problems.push(
+        `engines.${name}.fallbackModelMap must be a mapping of model id to model id (got ${shapeOf(map)})`,
+      );
+      continue;
+    }
+
+    problems.push(...modelMapEntryProblems(name, map));
+  }
+
+  return problems;
+}
+
+/**
+ * The model a turn should run on once its engine has been substituted.
+ *
+ * `undefined` is the floor rule and the default answer: drop the pin, let the
+ * substitute's own configured default apply. A model id belongs to exactly one
+ * provider, so carrying one across a swap is how a codex pin reached Anthropic and
+ * came back `model_not_found`. `engines.<from>.fallbackModelMap` is the only way a
+ * pin survives — and only when the substitute actually serves what the map names,
+ * because a map that could name anything would just spell the same bug in config.
+ */
+export function resolveSubstituteModel(
+  config: JinnConfig,
+  registry: ModelRegistry,
+  { from, to, model }: { from: string; to: string; model: string | null | undefined },
+): string | undefined {
+  if (!model) return undefined;
+
+  const mapped = config.engines[from as EngineName]?.fallbackModelMap?.[model];
+  if (!mapped) return undefined;
+  if (registry[to]?.models.some((candidate) => candidate.id === mapped)) return mapped;
+
+  logger.warn(
+    `engines.${from}.fallbackModelMap maps "${model}" to "${mapped}", which engine "${to}" does not serve — ` +
+      `running ${to} on its own default model instead.`,
+  );
+  return undefined;
 }
 
 // Warn once per mapped engine: loadConfig() runs again on every config hot-reload, so

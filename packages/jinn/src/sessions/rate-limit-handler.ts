@@ -26,16 +26,16 @@
 import type { RateLimitHandlerOpts, RateLimitOutcome } from "./rate-limit-contract.js";
 import { JINN_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
-import { resolveEffort } from "../shared/effort.js";
-import { effortLevelsForModel, engineAvailable, type EngineName } from "../shared/models.js";
+import { engineAvailable, type EngineName } from "../shared/models.js";
 import {
   computeNextRetryDelayMs, computeRateLimitDeadlineMs, detectRateLimit, nextUnstatedParkDelayMs,
   rateLimitEngineLabel, MAX_UNSTATED_PARK_ATTEMPTS,
 } from "../shared/rateLimit.js";
 import { recordClaudeRateLimit } from "../shared/usageAwareness.js";
 import { readEngineHealth, recordEngineUnavailable, resolveHealthyFallbackEngine } from "../shared/engine-health.js";
+import { beginEngineSubstitution } from "./engine-override.js";
 import { resolveEngineRunMcp } from "./engine-run-mcp.js";
-import { getSession, getMessages, updateSessionForAttempt, getEngineSessionRef, nextEngineSessionFields } from "./registry.js";
+import { getSession, getMessages, updateSessionForAttempt, nextEngineSessionFields } from "./registry.js";
 import { runtimeSessionSource } from "./context.js";
 
 const WAIT_CANCEL_POLL_MS = 5000;
@@ -76,42 +76,18 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
 
     await hooks.onFallbackStart?.({ resumeAt: resumeAt ?? null, until, substitute: substituteName });
 
-    const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-    nextMeta.engineOverride = {
-      originalEngine: session.engine,
-      originalEngineSessionId: session.engineSessionId,
-      until: until.toISOString(),
-      syncSince,
-    };
-
-    const fallbackStarted = updateSessionForAttempt(session.id, attemptToken, {
-      // The limited engine's thread id moves to its own typed ref (the override record
-      // keeps a second copy). The mirror belongs to whichever engine is actually running,
-      // so it goes null until the substitute returns a thread id of its own.
-      ...(session.engineSessionId ? nextEngineSessionFields(session, session.engine, session.engineSessionId) : {}),
-      engine: substituteName,
-      engineSessionId: null,
-      transportMeta: nextMeta as any,
-      status: "running",
-      lastActivity: new Date().toISOString(),
+    const substitution = beginEngineSubstitution({
+      session, attemptToken, config, employee, substitute: substituteName, until, syncSince,
       lastError: resumeAt
         ? `${engineLabel} usage limit — using ${substituteLabel} until ${resumeAt.toISOString()}`
         : `${engineLabel} usage limit — using ${substituteLabel} temporarily`,
     });
-    if (!fallbackStarted) {
+    if (!substitution) {
       await hooks.onCancelled?.();
       return { kind: "cancelled" };
     }
 
-    const substituteConfig: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string } =
-      config.engines[substituteName] ?? {};
-    const substituteEffort = resolveEffort(
-      substituteConfig,
-      session,
-      employee,
-      effortLevelsForModel(config, substituteName, substituteConfig.model),
-    );
-    const substituteResume = getEngineSessionRef(session, substituteName).id;
+    const substituteResume = substitution.resumeSessionId;
     const history = getMessages(session.id)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
@@ -125,11 +101,11 @@ export async function handleRateLimit(opts: RateLimitHandlerOpts): Promise<RateL
       resumeSessionId: substituteResume,
       systemPrompt,
       cwd: JINN_HOME,
-      // The substitute runs as itself: its own binary, its own configured model, and the
-      // MCP payload resolved for it — the limited engine's model would be meaningless here.
-      bin: substituteConfig.bin,
-      model: substituteConfig.model,
-      effortLevel: substituteEffort,
+      // The substitute runs as itself: its own binary, the MCP payload resolved for it,
+      // and a model it actually serves — the limited engine's would be meaningless here.
+      bin: substitution.engineConfig.bin,
+      model: substitution.model ?? substitution.engineConfig.model,
+      effortLevel: substitution.effortLevel,
       cliFlags: employee?.cliFlags ?? cliFlags,
       ...resolveEngineRunMcp({ config, employee, engine: substituteName, sessionId: session.id }),
       attachments: attachments?.length ? attachments : undefined,

@@ -27,9 +27,10 @@ let ManagerClass: typeof import("../manager.js").SessionManager;
 let recordEngineUnavailable: typeof import("../../shared/engine-health.js").recordEngineUnavailable;
 let validateNewSessionSelection: typeof import("../session-patch.js").validateNewSessionSelection;
 let invalidateModelRegistry: typeof import("../../shared/models.js").invalidateModelRegistry;
+let getModelRegistry: typeof import("../../shared/models.js").getModelRegistry;
 
 beforeAll(async () => {
-  [registry, { SessionManager: ManagerClass }, { recordEngineUnavailable }, { validateNewSessionSelection }, { invalidateModelRegistry }] =
+  [registry, { SessionManager: ManagerClass }, { recordEngineUnavailable }, { validateNewSessionSelection }, { invalidateModelRegistry, getModelRegistry }] =
     await Promise.all([
       import("../registry.js"),
       import("../manager.js"),
@@ -164,6 +165,17 @@ describe("validateNewSessionSelection — engine selection under a spent allowan
 
     expect(validateNewSessionSelection(config(), { model: "gpt-5.6-sol" }, { engine: "codex" }))
       .toMatchObject({ ok: true, engine: "codex", model: "gpt-5.6-sol" });
+  });
+
+  it("never resolves a model the engine it moved to does not serve (PLA-202)", () => {
+    recordEngineUnavailable("codex", "out of quota", anHourOut());
+    const cfg = config();
+
+    const selection = validateNewSessionSelection(cfg, {}, { engine: "codex", model: "gpt-5.6-sol", employee: "a-worker" });
+
+    expect(selection.engine).toBe("claude");
+    const served = getModelRegistry(cfg).claude!.models.map((model) => model.id);
+    expect(selection.model === undefined || served.includes(selection.model)).toBe(true);
   });
 
   it("keeps the preference when nothing in the chain is healthy either", () => {

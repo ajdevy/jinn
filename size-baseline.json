@@ -718,7 +718,7 @@
       ]
     },
     "packages/jinn/src/sessions/manager.ts": {
-      "lines": 567,
+      "lines": 530,
       "exempt": [
         "complexity",
         "max-lines-per-function",
@@ -739,7 +739,6 @@
       ]
     },
     "packages/jinn/src/sessions/rate-limit-handler.ts": {
-      "lines": 312,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1158,7 +1157,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1338,
+      "lines": 1334,
       "exempt": [
         "complexity",
         "max-depth",
