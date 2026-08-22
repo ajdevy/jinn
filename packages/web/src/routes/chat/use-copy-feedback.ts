@@ -19,8 +19,9 @@ export function useCopyFeedback() {
   }, [])
 
   const copyToClipboard = useCallback((text: string, field: string, paneId: string | null = null) => {
-    // Platform-aware copy (the shell has no navigator.clipboard); feedback
-    // follows the write, and is anchored to the pane that fired it.
+    // Copying goes through the platform adapter, which is the only place
+    // allowed to reach a clipboard API. Feedback follows a performed write
+    // and is anchored to the pane that fired it.
     void copyText(text).then((result) => { if (result.status === 'performed') showFeedback(field, paneId) })
   }, [showFeedback])
 
