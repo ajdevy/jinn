@@ -114,7 +114,7 @@ function NativeWorkspacesGroup() {
   return <>
     <GroupLabel>Workspaces</GroupLabel>
     <Card>
-      {workspaces.map((workspace, index) => <WorkspaceRow key={workspace.id} workspace={workspace} first={index === 0} onStart={(candidate) => void select(candidate)} onOpen={(candidate) => void select(candidate)} onRemove={(candidate) => void remove(candidate)} starting={snapshot.status === "switching" && snapshot.failedProfileId === workspace.id} error={error?.id === workspace.id ? error.message : undefined} />)}
+      {workspaces.map((workspace, index) => <WorkspaceRow key={workspace.id} workspace={workspace} first={index === 0} onStart={(candidate) => void select(candidate)} onOpen={(candidate) => void select(candidate)} onRemove={(candidate) => void remove(candidate)} starting={snapshot.switchingProfileId === workspace.id} error={error?.id === workspace.id ? error.message : undefined} />)}
       <AddRow label="Add gateway" divided={workspaces.length > 0} onClick={() => setPairing(true)} />
     </Card>
     <NativePairingDialog open={pairing} onOpenChange={setPairing} />

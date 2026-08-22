@@ -12,13 +12,13 @@ import { RouteLoading } from './components/route-loading'
 import { TodosIndexRedirect, todosIndexLoader } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
-import type { NativeGatewayProfiles } from './lib/native-gateway-profiles'
+import type { NativeGatewayProfiles, NativeGatewayProfilesSnapshot } from './lib/native-gateway-profiles'
 import { nativeBridge } from './platform/native-bridge'
 import './routes/globals.css'
 
 let profiles: NativeGatewayProfiles | undefined
 let initialNativeOrigin: string | undefined
-let PairingScreen: ComponentType<{ onPaired: (origin: string) => void }> | undefined
+let PairingScreen: ComponentType<Record<string, never>> | undefined
 
 const ChatPage = lazyRoute(() => import('./routes/chat/page'), 'chat')
 const CronPage = lazyRoute(() => import('./routes/cron/page'), 'cron')
@@ -196,6 +196,18 @@ registerTalkNavigator((path) => router.navigate(path))
 // the voice surface, a plugin has no latency clock to time against the landing.
 registerHostNavigator((path) => void router.navigate(path))
 
+/**
+ * Whether the native window has to show its own gateway surface instead of the
+ * app. A remembered gateway that stopped answering counts: the app behind it can
+ * only reach a dead origin, and the browser's pairing screen it would fall
+ * through to belongs to a gateway that replied. A failed SWITCH does not count:
+ * the working gateway stays active there and the switcher reports it in place.
+ */
+function nativeGatewayBlocked(snapshot: NativeGatewayProfilesSnapshot | undefined, origin: string | undefined): boolean {
+  if (!origin) return true
+  return snapshot ? !snapshot.activeReachable : false
+}
+
 function App() {
   const snapshot = useSyncExternalStore(
     profiles?.subscribe ?? (() => () => {}),
@@ -203,7 +215,7 @@ function App() {
     () => undefined,
   )
   const nativeOrigin = snapshot?.profiles.find((profile) => profile.id === snapshot.activeId)?.origin ?? initialNativeOrigin
-  if (nativeBridge() && !nativeOrigin && PairingScreen) return <PairingScreen onPaired={() => {}} />
+  if (nativeBridge() && PairingScreen && nativeGatewayBlocked(snapshot, nativeOrigin)) return <PairingScreen />
   return (
     <AppErrorBoundary>
       <RouterProvider router={router} />
@@ -239,6 +251,9 @@ async function mount(): Promise<void> {
     initialNativeOrigin = bootstrap.installSavedNativeGateway()
     profiles = bootstrap.nativeGatewayProfiles()
     PairingScreen = pairing.NativePairingScreen
+    // Synchronous up to its first await, so the first paint is already the
+    // connecting state rather than a router mounted on an origin nobody proved.
+    void profiles?.verifyActive()
   }
   createRoot(rootEl!).render(<App />)
 }

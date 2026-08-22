@@ -70,7 +70,7 @@ export function NativeWorkspaceSwitcher({
         onStart={(workspace) => void select(workspace)}
         onOpen={(workspace) => void select(workspace)}
         onRemove={(workspace) => void remove(workspace)}
-        startingId={snapshot.status === "switching" ? snapshot.failedProfileId : undefined}
+        startingId={snapshot.switchingProfileId}
         startError={error}
       />
       <NativePairingDialog open={pairing} onOpenChange={setPairing} />
