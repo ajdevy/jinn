@@ -22,16 +22,20 @@ export interface ChatTouchOrder {
  * that hold never becomes a touch. Every way in — a strip chip, a list row, a
  * deep link, back and forward — arrives here as a committed id.
  *
- * `presented` is the other half of that: the route also commits a session
- * nobody asked for, when `handleSessionsLoaded` primes the newest chat for the
- * desktop thread while a phone stays on the list. A chat the operator cannot
- * see was not opened by them, so it is not a touch.
+ * `systemPrimedId` is the other half of that: the route also commits a session
+ * nobody asked for — `handleSessionsLoaded` primes the newest chat so the
+ * thread has something to show, and the delete, archive and tab-restore
+ * fallbacks pick a neighbour. The route names that chat here, and it stays out
+ * of the log until the operator selects it themselves. Whether the thread is on
+ * screen cannot stand in for that: showing it is what New chat does on a phone
+ * one render before the navigation clears the primed selection.
  */
 export function useChatTouchOrder(
   committedId: string | null,
   sessions: ReadonlyArray<{ id?: unknown }> | undefined,
-  presented: boolean,
+  systemPrimedId: string | null,
 ): ChatTouchOrder {
+  const openedId = committedId && committedId !== systemPrimedId ? committedId : null
   const [state, setState] = useState<ChatTouchOrder>({ ids: [], hydrated: false })
 
   useEffect(() => {
@@ -43,18 +47,18 @@ export function useChatTouchOrder(
     const liveIds = new Set(sessions.map((session) => String(session.id ?? '')).filter(Boolean))
     const restored = loadPersistedTouchOrder(window.localStorage, liveIds)
     setState({
-      ids: committedId && presented ? recordTouchedSession(restored, committedId) : restored,
+      ids: openedId ? recordTouchedSession(restored, openedId) : restored,
       hydrated: true,
     })
-  }, [committedId, presented, sessions, state.hydrated])
+  }, [openedId, sessions, state.hydrated])
 
   useEffect(() => {
-    if (!state.hydrated || !committedId || !presented) return
+    if (!state.hydrated || !openedId) return
     setState((current) => {
-      const ids = recordTouchedSession(current.ids, committedId)
+      const ids = recordTouchedSession(current.ids, openedId)
       return ids === current.ids ? current : { ...current, ids }
     })
-  }, [committedId, presented, state.hydrated])
+  }, [openedId, state.hydrated])
 
   useEffect(() => {
     if (!state.hydrated || typeof window === 'undefined') return

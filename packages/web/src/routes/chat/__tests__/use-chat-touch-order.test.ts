@@ -14,7 +14,7 @@ beforeEach(() => {
 describe('useChatTouchOrder', () => {
   it('records every chat the operator commits into view, newest first', () => {
     const { result, rerender } = renderHook(
-      ({ committedId }) => useChatTouchOrder(committedId, sessions, true),
+      ({ committedId }) => useChatTouchOrder(committedId, sessions, null),
       { initialProps: { committedId: 'a' as string | null } },
     )
 
@@ -28,19 +28,19 @@ describe('useChatTouchOrder', () => {
     expect(result.current.ids).toEqual(['a', 'b'])
   })
 
-  it('ignores a chat the app primed behind the mobile list', () => {
-    // handleSessionsLoaded commits the newest session with navigateMobile:false
-    // to prime the desktop thread. On a phone still showing the list, nothing
-    // reached the operator, so it is not a touch.
+  it('ignores a chat the route primed until the operator opens it themselves', () => {
+    // handleSessionsLoaded commits the newest session so the thread has
+    // something to show. Nobody asked for it, so it is not a touch — until the
+    // operator taps that same chat, which clears the mark.
     const { result, rerender } = renderHook(
-      ({ presented }) => useChatTouchOrder('newest', sessions, presented),
-      { initialProps: { presented: false } },
+      ({ systemPrimedId }) => useChatTouchOrder('newest', sessions, systemPrimedId),
+      { initialProps: { systemPrimedId: 'newest' as string | null } },
     )
 
     expect(result.current.ids).toEqual([])
     expect(result.current.hydrated).toBe(true)
 
-    rerender({ presented: true })
+    rerender({ systemPrimedId: null })
     expect(result.current.ids).toEqual(['newest'])
   })
 
@@ -50,14 +50,14 @@ describe('useChatTouchOrder', () => {
       JSON.stringify({ version: 1, sessionIds: ['b', 'closed', 'a'] }),
     )
 
-    const { result } = renderHook(() => useChatTouchOrder('a', sessions.slice(0, 2), true))
+    const { result } = renderHook(() => useChatTouchOrder('a', sessions.slice(0, 2), null))
 
     expect(result.current.ids).toEqual(['a', 'b'])
   })
 
   it('reports itself unhydrated until the sessions it prunes against arrive', () => {
     const { result, rerender } = renderHook(
-      ({ live }) => useChatTouchOrder('a', live, true),
+      ({ live }) => useChatTouchOrder('a', live, null),
       { initialProps: { live: undefined as typeof sessions | undefined } },
     )
 
@@ -70,7 +70,7 @@ describe('useChatTouchOrder', () => {
   it('starts empty rather than throwing on a corrupt stored log', () => {
     localStorage.setItem(TOUCH_ORDER_STORAGE_KEY, 'not json at all')
 
-    const { result } = renderHook(() => useChatTouchOrder(null, sessions, true))
+    const { result } = renderHook(() => useChatTouchOrder(null, sessions, null))
 
     expect(result.current.ids).toEqual([])
   })
@@ -90,7 +90,7 @@ describe('mobile slots across a reload', () => {
       committedId: 'topic-06',
       workingSet: createWorkingSet(['topic-06'], 'topic-06'),
       sessions: live,
-      onList: false,
+      systemPrimedId: null,
     }))
 
     expect(result.current.mobileSessionIds).toEqual(['topic-06', 'topic-08', 'topic-12', 'topic-11'])

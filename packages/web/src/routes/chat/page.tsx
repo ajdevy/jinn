@@ -106,6 +106,8 @@ function ChatPage() {
   const [, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
   // When true, user explicitly started a new chat — don't auto-select first session
   const newChatIntentRef = useRef(false)
+  // The chat the ROUTE selected on its own — see handleSelect's `system` opt.
+  const [systemPrimedId, setSystemPrimedId] = useState<string | null>(null)
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
   const [pendingEmployee, setPendingEmployee] = useState<string | null>(null)
@@ -113,7 +115,7 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const workingSet = useChatWorkingSet(committedId, sessionsQuery.data)
-  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data, onList: mobileView === 'sidebar' })
+  const gridState = useChatGridState({ committedId, workingSet: workingSet.state, sessions: sessionsQuery.data, systemPrimedId })
   const { viewport, gridSessionIds, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
@@ -274,11 +276,16 @@ function ChatPage() {
   // tab restore) pass `replace`. `from` is a drill-in's origin, carried in
   // history state for the back chip.
   const handleSelect = useCallback(
-    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin }) => {
+    (id: string, opts?: { navigateMobile?: boolean; replace?: boolean; from?: ThreadOrigin; system?: boolean }) => {
       const currentId = selectedIdRef.current
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
       newChatIntentRef.current = false
+      // `system` marks the selections the route makes for itself — priming the
+      // newest chat, falling back after a delete. They reach the touch log as
+      // ordinary commits, so they are named there rather than guessed at; any
+      // operator selection, that same chat included, clears the mark.
+      setSystemPrimedId(opts?.system ? id : null)
       // On mobile, opening a session pushes from the list into the thread, and the
       // pane arrives with it (see revealSelection). The one exception is the
       // background auto-select of the most-recent session (handleSessionsLoaded):
@@ -332,6 +339,7 @@ function ChatPage() {
     // A selectedId change means a navigation landed — any in-flight sentinel
     // is done (ours just arrived; a competing user navigation obsoletes it).
     pendingNavRef.current = undefined
+    if (navigationType === 'POP') setSystemPrimedId(null) // back into a primed chat is the operator opening it
     if (selectedId) {
       newChatIntentRef.current = false
       chatTabs.openTab({ sessionId: selectedId, label: 'Loading...', status: 'idle', unread: false })
@@ -359,10 +367,13 @@ function ChatPage() {
     paneState.bumpFocus(selectedId)
   }, [paneState.bumpFocus, selectedId])
 
-  const handleNewChat = useCallback(() => {
+  // Leave the current thread for the composer. `employee` preselects one to
+  // write to; the session itself is created on first send (ChatPane →
+  // buildNewSessionParams).
+  const openComposer = useCallback((employee: string | null) => {
     newChatIntentRef.current = true
     startComposer()
-    setPendingEmployee(null)
+    setPendingEmployee(employee)
     setMobileView('chat')
     setEmployeeSessions([])
     chatTabs.clearActiveTab()
@@ -374,22 +385,11 @@ function ChatPage() {
     }
   }, [chatTabs, navigate, startComposer])
 
-  // Start a new chat with a specific employee preselected — used when contacting
-  // a session-less employee from the sidebar roster or via an ?employee= deep-link.
-  // The actual session is created on first send (ChatPane → buildNewSessionParams).
-  const contactEmployee = useCallback((name: string) => {
-    newChatIntentRef.current = true
-    startComposer()
-    setPendingEmployee(name)
-    setMobileView('chat')
-    setEmployeeSessions([])
-    chatTabs.clearActiveTab()
-    // Contacting from within a session is a navigation to the composer — push.
-    if (selectedIdRef.current) {
-      pendingNavRef.current = null
-      navigate('/')
-    }
-  }, [chatTabs, navigate, startComposer])
+  const handleNewChat = useCallback(() => openComposer(null), [openComposer])
+
+  // Contacting a session-less employee from the sidebar roster or an
+  // ?employee= deep-link.
+  const contactEmployee = useCallback((name: string) => openComposer(name), [openComposer])
 
   // ?employee=<name> deep-link: an INTENT (compose to that employee), not a
   // location — consumed once so it doesn't re-fire or stick. ?session= is NOT
@@ -440,7 +440,7 @@ function ChatPage() {
         // thread, but stays on the chat LIST on mobile (navigateMobile: false),
         // so tapping the Chat tab opens the list to pick/start a chat. REPLACE —
         // a system pick must not create a history entry.
-        handleSelect(sessions[0].id, { navigateMobile: false, replace: true })
+        handleSelect(sessions[0].id, { navigateMobile: false, replace: true, system: true })
       }
     },
     [selectedId, handleSelect]
@@ -470,7 +470,7 @@ function ChatPage() {
     setShowMoreMenu(false)
     if (wasActive) {
       if (fallback) {
-        handleSelect(fallback, { replace: true, navigateMobile: false })
+        handleSelect(fallback, { replace: true, navigateMobile: false, system: true })
       } else {
         pendingNavRef.current = null
         navigate('/', { replace: true })
@@ -497,7 +497,7 @@ function ChatPage() {
     chatTabs.closeTab(chatTabs.tabs.findIndex(t => t.kind === 'session' && t.sessionId === id))
     setShowMoreMenu(false)
     if (wasActive) {
-      if (fallback) handleSelect(fallback, { replace: true, navigateMobile: false })
+      if (fallback) handleSelect(fallback, { replace: true, navigateMobile: false, system: true })
       else {
         pendingNavRef.current = null
         navigate('/', { replace: true })
@@ -826,7 +826,7 @@ function ChatPage() {
     if (!tabChanged || urlMoved) return
 
     if (at && at.kind === 'session' && at.sessionId !== selectedId) {
-      handleSelect(at.sessionId, { replace: true, navigateMobile: false })
+      handleSelect(at.sessionId, { replace: true, navigateMobile: false, system: true })
       return
     }
 

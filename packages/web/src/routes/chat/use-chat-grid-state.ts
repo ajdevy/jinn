@@ -35,7 +35,7 @@ export function useChatGridState({
   committedId,
   workingSet,
   sessions,
-  onList,
+  systemPrimedId,
 }: {
   committedId: string | null
   workingSet: ChatWorkingSet
@@ -43,12 +43,12 @@ export function useChatGridState({
    *  gateway that genuinely has no sessions — the touch order must not prune
    *  itself against a list that has not arrived. */
   sessions: ReadonlyArray<{ id?: unknown }> | undefined
-  /** A phone on the chat list has the thread display-toggled away, so its
-   *  committed session was primed rather than opened. */
-  onList: boolean
+  /** The chat the route selected on its own — primed or fallen back to rather
+   *  than opened by the operator, so it is not a touch. */
+  systemPrimedId: string | null
 }) {
   const viewport = useChatViewport()
-  const touchOrder = useChatTouchOrder(committedId, sessions, !(viewport.mobile && onList))
+  const touchOrder = useChatTouchOrder(committedId, sessions, systemPrimedId)
   // A URL selection can commit one render before working-set reconciliation.
   // Replace the primary member synchronously so both identities never mount.
   const gridSessionIds = useMemo(() => {
