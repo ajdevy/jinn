@@ -475,7 +475,7 @@ export function ChatPane({
         </div>
       )}
       {multiPane && onClose ? (
-        <ChatPaneTitleBar {...titleBarState} onClose={onClose} />
+        <ChatPaneTitleBar {...titleBarState} active={isActive} onClose={onClose} />
       ) : null}
       {showSessionHydration && <ChatHydrationOverlay />}
 

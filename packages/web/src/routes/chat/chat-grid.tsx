@@ -28,8 +28,9 @@ function PaneFrame({ sessionId, active, singlePane, onFocus, paneRef, children }
       data-chat-grid-pane={sessionId}
       data-grid-active={String(active)}
       data-grid-motion="idle"
+      aria-current={!singlePane && active ? 'true' : undefined}
       onClick={() => onFocus(sessionId)}
-      className={`relative flex min-h-0 min-w-0 origin-top-left overflow-hidden ${singlePane ? 'flex-1' : 'rounded-[var(--radius-lg)]'}`}
+      className={`relative flex min-h-0 min-w-0 origin-top-left overflow-hidden ${singlePane ? 'flex-1' : `rounded-[var(--radius-lg)] ${active ? 'shadow-[var(--shadow-card)]' : 'shadow-none'}`}`}
     >
       {children}
     </section>

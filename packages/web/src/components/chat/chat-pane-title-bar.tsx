@@ -57,57 +57,60 @@ export function paneTitleBarState(input: {
 }
 
 interface ChatPaneTitleBarProps {
+  active: boolean
   title: string
   employee: string
   session: Session
   onClose: () => void
 }
 
-export function ChatPaneTitleBar({ title, employee, session, onClose }: ChatPaneTitleBarProps) {
-  const { id, rest } = splitTitleId(title)
+function PaneTitleActions({ title, session, onClose }: Pick<ChatPaneTitleBarProps, 'title' | 'session' | 'onClose'>) {
   const status = getStatusDot(session, new Set([session.id]))
+  return (
+    <span data-testid="chat-pane-title-actions" className="group/title-actions relative flex h-full w-[52px] shrink-0 items-center justify-end">
+      <span className="grid size-[26px] place-items-center transition-opacity duration-[var(--duration-fast)] group-hover/chat-pane:opacity-0 group-focus-within/title-actions:opacity-0">
+        {status ? <StatusDot data-testid="chat-pane-status-dot" color={status.color} pulse={status.pulse} title={status.label} className="size-2" /> : null}
+      </span>
+      <button
+        type="button"
+        data-pane-focus-preserving
+        aria-label={`Close ${title}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+        }}
+        className="absolute right-0 grid size-[26px] place-items-center rounded-[var(--radius-sm)] border-0 bg-[var(--bg)] text-[var(--text-secondary)] opacity-0 transition-[color,opacity] duration-[var(--duration-fast)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/chat-pane:opacity-100"
+      >
+        <X size={14} aria-hidden />
+      </button>
+    </span>
+  )
+}
+
+export function ChatPaneTitleBar({ active, title, employee, session, onClose }: ChatPaneTitleBarProps) {
+  const { id, rest } = splitTitleId(title)
 
   return (
     <div
       data-testid="chat-pane-title-bar"
-      className="flex h-[34px] shrink-0 items-center gap-2 px-[8px] pl-[12px] text-[var(--text-secondary)]"
+      className={`flex h-[34px] shrink-0 items-center gap-2 px-[8px] pl-[12px] transition-colors duration-[var(--duration-fast)] ${active ? 'bg-[var(--fill-secondary)]' : 'bg-transparent'}`}
     >
-      <span aria-hidden className="shrink-0 leading-none">{emojiForName(employee)}</span>
+      <span
+        aria-hidden
+        data-chat-pane-emoji
+        className={`shrink-0 leading-none transition-opacity duration-[var(--duration-fast)] ${active ? 'opacity-100' : 'opacity-50'}`}
+      >
+        {emojiForName(employee)}
+      </span>
       <span
         title={title}
-        className="min-w-0 flex-1 truncate text-[length:var(--text-subheadline)]"
+        data-chat-pane-title
+        className={`min-w-0 flex-1 truncate text-[length:var(--text-subheadline)] transition-colors duration-[var(--duration-fast)] ${active ? 'font-[var(--weight-medium)] text-[var(--text-primary)]' : 'font-[var(--weight-regular)] text-[var(--text-tertiary)]'}`}
       >
-        {id ? <span className="text-[var(--text-tertiary)]">{id} </span> : null}
+        {id ? <span className={`transition-colors duration-[var(--duration-fast)] ${active ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]'}`}>{id} </span> : null}
         <span>{rest}</span>
       </span>
-      <span
-        data-testid="chat-pane-title-actions"
-        className="group/title-actions relative flex h-full w-[52px] shrink-0 items-center justify-end"
-      >
-        <span className="grid size-[26px] place-items-center transition-opacity duration-[var(--duration-fast)] group-hover/chat-pane:opacity-0 group-focus-within/title-actions:opacity-0">
-          {status ? (
-            <StatusDot
-              data-testid="chat-pane-status-dot"
-              color={status.color}
-              pulse={status.pulse}
-              title={status.label}
-              className="size-2"
-            />
-          ) : null}
-        </span>
-        <button
-          type="button"
-          data-pane-focus-preserving
-          aria-label={`Close ${title}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            onClose()
-          }}
-          className="absolute right-0 grid size-[26px] place-items-center rounded-[var(--radius-sm)] border-0 bg-[var(--bg)] text-[var(--text-secondary)] opacity-0 transition-[color,opacity] duration-[var(--duration-fast)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/chat-pane:opacity-100"
-        >
-          <X size={14} aria-hidden />
-        </button>
-      </span>
+      <PaneTitleActions title={title} session={session} onClose={onClose} />
     </div>
   )
 }

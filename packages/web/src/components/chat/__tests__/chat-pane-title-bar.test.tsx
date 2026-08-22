@@ -7,6 +7,7 @@ describe('ChatPaneTitleBar', () => {
   it('renders pane identity with a quiet id and a stable trailing cluster', () => {
     render(
       <ChatPaneTitleBar
+        active={false}
         title="#42 - Release planning"
         employee="platform-lead"
         session={{ id: 'a', status: 'idle' }}
@@ -17,17 +18,41 @@ describe('ChatPaneTitleBar', () => {
     const bar = screen.getByTestId('chat-pane-title-bar')
     expect(bar.className).toContain('h-[34px]')
     expect(screen.getByText(emojiForName('platform-lead'))).toBeTruthy()
-    expect(screen.getByText('#42').className).toContain('text-[var(--text-tertiary)]')
-    expect(bar.className).toContain('text-[var(--text-secondary)]')
+    expect(screen.getByText('#42').className).toContain('text-[var(--text-quaternary)]')
+    expect(screen.getByText('Release planning').closest('[data-chat-pane-title]')?.className).toContain('text-[var(--text-tertiary)]')
     expect(screen.getByText('Release planning').closest('[title]')?.getAttribute('title')).toBe('#42 - Release planning')
     expect(screen.getByTestId('chat-pane-title-actions').className).toContain('w-[52px]')
+  })
+
+  it('cross-fades only selection ink and keeps the state dot fully legible', () => {
+    const session = { id: 'a', status: 'running' }
+    const { rerender } = render(
+      <ChatPaneTitleBar active={false} title="Focus work" employee="operator" session={session} onClose={vi.fn()} />,
+    )
+
+    const bar = screen.getByTestId('chat-pane-title-bar')
+    const emoji = screen.getByText(emojiForName('operator'))
+    const title = document.querySelector<HTMLElement>('[data-chat-pane-title]')!
+    const dotClass = screen.getByTestId('chat-pane-status-dot').className
+    expect(bar.className).toContain('bg-transparent')
+    expect(title.className).toContain('text-[var(--text-tertiary)]')
+    expect(emoji.className).toContain('opacity-50')
+    expect(bar.className).not.toContain('transform')
+    expect([bar, emoji, title].map((node) => node.className).join(' ')).not.toMatch(/accent|border|ring|backdrop|blur|translate|scale|transform|veil|gutter/)
+
+    rerender(<ChatPaneTitleBar active title="Focus work" employee="operator" session={session} onClose={vi.fn()} />)
+    expect(bar.className).toContain('bg-[var(--fill-secondary)]')
+    expect(title.className).toContain('text-[var(--text-primary)]')
+    expect(title.className).toContain('font-[var(--weight-medium)]')
+    expect(emoji.className).toContain('opacity-100')
+    expect(screen.getByTestId('chat-pane-status-dot').className).toBe(dotClass)
   })
 
   it.each([
     ['running', { id: 'a', status: 'running' }, 'var(--system-blue)', true],
     ['background', { id: 'b', status: 'idle', backgroundActivity: { activeStreams: 1, lastActivityAt: new Date().toISOString() } }, 'var(--system-orange)', true],
   ] as const)('renders the %s state with the shared status dot', (_name, session, color, pulse) => {
-    render(<ChatPaneTitleBar title="Status pane" employee="operator" session={session} onClose={vi.fn()} />)
+    render(<ChatPaneTitleBar active={false} title="Status pane" employee="operator" session={session} onClose={vi.fn()} />)
 
     const dot = screen.getByTestId('chat-pane-status-dot')
     expect(dot.getAttribute('style')).toContain(`background: ${color}`)
@@ -35,7 +60,7 @@ describe('ChatPaneTitleBar', () => {
   })
 
   it('renders no dot for a resting read pane', () => {
-    render(<ChatPaneTitleBar title="Resting pane" employee="operator" session={{ id: 'a', status: 'idle' }} onClose={vi.fn()} />)
+    render(<ChatPaneTitleBar active={false} title="Resting pane" employee="operator" session={{ id: 'a', status: 'idle' }} onClose={vi.fn()} />)
 
     expect(screen.queryByTestId('chat-pane-status-dot')).toBeNull()
   })
@@ -46,6 +71,7 @@ describe('ChatPaneTitleBar', () => {
     render(
       <div onClick={onPaneClick}>
         <ChatPaneTitleBar
+          active={false}
           title="Release planning"
           employee="platform-lead"
           session={{ id: 'a', status: 'idle' }}

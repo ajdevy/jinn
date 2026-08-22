@@ -35,6 +35,7 @@ import { removeWorkingSetSession } from './working-set'
 import { formatMessage } from '@/components/chat/chat-messages'
 import { useChatGridWorkspace } from './use-chat-grid-workspace'
 import { useMobileWorkingSet } from './use-mobile-working-set'
+import { adjacentSessionId } from './session-navigation'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
 const FileView = lazy(() =>
@@ -89,6 +90,7 @@ function ChatPage() {
   const selectedId = useMemo(() => parseSelectedSession(location.search), [location.search])
   const threadOrigin = useMemo(() => parseThreadOrigin(location.state), [location.state])
   const selectedIdRef = useRef<string | null>(selectedId)
+  const preservePaneFocusRef = useRef<string | null>(null)
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
   // Router location updates are React TRANSITIONS (react-router wraps them in
   // startTransition), so our own urgent state (openTab, closeTab) can commit a
@@ -304,6 +306,7 @@ function ChatPage() {
   const handleFocusPane = useCallback((sessionId: string) => {
     workingSet.focus(sessionId)
     if (sessionId !== selectedIdRef.current) {
+      preservePaneFocusRef.current = sessionId
       handleSelect(sessionId, { navigateMobile: false })
     }
   }, [handleSelect, workingSet])
@@ -354,6 +357,11 @@ function ChatPage() {
   useEffect(() => {
     if (previewHandoffTargetRef.current === selectedId) return
     if (typeof window !== 'undefined' && window.innerWidth < 1024) return
+    if (preservePaneFocusRef.current) {
+      const shouldPreserve = preservePaneFocusRef.current === selectedId
+      preservePaneFocusRef.current = null
+      if (shouldPreserve) return
+    }
     paneState.bumpFocus(selectedId)
   }, [paneState.bumpFocus, selectedId])
 
@@ -702,20 +710,9 @@ function ChatPage() {
 
   // Navigation helpers for keyboard shortcuts
   const navigateSession = useCallback((direction: 1 | -1) => {
-    const { sessionIds } = sidebarOrderRef.current
-    if (sessionIds.length === 0) return
-    if (!selectedId) {
-      handleSelect(direction === 1 ? sessionIds[0] : sessionIds[sessionIds.length - 1])
-      return
-    }
-    const idx = sessionIds.indexOf(selectedId)
-    if (idx === -1) {
-      handleSelect(direction === 1 ? sessionIds[0] : sessionIds[sessionIds.length - 1])
-      return
-    }
-    const next = (idx + direction + sessionIds.length) % sessionIds.length
-    handleSelect(sessionIds[next])
-  }, [selectedId, handleSelect])
+    const target = adjacentSessionId(sidebarOrderRef.current.sessionIds, selectedId, direction)
+    if (target) handleFocusPane(target)
+  }, [selectedId, handleFocusPane])
 
   const cycleEmployee = useCallback(() => {
     const { employeeNames, employeeSessionMap } = sidebarOrderRef.current

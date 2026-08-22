@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
+import { useEffect } from 'react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
 import ChatPageWrapper from '../page'
@@ -60,11 +61,10 @@ vi.mock('@/components/page-layout', () => ({
 }))
 
 vi.mock('@/components/chat/chat-sidebar', () => ({
-  ChatSidebar: ({ onNewChat }: { onNewChat: () => void }) => (
-    <div data-testid="chat-sidebar">
-      <button type="button" onClick={onNewChat}>Start empty chat</button>
-    </div>
-  ),
+  ChatSidebar: ({ onNewChat, onOrderComputed }: { onNewChat: () => void; onOrderComputed?: (order: unknown) => void }) => {
+    useEffect(() => onOrderComputed?.({ sessionIds, employeeNames: [], employeeSessionMap: {} }), [onOrderComputed])
+    return <div data-testid="chat-sidebar"><button type="button" onClick={onNewChat}>Start empty chat</button></div>
+  },
   pickDeleteFallbackId: () => null,
 }))
 

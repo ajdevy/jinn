@@ -72,6 +72,10 @@ describe('live chat grid', () => {
     const streamingNode = screen.getByTestId('pane-c')
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
     expect(screen.getByTestId('content-c').getAttribute('data-active')).toBe('true')
+    expect(document.querySelectorAll('[data-chat-grid-pane][aria-current="true"]')).toHaveLength(1)
+    expect(screen.getByTestId('pane-c').getAttribute('aria-current')).toBe('true')
+    expect(screen.getByTestId('pane-c').className).toContain('shadow-[var(--shadow-card)]')
+    expect(screen.getByTestId('pane-b').className).toContain('shadow-none')
     expect(screen.getByTestId('chat-grid').getAttribute('data-columns')).toBe('2')
     expect(document.querySelector('[class*="top-[58px]"]')).toBeNull()
 
