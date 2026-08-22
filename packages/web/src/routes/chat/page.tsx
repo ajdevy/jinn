@@ -107,8 +107,6 @@ function ChatPage() {
   const [, setEmployeeSessions] = useState<Array<{ id: string; title?: string; lastActivity?: string; createdAt?: string }>>([])
   // When true, user explicitly started a new chat — don't auto-select first session
   const newChatIntentRef = useRef(false)
-  // A route-owned selection must not count as an operator touch until the
-  // operator explicitly opens it.
   const [systemPrimedId, setSystemPrimedId] = useState<string | null>(null)
   // Employee to preselect for a brand-new chat (contacting a session-less
   // employee from the sidebar, or via an ?employee= deep-link). Null = none.
@@ -281,8 +279,7 @@ function ChatPage() {
       const currentId = selectedIdRef.current
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
-      newChatIntentRef.current = false
-      setSystemPrimedId(opts?.system ? id : null)
+      newChatIntentRef.current = false; setSystemPrimedId(opts?.system ? id : null)
       // On mobile, opening a session pushes from the list into the thread, and the
       // pane arrives with it (see revealSelection). The one exception is the
       // background auto-select of the most-recent session (handleSessionsLoaded):
@@ -332,8 +329,6 @@ function ChatPage() {
   // push is a no-op.
   const didMountRef = useRef(false)
   useEffect(() => {
-    // A selectedId change means a navigation landed — any in-flight sentinel
-    // is done (ours just arrived; a competing user navigation obsoletes it).
     pendingNavRef.current = undefined
     if (navigationType === 'POP') setSystemPrimedId(null)
     if (selectedId) {

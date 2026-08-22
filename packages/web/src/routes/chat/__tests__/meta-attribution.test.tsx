@@ -58,7 +58,6 @@ function Harness({ paneKey, sessionId, onState }: {
       onPeek={noop}
       onNewChat={noop}
       onRefresh={noop}
-      onShortcutsClick={noop}
       onContentReady={noop}
       onStartFreshChat={async () => {}}
     />
