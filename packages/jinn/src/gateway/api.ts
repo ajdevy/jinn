@@ -219,6 +219,7 @@ import {
 } from "../work-items/attachments.js";
 import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
+import { authorizeAgentWorkItemStatus, authorizeWorkItemOwnerManagerOrRoot, ownsWorkItem } from "./work-item-authority.js";
 import { fullWorkItemPayload, openWorkItemPayload, workItemPagePayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { parseStatusUpdateFields } from "./work-item-status-fields.js";
@@ -233,7 +234,7 @@ import {
   escalateApproval,
   requestApproval,
 } from "../work-items/approvals.js";
-import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRootApprovalTarget } from "./approval-authority.js";
+import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
@@ -252,7 +253,6 @@ import {
   readWorkItemQueryParams,
   SEARCH_QUERY_ROUTE_CHAR_CAP,
 } from "./work-item-query.js";
-import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
 import { loadInstances, saveInstances, type Instance, type InstanceInput } from "../instances/directory.js";
@@ -1282,77 +1282,6 @@ function findApprovalKeysDeep(value: unknown, path = 'body', found: string[] = [
 }
 
 
-function ownsWorkItem(session: Session, item: WorkItem, linked: Session[]): boolean {
-  if (linked.some((s) => s.id === session.id)) return true;
-  if (item.assignee && session.employee && item.assignee === session.employee) return true;
-  return item.source === 'session' && !!item.sourceRef?.startsWith(`session:${session.id}:`);
-}
-
-function authorizeWorkItemOwnerManagerOrRoot(
-  caller: WorkItemCaller,
-  item: WorkItem,
-  action: string,
-): { ok: true } | { ok: false; status: 403; error: string } {
-  if (caller.kind === 'operator') return { ok: true };
-  const employeeName = caller.session.employee;
-  if (!employeeName) {
-    return { ok: false, status: 403, error: `session ${caller.callerId} has no employee identity and cannot ${action} Todo ${item.id}` };
-  }
-  const roster = scanOrg();
-  const employee = roster.get(employeeName);
-  if (!employee) {
-    return { ok: false, status: 403, error: `employee "${employeeName}" is not in the org roster and cannot ${action} Todo ${item.id}` };
-  }
-  const root = resolveRootApprovalTarget();
-  if (root?.kind === 'employee' && root.name === employeeName) return { ok: true };
-
-  const owner = resolveApprovalRouteTarget(item).owner;
-  if (owner === employeeName) return { ok: true };
-  if (owner && (employee.rank === 'manager' || employee.rank === 'executive')) {
-    const hierarchy = resolveOrgHierarchy(roster);
-    if (isOrgAncestor(hierarchy, employeeName, owner)) return { ok: true };
-  }
-  return {
-    ok: false,
-    status: 403,
-    error: `employee "${employeeName}" does not own Todo ${item.id} and is not its authorized manager/root; cannot ${action}`,
-  };
-}
-
-/** Every refusal here names the way forward, because the way forward always
- *  exists: the executor moves the Todo to `in_review` and asks for approval. */
-function canReviewWorkItemDone(session: Session, item: WorkItem, linked: Session[]): { ok: true } | { ok: false; error: string } {
-  const instead = `completion is the reviewer's — move Todo ${item.id} to in_review and request approval`;
-  if (item.status !== 'in_review') {
-    return { ok: false, error: `Todo ${item.id} is ${item.status}, and done is not an agent shortcut: ${instead}` };
-  }
-  if (linked.some((s) => s.id === session.id && s.workflowProvenance?.kind !== 'phase')) {
-    return { ok: false, error: `session ${session.id} executed Todo ${item.id} and cannot close it (self-review ban): ${instead}, or close it from the human review surface` };
-  }
-  return { ok: true };
-}
-
-/**
- * Status is the one Todo write open to every authenticated session.
- *
- * Gating it on a relationship to the Todo bought nothing and cost honesty: a
- * participant that could do the work could not say where it had got to, and had
- * to ask someone with standing to perform the write for it. Status is low-stakes
- * and every participant needs it, so it is open — and each new caller arrives
- * without needing its own relation and its own 403.
- *
- * `done` stays bounded to `in_review` and is withheld from a linked execution
- * attempt because "never close your own work" is the basis of the review model.
- * Workflow phase sessions are linked for spend attribution, not because every
- * phase produced the Todo, so they are reviewers rather than execution attempts.
- * `cancelled` has no agent lane at all and the route refuses it before this
- * point, where cancellation's separate archive path is chosen.
- */
-function authorizeAgentWorkItemStatus(caller: WorkItemCaller, item: WorkItem, target: WorkItemStatus): { ok: true } | { ok: false; status: 403; error: string } {
-  if (caller.kind === 'operator' || target !== 'done') return { ok: true };
-  const review = canReviewWorkItemDone(caller.session, item, listSessionsByWorkItem(item.id));
-  return review.ok ? { ok: true } : { ok: false, status: 403, error: review.error };
-}
 
 /**
  * The refusal for a session trying to mint a child that IS the employee-
@@ -3185,6 +3114,11 @@ export async function handleApiRequest(
         if (!permitted.ok) return json(res, { error: permitted.error }, 403);
         actingAsOperator = permitted.actingAs;
       }
+      // A granted claim is the operator's authority arriving on the COO lane,
+      // not just their name on the record: it releases a sticky terminal the
+      // way the operator PUT does. The cascade is not part of it —
+      // parseStatusUpdateFields keeps that on the operator's own surface.
+      const humanAuthority = isOperatorPut || actingAsOperator !== undefined;
       const actor = fields.asOperator ? "operator" : workItemActor(caller);
       // Read the list per request, so adding or removing a delegate takes effect
       // on the next move rather than at the next restart.
@@ -3222,7 +3156,7 @@ export async function handleApiRequest(
             }
           : transition(params.id, target as WorkItemStatus, actor, {
               manual: true,
-              human: isOperatorPut || undefined,
+              human: humanAuthority || undefined,
               // Agent lane: the target allowlist above is what bounds this
               // caller, so the edge map does not also govern it.
               agent: !isOperatorPut || undefined,
@@ -4378,13 +4312,13 @@ export async function handleApiRequest(
           hint: "the work item was minted before the spawn and is preserved as backlog — the delegation intent is durable, not lost",
         }, 502);
       }
+      // The assignment no-ops when the Todo already carries this assignee, so the link is the only record that a caller delegated at all.
+      const delegationActor = workItemActor(delegationCaller.kind === "session"
+        ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
+        : { kind: "operator" });
       if (requestedWorkItemId && employeeName) {
         try {
-          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, workItemActor(
-            delegationCaller.kind === "session"
-              ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
-              : { kind: "operator" },
-          )) ?? workItem;
+          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, delegationActor) ?? workItem;
         } catch (assignmentErr) {
           claim.release();
           return json(res, { error: assignmentErr instanceof Error ? assignmentErr.message : String(assignmentErr) }, 409);
@@ -4445,7 +4379,7 @@ export async function handleApiRequest(
       //    preserved ids (backlog item + idle, undispatched, re-linkable session)
       //    instead of dispatching an untracked turn.
       try {
-        linkSession(workItem.id, session.id);
+        linkSession(workItem.id, session.id, delegationActor);
         claim.bind(session.id);
       } catch (linkErr) {
         claim.release();

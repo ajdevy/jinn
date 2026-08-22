@@ -59,7 +59,8 @@ function parseAuthorityFlags(
   // surface — the same authority archive's cascade-cancel asks for. Refused
   // outright rather than dropped, because dropping it would report success for
   // children that are still open. `asOperator` does not reach it either: that
-  // lane never carries `human` into transition() to begin with.
+  // claim releases a sticky terminal the caller is looking at, while a cascade
+  // decides a whole subtree it has not, so the subtree stays with the human.
   if (cascading && !isOperatorPut) {
     return refuse(403, "closing a Todo's open descendants with it is an operator-surface decision");
   }

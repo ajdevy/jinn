@@ -969,7 +969,7 @@ export function getWorkItemSpend(id: string): number {
  * redundant re-link (e.g. a cron re-fire re-linking the same item to the same session)
  * does not churn `work_items.updated_at` or the event log.
  */
-export function linkSession(workItemId: string, sessionId: string): void {
+export function linkSession(workItemId: string, sessionId: string, actor?: string | null): void {
   const db = initDb();
   const todoId = parseTodoId(workItemId);
   const now = new Date().toISOString();
@@ -984,7 +984,7 @@ export function linkSession(workItemId: string, sessionId: string): void {
     if (session.work_item_id === todoId) return;
     db.prepare('UPDATE sessions SET work_item_id = ? WHERE id = ?').run(todoId, sessionId);
     db.prepare('UPDATE work_items SET updated_at = ?, version = version + 1 WHERE id = ?').run(now, todoId);
-    appendWorkItemEvent({ workItemId: todoId, kind: 'session_linked', detail: { sessionId } });
+    appendWorkItemEvent({ workItemId: todoId, kind: 'session_linked', actor, detail: { sessionId } });
   });
   txn();
 }
