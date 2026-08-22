@@ -1,5 +1,6 @@
 import type { JinnConfig } from "../shared/types.js";
-import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
+import { getModelRegistry, effortLevelsForModel, isKnownEngine } from "../shared/models.js";
+import { preferHealthySessionEngine, readEngineHealth } from "../shared/engine-health.js";
 import { logger } from "../shared/logger.js";
 
 /**
@@ -48,14 +49,40 @@ export function validateNewSessionSelection(
     engine = body.engine.trim();
   }
 
-  const entry = registry[engine];
-  if (!entry) return { ok: false, error: `unknown engine "${engine}"` };
+  if (!registry[engine]) return { ok: false, error: `unknown engine "${engine}"` };
+
+  // Nothing named this engine outright — it came from the config default or an
+  // employee's YAML — so an engine whose allowance is spent may be reordered out
+  // of the way. A named engine wins, and so does a named model, which belongs to
+  // exactly one engine. Advisory only: a chain with nothing healthy left in it
+  // hands the preference back and the session starts where it would have.
+  let defaultModel = defaults.model;
+  let defaultEffortLevel = defaults.effortLevel;
+  if (body.engine === undefined && body.model === undefined && isKnownEngine(engine)) {
+    const healthy = preferHealthySessionEngine(
+      config,
+      engine,
+      (candidate) => registry[candidate]?.available === true,
+      readEngineHealth(),
+    );
+    if (healthy !== engine) {
+      logger.info(`Engine "${engine}" is out of allowance — starting this session on "${healthy}" instead`);
+      engine = healthy;
+      // The model and effort level came with the engine we just moved off and
+      // mean nothing on this one; the substitute runs on its own configured
+      // defaults, the same way a mid-turn fallback already does.
+      defaultModel = undefined;
+      defaultEffortLevel = undefined;
+    }
+  }
+
+  const entry = registry[engine]!;
 
   let model: string | undefined;
   // Track whether the model came from an explicit caller override (body) or an
   // employee's configured default — the error phrasing differs (GRS-017f).
   const modelFromBody = body.model !== undefined;
-  const requestedModel = modelFromBody ? body.model : defaults.model;
+  const requestedModel = modelFromBody ? body.model : defaultModel;
   if (requestedModel !== undefined) {
     if (typeof requestedModel !== "string" || !requestedModel.trim()) {
       return { ok: false, error: "model must be a non-empty string" };
@@ -92,7 +119,7 @@ export function validateNewSessionSelection(
 
   let effortLevel: string | undefined;
   const effortFromBody = body.effortLevel !== undefined;
-  const requestedEffortLevel = effortFromBody ? body.effortLevel : defaults.effortLevel;
+  const requestedEffortLevel = effortFromBody ? body.effortLevel : defaultEffortLevel;
   if (requestedEffortLevel !== undefined) {
     if (typeof requestedEffortLevel !== "string" || !requestedEffortLevel.trim()) {
       return { ok: false, error: "effortLevel must be a non-empty string" };

@@ -1,5 +1,6 @@
 import { isInterruptibleEngine, type EngineResult, type Session } from "../../shared/types.js";
 import { rateLimitEngineLabel } from "../../shared/rateLimit.js";
+import type { EngineName } from "../../shared/models.js";
 import { getSession, insertMessage, type UpdateSessionFields } from "../registry.js";
 import { notifyOperatorChannel, notifyRateLimited, notifyRateLimitResumed } from "../callbacks.js";
 import { handleRateLimit, type RateLimitHandlerHooks, type RateLimitInfo } from "../rate-limit-handler.js";
@@ -61,16 +62,22 @@ async function settleRecoveredTurn(
   return settled;
 }
 
-async function announceFallback(args: RateLimitTurnArgs, resumeAt: Date | null): Promise<void> {
+async function announceFallback(args: RateLimitTurnArgs, resumeAt: Date | null, substitute: EngineName): Promise<void> {
+  const session = args.input.session;
+  // The handler rewrites session.engine to the substitute only after this hook
+  // returns, so what is read here is still the engine that was limited.
+  const limitedEngine = session.engine;
+  const limitedLabel = rateLimitEngineLabel(limitedEngine);
+  const substituteLabel = rateLimitEngineLabel(substitute);
   const resumeText = formatResumeTime(resumeAt);
-  notifyOperatorChannel(`⚠️ Claude usage limit reached. ${describe(args.input.session)} switching to GPT.`);
-  await args.surface.notice(`⚠️ Claude usage limit reached${resumeText ? `. Resets ${resumeText}` : ""}. Switching to GPT for now.`);
+  notifyOperatorChannel(`⚠️ ${limitedLabel} usage limit reached. ${describe(session)} switching to ${substituteLabel}.`);
+  await args.surface.notice(`⚠️ ${limitedLabel} usage limit reached${resumeText ? `. Resets ${resumeText}` : ""}. Switching to ${substituteLabel} for now.`);
 
-  // Drop any warm Claude PTY AND its armed late-recovery listener, so the
-  // abandoned claude turn can't double-answer after the fallback delivers.
-  const claudeEngine = args.input.engines.get("claude");
-  if (claudeEngine && isInterruptibleEngine(claudeEngine)) {
-    claudeEngine.kill(args.input.session.id, "Interrupted: engine switched");
+  // Drop the LIMITED engine's warm PTY AND its armed late-recovery listener, so
+  // the abandoned turn can't double-answer after the substitute delivers.
+  const limited = args.input.engines.get(limitedEngine);
+  if (limited && isInterruptibleEngine(limited)) {
+    limited.kill(session.id, "Interrupted: engine switched");
   }
 }
 
@@ -109,7 +116,7 @@ async function settleTimedOutTurn(args: RateLimitTurnArgs): Promise<void> {
 function rateLimitHooks(args: RateLimitTurnArgs): RateLimitHandlerHooks {
   const { plan, surface } = args;
   return {
-    onFallbackStart: ({ resumeAt }) => announceFallback(args, resumeAt),
+    onFallbackStart: ({ resumeAt, substitute }) => announceFallback(args, resumeAt, substitute),
     onFallbackStream: (delta) => surface.delta(delta),
     onFallbackComplete: async (fallbackResult) => {
       // The fallback answered on a DIFFERENT engine, so its native id is filed

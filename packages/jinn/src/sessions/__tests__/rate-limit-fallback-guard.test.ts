@@ -122,6 +122,21 @@ describe("handleRateLimit — Codex fallback guard (#40)", () => {
     }
   });
 
+  it("tells the fallback hook which engine took over, while the session still names the limited one", async () => {
+    engineAvailableMock.mockReturnValue(true);
+    const opts = makeOpts(vi.fn(async () => ({ result: "from-codex" }) as EngineResult));
+    const seen: { engine: string; substitute: string }[] = [];
+
+    await handleRateLimit({
+      ...opts,
+      hooks: { onFallbackStart: ({ substitute }) => { seen.push({ engine: opts.session.engine, substitute }); } },
+    });
+
+    // The hook fires BEFORE the session is flipped to the substitute, which is
+    // what lets the announcement read the limited engine straight off it.
+    expect(seen).toEqual([{ engine: "claude", substitute: "codex" }]);
+  });
+
   it("never hands Claude's thread id to the fallback engine, and records Codex's typed", async () => {
     engineAvailableMock.mockReturnValue(true);
     const fallbackRun = vi.fn(async () => ({ result: "from-codex", sessionId: "codex-1" }) as EngineResult);
