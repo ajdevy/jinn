@@ -91,79 +91,17 @@ describe("saveJobs", () => {
   });
 });
 
-describe("hasRunLogEntry — durable single-shot ledger (GRS-003b-2a)", () => {
-  it("returns false (silently) when the job has no run-log file yet", async () => {
-    const { hasRunLogEntry, logger } = await importJobs();
-    expect(hasRunLogEntry("never-run-job", "cron:never-run-job:x")).toBe(false);
-    // Missing file is the normal "no runs yet" case — not warned.
-    expect(logger.warn).not.toHaveBeenCalled();
-  });
+describe("appendRunLog", () => {
+  it("appends each entry verbatim as its own JSON line in the job's .jsonl", async () => {
+    const { appendRunLog } = await importJobs();
+    const first = { timestamp: "2026-07-01T06:00:00.000Z", sessionKey: "cron:rt-job:a", status: "success" };
+    const second = { timestamp: "2026-07-01T07:00:00.000Z", sessionKey: "cron:rt-job:b", status: "error" };
 
-  it("finds a sessionKey after appendRunLog, and isolates by key and by job", async () => {
-    const { appendRunLog, hasRunLogEntry } = await importJobs();
-    const jobId = "idem-job";
-    const key = "cron:idem-job:2026-07-01T06:00:00.000Z";
+    appendRunLog("rt-job", first);
+    appendRunLog("rt-job", second);
 
-    // Before the fire is recorded, the guard sees nothing.
-    expect(hasRunLogEntry(jobId, key)).toBe(false);
-
-    appendRunLog(jobId, { timestamp: "2026-07-01T06:00:00.000Z", sessionKey: key, status: "success" });
-
-    // The exact fire is now on the durable ledger; a re-fire with the same key matches.
-    expect(hasRunLogEntry(jobId, key)).toBe(true);
-    // A different fire (different fireIso) of the same job does NOT match.
-    expect(hasRunLogEntry(jobId, "cron:idem-job:2026-07-01T08:00:00.000Z")).toBe(false);
-    // The same key on a different job is isolated (per-job jsonl).
-    expect(hasRunLogEntry("other-job", key)).toBe(false);
-  });
-
-  it("matches across multiple appended entries (whole-log scan)", async () => {
-    const { appendRunLog, hasRunLogEntry } = await importJobs();
-    const jobId = "multi-job";
-    appendRunLog(jobId, { sessionKey: "cron:multi-job:a", status: "error" });
-    appendRunLog(jobId, { sessionKey: "cron:multi-job:b", status: "success" });
-    appendRunLog(jobId, { sessionKey: "cron:multi-job:c", status: "success" });
-    expect(hasRunLogEntry(jobId, "cron:multi-job:a")).toBe(true);
-    expect(hasRunLogEntry(jobId, "cron:multi-job:c")).toBe(true);
-    expect(hasRunLogEntry(jobId, "cron:multi-job:z")).toBe(false);
-  });
-
-  it("matches ONLY terminal outcomes — a statusless/started row for the same key is ignored", async () => {
-    const { hasRunLogEntry } = await importJobs();
-    const jobId = "inflight-job";
-    const key = "cron:inflight-job:2026-07-01T06:00:00.000Z";
-    const logPath = path.join(tmpHome, "cron", "runs", `${jobId}.jsonl`);
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    // A future pre-execution marker (`started`) and a schema-corrupt statusless row
-    // must NOT count as executed — an in-flight or crashed-mid-run fire stays retryable.
-    fs.writeFileSync(
-      logPath,
-      `${JSON.stringify({ sessionKey: key, status: "started" })}\n` +
-        `${JSON.stringify({ sessionKey: key })}\n`,
-      "utf-8",
-    );
-    expect(hasRunLogEntry(jobId, key)).toBe(false);
-
-    // Once a terminal outcome for the SAME key lands, the guard matches.
-    fs.appendFileSync(logPath, `${JSON.stringify({ sessionKey: key, status: "success" })}\n`, "utf-8");
-    expect(hasRunLogEntry(jobId, key)).toBe(true);
-  });
-
-  it("skips a corrupt line and still finds a real match on another line", async () => {
-    const { hasRunLogEntry } = await importJobs();
-    const jobId = "corrupt-job";
-    const logPath = path.join(tmpHome, "cron", "runs", `${jobId}.jsonl`);
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    // A truncated/garbage line followed by a valid one — the bad line must not throw
-    // or mask the good line.
-    fs.writeFileSync(
-      logPath,
-      `{"sessionKey":"cron:corrupt-job:a"  <-- broken\n` +
-        `${JSON.stringify({ sessionKey: "cron:corrupt-job:good", status: "success" })}\n`,
-      "utf-8",
-    );
-    expect(hasRunLogEntry(jobId, "cron:corrupt-job:good")).toBe(true);
-    expect(hasRunLogEntry(jobId, "cron:corrupt-job:a")).toBe(false);
+    const raw = fs.readFileSync(path.join(tmpHome, "cron", "runs", "rt-job.jsonl"), "utf-8");
+    expect(raw.trim().split("\n").map((line) => JSON.parse(line))).toEqual([first, second]);
   });
 });
 

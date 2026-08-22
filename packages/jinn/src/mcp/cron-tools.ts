@@ -40,14 +40,9 @@ function shapeCronJob(job: Record<string, unknown>): Record<string, unknown> {
     employee: job.employee ?? null,
     engine: job.engine ?? null,
     timezone: job.timezone ?? null,
-    lastRun: job.lastRun && typeof job.lastRun === "object" && !Array.isArray(job.lastRun)
-      ? shapeRun(job.lastRun as Record<string, unknown>)
-      : null,
+    // Already scrubbed server-side by the gateway read tier (cron-api.ts).
+    lastRun: job.lastRun ?? null,
   };
-}
-
-function shapeRun(run: Record<string, unknown>): Record<string, unknown> {
-  return summarizeCronRun(run);
 }
 
 export function buildCronTools(): JinnMcpTool[] {
@@ -84,7 +79,7 @@ export function buildCronTools(): JinnMcpTool[] {
       const limit = clampInt(args.limit, CRON_RUN_LIMIT_DEFAULT, 1, CRON_RUN_LIMIT_MAX);
       const { status, body } = await gatewayGet(ctx, `/api/cron/${encodeURIComponent(id)}/runs?limit=${limit}`);
       if (status >= 400) throw gatewayFailure(`reading cron run history for "${id}"`, status, body);
-      const runs = Array.isArray(body) ? body.map((r) => shapeRun(r as Record<string, unknown>)) : [];
+      const runs = Array.isArray(body) ? body.map(summarizeCronRun) : [];
       return {
         id,
         runs,

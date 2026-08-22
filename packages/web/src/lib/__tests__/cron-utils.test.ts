@@ -200,11 +200,11 @@ describe("cron shared helpers", () => {
     expect(groups[0].jobs.map((j) => j.id)).toEqual(["a", "b"])
   })
 
-  it("maps run status to an outcome glyph", () => {
+  it("maps each status the runner writes to an outcome, everything else to the quiet dash", () => {
     expect(runOutcome({ status: "success" })).toBe("ok")
     expect(runOutcome({ status: "error" })).toBe("error")
-    expect(runOutcome({ status: "started" })).toBe("running")
-    expect(runOutcome({ status: "skipped" })).toBe("none")
+    expect(runOutcome({})).toBe("none")
+    expect(runOutcome({ status: "started" })).toBe("none")
     expect(runOutcome(null)).toBe("none")
   })
 })
