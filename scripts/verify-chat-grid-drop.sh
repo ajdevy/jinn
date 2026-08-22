@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The caller's shell usually carries its own live instance: a Jinn session exports
+# JINN_HOME, JINN_PORT, JINN_HOST, JINN_INSTANCE and the gateway URL/token/session id.
+# Those are not inert here. resolveJinnHome() (packages/jinn/src/shared/home.ts) returns
+# $JINN_HOME outright and otherwise names the directory after $JINN_INSTANCE, so setting
+# HOME below is not enough on its own; applyGatewayEnvOverrides()
+# (packages/jinn/src/shared/config.ts) then replaces whatever port the sandbox's own
+# config.yaml declares with $JINN_PORT. Inherited, they aim this script's
+# create/start/stop/destroy cycle at the operator's gateway on 7777 instead of the
+# throwaway sandbox. Scrub them before anything reads them. The script's own inputs --
+# JINN_VERIFY_* and JINN_SANDBOX_HELPER -- are deliberately kept, and JINN_REPO is
+# exported per-command below rather than inherited.
+unset JINN_HOME JINN_PORT JINN_HOST JINN_INSTANCE JINN_GATEWAY_URL JINN_GATEWAY_TOKEN JINN_SESSION_ID
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OPERATOR_HOME="$HOME"
 HELPER="${JINN_SANDBOX_HELPER:-$OPERATOR_HOME/.jinn/skills/jinn-sandbox/scripts/jinn-sandbox.sh}"
@@ -23,6 +36,10 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
   echo "Candidate port $PORT is already in use" >&2
   exit 2
 fi
+
+# Assert the scrub above is still in place before spending a sandbox on the run. A failure
+# here means the browser journey below could have been aimed at the operator's instance.
+( cd "$REPO" && "$NODE_BIN" --test e2e/chat-grid-drop/*.test.mjs )
 
 VERIFY_ROOT="$(mktemp -d "$TMP_BASE/jinn-chat-grid-drop.XXXXXX")"
 HOST_HOME="$VERIFY_ROOT/host"
