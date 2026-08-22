@@ -68,7 +68,7 @@ impl CredentialStore for OsCredentialStore {
 
 #[cfg(test)]
 pub mod test_store {
-    use super::{CanonicalOrigin, CredentialStore, GatewayCredential};
+    use super::{account, CanonicalOrigin, CredentialStore, GatewayCredential};
     use crate::commands::NativeError;
     use std::{collections::HashMap, sync::Mutex};
 
@@ -77,7 +77,7 @@ pub mod test_store {
 
     impl CredentialStore for MemoryCredentialStore {
         fn get(&self, origin: &CanonicalOrigin) -> Result<Option<GatewayCredential>, NativeError> {
-            Ok(self.0.lock().unwrap().get(origin.as_str()).cloned())
+            Ok(self.0.lock().unwrap().get(&account(origin)).cloned())
         }
 
         fn put(
@@ -88,20 +88,33 @@ pub mod test_store {
             self.0
                 .lock()
                 .unwrap()
-                .insert(origin.as_str().to_owned(), credential.clone());
+                .insert(account(origin), credential.clone());
             Ok(())
         }
 
         fn delete(&self, origin: &CanonicalOrigin) -> Result<bool, NativeError> {
-            Ok(self.0.lock().unwrap().remove(origin.as_str()).is_some())
+            Ok(self.0.lock().unwrap().remove(&account(origin)).is_some())
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{test_store::MemoryCredentialStore, CredentialStore, GatewayCredential};
+    use super::{account, test_store::MemoryCredentialStore, CredentialStore, GatewayCredential};
     use crate::origin::CanonicalOrigin;
+
+    #[test]
+    fn the_keyring_account_is_derived_from_the_exact_origin_and_port() {
+        let a = CanonicalOrigin::parse("http://127.0.0.1:7779").unwrap();
+        let b = CanonicalOrigin::parse("http://127.0.0.1:7780").unwrap();
+        let https = CanonicalOrigin::parse("https://gateway.example:7779").unwrap();
+        assert_ne!(account(&a), account(&b));
+        assert_ne!(account(&a), account(&https));
+        assert_eq!(
+            account(&a),
+            account(&CanonicalOrigin::parse("http://127.0.0.1:7779").unwrap())
+        );
+    }
 
     #[test]
     fn credentials_are_isolated_by_exact_origin_and_port() {
