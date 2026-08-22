@@ -135,6 +135,47 @@ export async function setWorkingSet(page: Page, sessionIds: string[]): Promise<v
   await page.waitForTimeout(100)
 }
 
+export interface GridGeometry {
+  grid: Rect
+  panes: Rect[]
+}
+
+/** How long a settled snapshot is waited for: 40 tries a tenth of a second apart. */
+const SETTLE_ATTEMPTS = 40
+const SETTLE_POLL_MS = 100
+
+/**
+ * Measure the grid and every pane in it in a single in-page read.
+ *
+ * Resolving a pane locator for an assertion and again for `boundingBox()` leaves a window for a
+ * re-render to detach the node in between, and `boundingBox()` answers null for a detached element
+ * rather than retrying. One evaluate measures every rect against the same layout, so that window
+ * does not exist, and a snapshot only counts once the grid holds the expected number of panes and
+ * every one of them is idle with a laid-out box — the caller always compares a settled grid.
+ */
+export async function settledGridGeometry(page: Page, count: number): Promise<GridGeometry> {
+  const grid = page.getByTestId('chat-grid')
+  await expect(grid.locator('[data-chat-grid-pane]')).toHaveCount(count)
+  for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt += 1) {
+    const snapshot = await grid.evaluate((element, expected) => {
+      const toRect = (node: Element) => {
+        const box = node.getBoundingClientRect()
+        return { left: box.x, top: box.y, width: box.width, height: box.height }
+      }
+      const panes = Array.from(element.querySelectorAll('[data-chat-grid-pane]')).map((pane) => ({
+        motion: pane.getAttribute('data-grid-motion'),
+        rect: toRect(pane),
+      }))
+      if (panes.length !== expected) return null
+      if (panes.some((pane) => pane.motion !== 'idle' || pane.rect.width === 0 || pane.rect.height === 0)) return null
+      return { grid: toRect(element), panes: panes.map((pane) => pane.rect) }
+    }, count)
+    if (snapshot) return snapshot
+    await page.waitForTimeout(SETTLE_POLL_MS)
+  }
+  throw new Error(`the grid never settled at ${count} idle panes`)
+}
+
 export async function expectNoDropOverlay(page: Page): Promise<void> {
   await expect(page.getByTestId('chat-grid-drop-zone')).toHaveCount(0)
 }

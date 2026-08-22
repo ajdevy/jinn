@@ -1,3 +1,5 @@
+import type { DragEvent } from 'react'
+
 export const CHAT_SESSION_DND_MIME = 'application/x-jinn-chat-session'
 
 let activeDragSessionId: string | null = null
@@ -28,4 +30,15 @@ export function readChatSessionDrop(dataTransfer: DataTransfer): string | null {
 
 export function isComposerDropTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[data-chat-composer]') !== null
+}
+
+/**
+ * The drag half of a session row. Both sidebar rows wire the same pair, and a row that starts a
+ * drag has to clear it too — keeping them together means neither can be added without the other.
+ */
+export function chatSessionDragProps(sessionId: string) {
+  return {
+    onDragStart: (event: DragEvent) => writeChatSessionDrag(event.dataTransfer, sessionId),
+    onDragEnd: clearChatSessionDrag,
+  }
 }

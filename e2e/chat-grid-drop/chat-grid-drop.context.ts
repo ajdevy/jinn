@@ -34,6 +34,28 @@ export function artifactPath(...segments: string[]): string {
   return path.join(artifacts, ...segments)
 }
 
+/**
+ * A fresh page whose working set is already in storage before the app's first script runs.
+ *
+ * Writing the key on a live page and reloading loses a race: the mounted app persists its own
+ * working set from an effect, so it can overwrite the write before the reload reads it, and the
+ * page then comes back holding the previous layout. An init script lands the value before any app
+ * code exists, and a new page has no app left over to overwrite it.
+ */
+export async function openSeededGridPage(context: BrowserContext, sessionIds: string[]): Promise<Page> {
+  const page = await context.newPage()
+  await page.addInitScript((ids: string[]) => {
+    localStorage.setItem('jinn-chat-working-set', JSON.stringify({
+      version: 1,
+      sessionIds: ids,
+      focusedId: ids[0],
+      focusHistory: ids,
+    }))
+  }, sessionIds)
+  await page.goto(`/?session=${sessionIds[0]}`, { waitUntil: 'networkidle' })
+  return page
+}
+
 export async function openGridPage(
   browser: Browser,
   options: GridPageOptions = {},

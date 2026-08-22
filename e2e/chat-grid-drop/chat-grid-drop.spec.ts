@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { cellRectForIndex } from '../../packages/web/src/routes/chat/grid-cells'
-import { artifactPath, openGridPage } from './chat-grid-drop.context'
+import { artifactPath, openGridPage, openSeededGridPage } from './chat-grid-drop.context'
 import {
   describeRect,
   dragSession,
@@ -11,6 +11,7 @@ import {
   rectDelta,
   seededSessionIds,
   setWorkingSet,
+  settledGridGeometry,
   type DropRegion,
 } from './chat-grid-drop.helpers'
 
@@ -42,41 +43,24 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
 
     const renderedCounts = viewport.width === 1440 ? [2, 3, 4] : [2, 3, 5]
     for (const count of renderedCounts) {
-      const selected = ids.slice(0, count)
-      await page.evaluate(({ sessionIds }) => {
-        localStorage.setItem('jinn-chat-working-set', JSON.stringify({
-          version: 1,
-          sessionIds,
-          focusedId: sessionIds[0],
-          focusHistory: sessionIds,
-        }))
-      }, { sessionIds: selected })
-      await page.reload({ waitUntil: 'networkidle' })
-      await page.locator(`[data-chat-session-row="${selected[0]}"]`).first().click()
+      const seeded = await openSeededGridPage(context, ids.slice(0, count))
 
-      const grid = page.getByTestId('chat-grid')
-      const panes = grid.locator('[data-chat-grid-pane]')
-      await expect(panes).toHaveCount(count)
-      const gridBox = await grid.boundingBox()
-      expect(gridBox).not.toBeNull()
-      const spacing = await grid.evaluate((element) => (
+      const geometry = await settledGridGeometry(seeded, count)
+      const spacing = await seeded.getByTestId('chat-grid').evaluate((element) => (
         Number.parseFloat(getComputedStyle(element).getPropertyValue('--space-2'))
       ))
 
-      for (let index = 0; index < count; index += 1) {
-        await expect(panes.nth(index)).toHaveAttribute('data-grid-motion', 'idle')
-        await expect(panes.nth(index)).toBeVisible()
-        const actualBox = await panes.nth(index).boundingBox()
-        expect(actualBox).not.toBeNull()
-        const expected = cellRectForIndex(index, count, rect(gridBox!), {
+      geometry.panes.forEach((pane, index) => {
+        const expected = cellRectForIndex(index, count, geometry.grid, {
           w: viewport.width,
           h: viewport.height,
         }, { padding: spacing, gap: spacing })
-        const delta = rectDelta(expected, rect(actualBox!))
+        const delta = rectDelta(expected, pane)
         for (const [axis, value] of Object.entries(delta)) {
           expect(Math.abs(value), `${count} panes, index ${index}, ${axis}`).toBeLessThanOrEqual(1)
         }
-      }
+      })
+      await seeded.close()
     }
     await context.close()
   })
