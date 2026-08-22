@@ -31,7 +31,7 @@ export function ChatPaneSessionMenu({
           data-chat-pane-menu-trigger
           aria-label={`Actions for ${title}`}
           onClick={(event) => event.stopPropagation()}
-          className="absolute left-0 grid size-[26px] place-items-center rounded-[var(--radius-sm)] border-0 bg-transparent text-[var(--text-secondary)] opacity-0 transition-[color,opacity] duration-[var(--duration-fast)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] focus-visible:opacity-100 data-[state=open]:opacity-100 group-hover/chat-pane:opacity-100"
+          className="absolute left-0 grid size-[26px] place-items-center rounded-[var(--radius-sm)] border-0 bg-transparent text-[var(--text-secondary)] opacity-0 transition-[color,opacity] duration-[var(--duration-fast)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] focus-visible:opacity-100 data-[state=open]:opacity-100 group-hover/chat-pane:opacity-100 group-focus-within/title-actions:opacity-100"
         >
           <Ellipsis size={14} aria-hidden />
         </button>

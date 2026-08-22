@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { queryKeys } from "@/lib/query-keys"
@@ -36,7 +36,7 @@ vi.mock("@/components/stt/whisper-download-modal", () => ({
 
 import { ChatInput } from "../chat-input"
 
-function renderWithCachedQueries() {
+function renderWithCachedQueries(inputProps: { isActive?: boolean; focusTrigger?: number } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -71,6 +71,7 @@ function renderWithCachedQueries() {
         onNewSession={vi.fn()}
         onStatusRequest={vi.fn()}
         events={[]}
+        {...inputProps}
       />
     </QueryClientProvider>,
   )
@@ -97,5 +98,43 @@ describe("ChatInput query-backed menus", () => {
 
     expect(getOrg).not.toHaveBeenCalled()
     expect(getSkills).not.toHaveBeenCalled()
+  })
+
+  it("does not refocus a previously handled composer when its pane becomes active again", async () => {
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, "focus")
+    const view = renderWithCachedQueries({ isActive: true, focusTrigger: 1 })
+
+    await waitFor(() => expect(focus).toHaveBeenCalledOnce())
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatInput
+          disabled={false}
+          loading={false}
+          onSend={vi.fn()}
+          onNewSession={vi.fn()}
+          onStatusRequest={vi.fn()}
+          events={[]}
+          isActive={false}
+          focusTrigger={1}
+        />
+      </QueryClientProvider>,
+    )
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatInput
+          disabled={false}
+          loading={false}
+          onSend={vi.fn()}
+          onNewSession={vi.fn()}
+          onStatusRequest={vi.fn()}
+          events={[]}
+          isActive
+          focusTrigger={1}
+        />
+      </QueryClientProvider>,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(focus).toHaveBeenCalledOnce()
   })
 })

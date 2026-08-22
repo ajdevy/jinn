@@ -212,6 +212,7 @@ export function ChatInput({
   // automatically the instant the dictated transcript lands in the field.
   const [sendArmed, setSendArmed] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const handledFocusTriggerRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const rafRef = useRef<number | null>(null)
   const previousSkillsVersionRef = useRef(skillsVersion)
@@ -249,13 +250,12 @@ export function ChatInput({
     }
   }, [])
 
-  // Focus textarea when focusTrigger changes (session select / "+ New").
-  // Skip on mobile — auto-focus pops the on-screen keyboard, which is jarring
-  // when the trigger is a session switch the user did with their thumb.
-  // Defer with requestAnimationFrame so the textarea has finished mounting
-  // after ChatPane's key-driven remount.
+  // Focus after session switches once the remounted textarea is ready.
+  // Skip mobile so switching sessions does not pop the on-screen keyboard.
+  // Each trigger is handled once so reactivating a pane leaves shortcuts available.
   useEffect(() => {
-    if (!isActive || !focusTrigger || focusTrigger <= 0) return
+    if (!isActive || !focusTrigger || focusTrigger <= handledFocusTriggerRef.current) return
+    handledFocusTriggerRef.current = focusTrigger
     if (window.innerWidth < 768) return
     const raf = requestAnimationFrame(() => textareaRef.current?.focus())
     return () => cancelAnimationFrame(raf)

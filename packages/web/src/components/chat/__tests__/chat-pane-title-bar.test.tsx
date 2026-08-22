@@ -84,6 +84,7 @@ describe('ChatPaneTitleBar', () => {
     expect(screen.getByTestId('chat-pane-title-actions').firstElementChild?.className).toContain('group-focus-within/title-actions:opacity-0')
     expect(close.className).toContain('group-hover/chat-pane:opacity-100')
     expect(close.className).toContain('focus-visible:opacity-100')
+    expect(close.className).toContain('group-focus-within/title-actions:opacity-100')
     fireEvent.click(close)
     expect(onClose).toHaveBeenCalledOnce()
     expect(onPaneClick).not.toHaveBeenCalled()
@@ -139,7 +140,9 @@ describe('ChatPaneTitleBar', () => {
       />,
     )
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Old pane title' }), { button: 0, ctrlKey: false })
+    const trigger = screen.getByRole('button', { name: 'Actions for Old pane title' })
+    expect(trigger.className).toContain('group-focus-within/title-actions:opacity-100')
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
 
     expect(actions.rename).toHaveBeenCalledWith('pane-c', 'New pane title')
