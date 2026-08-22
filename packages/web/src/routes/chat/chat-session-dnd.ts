@@ -25,3 +25,7 @@ export function readChatSessionDrop(dataTransfer: DataTransfer): string | null {
   const sessionId = dataTransfer.getData(CHAT_SESSION_DND_MIME).trim()
   return sessionId || null
 }
+
+export function isComposerDropTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-chat-composer]') !== null
+}

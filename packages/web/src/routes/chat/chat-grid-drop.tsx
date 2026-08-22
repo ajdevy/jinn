@@ -3,6 +3,7 @@ import {
   activeChatSessionDrag,
   clearChatSessionDrag,
   hasChatSessionDrag,
+  isComposerDropTarget,
   readChatSessionDrop,
 } from './chat-session-dnd'
 import { cellRectForIndex } from './grid-cells'
@@ -31,7 +32,7 @@ export interface ChatGridDropProjection {
 }
 
 function eligibleDrop(event: DragEvent): boolean {
-  return hasChatSessionDrag(event.dataTransfer)
+  return hasChatSessionDrag(event.dataTransfer) && !isComposerDropTarget(event.target)
 }
 
 function pointerInside(node: HTMLElement, x: number, y: number): boolean {
@@ -161,6 +162,10 @@ function updatePlacement(event: DragEvent, deps: DropHandlerDeps): GridPlacement
 function createDropHandlers(deps: DropHandlerDeps): DropHandlers {
   return {
     onDragEnter: (event) => {
+      if (hasChatSessionDrag(event.dataTransfer) && isComposerDropTarget(event.target)) {
+        deps.clearOverlay()
+        return
+      }
       if (!eligibleDrop(event)) return
       event.preventDefault()
       deps.depthRef.current += 1
@@ -169,9 +174,10 @@ function createDropHandlers(deps: DropHandlerDeps): DropHandlers {
     },
     onDragLeave: (event) => {
       if (!hasChatSessionDrag(event.dataTransfer)) return
-      if (pointerInside(event.currentTarget, event.clientX, event.clientY)) return
       deps.depthRef.current = Math.max(0, deps.depthRef.current - 1)
-      if (deps.depthRef.current === 0) deps.clearOverlay()
+      if (deps.depthRef.current === 0 && !pointerInside(event.currentTarget, event.clientX, event.clientY)) {
+        deps.clearOverlay()
+      }
     },
     onDragOver: (event) => {
       if (!eligibleDrop(event)) return

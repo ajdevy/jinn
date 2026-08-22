@@ -129,7 +129,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
       { count: 2, region: 'right', target: 1 },
       { count: 2, region: 'between', target: 0 },
       { count: 3, region: 'top', target: 0 },
-      { count: 3, region: 'bottom', target: 0 },
+      // The pane's bottom quarter is the composer, covered by the rejection journey below.
       { count: 3, region: 'end', target: 2 },
       { count: 4, region: 'right', target: 1 },
     ]
@@ -157,6 +157,47 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
   })
 }
 
+test('the composer clears a prior pane preview and rejects the drop', async ({ browser }) => {
+  const viewport = { width: 1440, height: 900 }
+  const context = await browser.newContext({
+    viewport,
+    screen: viewport,
+    colorScheme: 'light',
+    extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
+  })
+  await context.addInitScript(() => {
+    localStorage.setItem('jinn-theme', 'light')
+    localStorage.setItem('jinn-onboarded', 'true')
+    localStorage.setItem('jinn-chat-list-open', 'true')
+  })
+  const page = await context.newPage()
+  await page.goto('/', { waitUntil: 'networkidle' })
+  const ids = await seededSessionIds(page)
+  await setWorkingSet(page, ids.slice(0, 2))
+
+  const source = page.locator(`[data-chat-session-row="${ids[2]}"]`).first()
+  const target = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[0]}"])`)
+  const composer = target.locator('[data-chat-composer]')
+  const sourceBox = await source.boundingBox()
+  const targetBox = await target.boundingBox()
+  const composerBox = await composer.boundingBox()
+  expect(sourceBox).not.toBeNull()
+  expect(targetBox).not.toBeNull()
+  expect(composerBox).not.toBeNull()
+
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 3, { steps: 16 })
+  await expect(page.getByTestId('chat-grid-drop-zone')).toBeVisible()
+  await page.mouse.move(composerBox!.x + composerBox!.width / 2, composerBox!.y + composerBox!.height / 2, { steps: 8 })
+  await expectNoDropOverlay(page)
+  await page.mouse.up()
+
+  await expect(page.locator('[data-chat-grid-pane]')).toHaveCount(2)
+  await expect(page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[2]}"])`)).toHaveCount(0)
+  await context.close()
+})
+
 test('ten consecutive member moves have no geometry drift or stale overlay', async ({ browser }) => {
   test.setTimeout(180_000)
   const viewport = { width: 1440, height: 900 }
@@ -178,7 +219,7 @@ test('ten consecutive member moves have no geometry drift or stale overlay', asy
   const ids = await seededSessionIds(page)
   await setWorkingSet(page, ids.slice(0, 4))
 
-  const regions: DropRegion[] = ['left', 'right', 'top', 'bottom', 'between']
+  const regions: DropRegion[] = ['left', 'right', 'top', 'between']
   for (let index = 0; index < 10; index += 1) {
     const sourceId = ids[index % 4]
     const targetId = ids[(index + 1) % 4]
