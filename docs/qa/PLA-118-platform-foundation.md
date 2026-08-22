@@ -1,9 +1,9 @@
 # PLA-118 platform foundation QA
 
-- Date: 2026-08-22
+- Date: 2026-08-23
 - Branch: `feature/PLA-118`
-- Product SHA exercised: `730b52bdc31b`; rework round exercised the working tree whose parent is `fc767857`
-- Sandboxes: fresh disposable `qa-pla-118-a` / `qa-pla-118-b` homes on loopback ports 7810 and 7811; the rework round re-ran the step 10 journey on disposable homes at loopback ports 7812 and 7813
+- Product SHA exercised: `17b1705faa58` (this round re-ran the whole journey after the `main` reconciliation, the `failedProfileId` fix, and the restored build-lane proofs)
+- Sandboxes: fresh disposable `qa-pla-118-a` / `qa-pla-118-b` homes on loopback ports 7814 and 7815. Each home's `config.yaml` `port:` was read and confirmed before its daemon was started; both were seeded at 7777 by `setup` and rewritten first. An ambient `JINN_PORT=7777` in the runner environment overrode the sandbox config on the first start attempt and the gateway's port-owner guard refused it — the daemons run with that variable scrubbed. Both sandboxes were registered only in a throwaway `JINN_INSTANCES_REGISTRY`, never the host registry
 - Production home/port: not used
 
 `Verified` means the listed evidence was exercised. `Unverified` is an explicit
@@ -14,19 +14,19 @@ and sandbox data are not retained.
 
 | # | Journey assertion | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Boot A, pair, HttpOnly cookies, `/api/sessions` 200 | Verified | Fresh isolated Chrome pairing returned 200; `document.cookie` could not see either cookie, while CDP reported both as HttpOnly; bundled macOS pairing also succeeded |
-| 2 | Open `/todos` and a Todo in the same browser | Verified | Opened generic `QPA-1` in the paired Chrome session with the existing dashboard chrome intact |
-| 3 | Browser workspace switch A→B isolates A authentication | Verified | The switch navigated from A on `127.0.0.1` to B on `localhost`; B returned 401 before its own pairing, and no A cookie was sent across the host boundary |
-| 4 | PWA hard-refresh `/todos` and `/settings`; API remains same-origin | Verified | Both routes retained an active controlling service worker and returned same-origin API 200 after reload |
-| 5 | Chat, Todos, Settings, switcher screenshots at both sizes/themes | Verified | Twenty current generic PNGs under `docs/qa/PLA-118-evidence/`: the required sixteen browser captures plus four bundled-native profile lifecycle captures; every file is exactly 1440×900 or 390×844 |
-| 6 | Bundled Tauri loads local assets; menu/icon/geometry work | Verified | Fresh unsigned macOS `.app` opened its embedded pairing UI before any gateway profile existed, retained the Jinn/Edit/View/Window menu configuration and app icon metadata, and resized between 1440×900, 1280×860, and 390×844; shell tests assert `frontendDist` and `WebviewUrl::App` |
-| 7 | Pair A and B independently | Verified | Live bundled app stored two exact-origin Keychain entries; adding B did not activate it |
-| 8 | A→B changes HTTP, WS, cache, auth, identity; route remains `/todos` | Verified | Live native A↔B switching showed distinct `QPA-1`/`QPB-1` identity and preserved the Todos Home route in both directions; generation isolation tests cover cache and socket state |
-| 9 | Delayed A REST and WS after switch are discarded | Verified | Focused test delivered an A REST resolution and A WebSocket frame after committing B; the REST result rejected as stale, the frame callback did not run, and B remained active |
-| 10 | B→A, remove B, restore A, honest unreachable state | Verified | Live return preserved the open route; removing a gateway deleted only that exact-origin credential and left the other intact; relaunch restored the last-active gateway. With the last-active gateway stopped, a live relaunch renders the native gateway screen ("Cannot reach QA Alpha", both paired gateways with Retry/Use/Remove, and the origin field) instead of the browser pairing screen, and selecting the other paired gateway recovered into it. Focused manager cases cover the unreachable selection, the unproven remembered gateway, and the in-flight switch id |
-| 11 | `jinn://org` and `jinn://settings` stay in-app; HTTPS opens outside | Verified | Both custom links were invoked against the unsigned bundle and rendered their in-app routes; the Rust navigation suite verifies HTTPS is handed to the external opener |
-| 12 | Unsupported, denied, and failed remain distinct | Verified | Platform contract suite |
-| 13 | Remote/LAN pages cannot invoke native; web bundle has no Tauri or Capacitor dependencies | Verified | Rust caller/origin tests, product-boundary test, zero Capacitor lockfile entries, and emitted JavaScript scans |
+| 1 | Boot A, pair, HttpOnly cookies, `/api/sessions` 200 | Verified | Paired a clean isolated Chrome profile against A with a one-time CLI code; the cookie jar reports `httpOnly: true` on both `jinn_auth_*` and `jinn_device_*`, `document.cookie` is empty, and `/api/sessions` returned 200 |
+| 2 | Open `/todos` and a Todo in the same browser | Verified | Opened `/todos`, switched to the Everything board and clicked generic `QAA-1`, landing on `/todos/QAA-1` with the dashboard chrome unchanged |
+| 3 | Browser workspace switch A→B isolates A authentication | Verified | The switcher menu listed both workspaces and choosing QA Beta navigated the browser to B's `switchUrl` `http://127.0.0.1:7815/`; B rendered its own Pair This Browser screen and returned 401 for `/api/sessions` while A still returned 200 |
+| 4 | PWA hard-refresh `/todos` and `/settings`; API remains same-origin | Verified | After a reload both routes reported an active controlling service worker scoped to A's origin and a same-origin `/api/status` 200 |
+| 5 | Chat, Todos, Settings, switcher screenshots at both sizes/themes | Verified | Twenty regenerated PNGs under `docs/qa/PLA-118-evidence/`: sixteen browser captures plus four bundled-native gateway-screen captures; every file measures exactly 1440×900 or 390×844 and shows only generic sandbox data |
+| 6 | Bundled Tauri loads local assets; menu/icon/geometry work | Verified | A fresh unsigned `Jinn.app` opened its embedded Connect Jinn screen before any profile existed, kept the Jinn/Edit/View/Window menu bar and `icon.icns`, and was driven between 1440×900 and 390×844 repeatedly; `tauri.conf.json` sets `frontendDist` and the window opens `WebviewUrl::App("index.html")` |
+| 7 | Pair A and B independently | Verified | Pairing A then adding B through the app's Add gateway dialog stored two Keychain accounts that are exactly `sha256("http://127.0.0.1:7814")` and `sha256("http://127.0.0.1:7815")`; after pairing, B showed as Online while QA Alpha stayed Current |
+| 8 | A→B changes HTTP, WS, cache, auth, identity; route remains `/todos` | Verified | Switching A→B in the bundled app left the Todos Home route in place and moved all traffic: B's access log grew while A's grew by zero bytes, and the switcher then named QA Beta the current workspace. Switching back reversed both. Generation isolation for cache and sockets is covered by the focused manager suite |
+| 9 | Delayed A REST and WS after switch are discarded | Verified | Focused manager test delivers an A REST resolution and an A WebSocket frame after committing B: the REST promise rejects as `StaleGatewayGenerationError`, the frame callback never runs, and B stays active |
+| 10 | B→A, remove B, restore A, honest unreachable state (10a/10b/10c) | Verified | B→A moved every request back to A and left B's log untouched. Removing QA Beta deleted only its exact-origin Keychain account and left A's intact. **10a** — with A stopped, Cmd+R rendered the app's own screen: "Cannot reach QA Alpha", both paired gateways with Retry/Use/Remove, the origin and pair-code fields, and "Gateway is unreachable" — never the browser Pair This Browser screen. **10b** — with A unreachable, a `Use` on QA Beta failed and the heading still read "Cannot reach QA Alpha"; with both gateways restarted, `Retry` on QA Alpha's row grew A's access log by 69 bytes and B's by zero, and the app recovered into A on its previous route. **10c** — removing QA Beta right after its selection failed cleared the stale failure, and the next `Retry` reached A and recovered into it with no `Unknown native gateway profile` throw |
+| 11 | `jinn://org` and `jinn://settings` stay in-app; HTTPS opens outside | Verified | Both deep links were opened against the unsigned bundle and rendered the in-app Organization and Settings routes in the app window; the Rust navigation suite pins HTTPS to the external opener |
+| 12 | Unsupported, denied, and failed remain distinct | Verified | Platform contract suite, which now also boots `@/main` for real to prove no permission prompt is raised on the startup path |
+| 13 | Remote/LAN pages cannot invoke native; web bundle has no Tauri or Capacitor dependencies | Verified | Rust caller/origin suites, the product-boundary test, zero `@capacitor/*` lockfile entries, and a scan of all 367 emitted chunks in the gateway-served bundle finding no `__TAURI__`, `@tauri-apps/api` or `Capacitor`; only the shell bundle carries the lazily split `tauri-*.js` adapter |
 | 14 | Full gates, unsigned macOS build, mobile initialization | Verified with named gaps | Full gate green; Apple/Android projects generated; details below |
 
 ## Mobile and packaging evidence
@@ -39,12 +39,45 @@ and sandbox data are not retained.
 
 ## Gate record
 
-After the `main` reconciliation, `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm ratchet --check && pnpm footguns` exited 0 in S15, S16, and S17. S18 reran the native delayed-delivery/profile contracts, platform contracts, product boundary, shell configuration, and Rust shell suites: the web wrapper completed 348 files / 3,073 tests, the shell configuration completed 5 tests, and the Rust library completed 16 tests, all with exit code 0. The final six-gate S18 run is recorded in the slice checkpoint. The rework round re-ran the same six gates after its final edit: typecheck, lint, test, build, `ratchet --check`, and footguns each exited 0, read from each command's own exit code.
+Every gate is read from its own exit code, never from a piped tail. After the
+final edit of each slice the full set was re-run with `TURBO_FORCE=true` so no
+result came from the turbo cache.
+
+| Slice | typecheck | lint | test | build | ratchet --check | footguns |
+| --- | --- | --- | --- | --- | --- | --- |
+| S19 reconcile with `main` | 0 | 0 | 0 | 0 | 0 | 0 |
+| S20 one meaning for `failedProfileId` | 0 | 0 | 0 | 0 | 0 | 0 |
+| S21 restored build-lane proofs | 0 | 0 | 0 | 0 | 0 | 0 |
+| S22 gates and native targets | 0 | 0 | 0 | 0 | 0 | 0 |
+| S23 journey and evidence | 0 | 0 | 0 | 0 | 0 | 0 |
+
+`cargo test --manifest-path packages/shell/src-tauri/Cargo.toml` reports 17
+passing tests, one more than the previous round: the restored
+`the_keyring_account_is_derived_from_the_exact_origin_and_port` case.
+
+Both S20 and S21 were red-checked rather than merely observed green. Reverting
+`retry()` to prefer `failedProfileId` reds the active-gateway retry test;
+restoring the `remove()` behavior reds the post-removal retry test; restoring the
+`failedProfileId === activeId` comparison in the screen reds the heading test.
+Adding a permission prompt to `main.tsx` reds the startup contract, and
+collapsing `account()` to one shared constant reds both credential tests. Every
+mutation was reverted and the suites returned green.
 
 ## Visual evidence manifest
 
-The manifest contains `chat`, `todos`, `settings`, and `switcher`, each at
-`desktop` (1440×900) and `mobile` (390×844), with `light` and `dark` variants.
-Four additional `native-profile` captures record the unsigned app's own gateway
-screen with its last-active gateway unreachable at the same two sizes/themes.
-All twenty images contain only generic QA sandbox data.
+`chat`, `todos`, `settings`, and `switcher`, each at `desktop` (1440×900) and
+`mobile` (390×844) with `light` and `dark` variants — sixteen browser captures
+taken against sandbox A. Four `native-profile` captures record the unsigned
+bundled app's own gateway screen with its last-active gateway unreachable, at the
+same two sizes and both themes.
+
+All twenty files were regenerated this round and each measures exactly 1440×900
+or 390×844. They contain only generic sandbox identities (`QA Alpha`, `QA Beta`,
+`QAA-1`, `Assistant`, `Todo Dispatcher`) and no filesystem paths.
+
+## Teardown
+
+Both sandbox gateways were stopped, their disposable homes deleted, ports 7814
+and 7815 confirmed free, the two QA Keychain accounts removed, the bundled app
+instance started by this run quit, and the pre-existing `run.jinn.shell`
+application state restored from the backup taken before the run.
