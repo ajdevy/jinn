@@ -242,3 +242,37 @@ test('dark-theme cap drop matches its preview with token-only overlay styling', 
   await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, 'pla-174-dark-1440.png') })
   await context.close()
 })
+
+test('Open beside follows the view toggle and opens the picker in both themes', async ({ browser }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    const viewport = { width: 1440, height: 900 }
+    const context = await browser.newContext({
+      viewport,
+      screen: viewport,
+      colorScheme: theme,
+      extraHTTPHeaders: { authorization: `Bearer ${gatewayToken()}` },
+    })
+    await context.addInitScript((value) => {
+      localStorage.setItem('jinn-theme', value)
+      localStorage.setItem('jinn-onboarded', 'true')
+      localStorage.setItem('jinn-chat-list-open', 'true')
+    }, theme)
+    const page = await context.newPage()
+    await page.goto('/', { waitUntil: 'networkidle' })
+    const [sessionId] = await seededSessionIds(page)
+    await page.locator(`[data-chat-session-row="${sessionId}"]`).first().click()
+    const more = page.locator('[data-more-menu]:visible').first()
+    await more.getByRole('button', { name: 'More options' }).click()
+    const buttons = more.getByRole('button')
+    const labels = await buttons.allTextContents()
+    const cliIndex = labels.findIndex((label) => label.trim() === 'CLI')
+    const openIndex = labels.findIndex((label) => label.trim() === 'Open beside')
+    const pinIndex = labels.findIndex((label) => label.trim() === 'Pin')
+    expect(openIndex).toBe(cliIndex + 1)
+    expect(openIndex).toBe(pinIndex - 1)
+    await page.screenshot({ path: path.join(process.env.JINN_VERIFY_ARTIFACTS!, `pla-174-${theme}-menu-1440.png`) })
+    await buttons.nth(openIndex).click()
+    await expect(page.getByTestId('session-picker-scroll')).toBeVisible()
+    await context.close()
+  }
+})

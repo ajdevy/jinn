@@ -87,7 +87,10 @@ describe('ChatHeaderMenu', () => {
     const onOpenChange = vi.fn()
     renderMenu({ onOpenChatBeside, onOpenChange })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open chat beside' }))
+    const labels = itemLabels()
+    expect(labels.indexOf('Open beside')).toBe(labels.indexOf('CLI') + 1)
+    expect(labels.indexOf('Open beside')).toBe(labels.indexOf('Pin') - 1)
+    fireEvent.click(screen.getByRole('button', { name: 'Open beside' }))
 
     expect(onOpenChatBeside).toHaveBeenCalledOnce()
     expect(onOpenChange).toHaveBeenCalledWith(false)

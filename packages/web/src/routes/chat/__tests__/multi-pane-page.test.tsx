@@ -15,7 +15,7 @@ function openChatBeside() {
   const desktopNewChat = screen.getAllByRole('button', { name: 'New chat' })[0]
   const actionsPill = desktopNewChat.parentElement!
   fireEvent.click(within(actionsPill).getByRole('button', { name: 'More options' }))
-  fireEvent.click(within(actionsPill).getByRole('button', { name: 'Open chat beside' }))
+  fireEvent.click(within(actionsPill).getByRole('button', { name: 'Open beside' }))
 }
 
 describe('the routed multi-pane surface', () => {
