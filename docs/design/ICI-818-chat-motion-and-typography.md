@@ -454,9 +454,16 @@ a stop condition on §3.2's settle window, keyed on measured size, not a timer t
 it exists so a long tail of image decodes cannot hold the view pinned against a reader who has
 already started scrolling.
 
-The transcript's `~80px` header padding is deliberately **not** declared as `scrollMargin`
-(`web/components/chat/transcript-virtualizer.ts:25-28`). Do not add it; every offset the module
-compares is a difference between two of the virtualizer's own numbers, where the shift cancels.
+The gap above the virtual block — the `~80px` header padding, plus the older-page row — **is**
+declared as `scrollMargin` (`web/components/chat/transcript-virtualizer.ts:25-34`), as of ICI-1359.
+This section previously said not to add it, on the grounds that every offset the module compares is
+a difference between two of the virtualizer's own numbers, where the shift cancels. That is true of
+this module's own comparisons and false of the one virtual-core makes internally: deciding whether a
+re-measured row sits above the reader, it tests the row's `start` — spacer coordinates — against the
+scroller's real `scrollTop`. Undeclared, those are two coordinate systems off by exactly that gap,
+so every row in the top `~80px` of the viewport read as one above the reader and took a scroll
+correction the reader watched happen. Rows are positioned at `start - scrollMargin`, so declaring it
+moves nothing on screen.
 
 ### 3.4 The first-send case — ICI-819's target
 

@@ -1,5 +1,6 @@
 import {
   installVirtualLayout as install,
+  type BlockOffset,
   type RowHeight,
   type VirtualLayout as SharedVirtualLayout,
 } from '@/test/virtual-layout'
@@ -22,7 +23,11 @@ export interface VirtualLayout extends Omit<SharedVirtualLayout, 'mountedRowIds'
   visibleMessageIds: () => string[]
 }
 
-export function installVirtualLayout(rowHeight: RowHeight, viewportHeight: number): VirtualLayout {
-  const { mountedRowIds, visibleRowIds, ...layout } = install(rowHeight, viewportHeight, TRANSCRIPT)
+export function installVirtualLayout(
+  rowHeight: RowHeight,
+  viewportHeight: number,
+  blockOffset?: BlockOffset,
+): VirtualLayout {
+  const { mountedRowIds, visibleRowIds, ...layout } = install(rowHeight, viewportHeight, TRANSCRIPT, blockOffset)
   return { ...layout, mountedMessageIds: mountedRowIds, visibleMessageIds: visibleRowIds }
 }

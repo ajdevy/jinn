@@ -2,6 +2,12 @@ import { useCallback, useRef } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import type { MessageItem, RenderGroup } from './chat-messages'
 import { restoreVisibleAnchor, type ScrollAnchor } from '@/lib/scroll-anchor'
+import {
+  dropHeldScrollAdjustment,
+  holdScrollAdjustment,
+  touchScrollLive,
+  useTouchScrollPhase,
+} from './touch-scroll-phase'
 
 /**
  * Windowing for the chat transcript.
@@ -22,10 +28,16 @@ import { restoreVisibleAnchor, type ScrollAnchor } from '@/lib/scroll-anchor'
  *    The anchored row is 100 rows above the window by then, so it is unmounted
  *    and has no rect to measure.
  *
- * The transcript's header padding is deliberately NOT declared as `scrollMargin`:
- * it shifts the visible range by ~80px, which the overscan band already covers,
- * and every offset this module compares is a difference between two of the
- * virtualizer's own numbers, where the shift cancels.
+ * The gap above the virtual block — the header padding, plus whatever the
+ * transcript renders in front of it — HAS to be declared as `scrollMargin`.
+ * Every offset this module compares is a difference between two of the
+ * virtualizer's own numbers, where a constant shift cancels; the comparison that
+ * decides whether a re-measured row sits above the reader is not one of those.
+ * It tests the row's own `start`, which is spacer coordinates, against the
+ * scroller's real `scrollTop`. Undeclared, those are two coordinate systems off
+ * by exactly that gap, and every row in the top ~80px of the viewport reads as
+ * one above the reader and takes a scroll correction the reader watches happen.
+ * Rows are positioned at `start - scrollMargin`, so declaring it moves nothing.
  */
 
 /** Below this many rows the transcript renders every one of them, as it always has. */
@@ -86,7 +98,8 @@ export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
  *
  * The virtualizer's own resize compensation still passes: it arrives with an
  * `adjustments` term, and its whole job is holding a row under the same pixel
- * while something above it re-measures. That one never travels.
+ * while something above it re-measures. That one never travels. It does wait,
+ * though, when the reader is mid-flick — see `touch-scroll-phase.ts`.
  */
 const scrolling = new WeakSet<object>()
 
@@ -100,7 +113,20 @@ function transcriptScrollTo(
 ): void {
   const el = instance.scrollElement
   if (!el) return
-  if (adjustments === 0 && !scrolling.has(instance)) return
+  const deliberate = scrolling.has(instance)
+  if (adjustments === 0 && !deliberate) return
+  // A re-measure correction landing mid-flick is what the list going sticky
+  // looks like: assigning `scrollTop` ends WebKit's momentum on the spot. It
+  // waits for the glide instead. A deliberate scroll never waits — that one the
+  // reader asked for, and it supersedes anything still being held.
+  if (!deliberate && touchScrollLive(el)) {
+    holdScrollAdjustment(el, adjustments, (total) => {
+      el.scrollTo?.({ top: el.scrollTop + total })
+      writtenTop.set(instance, el.scrollTop)
+    })
+    return
+  }
+  dropHeldScrollAdjustment(el)
   el.scrollTo?.({ top: offset + adjustments, behavior })
   // A smooth scroll has not moved yet, so there is no landing position to record.
   if (behavior !== 'smooth') writtenTop.set(instance, el.scrollTop)
@@ -143,12 +169,15 @@ export function useTranscriptVirtualizer(
   keys: string[],
   enabled: boolean,
   getScrollElement: () => HTMLDivElement | null,
+  /** How far the virtual block starts below the scrollport's top. */
+  scrollMargin: number,
 ): TranscriptVirtualizer {
   // Read through a ref: the key extractor's identity invalidates the whole
   // measurement pass, and a fresh closure per render would rebuild it on every
   // streaming token.
   const keysRef = useRef(keys)
   keysRef.current = keys
+  useTouchScrollPhase(getScrollElement)
   return useVirtualizer({
     count: enabled ? groups.length : 0,
     enabled,
@@ -156,6 +185,7 @@ export function useTranscriptVirtualizer(
     estimateSize: (index) => estimateGroupSize(groups[index]),
     getItemKey: useCallback((index: number) => keysRef.current[index], []),
     overscan: OVERSCAN,
+    scrollMargin,
     scrollToFn: transcriptScrollTo,
   })
 }

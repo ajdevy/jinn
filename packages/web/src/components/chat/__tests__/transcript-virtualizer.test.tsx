@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { scrollTranscriptTo, takeTranscriptWriteTop, useTranscriptVirtualizer } from '../transcript-virtualizer'
+import { fakeScroller, SCROLLER_HEIGHT } from './fake-scroller'
 import type { RenderGroup } from '../chat-messages'
 
 /**
@@ -13,23 +14,9 @@ import type { RenderGroup } from '../chat-messages'
  */
 
 const COUNT = 60
-const SCROLLER_HEIGHT = 200
 
 function fakeGroups(): RenderGroup[] {
   return Array.from({ length: COUNT }, () => ({ kind: 'plain', item: { kind: 'message' } })) as RenderGroup[]
-}
-
-/** A scroller with the metrics jsdom does not have, and a spy where the writes land. */
-function fakeScroller(scrollHeight: () => number) {
-  const el = document.createElement('div')
-  let top = 0
-  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: scrollHeight })
-  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => SCROLLER_HEIGHT })
-  Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v } })
-  const scrollTo = vi.fn((options: ScrollToOptions) => { top = options.top ?? top })
-  el.scrollTo = scrollTo as unknown as HTMLDivElement['scrollTo']
-  document.body.append(el)
-  return { el, scrollTo }
 }
 
 describe('the transcript scroller takes our writes and not the virtualizer\'s retries', () => {
@@ -56,7 +43,7 @@ describe('the transcript scroller takes our writes and not the virtualizer\'s re
     const { el, scrollTo } = fakeScroller(() => scrollHeight)
     const groups = fakeGroups()
     const keys = groups.map((_, index) => `g${index}`)
-    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement))
+    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement, 0))
 
     act(() => { result.current.getTotalSize() })
     act(() => {
@@ -81,7 +68,7 @@ describe('the transcript scroller takes our writes and not the virtualizer\'s re
     const { el } = fakeScroller(() => 4000)
     const groups = fakeGroups()
     const keys = groups.map((_, index) => `g${index}`)
-    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement))
+    const { result } = renderHook(() => useTranscriptVirtualizer(groups, keys, true, () => el as HTMLDivElement, 0))
     act(() => { result.current.getTotalSize() })
 
     expect(takeTranscriptWriteTop(result.current)).toBeUndefined()
