@@ -376,13 +376,6 @@ export function updateEmployeeYaml(
   }
 }
 
-export function findEmployee(
-  name: string,
-  registry: Map<string, Employee>,
-): Employee | undefined {
-  return registry.get(name);
-}
-
 export function extractMention(
   text: string,
   registry: Map<string, Employee>,

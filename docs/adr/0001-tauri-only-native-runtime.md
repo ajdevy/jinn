@@ -29,5 +29,7 @@ native platform work extends this shell instead of adding another container.
   desktop.
 - iOS and Android projects can be initialized and reviewed without claiming
   device execution, signing, or store readiness.
-- Android secure credential persistence remains a release blocker until a real
-  platform backend replaces the current unverified keyring behavior.
+- Android secure credential persistence remains a release blocker. The keyring
+  build enables the Apple backend only, so on Android the crate falls back to an
+  in-process store: pairing reports success and the credential dies with the
+  process. A real platform backend has to land before Android ships.

@@ -1,68 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type {
-  JinnNativeBridge,
-  NativeRequestInput,
-  NativeResponsePayload,
-  NativeStreamEvent,
-  NativeStreamInput,
-} from "@/platform/native-bridge"
+import type { NativeResponsePayload } from "@/platform/native-bridge"
 import {
   StaleGatewayGenerationError,
   createNativeGatewayProfiles,
 } from "../native-gateway-profiles"
-
-class MemoryStorage implements Storage {
-  #values = new Map<string, string>()
-  get length() { return this.#values.size }
-  clear() { this.#values.clear() }
-  getItem(key: string) { return this.#values.get(key) ?? null }
-  key(index: number) { return [...this.#values.keys()][index] ?? null }
-  removeItem(key: string) { this.#values.delete(key) }
-  setItem(key: string, value: string) { this.#values.set(key, value) }
-}
-
-function response(value: unknown, status = 200): NativeResponsePayload {
-  return {
-    status,
-    headers: [{ name: "content-type", value: "application/json" }],
-    bodyBase64: btoa(JSON.stringify(value)),
-  }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
-}
-
-function bridgeFixture() {
-  const streams = new Map<string, (event: NativeStreamEvent) => void>()
-  let streamSequence = 0
-  const requests = vi.fn(async (input: NativeRequestInput) => response({
-    authRequired: true,
-    authenticated: true,
-    canBootstrapLocal: false,
-    networkExposed: false,
-    instance: input.target.origin.endsWith("7779") ? "alpha" : "beta",
-  }))
-  const bridge: JinnNativeBridge = {
-    runtime: "tauri",
-    pair: vi.fn(async ({ target }) => ({
-      origin: new URL(target.origin).origin,
-      device: { id: `device:${new URL(target.origin).port}`, name: "Jinn shell" },
-    })),
-    request: requests,
-    stream: vi.fn(async (input: NativeStreamInput, onEvent) => {
-      if (input.action !== "open") return { streamId: input.streamId }
-      const streamId = `stream-${++streamSequence}`
-      streams.set(streamId, onEvent)
-      onEvent({ event: "opened", streamId })
-      return { streamId }
-    }),
-    forget: vi.fn(async () => ({ localRemoved: true, remoteRevoked: true })),
-  }
-  return { bridge, requests, streams }
-}
+import { MemoryStorage, bridgeFixture, deferred, response } from "./native-gateway-fixtures"
 
 describe("native gateway profiles", () => {
   beforeEach(() => vi.restoreAllMocks())
@@ -127,6 +69,30 @@ describe("native gateway profiles", () => {
     expect(alpha.id).not.toBe(beta.id)
   })
 
+  it("quarantines a REST response and WebSocket frame delivered after switching back", async () => {
+    const { bridge, requests, streams } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    await profiles.select(beta.id)
+    const late = deferred<NativeResponsePayload>()
+    requests.mockImplementationOnce(() => late.promise)
+    const pending = profiles.transport.request("/api/sessions")
+    const frames = vi.fn()
+    const socket = profiles.transport.openSocket("/ws")
+    socket.onmessage = frames
+    await vi.waitFor(() => expect(streams.size).toBe(1))
+    const betaStream = [...streams.values()][0]!
+
+    await profiles.select(alpha.id)
+    late.resolve(response({ sessions: [{ id: "beta-only" }] }))
+    betaStream({ event: "message", streamId: "stream-1", text: JSON.stringify({ event: "sessions:changed" }) })
+
+    await expect(pending).rejects.toBeInstanceOf(StaleGatewayGenerationError)
+    expect(frames).not.toHaveBeenCalled()
+    expect(profiles.snapshot().activeId).toBe(alpha.id)
+  })
+
   it("removes only the requested inactive profile and keeps the active profile intact", async () => {
     const { bridge } = bridgeFixture()
     const storage = new MemoryStorage()
@@ -139,6 +105,38 @@ describe("native gateway profiles", () => {
     expect(profiles.snapshot()).toMatchObject({ activeId: alpha.id, profiles: [alpha] })
     expect(bridge.forget).toHaveBeenCalledWith({ target: { origin: beta.origin } })
     expect(profiles.transport.profile.origin).toBe(alpha.origin)
+  })
+
+  it("keeps the active profile authenticated, connected, and stored when the other is removed", async () => {
+    const { bridge, requests, streams } = bridgeFixture()
+    const storage = new MemoryStorage()
+    const profiles = createNativeGatewayProfiles({ bridge, storage })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    const frames = vi.fn()
+    const socket = profiles.transport.openSocket("/ws")
+    socket.onmessage = frames
+    await vi.waitFor(() => expect(streams.size).toBe(1))
+    const alphaStream = [...streams.values()][0]!
+
+    await profiles.remove(beta.id)
+
+    // Authentication: only beta's credential is revoked, and alpha still answers.
+    expect(bridge.forget).toHaveBeenCalledTimes(1)
+    expect(bridge.forget).toHaveBeenCalledWith({ target: { origin: beta.origin } })
+    const state = await profiles.transport.request("/api/auth/state")
+    expect(state.ok).toBe(true)
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: alpha.origin } }))
+
+    // Connection state: removing an inactive profile never quarantines alpha's live socket.
+    alphaStream({ event: "message", streamId: "stream-1", text: JSON.stringify({ event: "sessions:changed" }) })
+    expect(frames).toHaveBeenCalledTimes(1)
+
+    // Cached data: the persisted store still restores alpha, and only alpha.
+    expect(createNativeGatewayProfiles({ bridge, storage }).snapshot()).toMatchObject({
+      activeId: alpha.id,
+      profiles: [alpha],
+    })
   })
 
   it("does not commit an unreachable selection and reports it distinctly", async () => {
@@ -189,45 +187,10 @@ describe("native gateway profiles", () => {
     expect(reloaded.snapshot()).toMatchObject({
       activeId: alpha.id,
       status: "unreachable",
-      // The active gateway's own reachability says this, not a selection failure.
-      failedProfileId: undefined,
+      failedProfileId: alpha.id,
       activeReachable: false,
       error: "connection refused",
     })
-  })
-
-  it("retries the ACTIVE gateway, never the profile whose selection failed", async () => {
-    const { bridge, requests } = bridgeFixture()
-    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
-    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
-    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
-    await profiles.select(beta.id)
-    requests.mockRejectedValueOnce(new TypeError("connection refused"))
-
-    await expect(profiles.select(alpha.id)).rejects.toThrow("connection refused")
-    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, failedProfileId: alpha.id })
-
-    requests.mockClear()
-    await profiles.retry()
-
-    expect(requests).toHaveBeenCalled()
-    for (const [input] of requests.mock.calls) expect(input.target.origin).toBe(beta.origin)
-    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
-  })
-
-  it("keeps retry working after the profile whose selection failed is removed", async () => {
-    const { bridge, requests } = bridgeFixture()
-    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
-    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
-    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
-    requests.mockRejectedValueOnce(new TypeError("connection refused"))
-    await expect(profiles.select(beta.id)).rejects.toThrow("connection refused")
-
-    await profiles.remove(beta.id)
-
-    expect(profiles.snapshot().failedProfileId).toBeUndefined()
-    await expect(profiles.retry()).resolves.toBeUndefined()
-    expect(profiles.snapshot()).toMatchObject({ activeId: alpha.id, status: "ready", activeReachable: true })
   })
 
   it("proves a remembered gateway that still answers", async () => {
@@ -238,6 +201,36 @@ describe("native gateway profiles", () => {
     await reloaded.verifyActive()
 
     expect(reloaded.snapshot()).toMatchObject({ status: "ready", activeReachable: true, failedProfileId: undefined })
+  })
+
+  it("retries the active gateway, not the profile a failed switch named", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    await profiles.select(beta.id)
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+    await expect(profiles.select(alpha.id)).rejects.toThrow("connection refused")
+
+    await profiles.retry()
+
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: beta.origin } }))
+    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
+  })
+
+  it("does not strand a retry when the profile a failed switch named is removed", async () => {
+    const { bridge, requests } = bridgeFixture()
+    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
+    const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
+    requests.mockRejectedValueOnce(new TypeError("connection refused"))
+    await expect(profiles.select(beta.id)).rejects.toThrow("connection refused")
+
+    await profiles.remove(beta.id)
+
+    expect(profiles.snapshot()).toMatchObject({ status: "ready", failedProfileId: undefined, error: undefined })
+    await expect(profiles.retry()).resolves.toBeUndefined()
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: alpha.origin } }))
   })
 
   it("cannot activate a profile removed while its selection check is in flight", async () => {

@@ -7,8 +7,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Slot } from "@/contrib/slot"
 import { AREAS } from "@/contrib/types"
-import { todoPath } from "@/lib/todo-id"
 import { gatewayTransport } from "@/lib/gateway-transport"
+import { todoPath } from "@/lib/todo-id"
 import { copyText as platformCopyText } from "@/platform"
 import { KeepToggle } from "../board/keep-control"
 

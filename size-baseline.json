@@ -121,7 +121,7 @@
       ]
     },
     "packages/jinn/src/cron/__tests__/runner.test.ts": {
-      "lines": 490
+      "lines": 489
     },
     "packages/jinn/src/cron/run-summary.ts": {
       "exempt": [
@@ -344,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5676,
+      "lines": 5564,
       "exempt": [
         "complexity",
         "max-depth",
@@ -428,7 +428,7 @@
       ]
     },
     "packages/jinn/src/gateway/org.ts": {
-      "lines": 396,
+      "lines": 389,
       "exempt": [
         "complexity",
         "max-depth",
@@ -696,7 +696,7 @@
       ]
     },
     "packages/jinn/src/sessions/context.ts": {
-      "lines": 1087,
+      "lines": 1048,
       "exempt": [
         "complexity",
         "max-depth",

@@ -2,7 +2,8 @@
 
 - Date: 2026-08-23
 - Branch: `feature/PLA-118`
-- Product SHA exercised: `17b1705faa58` (this round re-ran the whole journey after the `main` reconciliation, the `failedProfileId` fix, and the restored build-lane proofs)
+- Product SHA exercised: `f882cf21` — the whole journey was re-run at that head, after the `main` reconciliation, the `failedProfileId` fix, and the restored build-lane proofs
+- Reconciled onto: `main` at `aaa5f48e`. `main` had independently landed the same two fixes (`7628ebf2` for `failedProfileId`/retry, `bdb9b6c8` for the startup and credential proofs) plus a size-cap split of the profile module (`66a829b1`), so this branch dropped its own copies and now carries only this QA evidence on top of `main`. The reconciled product code is behaviourally the same code the journey exercised: the `failedProfileId` and `remove()`/`retry()` logic is identical, `credentials.rs` and the platform contract suite are byte-identical, and the only differences are the `GuardedSocket` class moving from `guarded-gateway-socket.ts` to `native-gateway-socket.ts` and two extra profile-manager tests `main` carries that `f882cf21` did not
 - Sandboxes: fresh disposable `qa-pla-118-a` / `qa-pla-118-b` homes on loopback ports 7814 and 7815. Each home's `config.yaml` `port:` was read and confirmed before its daemon was started; both were seeded at 7777 by `setup` and rewritten first. An ambient `JINN_PORT=7777` in the runner environment overrode the sandbox config on the first start attempt and the gateway's port-owner guard refused it — the daemons run with that variable scrubbed. Both sandboxes were registered only in a throwaway `JINN_INSTANCES_REGISTRY`, never the host registry
 - Production home/port: not used
 
@@ -46,16 +47,19 @@ result came from the turbo cache.
 | Slice | typecheck | lint | test | build | ratchet --check | footguns |
 | --- | --- | --- | --- | --- | --- | --- |
 | S19 reconcile with `main` | 0 | 0 | 0 | 0 | 0 | 0 |
-| S20 one meaning for `failedProfileId` | 0 | 0 | 0 | 0 | 0 | 0 |
-| S21 restored build-lane proofs | 0 | 0 | 0 | 0 | 0 | 0 |
+| S20 one meaning for `failedProfileId` (dropped; landed on `main` as `7628ebf2`) | 0 | 0 | 0 | 0 | 0 | 0 |
+| S21 restored build-lane proofs (dropped; landed on `main` as `bdb9b6c8`) | 0 | 0 | 0 | 0 | 0 | 0 |
 | S22 gates and native targets | 0 | 0 | 0 | 0 | 0 | 0 |
 | S23 journey and evidence | 0 | 0 | 0 | 0 | 0 | 0 |
+| S24 reconcile onto `main` `aaa5f48e`, QA evidence only | 0 | 0 | 0 | 0 | 0 | 0 |
 
 `cargo test --manifest-path packages/shell/src-tauri/Cargo.toml` reports 17
 passing tests, one more than the previous round: the restored
 `the_keyring_account_is_derived_from_the_exact_origin_and_port` case.
 
-Both S20 and S21 were red-checked rather than merely observed green. Reverting
+The S20 and S21 fixes were red-checked when they were written, and the same
+assertions still guard the reconciled tree because `main` carries the same code.
+Reverting
 `retry()` to prefer `failedProfileId` reds the active-gateway retry test;
 restoring the `remove()` behavior reds the post-removal retry test; restoring the
 `failedProfileId === activeId` comparison in the screen reds the heading test.

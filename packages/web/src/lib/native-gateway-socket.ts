@@ -1,10 +1,5 @@
-import type { GatewaySocketConnection } from "./gateway-transport"
+import { type GatewaySocketConnection } from "./gateway-transport"
 
-/**
- * Raised when a REST response or socket send belongs to a gateway generation the
- * app has already left. It is an `AbortError` so the query layer treats it as a
- * cancellation rather than as the new gateway failing.
- */
 export class StaleGatewayGenerationError extends DOMException {
   constructor() {
     super("The gateway changed before this response arrived", "AbortError")
@@ -12,10 +7,9 @@ export class StaleGatewayGenerationError extends DOMException {
 }
 
 /**
- * A socket that dies with the gateway generation it was opened in. Frames that
- * arrive after a switch are dropped rather than delivered to the app now looking
- * at a different gateway, and a send on a stale socket refuses instead of
- * reaching the gateway the user left.
+ * A socket that goes quiet the moment the gateway it was opened against stops
+ * being the active one. `live` reports whether that generation still holds;
+ * `release` lets the owner forget this socket once it can no longer deliver.
  */
 export class GuardedSocket implements GatewaySocketConnection {
   binaryType: BinaryType = "blob"

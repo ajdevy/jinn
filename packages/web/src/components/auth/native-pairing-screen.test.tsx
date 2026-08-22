@@ -41,6 +41,7 @@ describe("NativePairingScreen", () => {
       activeId: alpha.id,
       generation: 1,
       status: "unreachable",
+      failedProfileId: alpha.id,
       error: "connection refused",
       activeReachable: false,
     }
@@ -64,6 +65,7 @@ describe("NativePairingScreen", () => {
       activeId: alpha.id,
       generation: 1,
       status: "unreachable",
+      failedProfileId: alpha.id,
       activeReachable: false,
     }
     retry.mockResolvedValue(undefined)
@@ -80,7 +82,7 @@ describe("NativePairingScreen", () => {
       activeId: alpha.id,
       generation: 1,
       status: "unreachable",
-      // The failed switch names Beta. Alpha is still the gateway this window cannot reach.
+      // The later failed switch overwrote the record of alpha's own failure.
       failedProfileId: beta.id,
       error: "connection refused",
       activeReachable: false,

@@ -6,25 +6,30 @@ web dashboard; it never navigates the main webview to a gateway URL.
 ## Security boundary
 
 On Apple platforms, gateway credentials live in Keychain, scoped to the exact
-canonical origin including its port. Android credential persistence is not yet
-release-verified and must not be represented as secure storage support. The
-bundled dashboard can call four application commands only: `pair`, `request`,
-`stream`, and `forget`.
-Those commands accept root-relative gateway paths, reject credential-bearing
-headers and redirects, and return no cookie or token to JavaScript.
+canonical origin including its port. The keyring build enables the Apple backend
+only, so Android has no OS-backed store at all and must never be represented as
+secure storage support. The bundled dashboard can call four gateway commands
+only: `pair`, `request`, `stream`, and `forget`. Those commands accept
+root-relative gateway paths, reject credential-bearing headers and redirects,
+and return no cookie or token to JavaScript.
 
-Plain HTTP gateways are accepted only on literal loopback addresses. LAN,
-tailnet, and remote gateways require HTTPS. Every command also verifies that it
-came from the local `main` window; the probe and any remote document fail
-closed. Tauri capabilities contain no `remote` grants.
+Plain HTTP gateways are accepted only on loopback — a literal loopback address
+or the name `localhost`. LAN, tailnet, and remote gateways require HTTPS. Each
+of those four commands also verifies that it came from the local `main` window,
+so any remote document fails closed; the desktop-only `report` command confines
+itself to the probe window the same way. Tauri capabilities contain no `remote`
+grants.
 
-The strict CSP permits bundled assets and Tauri IPC only. Gateway REST and
-WebSocket traffic runs in Rust, so gateway origins do not appear in
-`connect-src`. External HTTP(S) links open in the system browser.
+The strict CSP permits no remote origin: script and connect sources are the
+bundled assets and Tauri IPC, alongside `data:`/`blob:` media and inline styles.
+Gateway REST and WebSocket traffic runs in Rust, so gateway origins do not appear
+in `connect-src`. External HTTP(S) links open in the system browser.
 
 ## Build
 
-Prerequisites are pnpm, Rust, and Tauri CLI 2.
+Prerequisites are pnpm, Rust, and Tauri CLI 2. Every command below stages the
+production web output first, so run `pnpm --filter @jinn/web build` once before
+`test` in a fresh clone.
 
 ```sh
 pnpm --filter @jinn/shell test

@@ -20,7 +20,8 @@ four-command native bridge: `pair`, `request`, `stream`, and `forget`.
 
 The bridge accepts root-relative paths and an explicit canonical target origin.
 Rust owns cookies and WebSocket authentication. Plain HTTP is restricted to
-literal loopback; non-loopback gateways require HTTPS. Commands verify the
+loopback — a literal loopback address or the name `localhost`; every other
+gateway requires HTTPS. Commands verify the
 calling window and bundled document. Capabilities contain no remote grants.
 
 External HTTP(S) navigation opens outside the application. `jinn://` links are
@@ -33,5 +34,6 @@ translated to bundled in-app routes.
   perspective; native requests never expose credentials to JavaScript.
 - A hostile remote page cannot gain native IPC by being loaded in another
   window.
-- The production bundle gate scans every emitted JavaScript asset for forbidden
-  native framework dependency markers.
+- The production bundle gate scans the emitted JavaScript in the bundle's asset
+  directory for forbidden native framework dependency markers. The generated
+  service worker sits outside that directory and is not covered.

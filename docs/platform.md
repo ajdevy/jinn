@@ -22,23 +22,26 @@ normalized to `failed`.
 ## Capability matrix
 
 `Conditional` means the web API must exist and, where applicable, the document
-must be a secure context. `Shell boundary` means the native window implements
-the behavior even though the product intent adapter remains unsupported.
+must be a secure context. The web adapter is first in the chain in every
+container, so a conditional intent follows the same rule under Tauri as in the
+browser; `unverified` marks a native webview where we have not confirmed the API
+is present. `Shell only` means the native window implements the behavior
+internally and no product intent reaches it.
 
 | Intent family | Browser | Installed PWA | Tauri macOS | Tauri iOS | Tauri Android |
 | --- | --- | --- | --- | --- | --- |
-| feedback | Conditional vibration | Conditional vibration | Unsupported | Unsupported | Unsupported |
-| notifications | Conditional + permission | Conditional + permission | Unsupported | Unsupported | Unsupported |
-| badges | Conditional | Conditional | Unsupported | Unsupported | Unsupported |
-| sharing | Conditional Web Share | Conditional Web Share | Unsupported | Unsupported | Unsupported |
+| feedback | Conditional vibration | Conditional vibration | Conditional; unverified | Conditional; unverified | Conditional; unverified |
+| notifications | Conditional + permission | Conditional + permission | Conditional + permission; unverified | Conditional + permission; unverified | Conditional + permission; unverified |
+| badges | Conditional | Conditional | Conditional; unverified | Conditional; unverified | Conditional; unverified |
+| sharing | Conditional Web Share | Conditional Web Share | Conditional Web Share; unverified | Conditional Web Share; unverified | Conditional Web Share; unverified |
 | lifecycle | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
-| navigation | External URL supported | External URL supported | Shell boundary verified | Shell boundary unverified | Shell boundary unverified |
-| viewport | Keyboard inset conditional; orientation unsupported | Same | Unsupported | Unsupported | Unsupported |
-| clipboard | Conditional secure-context API | Conditional secure-context API | Unsupported | Unsupported | Unsupported |
+| navigation | External URL supported | External URL supported | Supported; shell opens it outside the webview | Supported; shell routing unverified | Supported; shell routing unverified |
+| viewport | Keyboard inset conditional; orientation unsupported | Same | Same; unverified | Same; unverified | Same; unverified |
+| clipboard | Conditional secure-context API | Conditional secure-context API | Conditional; unverified | Conditional; unverified | Conditional; unverified |
 | files | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
 | install | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
-| window | Unsupported | Unsupported | Geometry/menu internal only | Unsupported | Unsupported |
-| device | Unsupported | Unsupported | Product intent unsupported; gateway auth uses Keychain internally | Product intent unsupported; Keychain path cross-compiles | Unsupported; secure persistence unverified |
+| window | Unsupported | Unsupported | Shell only: geometry and menu | Unsupported | Unsupported |
+| device | Unsupported | Unsupported | Product intent unsupported; gateway auth uses Keychain internally | Product intent unsupported; Keychain path cross-compiles | Unsupported; no Android credential backend is compiled in |
 
 The table describes shipped code, not desired parity. Update it in the same
 change that implements and verifies a capability.

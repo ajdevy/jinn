@@ -231,8 +231,8 @@ function useGatewayScreen() {
   const read = manager?.snapshot ?? readEmpty
   const { profiles, activeId, status, activeReachable, error } = useSyncExternalStore(manager?.subscribe ?? neverChanges, read, read)
   const active = profiles.find((profile) => profile.id === activeId)
-  // The ACTIVE gateway failing is what this screen exists for, and only that
-  // gateway's own state says so. A failed switch names a different profile.
+  // The ACTIVE gateway failing is what this screen exists for, and activeReachable
+  // is what answers that: failedProfileId names the latest failure of any kind.
   const unreachable = activeReachable ? undefined : active
   return { manager, profiles, activeId, active, unreachable, checking: status === "checking", gatewayError: error }
 }
