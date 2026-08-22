@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 import { ChatPaneSessionMenu } from '@/components/chat/chat-pane-session-menu'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { splitTitleId } from '@/components/chat/chat-tabs'
-import { getStatusDot, StatusDot, type Session } from '@/components/chat/session-signals'
-import type { BackgroundActivity, DelegatedActivity } from '@/lib/api'
+import { getStatusDot, StatusDot, type Session, useStallClock } from '@/components/chat/session-signals'
+import type { BackgroundActivity, DelegatedActivity, EnginesResponse } from '@/lib/api'
 import { emojiForName } from '@/lib/emoji-pool'
+import type { ViewMode } from '@/lib/view-mode'
 
 const UUID_PATTERN = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
 
@@ -59,6 +60,19 @@ export function paneTitleBarState(input: {
   }
 }
 
+export function paneViewControls(session: Session, engineRegistry?: EnginesResponse) {
+  const engine = typeof session.engine === 'string' ? session.engine : undefined
+  const cliModeAvailable = !engine || engineRegistry?.engines?.[engine]?.supportsPty === true
+  const viewSwitchLocked = engine === 'codex' && session.status === 'running'
+  return {
+    cliModeAvailable,
+    viewSwitchLocked,
+    cliTitle: viewSwitchLocked
+      ? 'Codex view switching is locked while a turn is running'
+      : cliModeAvailable ? undefined : 'CLI view is not available for this engine',
+  }
+}
+
 interface ChatPaneTitleBarProps {
   active: boolean
   title: string
@@ -67,13 +81,29 @@ interface ChatPaneTitleBarProps {
   backTo?: { label: string; onClick: () => void }
   onClose: () => void
   sessionActions?: PaneSessionActions
+  viewMode?: ViewMode
+  cliModeAvailable?: boolean
+  viewSwitchLocked?: boolean
+  cliTitle?: string
 }
 
-function PaneTitleActions({ title, session, onClose, sessionActions, onRenamed }: Pick<ChatPaneTitleBarProps, 'title' | 'session' | 'onClose' | 'sessionActions'> & { onRenamed: (title: string) => void }) {
-  const status = getStatusDot(session, new Set([session.id]))
+function PaneTitleActions({ title, session, onClose, sessionActions, onRenamed, viewMode, cliModeAvailable, viewSwitchLocked, cliTitle }: Pick<ChatPaneTitleBarProps, 'title' | 'session' | 'onClose' | 'sessionActions' | 'viewMode' | 'cliModeAvailable' | 'viewSwitchLocked' | 'cliTitle'> & { onRenamed: (title: string) => void }) {
+  const stallNow = useStallClock(session.status === 'running')
+  const status = getStatusDot(session, new Set([session.id]), false, stallNow)
   return (
     <span data-testid="chat-pane-title-actions" className="group/title-actions relative flex h-full w-[52px] shrink-0 items-center justify-end">
-      {sessionActions ? <ChatPaneSessionMenu title={title} session={session} actions={sessionActions} onRenamed={onRenamed} /> : null}
+      {sessionActions ? (
+        <ChatPaneSessionMenu
+          title={title}
+          session={session}
+          actions={sessionActions}
+          onRenamed={onRenamed}
+          viewMode={viewMode ?? 'chat'}
+          cliModeAvailable={cliModeAvailable ?? false}
+          viewSwitchLocked={viewSwitchLocked ?? false}
+          cliTitle={cliTitle}
+        />
+      ) : null}
       <span className="grid size-[26px] place-items-center transition-opacity duration-[var(--duration-fast)] group-hover/chat-pane:opacity-0 group-focus-within/title-actions:opacity-0">
         {status ? <StatusDot data-testid="chat-pane-status-dot" color={status.color} pulse={status.pulse} title={status.label} className="size-2" /> : null}
       </span>
@@ -93,7 +123,7 @@ function PaneTitleActions({ title, session, onClose, sessionActions, onRenamed }
   )
 }
 
-export function ChatPaneTitleBar({ active, title, employee, session, backTo, onClose, sessionActions }: ChatPaneTitleBarProps) {
+export function ChatPaneTitleBar({ active, title, employee, session, backTo, onClose, sessionActions, viewMode, cliModeAvailable, viewSwitchLocked, cliTitle }: ChatPaneTitleBarProps) {
   const [renamedTitle, setRenamedTitle] = useState<string>()
   useEffect(() => setRenamedTitle(undefined), [session.id, title])
   const visibleTitle = renamedTitle ?? title
@@ -132,7 +162,7 @@ export function ChatPaneTitleBar({ active, title, employee, session, backTo, onC
         {id ? <span className={`transition-colors duration-[var(--duration-fast)] ${active ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]'}`}>{id} </span> : null}
         <span>{rest}</span>
       </span>
-      <PaneTitleActions title={visibleTitle} session={session} onClose={onClose} sessionActions={sessionActions} onRenamed={setRenamedTitle} />
+      <PaneTitleActions title={visibleTitle} session={session} onClose={onClose} sessionActions={sessionActions} onRenamed={setRenamedTitle} viewMode={viewMode} cliModeAvailable={cliModeAvailable} viewSwitchLocked={viewSwitchLocked} cliTitle={cliTitle} />
     </div>
   )
 }

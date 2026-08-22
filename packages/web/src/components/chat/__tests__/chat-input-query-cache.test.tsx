@@ -36,7 +36,7 @@ vi.mock("@/components/stt/whisper-download-modal", () => ({
 
 import { ChatInput } from "../chat-input"
 
-function renderWithCachedQueries(inputProps: { isActive?: boolean; focusTrigger?: number } = {}) {
+function renderWithCachedQueries(inputProps: { isActive?: boolean; focusTrigger?: number; selectorSlot?: React.ReactNode } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -86,6 +86,13 @@ beforeEach(() => {
 })
 
 describe("ChatInput query-backed menus", () => {
+  it("keeps the model chip at its readable intrinsic width in narrow panes", () => {
+    renderWithCachedQueries({ selectorSlot: <span data-testid="model-chip">GPT-5.6 Sol</span> })
+
+    const wrapper = screen.getByTestId("model-chip").parentElement!
+    expect(wrapper.className).toContain("shrink-0")
+  })
+
   it("populates @mentions and slash commands from the shared query cache", async () => {
     renderWithCachedQueries()
 

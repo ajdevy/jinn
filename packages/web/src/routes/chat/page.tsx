@@ -492,12 +492,7 @@ function ChatPage() {
     chatTabs.openTab({ sessionId: newSessionId, label: 'Duplicated Chat', status: 'idle', unread: false, pinned: true })
     qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
   }, [chatTabs, qc])
-  const paneSessionActions = usePaneSessionActions({
-    archive: handleArchiveSession,
-    unarchive: handleUnarchiveSession,
-    delete: handleDeleteSession,
-    copyId: (sessionId) => copyToClipboard(sessionId, 'id', sessionId),
-  })
+  const paneSessionActions = usePaneSessionActions({ archive: handleArchiveSession, unarchive: handleUnarchiveSession, delete: handleDeleteSession, copyId: (sessionId) => copyToClipboard(sessionId, 'id', sessionId), duplicate: handleDuplicate, openBeside: gridPicker.open, setViewMode: paneState.setViewModeFor, copyCliResume: (sessionId, command) => copyToClipboard(command, 'cli', sessionId), shareDebugLog, clearDebugLog })
 
   const handleStartFreshChat = useCallback(async (previous: FreshChatSourceSession) => {
     const prompt = buildContinuationPrompt(previous.id)

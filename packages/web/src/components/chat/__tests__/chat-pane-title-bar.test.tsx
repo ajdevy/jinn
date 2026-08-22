@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { TURN_STALL_VISIBLE_MS } from '@/components/chat/session-signals'
 import { emojiForName } from '@/lib/emoji-pool'
 import { ChatPaneTitleBar } from '../chat-pane-title-bar'
 
@@ -57,6 +58,29 @@ describe('ChatPaneTitleBar', () => {
     const dot = screen.getByTestId('chat-pane-status-dot')
     expect(dot.getAttribute('style')).toContain(`background: ${color}`)
     expect(dot.className.includes('animate-sidebar-pulse')).toBe(pulse)
+  })
+
+  it('turns a stalled pane amber without waiting for an unrelated render', () => {
+    vi.useFakeTimers()
+    try {
+      const now = Date.now()
+      render(
+        <ChatPaneTitleBar
+          active={false}
+          title="Stalling pane"
+          employee="operator"
+          session={{ id: 'a', status: 'running', turnProgress: { lastProgressAt: now, awaitingSubmit: false } }}
+          onClose={vi.fn()}
+        />,
+      )
+      expect(screen.getByTestId('chat-pane-status-dot').getAttribute('style')).toContain('var(--system-blue)')
+
+      act(() => { vi.advanceTimersByTime(TURN_STALL_VISIBLE_MS + 15_000) })
+
+      expect(screen.getByTestId('chat-pane-status-dot').getAttribute('style')).toContain('var(--system-orange)')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders no dot for a resting read pane', () => {

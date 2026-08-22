@@ -13,7 +13,7 @@ import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-se
 import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
 import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
-import { ChatPaneTitleBar, paneTitleBarState } from '@/components/chat/chat-pane-title-bar'
+import { ChatPaneTitleBar, paneTitleBarState, paneViewControls } from '@/components/chat/chat-pane-title-bar'
 import { ChatCopyToast } from '@/components/chat/chat-copy-toast'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { useOnboardingSeed } from '@/components/chat/use-onboarding-seed'
@@ -86,7 +86,6 @@ interface ChatPaneProps {
   onClose?: () => void; sessionActions?: PaneSessionActions; paneBackTo?: { label: string; onClick: () => void }; copyNotice?: boolean
 }
 export type { FreshChatSourceSession }
-
 export function ChatPane({
   sessionId, isActive, onFocus,
   onSessionCreated,
@@ -420,6 +419,7 @@ export function ChatPane({
   const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
   const titleBarState = paneTitleBarState({ sessionId, currentSession, loading, turnPending,
     backgroundActivity, delegatedActivity, paneTitle, paneEmployee, portalName })
+  const titleBarViewControls = paneViewControls(titleBarState.session, engineRegistry)
 
   return (
     <div
@@ -474,7 +474,7 @@ export function ChatPane({
         </div>
       )}
       {multiPane && onClose ? (
-        <ChatPaneTitleBar {...titleBarState} active={isActive} backTo={paneBackTo} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} />
+        <ChatPaneTitleBar {...titleBarState} {...titleBarViewControls} active={isActive} backTo={paneBackTo} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} viewMode={viewMode} />
       ) : null}
       {multiPane && copyNotice ? <ChatCopyToast placement="pane" /> : null}
       {showSessionHydration && <ChatHydrationOverlay />}

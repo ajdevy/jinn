@@ -1,21 +1,27 @@
 import { useCallback, useMemo } from 'react'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { usePins, useTogglePin } from '@/hooks/use-pins'
-import { useDuplicateSession, useStopSession, useUpdateSession } from '@/hooks/use-sessions'
+import { useStopSession, useUpdateSession } from '@/hooks/use-sessions'
+import type { ViewMode } from '@/lib/view-mode'
 
 const EMPTY_PINNED_IDS = new Set<string>()
 
-export function usePaneSessionActions({ archive: archiveSession, unarchive, delete: deleteSession, copyId }: {
+export function usePaneSessionActions({ archive: archiveSession, unarchive, delete: deleteSession, copyId, duplicate, openBeside, setViewMode, copyCliResume, shareDebugLog, clearDebugLog }: {
   archive: (sessionId: string) => void
   unarchive: (sessionId: string) => void
   delete: (sessionId: string) => void
   copyId: (sessionId: string) => void
+  duplicate: (sessionId: string) => void
+  openBeside: () => void
+  setViewMode: (sessionId: string, mode: ViewMode) => void
+  copyCliResume: (sessionId: string, command: string) => void
+  shareDebugLog: () => void
+  clearDebugLog: () => void
 }): PaneSessionActions {
   const { data: pinnedIds = EMPTY_PINNED_IDS } = usePins()
   const { mutate: togglePinMutation } = useTogglePin()
   const { mutateAsync: renameMutation } = useUpdateSession()
   const { mutate: stopMutation } = useStopSession()
-  const { mutate: duplicateMutation } = useDuplicateSession()
   const rename = useCallback(async (sessionId: string, title: string) => {
     await renameMutation({ id: sessionId, data: { title } })
   }, [renameMutation])
@@ -30,10 +36,15 @@ export function usePaneSessionActions({ archive: archiveSession, unarchive, dele
     pinnedIds,
     rename,
     togglePin,
-    duplicate: duplicateMutation,
+    duplicate,
     archive,
     stop: stopMutation,
     copyId,
     delete: deleteSession,
-  }), [archive, copyId, deleteSession, duplicateMutation, pinnedIds, rename, stopMutation, togglePin])
+    openBeside,
+    setViewMode,
+    copyCliResume,
+    shareDebugLog,
+    clearDebugLog,
+  }), [archive, clearDebugLog, copyCliResume, copyId, deleteSession, duplicate, openBeside, pinnedIds, rename, setViewMode, shareDebugLog, stopMutation, togglePin])
 }

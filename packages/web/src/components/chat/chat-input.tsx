@@ -841,7 +841,7 @@ export function ChatInput({
               while the trigger's own behavior is preserved. */}
           {selectorSlot && (
             <div
-              className="min-w-0 flex items-center overflow-hidden"
+              className="flex shrink-0 items-center overflow-hidden"
               onPointerDown={(e) => e.stopPropagation()}
             >
               {selectorSlot}

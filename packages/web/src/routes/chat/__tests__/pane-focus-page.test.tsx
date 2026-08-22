@@ -41,12 +41,6 @@ describe('desktop pane focus', () => {
     expect(pane('a').getAttribute('data-chat-pane-active')).toBe('true')
 
     fireEvent.pointerDown(within(paneC).getByRole('button', { name: 'Actions for Title c' }), { button: 0, ctrlKey: false })
-    const duplicateMenu = await screen.findByRole('menu')
-    fireEvent.click(within(duplicateMenu).getByRole('menuitem', { name: /Duplicate/ }))
-    await waitFor(() => expect(apiMocks.duplicateSession).toHaveBeenCalledWith('c'))
-    expect(pane('a').getAttribute('data-chat-pane-active')).toBe('true')
-
-    fireEvent.pointerDown(within(paneC).getByRole('button', { name: 'Actions for Title c' }), { button: 0, ctrlKey: false })
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete session' }))
     await waitFor(() => expect(apiMocks.deleteSession).toHaveBeenNthCalledWith(1, 'c'))
     await waitFor(() => expect(document.querySelector('[data-chat-pane-session="c"]')).toBeNull())
@@ -62,6 +56,54 @@ describe('desktop pane focus', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Test browser back' }))
     await waitFor(() => expect(pane('b').getAttribute('data-chat-pane-active')).toBe('true'))
+  })
+
+  it('surfaces a pane duplicate instead of completing silently', async () => {
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+
+    fireEvent.pointerDown(within(pane('c')).getByRole('button', { name: 'Actions for Title c' }), { button: 0, ctrlKey: false })
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Duplicate/ }))
+
+    await waitFor(() => expect(apiMocks.duplicateSession).toHaveBeenCalledWith('c'))
+    await waitFor(() => expect(screen.getByTestId('route-location').textContent).toContain('session=c-copy'))
+    await waitFor(() => expect(pane('c-copy').getAttribute('data-chat-pane-active')).toBe('true'))
+  })
+
+  it('keeps every displaced header action reachable from each pane menu', async () => {
+    sessionIds.splice(0, sessionIds.length, 'a', 'b')
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds,
+      focusedId: 'a',
+      focusHistory: sessionIds,
+    }))
+    const share = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'share', { configurable: true, value: share })
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(2))
+    expect(document.querySelector('[data-chat-desktop-actions]')).toBeNull()
+
+    const paneB = pane('b')
+    fireEvent.pointerDown(within(paneB).getByRole('button', { name: 'Actions for Title b' }), { button: 0, ctrlKey: false })
+    let menu = await screen.findByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'Open chat beside' })).toBeTruthy()
+    expect(within(menu).getByRole('button', { name: 'Chat' })).toBeTruthy()
+    expect(within(menu).getByRole('button', { name: 'CLI' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Copy CLI Resume Command' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Share debug log' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Clear debug log' })).toBeTruthy()
+
+    fireEvent.click(within(menu).getByRole('button', { name: 'CLI' }))
+    await waitFor(() => expect(localStorage.getItem('jinn-view-mode-b')).toBe('cli'))
+    await waitFor(() => expect(paneB.textContent).not.toContain('transcript-b'))
+
+    fireEvent.pointerDown(within(paneB).getByRole('button', { name: 'Actions for Title b' }), { button: 0, ctrlKey: false })
+    menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Chat' }))
+    await waitFor(() => expect(localStorage.getItem('jinn-view-mode-b')).toBe('chat'))
+    await waitFor(() => expect(paneB.textContent).toContain('transcript-b'))
   })
 
   it('moves the single selected treatment with click and j/k navigation', async () => {

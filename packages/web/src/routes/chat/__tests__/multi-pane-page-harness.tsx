@@ -16,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
     title: `Title ${id}`,
     status: 'idle',
     engine: 'claude',
+    engineSessionId: `engine-${id}`,
     messages: [{ id: `${id}-m1`, role: 'assistant', content: `transcript-${id}`, timestamp: 1 }],
   })),
   getSessionMessages: vi.fn(async () => ({ messages: [], hasOlder: false })),
@@ -29,7 +30,11 @@ const apiMocks = vi.hoisted(() => ({
     .filter((id) => `Title ${id}`.toLowerCase().includes(query.toLowerCase()))
     .map((id) => ({ id, title: `Title ${id}`, status: 'idle' }))),
   getOrg: vi.fn(async () => ({ employees: [] })),
-  getEngines: vi.fn(async () => ({ engines: {} })),
+  getEngines: vi.fn(async () => ({
+    engines: {
+      claude: { name: 'claude', available: true, defaultModel: 'opus', models: [], supportsPty: true },
+    },
+  })),
   getFeatures: vi.fn(async () => ({ notesEnabled: false, staleChat: { enabled: false, tokenThreshold: 300000, staleAfterMinutes: 60 } })),
   getSkills: vi.fn(async () => []),
   getSessionQueue: vi.fn(async () => []),

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Archive, ArchiveRestore, Copy, ExternalLink, Pencil, Pin, PinOff, Square, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
 import {
@@ -70,6 +71,7 @@ export function SessionRowMenu({
   onArchive,
   onStop,
   onCopyId,
+  beforeDelete,
   onDelete,
 }: {
   variant: "dropdown" | "context"
@@ -82,6 +84,7 @@ export function SessionRowMenu({
   onArchive: () => void
   onStop: () => void
   onCopyId?: () => void
+  beforeDelete?: ReactNode
   onDelete: () => void
 }) {
   const capabilities = sessionMenuCapabilities(session)
@@ -122,6 +125,7 @@ export function SessionRowMenu({
         </Item>
       ) : null}
       <CopySessionIdItem variant={variant} sessionId={session.id} onCopyId={onCopyId} />
+      {beforeDelete}
       <Separator className={SESSION_MENU_SEPARATOR_CLASS} />
       <Item
         variant="destructive"
