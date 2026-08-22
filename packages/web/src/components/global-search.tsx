@@ -1,249 +1,179 @@
-
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import {
-  MessageSquare, Users, ListChecks, Clock,
-  Activity, Zap, Settings, Plus, Hash, Workflow, Gauge, NotebookPen,
-} from "lucide-react"
-import {
-  Command,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandSeparator,
-} from "@/components/ui/command"
+import { Search } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useSettings } from "@/routes/settings-provider"
-import { useOrg } from "@/hooks/use-employees"
-import { useCronJobs } from "@/hooks/use-cron"
-import { useSessions } from "@/hooks/use-sessions"
-import { useSkills } from "@/hooks/use-skills"
-import { useFeatures } from "@/hooks/use-features"
+import type { QueryFacetWire, SearchKind } from "@/lib/search-api"
+import { KIND_META } from "./global-search/kind-meta"
+import { PreviewPane } from "./global-search/preview-pane"
+import { ReadBackLine } from "./global-search/read-back-line"
+import { ResultList } from "./global-search/result-list"
+import { loadRecent, saveRecent, type RecentItem } from "./global-search/recents"
+import { recentRows, resultRows, rowTarget, type SearchRow } from "./global-search/rows"
+import { useGlobalSearch } from "./global-search/use-global-search"
+import { useSearchKeyboard } from "./global-search/use-search-keyboard"
 
-const RECENT_KEY = "jinn-command-recent"
-const MAX_RECENT = 5
+// The palette stays a module rather than becoming `global-search/index.tsx`, so
+// `import("./global-search")` and every `@/components/global-search` specifier
+// keeps resolving to exactly this file. Its parts live in the sibling directory.
+export { STATIC_PAGES, staticPagesFor } from "./global-search/static-pages"
 
-interface RecentItem {
-  id: string
-  label: string
-  href: string
-  type: string
-}
+const PALETTE = [
+  "flex flex-col overflow-hidden p-0 gap-0 border-0",
+  // `sm:max-w-lg` is in the dialog's own base class, so the wide cap needs the
+  // same breakpoint to win — a bare max-width loses to it above 640px.
+  "top-[88px] translate-y-0 w-[880px] max-w-[calc(100%-2rem)] sm:max-w-[880px] h-[560px]",
+  "rounded-[var(--radius-2xl)] bg-[var(--material-thick)] shadow-[var(--shadow-overlay)]",
+  "backdrop-blur-[40px] backdrop-saturate-[1.8]",
+  "max-[480px]:top-0 max-[480px]:left-0 max-[480px]:translate-x-0",
+  "max-[480px]:h-[100dvh] max-[480px]:w-full max-[480px]:max-w-full max-[480px]:rounded-none",
+].join(" ")
 
-function loadRecent(): RecentItem[] {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
+const SCRIM = "bg-[var(--scrim)] backdrop-blur-[14px] backdrop-saturate-[1.2]"
+const PILL = "inline-flex flex-none items-center gap-1.5 rounded-lg bg-[var(--accent-fill)] px-[9px] py-1 text-[13px] font-medium text-[var(--accent)]"
+const FOOTER = "flex items-center gap-[15px] bg-[var(--material-thin)] px-5 py-[9px] text-[11.5px] text-[var(--text-quaternary)] max-[480px]:hidden"
+const FOOTER_KEY = "font-medium text-[var(--text-tertiary)]"
 
-function saveRecent(item: RecentItem) {
-  const items = loadRecent().filter(r => r.id !== item.id)
-  items.unshift(item)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(items.slice(0, MAX_RECENT)))
-}
-
-// Every top-level destination, so the command palette can reach anything the
-// mobile tab bar / More overflow reaches (kept in step with lib/nav NAV_ITEMS).
-const BASE_STATIC_PAGES = [
-  { id: "page-chat", label: "Chat", icon: MessageSquare, href: "/" },
-  { id: "page-todos", label: "Todos", icon: ListChecks, href: "/todos" },
-  { id: "page-workflow", label: "Workflows", icon: Workflow, href: "/workflow" },
-  { id: "page-org", label: "Organization", icon: Users, href: "/org" },
-  { id: "page-cron", label: "Cron", icon: Clock, href: "/cron" },
-  { id: "page-limits", label: "Limits", icon: Gauge, href: "/limits" },
-  { id: "page-logs", label: "Activity", icon: Activity, href: "/logs" },
-  { id: "page-skills", label: "Skills", icon: Zap, href: "/skills" },
-  { id: "page-settings", label: "Settings", icon: Settings, href: "/settings" },
-]
-
-export function staticPagesFor(notesEnabled: boolean) {
-  const notesPage = { id: "page-notes", label: "Notes", icon: NotebookPen, href: "/notes" }
-  return notesEnabled
-    ? [...BASE_STATIC_PAGES.slice(0, 2), notesPage, ...BASE_STATIC_PAGES.slice(2)]
-    : BASE_STATIC_PAGES
-}
-
-export const STATIC_PAGES = staticPagesFor(false)
-
-interface GlobalSearchProps {
+export interface GlobalSearchProps {
   initialOpen?: boolean
+  /** Opens narrowed to one kind, with a pill that widens it again. Wave 4 wires
+   *  the Todos filter bar to this; nothing in this wave passes it. */
+  initialScope?: SearchKind
 }
 
-export function GlobalSearch({ initialOpen = false }: GlobalSearchProps) {
+export function GlobalSearch({ initialOpen = false, initialScope }: GlobalSearchProps) {
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Jinn"
   const [open, setOpen] = useState(initialOpen)
+  const [query, setQuery] = useState("")
+  const [literal, setLiteral] = useState(false)
+  const [scope, setScope] = useState<SearchKind | undefined>(initialScope)
+  const [selected, setSelected] = useState(0)
   const [recents, setRecents] = useState<RecentItem[]>([])
   const goTo = useNavigate()
 
-  const { data: orgData } = useOrg()
-  const { data: cronJobs } = useCronJobs()
-  const { data: sessions } = useSessions()
-  const { data: skills } = useSkills()
-  const { data: features } = useFeatures()
-  const staticPages = staticPagesFor(features?.notesEnabled === true)
+  const changeOpen = useCallback((next: boolean) => {
+    setOpen(next)
+    if (next) return
+    setQuery("")
+    setLiteral(false)
+    setScope(initialScope)
+  }, [initialScope])
 
-  // Cmd+K toggle
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault()
-        setOpen(prev => !prev)
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "k") return
+      e.preventDefault()
+      changeOpen(!open)
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [])
+  }, [open, changeOpen])
 
-  // Load recents when opened
-  useEffect(() => {
-    if (open) setRecents(loadRecent())
-  }, [open])
+  useEffect(() => { if (open) setRecents(loadRecent()) }, [open])
 
-  const navigate = useCallback((href: string, item: RecentItem) => {
-    saveRecent(item)
-    setOpen(false)
-    goTo(href)
-  }, [goTo])
+  const typing = query.trim().length > 0
+  const search = useGlobalSearch({ query, scope, literal })
+  const rows = useMemo(
+    () => (typing ? resultRows(search.data?.results) : recentRows(recents)),
+    [typing, search.data, recents],
+  )
+  const rowKey = rows.map(row => row.key).join(" ")
+  useEffect(() => { setSelected(0) }, [rowKey])
+  const row = rows[selected]
 
-  const employeeNames: string[] = Array.isArray(orgData?.employees)
-    ? orgData.employees.map((e) => e.name)
-    : []
-  const crons = Array.isArray(cronJobs) ? cronJobs : []
-  const sessionList = Array.isArray(sessions) ? sessions.slice(0, 10) : []
-  const skillList = Array.isArray(skills) ? skills.slice(0, 10) : []
+  const activate = useCallback((target: SearchRow) => {
+    const recent = rowTarget(target)
+    saveRecent(recent)
+    changeOpen(false)
+    goTo(recent.href)
+  }, [changeOpen, goTo])
+
+  const toggleLiteral = useCallback(() => setLiteral(wasLiteral => !wasLiteral), [])
+
+  /** Facet spans index the query the gateway parsed, so that is what is cut. */
+  const removeFacet = useCallback((facet: QueryFacetWire) => {
+    const base = search.data?.query ?? query
+    setQuery(`${base.slice(0, facet.span.start)}${base.slice(facet.span.end)}`.replace(/\s+/g, " ").trim())
+  }, [search.data, query])
+
+  const handleKeyDown = useSearchKeyboard({
+    rowCount: rows.length,
+    selectedIndex: selected,
+    onMove: setSelected,
+    onActivate: () => { if (row) activate(row) },
+    onToggleLiteral: toggleLiteral,
+  })
+
+  const loading = typing && search.isFetching && !search.data
+  const hint = typing
+    ? "Nothing matched. Try fewer words, or search literally."
+    : "Type to search Todos, chats, notes, people, cron and skills."
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="p-0 gap-0 max-w-[560px]" aria-describedby={undefined}>
-          {/* Radix requires an accessible title on DialogContent; the command
-              palette is visually its own input, so keep the title screen-reader
-              only. */}
-          <DialogTitle className="sr-only">Search {portalName}</DialogTitle>
-          <Command className="rounded-lg">
-            <CommandInput placeholder={`Search ${portalName}...`} />
-            <CommandList>
-              <CommandEmpty>No results found.</CommandEmpty>
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogContent
+        className={PALETTE}
+        overlayClassName={SCRIM}
+        showCloseButton={false}
+        aria-describedby={undefined}
+        onEscapeKeyDown={event => {
+          if (!query) return
+          event.preventDefault()
+          setQuery("")
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        {/* Radix requires an accessible title; the field is the visible one. */}
+        <DialogTitle className="sr-only">Search {portalName}</DialogTitle>
 
-              {/* Recent items */}
-              {recents.length > 0 && (
-                <>
-                  <CommandGroup heading="Recent">
-                    {recents.map(item => (
-                      <CommandItem
-                        key={item.id}
-                        onSelect={() => navigate(item.href, item)}
-                      >
-                        <Hash size={16} className="mr-2 opacity-50" />
-                        {item.label}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                  <CommandSeparator />
-                </>
-              )}
+        <div className="flex items-center gap-[11px] px-5 pb-[15px] pt-[17px] max-[480px]:px-4 max-[480px]:pb-3 max-[480px]:pt-3.5">
+          <Search size={18} aria-hidden="true" className="flex-none text-[var(--text-tertiary)]" />
+          {scope && (
+            <button type="button" data-testid="search-scope-pill" onClick={() => setScope(undefined)} className={PILL}>
+              {KIND_META[scope].plural}
+              <span aria-hidden="true" className="opacity-55">&times;</span>
+              <span className="sr-only">Search everything instead</span>
+            </button>
+          )}
+          <input
+            autoFocus
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={`Search ${portalName}`}
+            aria-label={`Search ${portalName}`}
+            className="min-w-0 flex-1 bg-transparent text-[21px] tracking-[-0.012em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] max-[480px]:text-[19px]"
+          />
+          <span className="flex-none rounded-md bg-[var(--fill-tertiary)] px-[7px] py-[3px] text-[11px] font-medium text-[var(--text-tertiary)]">esc</span>
+        </div>
 
-              {/* Pages */}
-              <CommandGroup heading="Pages">
-                {staticPages.map(page => (
-                  <CommandItem
-                    key={page.id}
-                    onSelect={() => navigate(page.href, { id: page.id, label: page.label, href: page.href, type: 'page' })}
-                  >
-                    <page.icon size={16} className="mr-2 opacity-50" />
-                    {page.label}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+        {search.data && (
+          <ReadBackLine parsed={search.data.parsed} onRemoveFacet={removeFacet} onToggleLiteral={toggleLiteral} />
+        )}
 
-              {/* Actions */}
-              <CommandGroup heading="Actions">
-                <CommandItem onSelect={() => { setOpen(false); goTo('/') }}>
-                  <Plus size={16} className="mr-2 opacity-50" />
-                  New Chat
-                </CommandItem>
-              </CommandGroup>
+        <div className="flex min-h-0 flex-1 max-[480px]:flex-col">
+          <div className="w-[396px] flex-none overflow-y-auto px-[10px] pb-[10px] pt-0.5 max-[480px]:w-full max-[480px]:flex-1 max-[480px]:px-2">
+            <ResultList
+              rows={rows}
+              selectedIndex={selected}
+              onSelect={setSelected}
+              onActivate={activate}
+              emptyLabel={typing ? "No results" : "Nothing opened from here yet"}
+              loading={loading}
+            />
+          </div>
+          <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:shadow-[var(--shadow-overlay)]">
+            <div aria-hidden="true" className="mx-auto mb-3.5 hidden h-[5px] w-9 rounded-[3px] bg-[var(--fill-primary)] max-[480px]:block" />
+            <PreviewPane row={row} error={search.error} hint={hint} literal={literal} onSearchLiterally={toggleLiteral} />
+          </div>
+        </div>
 
-              {/* Employees */}
-              {employeeNames.length > 0 && (
-                <CommandGroup heading="Employees">
-                  {employeeNames.slice(0, 8).map((name) => (
-                    <CommandItem
-                      key={name}
-                      onSelect={() => navigate('/org', { id: `emp-${name}`, label: name, href: '/org', type: 'employee' })}
-                    >
-                      <Users size={16} className="mr-2 opacity-50" />
-                      {name}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              )}
-
-              {/* Sessions */}
-              {sessionList.length > 0 && (
-                <CommandGroup heading="Recent Sessions">
-                  {sessionList.map((session) => {
-                    const id = String(session.id ?? '')
-                    const title = String(session.title ?? session.id ?? '').slice(0, 50)
-                    return (
-                      <CommandItem
-                        key={id}
-                        onSelect={() => navigate('/', { id: `session-${id}`, label: title, href: '/', type: 'session' })}
-                      >
-                        <MessageSquare size={16} className="mr-2 opacity-50" />
-                        {title}
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
-              )}
-
-              {/* Cron Jobs */}
-              {crons.length > 0 && (
-                <CommandGroup heading="Cron Jobs">
-                  {crons.slice(0, 6).map((job) => {
-                    const id = String(job.id ?? '')
-                    const name = String(job.name ?? id)
-                    return (
-                      <CommandItem
-                        key={id}
-                        onSelect={() => navigate('/cron', { id: `cron-${id}`, label: name, href: '/cron', type: 'cron' })}
-                      >
-                        <Clock size={16} className="mr-2 opacity-50" />
-                        {name}
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
-              )}
-
-              {/* Skills */}
-              {skillList.length > 0 && (
-                <CommandGroup heading="Skills">
-                  {skillList.map((skill) => {
-                    const name = String(skill.name ?? '')
-                    return (
-                      <CommandItem
-                        key={name}
-                        onSelect={() => navigate('/skills', { id: `skill-${name}`, label: name, href: '/skills', type: 'skill' })}
-                      >
-                        <Zap size={16} className="mr-2 opacity-50" />
-                        {name}
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
-              )}
-            </CommandList>
-          </Command>
-        </DialogContent>
-      </Dialog>
-    </>
+        <div className={FOOTER}>
+          <span><b className={FOOTER_KEY}>&#8593;&#8595;</b> navigate</span>
+          <span><b className={FOOTER_KEY}>&#9166;</b> open</span>
+          <span><b className={FOOTER_KEY}>&#8984;&#9166;</b> search literally</span>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

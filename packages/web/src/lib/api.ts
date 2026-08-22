@@ -200,7 +200,7 @@ async function responseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, code, currentVersion, remedy)
 }
 
-async function get<T>(path: string, init?: RequestInit): Promise<T> {
+export async function get<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) throw await responseError(res);
   return res.json();
