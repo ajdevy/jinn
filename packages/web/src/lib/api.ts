@@ -32,6 +32,7 @@ import type {
   NotesListResponse,
   UpdateNoteInput,
 } from "@/routes/notes/types"
+import { createConfigApi } from "@/lib/api-config"
 import { createExperimentsApi } from "@/lib/api-experiments"
 import { createWorkflowLifecycleApi } from "@/lib/api-workflow-lifecycle"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
@@ -844,11 +845,9 @@ export const api = {
     get<{ name: string; content: string }>(`/api/skills/${encodeURIComponent(name)}`),
   updateSkill: (name: string, content: string) =>
     put<{ status: string }>(`/api/skills/${encodeURIComponent(name)}`, { content }),
-  getConfig: () => get<Record<string, unknown>>("/api/config"),
+  ...createConfigApi({ responseError }),
   reloadConnectors: () =>
     post<{ started: string[]; stopped: string[]; errors: string[] }>("/api/connectors/reload", {}),
-  updateConfig: (data: Record<string, unknown>) =>
-    put<Record<string, unknown>>("/api/config", data),
   getLogs: (n?: number) =>
     get<{ lines: string[] }>(`/api/logs${n ? `?n=${n}` : ""}`),
   getOnboarding: () =>

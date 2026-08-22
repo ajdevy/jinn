@@ -79,7 +79,7 @@ beforeEach(() => {
       grok: engine('grok', false, 'grok-build', { state: 'degraded' }),
     },
   }
-  apiMocks.getConfig.mockResolvedValue({ engines: { claude: { fallback: ['codex'] } } })
+  apiMocks.getConfig.mockResolvedValue({ config: { engines: { claude: { fallback: ['codex'] } } }, revision: 'rev-1' })
   apiMocks.updateConfig.mockResolvedValue({})
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
   apiMocks.sttStatus.mockResolvedValue({ available: false, model: null, downloading: false, progress: 0, languages: ['en'] })
@@ -137,7 +137,7 @@ describe('Engine Fallbacks section', () => {
   })
 
   it('reorders with the move controls a keyboard can reach', async () => {
-    apiMocks.getConfig.mockResolvedValue({ engines: { claude: { fallback: ['codex', 'grok'] } } })
+    apiMocks.getConfig.mockResolvedValue({ config: { engines: { claude: { fallback: ['codex', 'grok'] } } }, revision: 'rev-1' })
     await renderSettings()
 
     fireEvent.click(screen.getByRole('button', { name: 'Move Grok earlier in the Claude chain' }))
@@ -146,12 +146,12 @@ describe('Engine Fallbacks section', () => {
   })
 
   it('shows the model map read-only, on the engine that falls through rather than the stand-in', async () => {
-    apiMocks.getConfig.mockResolvedValue({
+    apiMocks.getConfig.mockResolvedValue({ config: {
       engines: {
         claude: { fallback: ['codex'] },
         codex: { fallback: ['claude'], fallbackModelMap: { 'gpt-5.6-luna': 'haiku' } },
       },
-    })
+    }, revision: 'rev-1' })
     await renderSettings()
     const codexCard = document.querySelector('[data-engine-card="codex"]') as HTMLElement
 
@@ -186,10 +186,10 @@ describe('legacy fallback mapping', () => {
   beforeEach(() => {
     // What GET /api/config serves for a legacy config: the mapped chain in the
     // current spelling, with the deprecated pair still on the document.
-    apiMocks.getConfig.mockResolvedValue({
+    apiMocks.getConfig.mockResolvedValue({ config: {
       engines: { claude: { fallback: ['codex'] } },
       sessions: { rateLimitStrategy: 'fallback', fallbackEngine: 'codex' },
-    })
+    }, revision: 'rev-1' })
   })
 
   it('shows the mapping read-only, and migrating writes the chain and nulls both legacy keys', async () => {

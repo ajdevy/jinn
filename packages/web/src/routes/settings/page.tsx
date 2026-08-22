@@ -18,9 +18,10 @@ import {
 } from "@/lib/model-config"
 import { ThemePicker, TextSizePicker } from "./appearance-pickers"
 import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
+import { ConfigConflictNotice } from "./config-conflict-notice"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
-import type { EnginesConfig } from "./engines/chain-model"
+import type { Config } from "./config-shape"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
@@ -54,91 +55,6 @@ const ACCENT_PRESETS = [
   { label: "Pink", value: "#EC4899" },
 ]
 
-// ---------------------------------------------------------------------------
-// Config type (gateway API)
-// ---------------------------------------------------------------------------
-
-interface Config {
-  gateway?: { port?: number; host?: string }
-  engines?: EnginesConfig
-  sessions?: {
-    interruptOnNewMessage?: boolean
-    rateLimitStrategy?: "wait" | "fallback" | null
-    fallbackEngine?: string | null
-    staleChat?: {
-      enabled?: boolean
-      tokenThreshold?: number
-      staleAfterMinutes?: number
-    }
-  }
-  connectors?: {
-    slack?: {
-      appToken?: string
-      botToken?: string
-      shareSessionInChannel?: boolean
-      allowFrom?: string | string[]
-      ignoreOldMessagesOnBoot?: boolean
-    }
-    discord?: {
-      botToken?: string
-      allowFrom?: string | string[]
-      guildId?: string
-      channelId?: string
-    }
-    telegram?: {
-      botToken?: string
-      allowFrom?: number[]
-      ignoreOldMessagesOnBoot?: boolean
-    }
-    whatsapp?: {
-      authDir?: string
-      allowFrom?: string[]
-    }
-    web?: Record<string, never>
-    instances?: Array<{
-      id: string
-      type: "discord" | "slack" | "whatsapp" | "telegram"
-      employee?: string
-      botToken?: string
-      allowFrom?: string | string[]
-      guildId?: string
-      channelId?: string
-      appToken?: string
-      authDir?: string
-      ignoreOldMessagesOnBoot?: boolean
-      [key: string]: unknown
-    }>
-  }
-  logging?: {
-    level?: string
-    stdout?: boolean
-    file?: boolean
-  }
-  models?: Record<string, {
-    default?: string
-    effortMechanism?: string
-    hidden?: string[]
-    models: Array<{
-      id: string
-      label?: string
-      supportsEffort?: boolean
-      effortLevels?: string[]
-      contextWindow?: number
-    }>
-  }>
-  cron?: {
-    defaultDelivery?: { connector?: string; channel?: string }
-  }
-  /** `apiKey` arrives redacted; see voice-section.tsx for what that means here. */
-  realtime?: { provider?: string; apiKey?: string }
-  portal?: {
-    companyName?: string
-    companyPrefix?: string
-    portalName?: string
-    operatorName?: string
-  }
-  [key: string]: unknown
-}
 
 // ---------------------------------------------------------------------------
 // Main settings page
@@ -192,6 +108,10 @@ export default function SettingsPage() {
   const [configLoading, setConfigLoading] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  /** Which config.yaml this page is editing. Sent back on save so a hand edit
+   *  made since the load is refused rather than silently overwritten. */
+  const [configRevision, setConfigRevision] = useState("")
+  const [conflict, setConflict] = useState<{ message: string; remedy?: string } | null>(null)
   const [voiceCapability, setVoiceCapability] = useState<TalkCapability | null>(null)
   const [feedback, setFeedback] = useState<{
     type: "success" | "error"
@@ -235,9 +155,12 @@ export default function SettingsPage() {
     setConfigLoading(true)
     api
       .getConfig()
-      .then((data) => {
-        setConfig(data as Config)
-        setCompanyPrefixValue((data as Config).portal?.companyPrefix ?? "")
+      .then(({ config: loaded, revision }) => {
+        setConfig(loaded as Config)
+        setConfigRevision(revision)
+        // Reloading is the way out of a conflict, so it is also what clears it.
+        setConflict(null)
+        setCompanyPrefixValue((loaded as Config).portal?.companyPrefix ?? "")
         setConfigError(null)
       })
       .catch((err) => setConfigError(err.message))
@@ -330,18 +253,23 @@ export default function SettingsPage() {
   function handleSave() {
     setSaving(true)
     setFeedback(null)
+    setConflict(null)
     api
-      .updateConfig(config)
-      .then(() => {
+      .updateConfig(config, configRevision || undefined)
+      .then((result) => {
+        setConfigRevision(result?.revision ?? "")
         loadVoiceCapability()
         setFeedback({ type: "success", message: "Settings saved successfully" })
       })
-      .catch((err) =>
-        setFeedback({
-          type: "error",
-          message: `Failed to save: ${err.message}`,
-        })
-      )
+      .catch((err) => {
+        // A conflict is not a failed save, it is a save that has not happened yet:
+        // it gets its own notice with the way out, and deliberately no retry.
+        if (err?.code === "CONFIG_CONFLICT") {
+          setConflict({ message: err.message, remedy: err.remedy })
+          return
+        }
+        setFeedback({ type: "error", message: `Failed to save: ${err.message}` })
+      })
       .finally(() => setSaving(false))
   }
 
@@ -615,6 +543,14 @@ export default function SettingsPage() {
           <PairingSection />
 
           <ShortcutsSection />
+
+          {conflict && (
+            <ConfigConflictNotice
+              message={conflict.message}
+              remedy={conflict.remedy}
+              onReload={() => loadConfig()}
+            />
+          )}
 
           {/* Gateway config feedback */}
           {feedback && (

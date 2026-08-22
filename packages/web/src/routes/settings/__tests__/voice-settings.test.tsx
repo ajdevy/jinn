@@ -83,8 +83,8 @@ beforeEach(() => {
   settingsMock.talkMicrophone = 'far_field'
   setTalkMicrophone.mockReset()
   setTalkOrbVariant.mockReset()
-  apiMocks.getConfig.mockResolvedValue({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } })
-  apiMocks.updateConfig.mockResolvedValue({})
+  apiMocks.getConfig.mockResolvedValue({ config: { realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }, revision: 'rev-1' })
+  apiMocks.updateConfig.mockResolvedValue({ revision: 'rev-1' })
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
   apiMocks.sttStatus.mockResolvedValue({ available: false, model: null, downloading: false, progress: 0, languages: ['en'] })
   apiMocks.sttUpdateConfig.mockResolvedValue({})
@@ -130,6 +130,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })
@@ -147,6 +148,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: null, apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })
@@ -162,6 +164,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: '${OPENAI_API_KEY}' } }),
+        'rev-1',
       ),
     )
 
@@ -171,6 +174,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })

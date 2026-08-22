@@ -49,7 +49,7 @@ vi.mock('@/routes/auth-provider', () => ({
 
 describe('Settings stale chat controls', () => {
   beforeEach(() => {
-    apiMocks.getConfig.mockResolvedValue({
+    apiMocks.getConfig.mockResolvedValue({ config: {
       sessions: {
         staleChat: {
           enabled: false,
@@ -57,7 +57,7 @@ describe('Settings stale chat controls', () => {
           staleAfterMinutes: 20,
         },
       },
-    })
+    }, revision: 'rev-1' })
     apiMocks.updateConfig.mockResolvedValue({})
     apiMocks.getOrg.mockResolvedValue({ employees: [] })
     apiMocks.sttStatus.mockResolvedValue({
@@ -103,6 +103,6 @@ describe('Settings stale chat controls', () => {
           staleAfterMinutes: 90,
         },
       },
-    })))
+    }), 'rev-1'))
   })
 })
