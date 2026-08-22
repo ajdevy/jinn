@@ -45,7 +45,7 @@ export interface RouteOptions {
 }
 
 const WORKFLOW_CAPABILITIES = { threading: false, messageEdits: false, reactions: false, attachments: false };
-const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
+const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() { return undefined; }, async replyMessage() { return undefined; }, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
 /** Restore the pre-rate-limit engine once the override window has expired. */
 export function maybeRevertEngineOverride(session: Session): Session {
   const meta = (session.transportMeta || {}) as Record<string, unknown>;

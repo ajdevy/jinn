@@ -1,3 +1,4 @@
+import { logger } from "../../shared/logger.js";
 import type { Connector, JinnConfig, Session, Target } from "../../shared/types.js";
 import type { GatewayEmit } from "../../shared/gateway-events.js";
 import type { TurnReceipt, TurnSurface } from "./types.js";
@@ -19,16 +20,23 @@ export interface ConnectorTurnSurfaceOptions {
   emit?: GatewayEmit;
 }
 
+/** A rejection is logged and handed to `onFailure`, never rethrown: `TurnSurface.reply` is no-throw. */
+async function deliver(connector: Connector, target: Target, text: string, onFailure: (message: string) => void): Promise<void> {
+  if (!text) return;
+  await connector.replyMessage(target, text).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Connector delivery to ${target.channel} failed: ${message}`);
+    onFailure(message);
+  });
+}
+
 /** Carry a turn over a chat connector: reactions, typing status, and replies. */
 export function createConnectorTurnSurface(options: ConnectorTurnSurfaceOptions): TurnSurface {
   const { connector, target, decorate } = options;
   const capabilities = connector.getCapabilities();
   const threadTs = target.thread || target.messageTs;
+  let deliveryError: string | null = null;
 
-  const send = async (text: string): Promise<void> => {
-    if (!text) return;
-    await connector.replyMessage(target, text).catch(() => {});
-  };
   const setTyping = async (status: string): Promise<void> => {
     if (!decorate || !connector.setTypingStatus) return;
     await connector.setTypingStatus(target.channel, threadTs, status).catch(() => {});
@@ -47,8 +55,9 @@ export function createConnectorTurnSurface(options: ConnectorTurnSurfaceOptions)
     delta() {
       // Chat connectors post whole messages; there is no live view to stream into.
     },
-    notice: send,
-    reply: send,
+    // A banner that fails to land must not fail the turn, so it is logged only.
+    notice: (text) => deliver(connector, target, text, () => {}),
+    reply: (text) => deliver(connector, target, text, (message) => { deliveryError = message; }),
     async waiting(active: boolean) {
       await setTyping(active ? "" : THINKING_STATUS);
       await react(active ? [WAITING_REACTION] : [RUNNING_REACTION], active ? [RUNNING_REACTION] : [WAITING_REACTION]);
@@ -61,7 +70,7 @@ export function createConnectorTurnSurface(options: ConnectorTurnSurfaceOptions)
         employee: receipt.session.employee || options.config.portal?.portalName || "Jinn",
         title: receipt.session.title,
         result: receipt.result,
-        error: receipt.error,
+        error: receipt.error ?? deliveryError,
         cost: receipt.cost,
         durationMs: receipt.durationMs,
       });
