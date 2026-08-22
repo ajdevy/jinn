@@ -58,8 +58,12 @@ function placeFold(scroller: HTMLElement, contentTop: number, scrollTop: number)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     if (this.classList.contains('chat-messages-scroll')) return rect(VIEWPORT_TOP, VIEWPORT_H)
     if (this.hasAttribute('data-fold')) {
-      const height = this.hasAttribute('data-folded') ? CLOSED_H : OPEN_H
-      return rect(VIEWPORT_TOP + contentTop - state.top, height)
+      // A browser measures the wrap from what its region currently occupies, so
+      // a height driven onto the DOM counts immediately — a commit later than
+      // the `data-folded` attribute that follows it.
+      const region = this.querySelector<HTMLElement>('[data-fold-region]')
+      const collapsed = this.hasAttribute('data-folded') || region?.style.height === '0px'
+      return rect(VIEWPORT_TOP + contentTop - state.top, collapsed ? CLOSED_H : OPEN_H)
     }
     return rect(0, 0)
   })
@@ -126,6 +130,19 @@ describe('a send never moves what the reader can see', () => {
     expect(Math.abs(state.top - before)).toBeLessThanOrEqual(1)
   })
 
+  it('leaves one the reader can only half see open too', () => {
+    // Top edge above the viewport, bottom edge 200px inside it. Part of it is
+    // still on screen, so collapsing it would move a pixel the reader is
+    // looking at — which is the whole reason the gate is "entirely above".
+    const { view, state, fold } = mount(1_300, 1_400)
+    const before = state.top
+
+    send(view)
+
+    expect(fold().hasAttribute('data-folded')).toBe(false)
+    expect(Math.abs(state.top - before)).toBeLessThanOrEqual(1)
+  })
+
   it('drops its compensation when the reader moves the scroller first', () => {
     // The instant paths — reduced motion, a fold with no slack to animate into
     // — hold the content below still by writing scrollTop a frame later. If the
@@ -144,6 +161,20 @@ describe('a send never moves what the reader can see', () => {
     settle(frames)
 
     expect(state.top).toBe(1_000)
+  })
+
+  it('pays for the off-screen collapse in the same commit, before any frame runs', () => {
+    // The compensation cannot be owed to a later frame: the ask that triggers
+    // the collapse is also appending content, and whatever else moves the
+    // scroller in that gap takes the compensation with it.
+    const { view, state, fold } = mount(200, 1_200)
+    const bottomBefore = fold().getBoundingClientRect().bottom
+
+    view.rerender(<ChatMessages messages={[...ANSWERED, NEXT_ASK]} loading turnPending liveFinalResponseId="a1" />)
+
+    expect(fold().hasAttribute('data-folded')).toBe(true)
+    expect(state.top).toBe(1_200 - (OPEN_H - CLOSED_H))
+    expect(fold().getBoundingClientRect().bottom).toBeCloseTo(bottomBefore, 0)
   })
 
   it('files away one already scrolled off the top, without moving a pixel below it', () => {
@@ -181,5 +212,41 @@ describe('every answered region carries its control', () => {
 
     expect(container.querySelector('[data-fold-region]')?.getAttribute('aria-hidden')).toBe('true')
     expect(control(container)?.getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('an expanded region survives its turn growing', () => {
+  /** More work landing in the SAME turn, after its answer. */
+  const LATER_WORK: Message = { id: 't2', role: 'assistant', content: 'Used sed', timestamp: T0 + 2_500, toolCall: 'sed' }
+  /** More work landing INSIDE the run the region already holds. */
+  const MORE_EVIDENCE: Message = { id: 't1b', role: 'assistant', content: 'Used sed', timestamp: T0 + 1_500, toolCall: 'sed' }
+
+  const open = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-fold-region]')!
+
+  const grow = (messages: Message[]) => {
+    const view = render(<ChatMessages messages={ANSWERED} loading={false} liveFinalResponseId="a1" />)
+    const before = open(view.container)
+    expect(before.getAttribute('aria-hidden')).toBeNull()
+
+    view.rerender(<ChatMessages messages={messages} loading={false} liveFinalResponseId="a1" />)
+
+    return { before, after: open(view.container), container: view.container }
+  }
+
+  it('keeps the same region, open, when work appends after the answer', () => {
+    const { before, after, container } = grow([...ANSWERED, LATER_WORK])
+
+    // The same instance: a re-keyed region would mount fresh and rest folded,
+    // snapping shut on a reader who had just opened it.
+    expect(after).toBe(before)
+    expect(after.getAttribute('aria-hidden')).toBeNull()
+    expect(container.querySelector('[data-fold-summary]')?.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('keeps the same region, open, when the evidence it holds grows', () => {
+    const { before, after } = grow([ANSWERED[0], ANSWERED[1], MORE_EVIDENCE, ANSWERED[2]])
+
+    expect(after).toBe(before)
+    expect(after.getAttribute('aria-hidden')).toBeNull()
   })
 })

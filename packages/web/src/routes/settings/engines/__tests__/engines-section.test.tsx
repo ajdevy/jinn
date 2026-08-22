@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../../page'
 
-/* The Engines section as the operator drives it: chains are edited into the
+/* The Engine Fallbacks section as the operator drives it: chains are edited into the
  * page's config state and land on the wire through the page's own Save Config
  * button, so every assertion here is about what `api.updateConfig` receives. */
 
@@ -87,7 +87,13 @@ beforeEach(() => {
   fetchTalkCapability.mockResolvedValue({ configured: true, provider: 'openai', providers: ['openai'] })
 })
 
-describe('Engines section', () => {
+describe('Engine Fallbacks section', () => {
+  it('is titled for what it configures — the chain a limited engine falls through to', async () => {
+    await renderSettings()
+
+    expect(screen.getByText('Engine Fallbacks')).toBeTruthy()
+  })
+
   it('lists every engine with its installed state, default model and health', async () => {
     await renderSettings()
     const localTime = new Date(EXHAUSTED_UNTIL).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })

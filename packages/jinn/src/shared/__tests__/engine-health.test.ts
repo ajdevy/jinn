@@ -14,6 +14,7 @@ vi.mock("../paths.js", async (importOriginal) => ({
 
 import {
   isEngineExhausted,
+  preferHealthySessionEngine,
   readEngineHealth,
   recordEngineUnavailable,
   recordExhaustedWindows,
@@ -138,5 +139,37 @@ describe("resolveHealthyFallbackEngine", () => {
   it("never returns a member the caller rejects, exhausted chain or not", () => {
     const onlyGrok = (engine: string) => engine === "grok";
     expect(resolveHealthyFallbackEngine(config, "codex", onlyGrok, exhausted("claude", "grok"))).toBe("grok");
+  });
+});
+
+describe("preferHealthySessionEngine", () => {
+  const config = {
+    engines: { codex: { fallback: ["claude", "grok"] }, claude: {}, grok: {} },
+  } as unknown as JinnConfig;
+  const installed = () => true;
+  const exhausted = (...engines: string[]) =>
+    Object.fromEntries(engines.map((engine) => [engine, { state: "exhausted" as const, until: at(60).toISOString() }]));
+
+  it("leaves a preference alone while its allowance holds", () => {
+    expect(preferHealthySessionEngine(config, "codex", installed, {})).toBe("codex");
+  });
+
+  it("does not move off a preference that is merely degraded", () => {
+    const degraded = { codex: { state: "degraded" as const, until: at(10).toISOString() } };
+    expect(preferHealthySessionEngine(config, "codex", installed, degraded)).toBe("codex");
+  });
+
+  it("hands a spent preference to the first member of its chain that can serve", () => {
+    expect(preferHealthySessionEngine(config, "codex", installed, exhausted("codex"))).toBe("claude");
+    expect(preferHealthySessionEngine(config, "codex", installed, exhausted("codex", "claude"))).toBe("grok");
+  });
+
+  it("returns the preference unchanged when nothing in the chain is healthy", () => {
+    expect(preferHealthySessionEngine(config, "codex", installed, exhausted("codex", "claude", "grok"))).toBe("codex");
+  });
+
+  it("returns the preference unchanged when the only healthy member is not installed", () => {
+    const onlyCodexInstalled = (engine: string) => engine === "codex";
+    expect(preferHealthySessionEngine(config, "codex", onlyCodexInstalled, exhausted("codex"))).toBe("codex");
   });
 });

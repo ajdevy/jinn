@@ -908,7 +908,7 @@ export default function SettingsPage() {
                 </FieldRow>
               </Section>
 
-              {/* -- Section 4b: Engines — health and fallback chains -- */}
+              {/* -- Section 4b: Engine Fallbacks — health and fallback chains -- */}
               <EnginesSection
                 engines={config.engines}
                 sessions={config.sessions}

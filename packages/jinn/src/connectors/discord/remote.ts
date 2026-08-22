@@ -73,11 +73,11 @@ export class RemoteDiscordConnector implements Connector {
   }
 
   async sendMessage(target: Target, text: string): Promise<string | undefined> {
-    return this.proxyAction("sendMessage", { target, text });
+    return this.proxyAction("sendMessage", { target, text }, true);
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
-    return this.proxyAction("replyMessage", { target, text });
+    return this.proxyAction("replyMessage", { target, text }, true);
   }
 
   async editMessage(target: Target, text: string): Promise<void> {
@@ -96,7 +96,8 @@ export class RemoteDiscordConnector implements Connector {
     await this.proxyAction("setTypingStatus", { channelId, threadTs, status });
   }
 
-  private async proxyAction(action: string, params: Record<string, unknown>): Promise<string | undefined> {
+  /** Decorations (edits, reactions, typing) stay best-effort; sends pass `mustDeliver`. */
+  private async proxyAction(action: string, params: Record<string, unknown>, mustDeliver = false): Promise<string | undefined> {
     try {
       const res = await fetch(`${this.baseUrl}/api/connectors/discord/proxy`, {
         method: "POST",
@@ -104,12 +105,15 @@ export class RemoteDiscordConnector implements Connector {
         body: JSON.stringify({ action, ...params }),
       });
       if (!res.ok) {
-        logger.error(`Remote Discord proxy ${action} failed: ${res.status}`);
+        const message = `Remote Discord proxy ${action} failed: ${res.status}`;
+        logger.error(message);
+        if (mustDeliver) throw new Error(message);
         return undefined;
       }
       const data = (await res.json()) as { messageId?: string };
       return data.messageId;
     } catch (err) {
+      if (mustDeliver) throw err;
       logger.error(`Remote Discord proxy ${action} error: ${err instanceof Error ? err.message : err}`);
       return undefined;
     }

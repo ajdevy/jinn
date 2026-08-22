@@ -9,6 +9,7 @@ import type {
   Target, WorkflowAttemptCommand, WorkflowAttemptCompletion, WorkflowAttemptCompletionListener,
 } from "../shared/types.js";
 import { isInterruptibleEngine } from "../shared/types.js";
+import { newSessionEngineSelection } from "./new-session-engine.js";
 import { removeCodexSessionHome } from "../engines/codex.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
 import {
@@ -45,7 +46,7 @@ export interface RouteOptions {
 }
 
 const WORKFLOW_CAPABILITIES = { threading: false, messageEdits: false, reactions: false, attachments: false };
-const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() {}, async replyMessage() {}, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
+const WORKFLOW_CONNECTOR: Connector = { name: "workflow", id: "workflow", async start() {}, async stop() {}, getCapabilities: () => WORKFLOW_CAPABILITIES, getHealth: () => ({ status: "running", capabilities: WORKFLOW_CAPABILITIES }), reconstructTarget: () => ({ channel: "workflow" }), async sendMessage() { return undefined; }, async replyMessage() { return undefined; }, async addReaction() {}, async removeReaction() {}, async editMessage() {}, onMessage() {} };
 /** Restore the pre-rate-limit engine once the override window has expired. */
 export function maybeRevertEngineOverride(session: Session): Session {
   const meta = (session.transportMeta || {}) as Record<string, unknown>;
@@ -243,7 +244,7 @@ export class SessionManager {
     let session = getSessionBySessionKey(msg.sessionKey);
     if (!session) {
       session = createSession({
-        engine: opts.engine ?? opts.employee?.engine ?? this.config.engines.default,
+        ...newSessionEngineSelection(this.config, this.engines, opts),
         source: msg.source,
         sourceRef: msg.sessionKey,
         connector: msg.connector,
@@ -252,8 +253,6 @@ export class SessionManager {
         messageId: msg.messageId,
         transportMeta: msg.transportMeta,
         employee: opts.employee?.name ?? undefined,
-        model: opts.model ?? opts.employee?.model ?? undefined,
-        effortLevel: opts.effortLevel ?? opts.employee?.effortLevel ?? undefined,
         title: opts.title,
         prompt: msg.text,
         portalName: this.config.portal?.portalName,

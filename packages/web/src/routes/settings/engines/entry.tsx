@@ -29,7 +29,7 @@ export function EnginesSection({ engines, sessions, onChange }: EnginesSectionPr
   const legacy = legacyFallbackEngine(sessions)
 
   return (
-    <Section title="Engines">
+    <Section title="Engine Fallbacks">
       <div className="flex flex-col gap-[var(--space-2)]">
         {entries.map((entry) => (
           <EngineCard

@@ -374,7 +374,7 @@ export class TelegramConnector implements Connector {
         return String(result.message_id);
       } catch (retryErr) {
         logger.error(`[telegram] Send failed: ${retryErr}`);
-        return undefined;
+        throw retryErr;
       }
     }
   }

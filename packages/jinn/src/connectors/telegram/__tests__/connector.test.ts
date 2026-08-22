@@ -263,24 +263,20 @@ describe("TelegramConnector", () => {
   });
 
   describe("sendMessage", () => {
+    const target: Target = { channel: "12345" };
+
     it("sends a message to the target chat", async () => {
-      const target: Target = { channel: "12345" };
       await connector.sendMessage(target, "Hello!");
-      expect(mockSendMessage).toHaveBeenCalledWith("12345", "Hello!", {
-        parse_mode: "Markdown",
-      });
+      expect(mockSendMessage).toHaveBeenCalledWith("12345", "Hello!", { parse_mode: "Markdown" });
     });
 
     it("does not send empty messages", async () => {
-      const target: Target = { channel: "12345" };
       await connector.sendMessage(target, "");
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
     it("chunks long messages", async () => {
-      const target: Target = { channel: "12345" };
-      const longText = "A".repeat(5000);
-      await connector.sendMessage(target, longText);
+      await connector.sendMessage(target, "A".repeat(5000));
       expect(mockSendMessage).toHaveBeenCalledTimes(2);
     });
 
@@ -288,13 +284,17 @@ describe("TelegramConnector", () => {
       mockSendMessage
         .mockRejectedValueOnce(new Error("Bad Request: can't parse entities"))
         .mockResolvedValueOnce({ message_id: 2 });
-      const target: Target = { channel: "12345" };
       const result = await connector.sendMessage(target, "**bad markdown");
       // First call with Markdown, second without
       expect(mockSendMessage).toHaveBeenCalledTimes(2);
       expect(mockSendMessage.mock.calls[0][2]).toEqual({ parse_mode: "Markdown" });
       expect(mockSendMessage.mock.calls[1][2]).toEqual({});
       expect(result).toBe("2");
+    });
+
+    it("rejects when the plain-text retry also fails", async () => {
+      mockSendMessage.mockRejectedValueOnce(new Error("can't parse entities")).mockRejectedValueOnce(new Error("chat not found"));
+      await expect(connector.sendMessage(target, "**bad markdown")).rejects.toThrow("chat not found");
     });
   });
 
