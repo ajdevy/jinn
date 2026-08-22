@@ -99,3 +99,20 @@ export function computeNextRetryDelayMs(resetsAtSeconds?: number): { delayMs: nu
   }
   return { delayMs: 60_000 };
 }
+
+/**
+ * A limit that named no reset gives a parked session nothing to sleep to, so
+ * every retry against it is a guess. These two bound the guessing: the wait
+ * doubles until it settles at half an hour, and the park gives up well before
+ * the six-hour deadline would have let it poke the engine ~360 times.
+ *
+ * A limit that later does name a reset leaves this path entirely — the stated
+ * reset is slept to, exactly as before.
+ */
+export const MAX_UNSTATED_PARK_DELAY_MS = 30 * 60_000;
+export const MAX_UNSTATED_PARK_ATTEMPTS = 12;
+
+/** The next guess: never shorter than the last one, never past the cap. */
+export function nextUnstatedParkDelayMs(previousDelayMs: number): number {
+  return Math.min(Math.max(previousDelayMs, 0) * 2, MAX_UNSTATED_PARK_DELAY_MS);
+}

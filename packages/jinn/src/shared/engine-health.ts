@@ -160,6 +160,25 @@ export function resolveHealthyFallbackEngine(
     ?? resolveFallbackEngine(config, from, isUsable);
 }
 
+/**
+ * The engine a NEW session should start on, given the one it prefers.
+ *
+ * Only ever asked about a preference the caller did not state outright — an
+ * engine named in the request runs, spent allowance or not. Ordering, never
+ * refusal: when nothing left in the chain can serve either, the preference is
+ * handed straight back and the session starts exactly where it would have.
+ */
+export function preferHealthySessionEngine(
+  config: JinnConfig,
+  preferred: EngineName,
+  isUsable: (engine: EngineName) => boolean,
+  health: EngineHealthReading,
+): EngineName {
+  if (!isEngineExhausted(health, preferred)) return preferred;
+  return resolveFallbackEngine(config, preferred, (engine) => isUsable(engine) && !isEngineExhausted(health, engine))
+    ?? preferred;
+}
+
 /** The registry as an API consumer reads it: installed availability from the
  *  registry, the live reading beside it. */
 export function withEngineHealth(
