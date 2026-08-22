@@ -103,7 +103,6 @@ describe('MultiChatGrid close labels', () => {
         onPeek={noop}
         onNewChat={noop}
         onRefresh={noop}
-        onShortcutsClick={noop}
         onContentReady={noop}
         onStartFreshChat={async () => {}}
       />,
@@ -137,7 +136,6 @@ describe('MultiChatGrid close labels', () => {
         onPeek={noop}
         onNewChat={noop}
         onRefresh={noop}
-        onShortcutsClick={noop}
         onContentReady={noop}
         onStartFreshChat={async () => {}}
         pickerPane={{ paneKey: 'picker', onPick: noop, onSessionCreated: noop, onClose: noop }}

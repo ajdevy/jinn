@@ -28,14 +28,6 @@ describe('CliKeybar', () => {
     }
   })
 
-  it('can render as a compact hint control', () => {
-    render(<CliKeybar variant="hint" onKey={vi.fn()} />)
-    const trigger = screen.getByRole('button', { name: 'Terminal keys' })
-    expect(trigger.textContent).toContain('terminal')
-    fireEvent.click(trigger)
-    expect(screen.getByRole('toolbar', { name: 'Terminal keys' })).toBeTruthy()
-  })
-
   it('every emitted sequence is in the backend allowlist (parity guard)', () => {
     for (const k of CLI_KEYS) {
       expect(BACKEND_ALLOWLIST.has(k.data)).toBe(true)

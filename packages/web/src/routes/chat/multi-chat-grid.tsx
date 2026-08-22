@@ -41,7 +41,6 @@ interface MultiChatGridProps {
   onPeek: (sessionId: string, peek: CommsPeekData) => void
   onNewChat: PaneProps['onNewChat']
   onRefresh: PaneProps['onRefresh']
-  onShortcutsClick: PaneProps['onShortcutsClick']
   onContentReady: PaneProps['onContentReady']
   onStartFreshChat: PaneProps['onStartFreshChat']
   pickerPane?: {
@@ -133,7 +132,6 @@ function GridChatPane({
       onRefresh={owner.onRefresh}
       viewMode={viewModeForPane(owner, sessionId, cliAvailable)}
       focusTrigger={focusTriggerForPane(owner, sessionId)}
-      onShortcutsClick={owner.onShortcutsClick}
       pendingUserMessage={primary ? owner.primary.pendingUserMessage : undefined}
       onPeek={panePeek(owner, sessionId)}
       onContentReady={owner.onContentReady}
