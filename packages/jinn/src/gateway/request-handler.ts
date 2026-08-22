@@ -15,7 +15,18 @@ export interface GatewayRequestHandlerDependencies {
   webDir: string;
 }
 
-function setCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+/**
+ * Request headers a cross-origin caller may send, and response headers it may
+ * read back. `X-Jinn-Config-Revision` needs both directions: the Settings page
+ * reads it off a GET and sends it back on the PUT, and a browser hides a header
+ * that is on neither list — which would look like the conflict guard silently
+ * not working rather than like a CORS policy.
+ */
+export const CORS_ALLOWED_REQUEST_HEADERS =
+  "Content-Type, Authorization, X-Jinn-Bootstrap-Grant, X-Jinn-Config-Revision";
+export const CORS_EXPOSED_RESPONSE_HEADERS = "X-Jinn-Config-Revision";
+
+export function setCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const rawOrigin = req.headers.origin;
   const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
   const allowed = isAllowedCorsOrigin(origin, req.headers.host);
@@ -24,7 +35,8 @@ function setCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): bo
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Jinn-Bootstrap-Grant");
+    res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_REQUEST_HEADERS);
+    res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSED_RESPONSE_HEADERS);
   }
   return allowed;
 }
