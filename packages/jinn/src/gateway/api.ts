@@ -4312,13 +4312,13 @@ export async function handleApiRequest(
           hint: "the work item was minted before the spawn and is preserved as backlog — the delegation intent is durable, not lost",
         }, 502);
       }
+      // The assignment no-ops when the Todo already carries this assignee, so the link is the only record that a caller delegated at all.
+      const delegationActor = workItemActor(delegationCaller.kind === "session"
+        ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
+        : { kind: "operator" });
       if (requestedWorkItemId && employeeName) {
         try {
-          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, workItemActor(
-            delegationCaller.kind === "session"
-              ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
-              : { kind: "operator" },
-          )) ?? workItem;
+          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, delegationActor) ?? workItem;
         } catch (assignmentErr) {
           claim.release();
           return json(res, { error: assignmentErr instanceof Error ? assignmentErr.message : String(assignmentErr) }, 409);
@@ -4379,7 +4379,7 @@ export async function handleApiRequest(
       //    preserved ids (backlog item + idle, undispatched, re-linkable session)
       //    instead of dispatching an untracked turn.
       try {
-        linkSession(workItem.id, session.id);
+        linkSession(workItem.id, session.id, delegationActor);
         claim.bind(session.id);
       } catch (linkErr) {
         claim.release();

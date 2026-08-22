@@ -178,8 +178,17 @@ describe("POST /api/work-items/:id/archive — the COO lane's standing", () => {
 });
 
 describe("POST /api/delegations — the COO lane's standing", () => {
-  it("delegates onto a Todo the COO did not create, and leaves its session in the history", async () => {
-    const item = store.createWorkItem({ title: "Objective owned elsewhere", status: "backlog", source: "human" });
+  it("names the session even when the delegation moves no assignment", async () => {
+    // Assignee and department already match, so assignWorkItem no-ops and the
+    // link is the only thing that happened — which is exactly when the audit
+    // used to lose the caller.
+    const item = store.createWorkItem({
+      title: "Objective owned elsewhere",
+      status: "assigned",
+      assignee: "platform-worker",
+      department: "platform",
+      source: "human",
+    });
     const coo = portalSession("web:coo-delegates");
 
     const cap = await post(
@@ -188,9 +197,11 @@ describe("POST /api/delegations — the COO lane's standing", () => {
       toolHeaders(coo),
     );
 
+    // 201 Created is this route's success code: it creates a session.
     expect([cap.status, cap.body.workItemId]).toEqual([201, item.id]);
-    expect(store.getWorkItem(item.id)?.assignee).toBe("platform-worker");
-    expect(store.listWorkItemEvents(item.id).map((event) => event.actor)).toContain(`session:${coo}`);
+    expect(store.listWorkItemEvents(item.id)).toContainEqual(
+      expect.objectContaining({ kind: "session_linked", actor: `session:${coo}` }),
+    );
   });
 });
 
