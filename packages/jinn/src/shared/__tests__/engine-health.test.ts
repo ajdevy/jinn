@@ -43,6 +43,7 @@ describe("recordEngineUnavailable", () => {
     expect(readEngineHealth(NOW).codex).toEqual({
       state: "exhausted",
       until: at(90).toISOString(),
+      recheckAt: at(90).toISOString(),
       reason: "out of quota",
       observedAt: NOW.toISOString(),
     });
@@ -55,10 +56,18 @@ describe("recordEngineUnavailable", () => {
     expect(isEngineExhausted(readEngineHealth(NOW), "codex")).toBe(false);
   });
 
-  it("clamps a reset further out than twelve hours rather than storing it verbatim", () => {
+  it("stores a reset further out than twelve hours verbatim rather than clamping it", () => {
     recordEngineUnavailable("codex", "out of quota", secondsAt(3 * 24 * 60), NOW);
 
-    expect(readEngineHealth(NOW).codex?.until).toBe(at(12 * 60).toISOString());
+    expect(readEngineHealth(NOW).codex?.until).toBe(at(3 * 24 * 60).toISOString());
+  });
+
+  it("re-probes at the stated reset or twelve hours out, whichever comes first", () => {
+    recordEngineUnavailable("codex", "out of quota", secondsAt(3 * 24 * 60), NOW);
+    recordEngineUnavailable("claude", "out of quota", secondsAt(90), NOW);
+
+    expect(readEngineHealth(NOW).codex?.recheckAt).toBe(at(12 * 60).toISOString());
+    expect(readEngineHealth(NOW).claude?.recheckAt).toBe(at(90).toISOString());
   });
 
   it("keeps one record per engine", () => {
@@ -66,6 +75,66 @@ describe("recordEngineUnavailable", () => {
     recordEngineUnavailable("claude", "rate-limited", secondsAt(30), NOW);
 
     expect(Object.keys(readEngineHealth(NOW)).sort()).toEqual(["claude", "codex"]);
+  });
+});
+
+describe("isEngineExhausted", () => {
+  const threeDays = 3 * 24 * 60;
+
+  it("stops steering dispatch at the re-probe while the reading keeps the true reset", () => {
+    recordEngineUnavailable("codex", "out of quota", secondsAt(threeDays), NOW);
+    const before = at(12 * 60 - 1);
+    const after = at(12 * 60);
+
+    expect(isEngineExhausted(readEngineHealth(before), "codex", before)).toBe(true);
+    expect(isEngineExhausted(readEngineHealth(after), "codex", after)).toBe(false);
+    // The same instant, on the surfaces the operator reads: still out, still until the true reset.
+    expect(readEngineHealth(after).codex).toMatchObject({
+      state: "exhausted",
+      until: at(threeDays).toISOString(),
+    });
+  });
+
+  it("blocks until the stated reset on a record written before re-probes existed", () => {
+    fs.writeFileSync(STATE_PATH, JSON.stringify({ codex: { state: "exhausted", until: at(90).toISOString() } }));
+
+    expect(isEngineExhausted(readEngineHealth(at(89)), "codex", at(89))).toBe(true);
+    expect(isEngineExhausted(readEngineHealth(at(91)), "codex", at(91))).toBe(false);
+  });
+});
+
+describe("a re-probe that fails again", () => {
+  const threeDays = 3 * 24 * 60;
+  const reprobe = at(12 * 60);
+  const twelveHoursOn = new Date(reprobe.getTime() + 12 * 60 * 60_000).toISOString();
+
+  it("keeps the stated reset and pushes the next re-probe twelve hours out", () => {
+    recordEngineUnavailable("codex", "out of quota", secondsAt(threeDays), NOW);
+    recordEngineUnavailable("codex", "out of quota", secondsAt(threeDays), reprobe);
+
+    expect(readEngineHealth(reprobe).codex).toMatchObject({
+      until: at(threeDays).toISOString(),
+      recheckAt: twelveHoursOn,
+    });
+  });
+
+  it("keeps a live exhausted record rather than downgrading it when it states no reset", () => {
+    recordEngineUnavailable("codex", "out of quota", secondsAt(threeDays), NOW);
+    recordEngineUnavailable("codex", "unreachable", undefined, reprobe);
+
+    expect(readEngineHealth(reprobe).codex).toMatchObject({
+      state: "exhausted",
+      until: at(threeDays).toISOString(),
+      recheckAt: twelveHoursOn,
+      reason: "unreachable",
+    });
+  });
+
+  it("records degraded when the record it would have kept has already been spent", () => {
+    recordEngineUnavailable("codex", "out of quota", secondsAt(90), NOW);
+    recordEngineUnavailable("codex", "unreachable", undefined, at(91));
+
+    expect(readEngineHealth(at(91)).codex?.state).toBe("degraded");
   });
 });
 
@@ -106,6 +175,12 @@ describe("recordExhaustedWindows", () => {
     recordExhaustedWindows("codex", [spent("5h", 60), spent("7d", 240)], NOW);
 
     expect(readEngineHealth(NOW).codex).toMatchObject({ state: "exhausted", until: at(240).toISOString() });
+  });
+
+  it("names the window that binds, so the display can say which limit is spent", () => {
+    recordExhaustedWindows("codex", [spent("5h", 60), spent("7d", 3 * 24 * 60)], NOW);
+
+    expect(readEngineHealth(NOW).codex).toMatchObject({ window: "7d", until: at(3 * 24 * 60).toISOString() });
   });
 
   it("ignores a window with allowance left, or one that has already reopened", () => {

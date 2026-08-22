@@ -15,10 +15,11 @@ process.env.JINN_HOME = tmp;
 type Api = typeof import("../api.js");
 let api: Api;
 let recordEngineUnavailable: typeof import("../../shared/engine-health.js").recordEngineUnavailable;
+let recordExhaustedWindows: typeof import("../../shared/engine-health.js").recordExhaustedWindows;
 
 beforeAll(async () => {
   api = await import("../api.js");
-  ({ recordEngineUnavailable } = await import("../../shared/engine-health.js"));
+  ({ recordEngineUnavailable, recordExhaustedWindows } = await import("../../shared/engine-health.js"));
   (await import("../../shared/db.js")).initDb();
 });
 
@@ -95,6 +96,15 @@ describe("engine health on the engine surfaces", () => {
   it("reports an engine nothing has been observed on as ok, on both surfaces", async () => {
     expect((await get("/api/status")).engines).toMatchObject({ claude: { health: { state: "ok" } } });
     expect((await get("/api/engines")).engines).toMatchObject({ claude: { health: { state: "ok" } } });
+  });
+
+  it("serves a multi-day reset verbatim, with the window that binds it", async () => {
+    const reopensAt = new Date(Date.now() + 3 * 24 * 60 * 60_000);
+    recordExhaustedWindows("codex", [{ name: "7d", usedPercent: 100, resetsAt: reopensAt.getTime() / 1000 }]);
+    const expected = { state: "exhausted", until: reopensAt.toISOString(), window: "7d" };
+
+    expect((await get("/api/status")).engines).toMatchObject({ codex: { health: expected } });
+    expect((await get("/api/engines")).engines).toMatchObject({ codex: { health: expected } });
   });
 
   it("keeps health beside installed availability rather than in place of it", async () => {
