@@ -71,6 +71,17 @@ function mergeArrayItems(source: unknown[], target: unknown): unknown[] {
   });
 }
 
+/**
+ * Config keys whose mapping value is a complete table rather than a patch, so a
+ * PUT replaces it instead of unioning with what is on disk.
+ *
+ * Without this, removing one entry from `fallbackModelMap` cannot be expressed:
+ * the PUT carries the map the operator wants, the merge adds the dropped key
+ * back off disk, and the row reappears on the next reload. Arrays already behave
+ * this way, which is why editing the `fallback` chain never had the bug.
+ */
+const REPLACED_NOT_MERGED_KEYS = new Set(["fallbackModelMap"]);
+
 export function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
   const result = { ...target };
   for (const key of Object.keys(source)) {
@@ -79,6 +90,7 @@ export function deepMerge(target: Record<string, unknown>, source: Record<string
     // A sanitized secret keeps the stored value; an explicit null clears the field.
     if (isSensitiveConfigKey(key) && sv === REDACTED_SECRET) continue;
     if (sv === null) delete result[key];
+    else if (REPLACED_NOT_MERGED_KEYS.has(key)) result[key] = sv;
     else if (Array.isArray(sv)) result[key] = mergeArrayItems(sv, tv);
     else if (isMapping(sv) && isMapping(tv)) result[key] = deepMerge(tv, sv);
     else result[key] = sv;

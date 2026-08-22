@@ -10,6 +10,7 @@ import {
   type EnginesConfig,
   type SessionsFallbackConfig,
 } from "./chain-model"
+import { mapConfigValue, type ServedModels } from "./model-map-model"
 
 interface EnginesSectionProps {
   engines: EnginesConfig | undefined
@@ -27,6 +28,9 @@ export function EnginesSection({ engines, sessions, onChange }: EnginesSectionPr
   if (entries.length === 0) return null
 
   const registryEngines = entries.map((entry) => entry.name)
+  // The registry, reduced to the two things the map editor asks of it.
+  const served: ServedModels = Object.fromEntries(entries.map((e) => [e.name, e.models.map((m) => m.id)]))
+  const defaultModels = Object.fromEntries(entries.map((e) => [e.name, e.defaultModel]))
   const legacy = legacyFallbackEngine(sessions)
 
   return (
@@ -39,7 +43,10 @@ export function EnginesSection({ engines, sessions, onChange }: EnginesSectionPr
             chain={chainFor(engines, entry.name)}
             modelMap={modelMapFor(engines, entry.name)}
             registryEngines={registryEngines}
+            served={served}
+            defaultModels={defaultModels}
             onChange={(chain) => onChange(["engines", entry.name, "fallback"], chain)}
+            onMapChange={(pairs) => onChange(["engines", entry.name, "fallbackModelMap"], mapConfigValue(pairs))}
           />
         ))}
         {legacy && (

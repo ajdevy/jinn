@@ -16,12 +16,13 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
-import { ThemePicker, TextSizePicker } from "./appearance-pickers"
+import { ACCENT_PRESETS, ThemePicker, TextSizePicker } from "./appearance-pickers"
 import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
 import { ConfigConflictNotice } from "./config-conflict-notice"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
 import type { Config } from "./config-shape"
+import { configSaveBlocker } from "./engines/model-map-model"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
@@ -36,24 +37,6 @@ import {
   ToggleSwitch,
 } from "./shared"
 
-// ---------------------------------------------------------------------------
-// Accent color presets
-// ---------------------------------------------------------------------------
-
-const ACCENT_PRESETS = [
-  { label: "Red", value: "#EF4444" },
-  { label: "Orange", value: "#F97316" },
-  { label: "Amber", value: "#F59E0B" },
-  { label: "Yellow", value: "#EAB308" },
-  { label: "Lime", value: "#84CC16" },
-  { label: "Green", value: "#22C55E" },
-  { label: "Emerald", value: "#10B981" },
-  { label: "Cyan", value: "#06B6D4" },
-  { label: "Blue", value: "#3B82F6" },
-  { label: "Indigo", value: "#6366F1" },
-  { label: "Violet", value: "#8B5CF6" },
-  { label: "Pink", value: "#EC4899" },
-]
 
 
 // ---------------------------------------------------------------------------
@@ -251,6 +234,12 @@ export default function SettingsPage() {
   }
 
   function handleSave() {
+    const blocker = configSaveBlocker(config.engines, modelRegistry?.engines)
+    if (blocker) {
+      setConflict(null)
+      setFeedback({ type: "error", message: blocker })
+      return
+    }
     setSaving(true)
     setFeedback(null)
     setConflict(null)

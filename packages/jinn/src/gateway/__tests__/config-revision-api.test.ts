@@ -149,6 +149,38 @@ describe("GET /api/config revision", () => {
   });
 });
 
+describe("PUT /api/config and the model map", () => {
+  it("replaces the map rather than unioning it, so removing one entry removes it", async () => {
+    fs.writeFileSync(configPath, yaml.dump({
+      ...baseConfig(),
+      engines: { default: "codex", claude: { fallbackModelMap: { a: "x", b: "y" } }, codex: {} },
+    }));
+
+    const put = await call("PUT", "/api/config", {
+      engines: { default: "codex", claude: { fallbackModelMap: { a: "x" } }, codex: {} },
+    }, { "x-jinn-config-revision": (await loadPage())! });
+
+    expect(put.status).toBe(200);
+    const saved = yaml.load(fs.readFileSync(configPath, "utf-8")) as any;
+    // Merged, "b" would come straight back off disk and the row would reappear.
+    expect(saved.engines.claude.fallbackModelMap).toEqual({ a: "x" });
+  });
+
+  it("deletes the whole block when the map is emptied to null", async () => {
+    fs.writeFileSync(configPath, yaml.dump({
+      ...baseConfig(),
+      engines: { default: "codex", claude: { fallbackModelMap: { a: "x" } }, codex: {} },
+    }));
+
+    const put = await call("PUT", "/api/config", {
+      engines: { default: "codex", claude: { fallbackModelMap: null }, codex: {} },
+    }, { "x-jinn-config-revision": (await loadPage())! });
+
+    expect(put.status).toBe(200);
+    expect((yaml.load(fs.readFileSync(configPath, "utf-8")) as any).engines.claude.fallbackModelMap).toBeUndefined();
+  });
+});
+
 describe("PUT /api/config against a stale revision", () => {
   it("refuses the save and leaves the file byte-identical", async () => {
     const stale = await loadPage();

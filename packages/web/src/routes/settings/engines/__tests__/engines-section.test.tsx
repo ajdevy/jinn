@@ -145,7 +145,7 @@ describe('Engine Fallbacks section', () => {
     expect((await save()).engines.claude.fallback).toEqual(['grok', 'codex'])
   })
 
-  it('shows the model map read-only, on the engine that falls through rather than the stand-in', async () => {
+  it('shows the map on the engine that falls through rather than on the stand-in', async () => {
     apiMocks.getConfig.mockResolvedValue({ config: {
       engines: {
         claude: { fallback: ['codex'] },
@@ -156,17 +156,20 @@ describe('Engine Fallbacks section', () => {
     const codexCard = document.querySelector('[data-engine-card="codex"]') as HTMLElement
 
     expect(within(codexCard).getByText('Models carried onto the stand-in')).toBeTruthy()
-    expect(within(codexCard).getByText('gpt-5.6-luna → haiku')).toBeTruthy()
-    // Editing stays in config.yaml — the section offers no control over the map.
+    expect(codexCard.querySelector('[data-model-map-pair="gpt-5.6-luna"]')).toBeTruthy()
+    // The add form is progressive: nothing to type into until it is opened.
     expect(within(codexCard).queryByRole('textbox')).toBeNull()
     expect(document.querySelector('[data-engine-card="claude"] [data-model-map-pair]')).toBeNull()
   })
 
-  it('renders nothing extra for an engine with no model map', async () => {
+  it('states the floor rule for an engine with no mappings, rather than nothing at all', async () => {
     await renderSettings()
 
     expect(document.querySelectorAll('[data-model-map-pair]').length).toBe(0)
-    expect(screen.queryByText('Models carried onto the stand-in')).toBeNull()
+    // An empty map is the common case; what happens to an unmapped model is
+    // exactly what an operator cannot infer from an empty list.
+    expect(document.querySelector('[data-engine-card="claude"] [data-model-map-floor]')?.textContent)
+      .toContain("Codex's own default")
   })
 
   it('surfaces a failed save and leaves the edited chain on screen', async () => {
