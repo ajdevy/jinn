@@ -1,6 +1,7 @@
 import { buildPlatformContextRefresh, fingerprintPlatformContext } from "../../engines/platform-context.js";
 import { isBudgetExhausted } from "../../gateway/budgets.js";
 import { resolveEffort } from "../../shared/effort.js";
+import { logger } from "../../shared/logger.js";
 import { effortLevelsForModel, engineAvailable, engineUnavailableMessage, isKnownEngine } from "../../shared/models.js";
 import { getClaudeExpectedResetAt, isLikelyNearClaudeUsageLimit } from "../../shared/usageAwareness.js";
 import type { OrgHierarchy, ResolvedMcpConfig, Session } from "../../shared/types.js";
@@ -18,7 +19,7 @@ const HEAVY_EFFORTS = new Set(["high", "xhigh", "max"]);
 
 type EngineConfig = { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
 
-/** Org hierarchy for the system prompt; the context builder rescans on failure. */
+/** Org hierarchy for the system prompt; on scan failure the turn runs without roster context. */
 export async function resolveTurnHierarchy(
   config: TurnInput["config"],
 ): Promise<OrgHierarchy | undefined> {
@@ -26,7 +27,8 @@ export async function resolveTurnHierarchy(
     const { scanOrg } = await import("../../gateway/org.js");
     const { resolveOrgHierarchy } = await import("../../gateway/org-hierarchy.js");
     return resolveOrgHierarchy(scanOrg(config));
-  } catch {
+  } catch (err) {
+    logger.warn(`Org hierarchy scan failed — turn will run without roster context: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }
