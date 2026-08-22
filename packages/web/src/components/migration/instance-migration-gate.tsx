@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { Check, ChevronRight, Copy } from "lucide-react"
 import { ApiError, api, type InstanceMigration, type OpenInstanceMigrationResult } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
+import { gatewayTransport } from "@/lib/gateway-transport"
+import { copyText } from "@/platform"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -43,7 +45,7 @@ function writeDismissedKey(migrationKey: string): void {
 
 export function InstanceMigrationGate({
   service = defaultService,
-  navigate = (url) => window.location.assign(url),
+  navigate = (url) => gatewayTransport().navigate(url),
 }: {
   service?: InstanceMigrationService
   navigate?: (url: string) => void
@@ -106,7 +108,8 @@ export function InstanceMigrationGate({
   if (dismissedKey === migration.migrationKey) return null
 
   const copyPrompt = async () => {
-    await navigator.clipboard.writeText(migration.prompt!)
+    const result = await copyText(migration.prompt!)
+    if (result.status !== "performed") return
     rememberAcknowledged(migration.migrationKey!)
     setCopied(true)
   }

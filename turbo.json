@@ -28,6 +28,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
+      "passThroughEnv": ["JINN_TEST_MAX_CONCURRENT"],
       "cache": false
     },
     "coverage": {

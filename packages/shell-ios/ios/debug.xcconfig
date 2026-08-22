@@ -1,7 +1,0 @@
-CAPACITOR_DEBUG = true
-
-// Signing is per-developer, so DEVELOPMENT_TEAM stays empty in the committed
-// project and is supplied from an untracked Local.xcconfig. The `?` makes the
-// include optional: without the file the project still opens, and the build
-// fails at signing with Xcode's own message rather than a missing-file error.
-#include? "Local.xcconfig"

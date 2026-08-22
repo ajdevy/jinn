@@ -7,6 +7,7 @@
  * which is the number the operator would read off their own address bar.
  */
 import { lastKnownInstance } from "@/lib/auth"
+import { gatewayTransport } from "@/lib/gateway-transport"
 
 export interface InstanceIdentity {
   /** The gateway's own instance name, or the host it is served from when it has
@@ -16,7 +17,7 @@ export interface InstanceIdentity {
 }
 
 export function describeInstance(): InstanceIdentity {
-  const here = typeof window === "undefined" ? null : window.location
-  const port = here?.port || (here?.protocol === "https:" ? "443" : "80")
-  return { name: lastKnownInstance() ?? here?.hostname ?? "unknown", port }
+  const profile = new URL(gatewayTransport().profile.origin)
+  const port = profile.port || (profile.protocol === "https:" ? "443" : "80")
+  return { name: lastKnownInstance() ?? profile.hostname, port }
 }

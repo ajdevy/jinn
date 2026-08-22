@@ -302,8 +302,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  /* Height the on-screen keyboard obscures, published from visualViewport by
-     lib/native/keyboard-inset.ts. Declared here so the variable resolves before
+  /* Height the on-screen keyboard obscures, published by the platform viewport
+     adapter. Declared here so the variable resolves before
      that runs and in browsers without visualViewport; compose it the same way,
      e.g. pb-[max(var(--keyboard-inset),var(--safe-bottom),var(--space-3))]. */
   --keyboard-inset: 0px;

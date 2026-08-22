@@ -52,7 +52,8 @@ describe("gateway auth", () => {
     const session = createAuthSession(home, req({ "user-agent": "Mozilla/5.0" }, "100.64.1.2"));
     const scheme = "Bear" + "er";
     expect(authenticateGatewayRequest(req({ authorization: `${scheme} tok` }), "tok").ok).toBe(true);
-    expect(authenticateGatewayRequest(req({ cookie: `theme=dark; jinn_auth=${session.secret}; jinn_device=${session.device.id}` }), "tok", home).ok).toBe(true);
+    const cookie = `${authCookieName(home)}=${session.secret}; ${authDeviceCookieName(home)}=${session.device.id}`;
+    expect(authenticateGatewayRequest(req({ cookie: `theme=dark; ${cookie}` }), "tok", home).ok).toBe(true);
     expect(authenticateGatewayRequest(req({ cookie: "theme=dark; jinn_auth=tok" }), "tok", home).ok).toBe(false);
     expect(authenticateGatewayRequest(req({ authorization: `${scheme} wrong`, cookie: "jinn_auth=wrong" }), "tok").ok).toBe(false);
   });
@@ -112,7 +113,8 @@ describe("gateway auth", () => {
     });
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-auth-state-"));
     const session = createAuthSession(home, req({ "user-agent": "Mozilla/5.0" }, "100.64.1.2"));
-    expect(createAuthState(config, req({ cookie: `jinn_auth=${session.secret}; jinn_device=${session.device.id}` }, "100.64.1.2"), "tok", home)).toMatchObject({
+    const cookie = `${authCookieName(home)}=${session.secret}; ${authDeviceCookieName(home)}=${session.device.id}`;
+    expect(createAuthState(config, req({ cookie }, "100.64.1.2"), "tok", home)).toMatchObject({
       authRequired: true,
       authenticated: true,
       canBootstrapLocal: false,
@@ -148,9 +150,13 @@ describe("gateway auth", () => {
     expect(authDeviceCookieName(yorioHome)).toBe("jinn_device_jinn-yorio");
     expect(authCookieName(yorioHome)).not.toBe(authCookieName(jinnHome));
 
-    // Ad-hoc/test homes (no leading-dot instance name) stay on the bare names.
+    // Ad-hoc/test homes must also differ: QA runs multiple loopback ports in
+    // one browser, and cookies themselves cannot be scoped by port.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-cookie-ns-"));
-    expect(authCookieName(tmp)).toBe("jinn_auth");
+    expect(authCookieName(tmp)).toMatch(/^jinn_auth_jinn-cookie-ns-/);
+    expect(authCookieName(path.join(os.tmpdir(), "qa-a"))).not.toBe(
+      authCookieName(path.join(os.tmpdir(), "qa-b")),
+    );
 
     // Emitted Set-Cookie headers carry the namespaced name for a second instance.
     const headers = authCookieHeaders("secret-value", "device-value", yorioHome);

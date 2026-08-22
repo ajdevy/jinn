@@ -1,6 +1,5 @@
-import { useState } from "react"
 import { Link } from "react-router-dom"
-import { ChevronRight, LoaderCircle, Sun, Moon, Palette, Plus, type LucideIcon } from "lucide-react"
+import { ChevronRight, Sun, Moon, Palette, type LucideIcon } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
@@ -9,10 +8,7 @@ import type { NavItem } from "@/lib/nav"
 import { useNavigation } from "@/lib/use-navigation"
 import { cn } from "@/lib/utils"
 import { useFeatures } from "@/hooks/use-features"
-import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
-import { CreateWorkspaceDialog } from "@/components/workspaces/create-workspace-dialog"
-import type { WorkspaceInfo } from "@/lib/api"
-
+import { WorkspacesGroup } from "./workspaces-group"
 // GRS-022 — the mobile "More" overflow. The 4th bottom-tab slot opens this
 // grouped iOS-Settings-style screen holding every destination that isn't a
 // primary tab. Reachable at /more (deep-linkable); the mobile tab bar keeps its
@@ -118,157 +114,6 @@ function AppearanceRow() {
         ))}
       </div>
     </div>
-  )
-}
-
-function WorkspaceRow({
-  workspace,
-  first,
-  onStart,
-  starting,
-  error,
-}: {
-  workspace: WorkspaceInfo
-  first: boolean
-  onStart: (workspace: WorkspaceInfo) => void
-  starting: boolean
-  error?: string
-}) {
-  const content = (
-    <>
-      <span
-        className="size-2 shrink-0 rounded-full"
-        style={{ background: workspace.running ? "var(--system-green)" : "var(--text-quaternary)" }}
-        aria-hidden
-      />
-      <span
-        className={cn(
-          "flex-1 truncate text-[length:var(--text-body)] tracking-[-0.01em]",
-          workspace.current
-            ? "font-[var(--weight-semibold)] text-[var(--text-primary)]"
-            : "text-[var(--text-secondary)]",
-        )}
-      >
-        {workspace.displayName}
-      </span>
-      <span className="text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-        {workspace.current ? "Current" : workspace.running ? "Online" : starting ? "Starting…" : error ?? "Offline"}
-      </span>
-      {!workspace.current && !starting && (
-        <ChevronRight size={18} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
-      )}
-      {starting && <LoaderCircle size={18} className="shrink-0 animate-spin text-[var(--text-quaternary)]" aria-hidden />}
-    </>
-  )
-
-  const className = cn(
-    "flex h-[52px] w-full items-center gap-3 px-3.5 text-left transition-colors",
-    !first && "border-t-[0.5px] border-[var(--separator)]",
-    !workspace.current && "active:bg-[var(--fill-secondary)]",
-  )
-  if (!workspace.current && workspace.running) {
-    return <a href={workspace.switchUrl} className={className}>{content}</a>
-  }
-  if (!workspace.current) {
-    return (
-      <button
-        type="button"
-        aria-label={`Start ${workspace.displayName}`}
-        className={className}
-        disabled={starting}
-        onClick={() => onStart(workspace)}
-      >
-        {content}
-      </button>
-    )
-  }
-  return <div className={className}>{content}</div>
-}
-
-/** The phone keeps its familiar Settings-style list. Creation is a quiet final
- *  row, while switching uses the server-provided origin instead of localhost. */
-function WorkspacesGroup() {
-  const { data: workspaces = [] } = useWorkspaces()
-  const startWorkspace = useStartWorkspace()
-  const [creating, setCreating] = useState(false)
-  const [startError, setStartError] = useState<{ id: string; message: string } | null>(null)
-  const [showOffline, setShowOffline] = useState(false)
-
-  async function handleStart(workspace: WorkspaceInfo) {
-    setStartError(null)
-    try {
-      const started = await startWorkspace.mutateAsync(workspace.id)
-      window.location.assign(started.switchUrl)
-    } catch (error) {
-      setStartError({ id: workspace.id, message: error instanceof Error ? error.message : "Could not start workspace" })
-    }
-  }
-
-  // Mirrors the desktop launcher: offline workspaces are tucked behind a
-  // disclosure so the ones you can actually switch to aren't buried. A
-  // workspace mid-start (or showing a start error) stays visible regardless.
-  const isVisible = (workspace: WorkspaceInfo) =>
-    workspace.running ||
-    workspace.current ||
-    (startWorkspace.isPending && startWorkspace.variables === workspace.id) ||
-    startError?.id === workspace.id
-  const online = workspaces.filter(isVisible)
-  const offline = workspaces.filter((workspace) => !isVisible(workspace))
-  const visible = showOffline ? [...online, ...offline] : online
-
-  return (
-    <>
-      <GroupLabel>Workspaces</GroupLabel>
-      <Card>
-        {visible.map((workspace, index) => (
-          <WorkspaceRow
-            key={workspace.id}
-            workspace={workspace}
-            first={index === 0}
-            onStart={(candidate) => void handleStart(candidate)}
-            starting={startWorkspace.isPending && startWorkspace.variables === workspace.id}
-            error={startError?.id === workspace.id ? startError.message : undefined}
-          />
-        ))}
-        {offline.length > 0 && (
-          <button
-            type="button"
-            aria-expanded={showOffline}
-            onClick={() => setShowOffline((value) => !value)}
-            className={cn(
-              "flex h-[52px] w-full items-center gap-3 px-3.5 text-left text-[var(--text-secondary)] transition-colors active:bg-[var(--fill-secondary)]",
-              visible.length > 0 && "border-t-[0.5px] border-[var(--separator)]",
-            )}
-          >
-            <span className="flex size-[29px] shrink-0 items-center justify-center rounded-[8px] bg-[var(--fill-tertiary)] text-[var(--text-tertiary)]">
-              <ChevronRight
-                size={17}
-                aria-hidden
-                className={cn("transition-transform duration-150", showOffline && "rotate-90")}
-              />
-            </span>
-            <span className="flex-1 text-[length:var(--text-body)] font-[var(--weight-medium)] tracking-[-0.01em]">
-              {showOffline ? "Hide offline" : `${offline.length} offline`}
-            </span>
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className={cn(
-            "flex h-[52px] w-full items-center gap-3 px-3.5 text-left text-[var(--text-primary)] transition-colors active:bg-[var(--fill-secondary)]",
-            workspaces.length > 0 && "border-t-[0.5px] border-[var(--separator)]",
-          )}
-        >
-          <span className="flex size-[29px] shrink-0 items-center justify-center rounded-[8px] bg-[var(--fill-tertiary)] text-[var(--text-secondary)]">
-            <Plus size={17} aria-hidden />
-          </span>
-          <span className="flex-1 text-[length:var(--text-body)] font-[var(--weight-medium)] tracking-[-0.01em]">Add workspace</span>
-          <ChevronRight size={18} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden />
-        </button>
-      </Card>
-      <CreateWorkspaceDialog open={creating} onOpenChange={setCreating} />
-    </>
   )
 }
 

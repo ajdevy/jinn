@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { parseMedia, stripAttachedFilesBlock, type MediaAttachment, type Message } from '@/lib/conversations'
+import { copyText } from '@/platform'
 import { MessageMedia } from './message-media'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useMessageTts, stopMessageTts } from './use-message-tts'
@@ -627,14 +628,13 @@ function MessageActions({ id, text, onRetry, retryDisabled }: { id: string; text
   const tts = useMessageTts(id, text)
   const speaking = tts.phase === 'playing'
   const loading = tts.phase === 'loading'
-
   function handleCopy() {
     if (!text) return
-    navigator.clipboard.writeText(text)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400) })
-      .catch(() => {})
+    void copyText(text).then((result) => {
+      if (result.status !== 'performed') return
+      setCopied(true); setTimeout(() => setCopied(false), 1400)
+    })
   }
-
   return (
     <div className={MESSAGE_ACTIONS_ROW}>
       <button onClick={handleCopy} aria-label={copied ? 'Copied' : 'Copy message'} title={copied ? 'Copied' : 'Copy'} className={ACTION_BTN}>

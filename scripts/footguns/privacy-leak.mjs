@@ -34,13 +34,22 @@ function isIllustrativeDomain(domain) {
 // @-shaped — a WhatsApp JID, a docker tag — not a person's address.
 const EMAIL = /\b[A-Za-z0-9._%+-]*[A-Za-z][A-Za-z0-9._%+-]*@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g
 
+// Apple asset catalogs conventionally encode the pixel scale in filenames
+// such as `AppIcon-20x20@2x.png`. That suffix is not an address, and generated
+// mobile projects contain many of them.
+const ASSET_SCALE_SUFFIX = /@\d+x(?:-\d+)?\.(?:gif|jpe?g|png|svg|webp)$/i
+
 export function findLeaks(text, relPath, privateTerms) {
   const readsAddresses = !GENERATED_LOCKFILE.test(relPath)
   const found = []
   const lines = text.split("\n")
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    const leaks = readsAddresses && [...line.matchAll(EMAIL)].some((match) => !isIllustrativeDomain(match[1]))
+    const leaks =
+      readsAddresses &&
+      [...line.matchAll(EMAIL)].some(
+        (match) => !ASSET_SCALE_SUFFIX.test(match[0]) && !isIllustrativeDomain(match[1]),
+      )
     const lower = line.toLowerCase()
     if (leaks || privateTerms.some((term) => lower.includes(term))) found.push(index + 1)
   }

@@ -1,8 +1,10 @@
-import { useState } from "react"
-import { Check, ChevronRight, Layers3, LoaderCircle, Plus } from "lucide-react"
+import { lazy, Suspense, useState } from "react"
+import { Check, ChevronRight, Layers3, LoaderCircle, Plus, X } from "lucide-react"
 import type { WorkspaceInfo } from "@/lib/api"
 import { useStartWorkspace, useWorkspaces } from "@/hooks/use-workspaces"
 import { cn } from "@/lib/utils"
+import { gatewayTransport } from "@/lib/gateway-transport"
+import { nativeBridge } from "@/platform/native-bridge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,16 +15,25 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { CreateWorkspaceDialog } from "./create-workspace-dialog"
 
+const NativeWorkspaceSwitcher = lazy(async () => {
+  const module = await import("./native-workspace-switcher")
+  return { default: module.NativeWorkspaceSwitcher }
+})
+
 export type { WorkspaceInfo } from "@/lib/api"
 
 function WorkspaceRow({
   workspace,
   onStart,
+  onOpen,
+  onRemove,
   starting,
   error,
 }: {
   workspace: WorkspaceInfo
   onStart: (workspace: WorkspaceInfo) => void
+  onOpen?: (workspace: WorkspaceInfo) => void
+  onRemove?: (workspace: WorkspaceInfo) => void
   starting: boolean
   error?: string
 }) {
@@ -38,13 +49,51 @@ function WorkspaceRow({
           {workspace.displayName}
         </span>
         <span className="block truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-          {workspace.current ? "Current workspace" : workspace.running ? "Online" : starting ? "Starting…" : error ?? "Offline"}
+          {workspace.warning ?? (workspace.current ? "Current workspace" : workspace.running ? "Online" : starting ? "Starting…" : error ?? "Offline")}
         </span>
       </span>
       {workspace.current && <Check size={15} className="text-[var(--text-secondary)]" aria-hidden />}
     </>
   )
   if (!workspace.current && workspace.running) {
+    if (onOpen) {
+      if (onRemove) {
+        return (
+          <div className="flex min-h-12 items-center rounded-[10px] focus-within:bg-[var(--fill-secondary)]">
+            <DropdownMenuItem
+              aria-label={`Open ${workspace.displayName}`}
+              onSelect={(event) => {
+                event.preventDefault()
+                onOpen(workspace)
+              }}
+              className="min-h-12 min-w-0 flex-1 rounded-[10px] p-2.5 focus:bg-transparent"
+            >
+              {content}
+            </DropdownMenuItem>
+            <button
+              type="button"
+              aria-label={`Remove ${workspace.displayName}`}
+              onClick={() => onRemove(workspace)}
+              className="mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--text-quaternary)] hover:bg-[var(--fill-tertiary)] hover:text-[var(--system-red)]"
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+        )
+      }
+      return (
+        <DropdownMenuItem
+          aria-label={`Open ${workspace.displayName}`}
+          onSelect={(event) => {
+            event.preventDefault()
+            onOpen(workspace)
+          }}
+          className="min-h-12 rounded-[10px] p-2.5 focus:bg-[var(--fill-secondary)]"
+        >
+          {content}
+        </DropdownMenuItem>
+      )
+    }
     return (
       <DropdownMenuItem asChild className="min-h-12 rounded-[10px] p-2.5 focus:bg-[var(--fill-secondary)]">
         <a href={workspace.switchUrl} aria-label={`Open ${workspace.displayName}`}>{content}</a>
@@ -78,6 +127,8 @@ export function WorkspaceLauncher({
   workspaces,
   onAdd,
   onStart,
+  onOpen,
+  onRemove,
   startingId,
   startError,
   className,
@@ -85,6 +136,8 @@ export function WorkspaceLauncher({
   workspaces: WorkspaceInfo[]
   onAdd: () => void
   onStart: (workspace: WorkspaceInfo) => void
+  onOpen?: (workspace: WorkspaceInfo) => void
+  onRemove?: (workspace: WorkspaceInfo) => void
   startingId?: string
   startError?: { id: string; message: string } | null
   className?: string
@@ -108,6 +161,8 @@ export function WorkspaceLauncher({
       key={workspace.id ?? workspace.name}
       workspace={workspace}
       onStart={onStart}
+      onOpen={onOpen}
+      onRemove={onRemove}
       starting={workspace.id !== undefined && startingId === workspace.id}
       error={startError && startError.id === workspace.id ? startError.message : undefined}
     />
@@ -183,6 +238,13 @@ export function WorkspaceLauncher({
 }
 
 export function WorkspaceSwitcher({ className }: { className?: string }) {
+  if (nativeBridge()) {
+    return <Suspense fallback={null}><NativeWorkspaceSwitcher className={className} Launcher={WorkspaceLauncher} /></Suspense>
+  }
+  return <BrowserWorkspaceSwitcher className={className} />
+}
+
+function BrowserWorkspaceSwitcher({ className }: { className?: string }) {
   const { data = [] } = useWorkspaces()
   const startWorkspace = useStartWorkspace()
   const [creating, setCreating] = useState(false)
@@ -192,7 +254,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
     setStartError(null)
     try {
       const started = await startWorkspace.mutateAsync(workspace.id)
-      window.location.assign(started.switchUrl)
+      gatewayTransport().navigate(started.switchUrl)
     } catch (error) {
       setStartError({ id: workspace.id, message: error instanceof Error ? error.message : "Could not start workspace" })
     }

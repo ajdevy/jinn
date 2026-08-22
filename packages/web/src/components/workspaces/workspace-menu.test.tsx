@@ -38,6 +38,28 @@ describe("WorkspaceLauncher", () => {
     expect(onAdd).toHaveBeenCalledTimes(1)
   })
 
+  it("uses native selection and removal actions instead of cross-origin links", async () => {
+    const onOpen = vi.fn()
+    const onRemove = vi.fn()
+    render(
+      <WorkspaceLauncher
+        workspaces={workspaces}
+        onAdd={vi.fn()}
+        onStart={vi.fn()}
+        onOpen={onOpen}
+        onRemove={onRemove}
+      />,
+    )
+    open()
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: /open team company/i }))
+    expect(onOpen).toHaveBeenCalledWith(workspaces[1])
+    expect(document.querySelector('a[aria-label="Open Team company"]')).toBeNull()
+
+    fireEvent.click(await screen.findByRole("button", { name: /remove team company/i }))
+    expect(onRemove).toHaveBeenCalledWith(workspaces[1])
+  })
+
   // A gateway older than the launcher serves /api/instances rows without `id`.
   // `startError?.id === workspace.id` then compared undefined to undefined and
   // read `.message` off a null startError, blanking the whole page.
