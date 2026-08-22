@@ -1046,7 +1046,7 @@
       ]
     },
     "packages/jinn/src/workflows/runner.ts": {
-      "lines": 1044,
+      "lines": 1017,
       "exempt": [
         "complexity",
         "max-depth",
