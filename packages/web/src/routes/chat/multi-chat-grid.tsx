@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { ChatPane } from '@/components/chat/chat-pane'
 import { FileOpenContext } from '@/components/chat/file-open-context'
 import type { CommsPeekData } from '@/components/chat/thread-peek'
@@ -149,27 +149,45 @@ function GridChatPane({
   )
 }
 
+function MobileThreadCrossfade({ paneId, children }: { paneId: string; children: ReactNode }) {
+  return (
+    <div
+      key={paneId}
+      data-mobile-thread-pane={paneId}
+      className="flex min-h-0 flex-1 overflow-hidden animate-[jinn-mobile-chat-crossfade_var(--duration-base)_var(--ease-smooth)] motion-reduce:animate-none"
+    >
+      {children}
+    </div>
+  )
+}
+
+function maybeCrossfadeMobileThread(mobile: boolean | undefined, paneId: string, grid: ReactNode): ReactNode {
+  return mobile ? <MobileThreadCrossfade paneId={paneId}>{grid}</MobileThreadCrossfade> : grid
+}
+
+function gridSessionIds(primaryKey: string, primarySessionId: string | null, sessionIds: string[]): string[] {
+  if (primarySessionId) return sessionIds.map((sessionId) => sessionId === primarySessionId ? primaryKey : sessionId)
+  return sessionIds.length === 1 ? [primaryKey] : [...sessionIds, primaryKey]
+}
+
+function focusedGridId(primaryKey: string, primarySessionId: string | null, focusedId: string | null): string {
+  return !primarySessionId || focusedId === primarySessionId ? primaryKey : focusedId ?? primaryKey
+}
+
 export function MultiChatGrid(props: MultiChatGridProps) {
   const primaryKey = props.primary.paneKey
-  const sessionGridIds = props.primary.sessionId
-    ? props.sessionIds.map((sessionId) => sessionId === props.primary.sessionId ? primaryKey : sessionId)
-    : props.sessionIds.length === 1
-      ? [primaryKey]
-      : [...props.sessionIds, primaryKey]
+  const sessionGridIds = gridSessionIds(primaryKey, props.primary.sessionId, props.sessionIds)
   const mobilePickerKey = props.viewport.mobile ? props.pickerPane?.paneKey : undefined
   const gridIds = mobilePickerKey
     ? [mobilePickerKey]
     : props.pickerPane ? [...sessionGridIds, props.pickerPane.paneKey] : sessionGridIds
-  const focusedGridId = mobilePickerKey ?? (
-    !props.primary.sessionId || props.focusedId === props.primary.sessionId
-      ? primaryKey
-      : props.focusedId
-  )
+  const focusedGrid = focusedGridId(primaryKey, props.primary.sessionId, props.focusedId)
+  const focusedGridIdValue = mobilePickerKey ?? focusedGrid
 
-  return (
+  const grid = (
     <ChatGrid
       sessionIds={gridIds}
-      focusedId={focusedGridId}
+      focusedId={focusedGridIdValue}
       width={props.viewport.width}
       height={props.viewport.height}
       labelFor={(gridId) => closeLabelForGridId(props, gridId)}
@@ -188,4 +206,5 @@ export function MultiChatGrid(props: MultiChatGridProps) {
       renderPane={(gridId, active) => <GridChatPane gridId={gridId} active={active} owner={props} />}
     />
   )
+  return maybeCrossfadeMobileThread(props.viewport.mobile, focusedGridIdValue, grid)
 }

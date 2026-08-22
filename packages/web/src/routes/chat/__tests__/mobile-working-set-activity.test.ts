@@ -58,6 +58,29 @@ describe('mobile working-set activity', () => {
       .toEqual(['s5', 's1', 's7', 's6'])
   })
 
+  it('fills a vacancy with a chat the operator opened over a busier one they never opened', () => {
+    // 'busy' leads the session list because the gateway has just written to it;
+    // 'opened' is the one the operator actually put on screen.
+    const sessions = ['busy', 'opened', 's1', 's2', 's3'].map((id) => ({ id }))
+
+    expect(mobileWorkingSetIds(['s1'], sessions, ['s1', 's2', 's3'], 's1', ['opened']))
+      .toEqual(['s1', 's2', 's3', 'opened'])
+    expect(mobileWorkingSetIds(['s1'], sessions, ['s1', 's2', 's3'], 's1'))
+      .toEqual(['s1', 's2', 's3', 'busy'])
+  })
+
+  it('evicts the least recently touched slot for an off-strip open', () => {
+    const previous = ['s5', 's8', 's7', 's6']
+    const sessions = [...previous, 's1'].map((id) => ({ id }))
+    // Most recent first, and 's5' was never opened at all.
+    const touchOrder = ['s1', 's6', 's7', 's8']
+
+    const next = mobileWorkingSetIds(['s1'], sessions, previous, 's1', touchOrder)
+
+    expect(next).toEqual(['s1', 's8', 's7', 's6'])
+    expect(next.filter((id, index) => id !== previous[index])).toHaveLength(1)
+  })
+
   it('returns at most four unique session-backed ids', () => {
     const sessions = ['s1', 's2', 's3'].map((id) => ({ id }))
     const ids = mobileWorkingSetIds(
