@@ -281,9 +281,9 @@ function ChatPage() {
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
       newChatIntentRef.current = false
-      // `system` marks the selections the route makes for itself — priming the
-      // newest chat, falling back after a delete. They reach the touch log as
-      // ordinary commits, so they are named there rather than guessed at; any
+      // `system` marks the chats the route selects at load for itself — the
+      // newest one it primes, and the tab it restores. They reach the touch log
+      // as ordinary commits, so they are named here rather than guessed at; any
       // operator selection, that same chat included, clears the mark.
       setSystemPrimedId(opts?.system ? id : null)
       // On mobile, opening a session pushes from the list into the thread, and the
@@ -470,7 +470,7 @@ function ChatPage() {
     setShowMoreMenu(false)
     if (wasActive) {
       if (fallback) {
-        handleSelect(fallback, { replace: true, navigateMobile: false, system: true })
+        handleSelect(fallback, { replace: true, navigateMobile: false })
       } else {
         pendingNavRef.current = null
         navigate('/', { replace: true })
@@ -497,7 +497,7 @@ function ChatPage() {
     chatTabs.closeTab(chatTabs.tabs.findIndex(t => t.kind === 'session' && t.sessionId === id))
     setShowMoreMenu(false)
     if (wasActive) {
-      if (fallback) handleSelect(fallback, { replace: true, navigateMobile: false, system: true })
+      if (fallback) handleSelect(fallback, { replace: true, navigateMobile: false })
       else {
         pendingNavRef.current = null
         navigate('/', { replace: true })

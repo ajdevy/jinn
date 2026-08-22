@@ -43,8 +43,8 @@ export function useChatGridState({
    *  gateway that genuinely has no sessions — the touch order must not prune
    *  itself against a list that has not arrived. */
   sessions: ReadonlyArray<{ id?: unknown }> | undefined
-  /** The chat the route selected on its own — primed or fallen back to rather
-   *  than opened by the operator, so it is not a touch. */
+  /** The chat the route selected for itself at load rather than the operator
+   *  opening it, so it is not a touch. */
   systemPrimedId: string | null
 }) {
   const viewport = useChatViewport()

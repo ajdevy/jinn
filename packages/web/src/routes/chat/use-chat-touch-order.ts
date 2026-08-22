@@ -22,13 +22,13 @@ export interface ChatTouchOrder {
  * that hold never becomes a touch. Every way in — a strip chip, a list row, a
  * deep link, back and forward — arrives here as a committed id.
  *
- * `systemPrimedId` is the other half of that: the route also commits a session
- * nobody asked for — `handleSessionsLoaded` primes the newest chat so the
- * thread has something to show, and the delete, archive and tab-restore
- * fallbacks pick a neighbour. The route names that chat here, and it stays out
- * of the log until the operator selects it themselves. Whether the thread is on
- * screen cannot stand in for that: showing it is what New chat does on a phone
- * one render before the navigation clears the primed selection.
+ * `systemPrimedId` is the other half of that: at load the route commits a
+ * session nobody asked for — `handleSessionsLoaded` primes the newest chat so
+ * the thread has something to show, and tab hydration re-selects the restored
+ * tab. The route names that chat here, and it stays out of the log until the
+ * operator selects it themselves. Whether the thread is on screen cannot stand
+ * in for that: showing it is what New chat does on a phone one render before
+ * the navigation clears the primed selection.
  */
 export function useChatTouchOrder(
   committedId: string | null,
