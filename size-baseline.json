@@ -1165,7 +1165,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 589,
+      "lines": 588,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1560,7 +1560,7 @@
       ]
     },
     "packages/web/src/routes/chat/page.tsx": {
-      "lines": 1064,
+      "lines": 996,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
