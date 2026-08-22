@@ -41,7 +41,6 @@ function gridProps(overrides: Partial<GridProps> = {}): GridProps {
     onPeek: noop,
     onNewChat: noop,
     onRefresh: noop,
-    onShortcutsClick: noop,
     onContentReady: noop,
     onStartFreshChat: async () => {},
     ...overrides,

@@ -58,7 +58,6 @@ interface ChatPaneProps {
   viewMode?: 'chat' | 'cli'
   /** Incrementing counter that triggers input focus */
   focusTrigger?: number
-  /** Callback to open keyboard shortcuts overlay */
   /** Pre-selected employee for a NEW chat (e.g. contacting a session-less employee or an ?employee= deep-link). */
   initialEmployee?: string | null
   /** Ask the page-owned stable read-only preview controller to open. */
