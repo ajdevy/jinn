@@ -33,9 +33,9 @@ and sandbox data are not retained.
 
 | Target | Evidence | Result |
 | --- | --- | --- |
-| macOS | unsigned bundled application build and launch | Verified ad-hoc bundle and live launch; Developer ID signing, notarization, and distribution are unverified |
-| iOS | initialized Apple target and `cargo check --target aarch64-apple-ios-sim` with the rustup toolchain | Verified Rust compilation; Xcode app packaging, simulator launch, physical device behavior, signing team, and distribution signing are unverified |
-| Android | initialized Android target and `cargo check --target aarch64-linux-android` with an official disposable NDK toolchain | Verified Rust compilation; Gradle APK/AAB packaging, emulator/device launch, keystore signing, and Play distribution are unverified |
+| macOS | unsigned bundled application build and launch | Verified: `cargo tauri build --bundles app` produced `Jinn.app` and the launched window rendered its own Connect Jinn gateway screen from the bundled local assets with the Jinn/Edit/View/Window menu bar intact. Developer ID signing, notarization, packaging beyond the ad-hoc `.app`, and distribution are unverified |
+| iOS | `cargo check --target aarch64-apple-ios-sim` on the rustup `stable-aarch64-apple-darwin` toolchain | Verified Rust compilation (exit 0). Xcode app packaging, simulator launch, physical device behavior, signing team, and distribution signing are unverified |
+| Android | `cargo check --target aarch64-linux-android` against NDK 27.3.13750724 | Verified Rust compilation (exit 0). Gradle APK/AAB packaging, emulator/device launch, keystore signing, and Play distribution are unverified |
 
 ## Gate record
 
