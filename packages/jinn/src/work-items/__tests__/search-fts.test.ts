@@ -204,3 +204,25 @@ describe("response shape", () => {
     expect(found[0]).not.toHaveProperty("matches");
   });
 });
+
+describe("free-text search is not truncated before the other filters run", () => {
+  // More hits than the candidate ceiling this used to carry: a Todo that fell
+  // outside the head of the match set was invisible to every structured filter
+  // composed with it, and `total` reported the ceiling rather than the truth.
+  const BULK = 520;
+  const TOKEN = "sporangium";
+
+  beforeAll(() => {
+    for (let n = 0; n < BULK; n += 1) {
+      store.createWorkItem({ title: `Bulk ${n}`, body: `A ${TOKEN} entry.`, assignee: "bulk-owner" });
+    }
+  });
+
+  it("counts and composes over the whole match set", () => {
+    expect(store.queryWorkItems({ text: TOKEN, limit: 1 }).total).toBe(BULK);
+    const composed = store.queryWorkItems({ text: TOKEN, assignee: "bulk-owner", limit: 1 });
+    expect(composed.total).toBe(BULK);
+    expect(composed.totals.backlog).toBe(BULK);
+    expect(composed.workItems).toHaveLength(1);
+  });
+});

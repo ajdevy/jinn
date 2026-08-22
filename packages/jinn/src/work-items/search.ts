@@ -4,8 +4,13 @@ import { parseTodoId } from './id.js';
 /**
  * Free-text Todo search over the FTS5 indexes owned by `search-index.ts`
  * (ICI-1369). The store asks this module for the matching Todo ids in relevance
- * order plus the reason each one matched; every other filter still composes in
- * SQL around that id set, so the page and its counts stay in agreement.
+ * order, composes its own filters around that id set in SQL, and then asks back
+ * for the reason each row of the page it is about to return matched.
+ *
+ * The two halves are separate because they are bounded differently: the id set
+ * must be the WHOLE match set or a structured filter could intersect with a
+ * truncated head of it and miss rows, while `snippet()` only ever has to run
+ * over one page.
  */
 
 export interface WorkItemMatch {
@@ -16,18 +21,6 @@ export interface WorkItemMatch {
   /** Surrounding text with the hits wrapped in `<mark>`. */
   snippet: string;
 }
-
-export interface WorkItemTextSearch {
-  /** Matching Todo ids, best match first. */
-  ids: string[];
-  /** Why each id matched, best reason first. Keyed by Todo id. */
-  matches: Record<string, WorkItemMatch[]>;
-}
-
-/** Ceiling on the ids handed back to the store. Search is how a Todo is found,
- *  not how the ledger is paged, and this keeps the id set well inside SQLite's
- *  bind-parameter budget. */
-const CANDIDATE_LIMIT = 500;
 
 /** bm25 scores a hit negatively — the better the match, the more negative. A
  *  comment hit is lifted above zero so every title/body hit outranks every
@@ -44,24 +37,30 @@ const EXACT_ID_SCORE = -1_000_000;
 const HIT_OPEN = String.fromCharCode(2);
 const HIT_CLOSE = String.fromCharCode(3);
 
-const OWN_FIELD_SQL = `
+const OWN_FIELD_SCORES_SQL = `
+SELECT wi.id AS itemId, bm25(work_items_fts, 4.0, 1.0) AS score
+FROM work_items_fts JOIN work_items wi ON wi.rowid = work_items_fts.rowid
+WHERE work_items_fts MATCH ?`;
+
+const COMMENT_SCORES_SQL = `
+SELECT c.work_item_id AS itemId, bm25(work_item_comments_fts) AS score
+FROM work_item_comments_fts JOIN work_item_comments c ON c.rowid = work_item_comments_fts.rowid
+WHERE work_item_comments_fts MATCH ?`;
+
+const OWN_FIELD_REASONS_SQL = `
 SELECT wi.id AS itemId,
        snippet(work_items_fts, 0, char(2), char(3), '…', 12) AS titleSnippet,
        snippet(work_items_fts, 1, char(2), char(3), '…', 12) AS bodySnippet,
        bm25(work_items_fts, 4.0, 1.0) AS score
 FROM work_items_fts JOIN work_items wi ON wi.rowid = work_items_fts.rowid
-WHERE work_items_fts MATCH ?
-ORDER BY score
-LIMIT ?`;
+WHERE work_items_fts MATCH ? AND wi.id IN (SELECT value FROM json_each(?))`;
 
-const COMMENT_SQL = `
+const COMMENT_REASONS_SQL = `
 SELECT c.work_item_id AS itemId, c.id AS commentId,
        snippet(work_item_comments_fts, 0, char(2), char(3), '…', 12) AS snippet,
        bm25(work_item_comments_fts) AS score
 FROM work_item_comments_fts JOIN work_item_comments c ON c.rowid = work_item_comments_fts.rowid
-WHERE work_item_comments_fts MATCH ?
-ORDER BY score
-LIMIT ?`;
+WHERE work_item_comments_fts MATCH ? AND c.work_item_id IN (SELECT value FROM json_each(?))`;
 
 /**
  * Turn free text into an FTS5 MATCH expression that can only ever be a
@@ -91,59 +90,84 @@ function renderSnippet(snippet: string | null): string {
   return (snippet ?? '').split(HIT_OPEN).join('<mark>').split(HIT_CLOSE).join('</mark>');
 }
 
-interface OwnFieldRow { itemId: string; titleSnippet: string | null; bodySnippet: string | null; score: number }
-interface CommentRow { itemId: string; commentId: string; snippet: string | null; score: number }
+interface ScoreRow { itemId: string; score: number }
+interface OwnFieldRow extends ScoreRow { titleSnippet: string | null; bodySnippet: string | null }
+interface CommentRow extends ScoreRow { commentId: string; snippet: string | null }
 
-type ScoredMatch = WorkItemMatch & { score: number };
-type RecordMatch = (itemId: string, score: number, match: WorkItemMatch) => void;
-
-function recordFtsMatches(db: DatabaseType, expression: string, record: RecordMatch): void {
-  for (const row of db.prepare(OWN_FIELD_SQL).all(expression, CANDIDATE_LIMIT) as OwnFieldRow[]) {
-    if (row.titleSnippet?.includes(HIT_OPEN)) {
-      record(row.itemId, row.score, { field: 'title', snippet: renderSnippet(row.titleSnippet) });
-    }
-    if (row.bodySnippet?.includes(HIT_OPEN)) {
-      record(row.itemId, row.score, { field: 'body', snippet: renderSnippet(row.bodySnippet) });
-    }
-  }
-  for (const row of db.prepare(COMMENT_SQL).all(expression, CANDIDATE_LIMIT) as CommentRow[]) {
-    record(row.itemId, COMMENT_SCORE_FLOOR + row.score, {
-      field: 'comment',
-      commentId: row.commentId,
-      snippet: renderSnippet(row.snippet),
-    });
-  }
-}
-
-/** Order the Todos by their best reason, and each Todo's reasons by their own. */
-function rank(scored: Map<string, ScoredMatch[]>): WorkItemTextSearch {
+/**
+ * Every Todo matching `text`, best match first, with no ceiling. The ids reach
+ * SQL as a single JSON parameter rather than one bind variable each, so the
+ * whole match set — not a truncated head of it — is what the store's other
+ * filters intersect with and what its counts are computed from.
+ */
+export function searchWorkItemIds(db: DatabaseType, text: string): string[] {
   const best = new Map<string, number>();
-  for (const [itemId, reasons] of scored) {
-    reasons.sort((a, b) => a.score - b.score);
-    best.set(itemId, reasons[0].score);
-  }
-  const ids = [...best.keys()]
-    .sort((a, b) => best.get(a)! - best.get(b)! || a.localeCompare(b))
-    .slice(0, CANDIDATE_LIMIT);
-  const matches: Record<string, WorkItemMatch[]> = {};
-  for (const id of ids) matches[id] = scored.get(id)!.map(({ score: _score, ...match }) => match);
-  return { ids, matches };
-}
-
-/** Rank every Todo matching `text`, and record why each one matched. */
-export function searchWorkItemText(db: DatabaseType, text: string): WorkItemTextSearch {
-  const scored = new Map<string, ScoredMatch[]>();
-  const record: RecordMatch = (itemId, score, match) => {
-    const reasons = scored.get(itemId) ?? [];
-    reasons.push({ ...match, score });
-    scored.set(itemId, reasons);
+  const keep = (itemId: string, score: number): void => {
+    const current = best.get(itemId);
+    if (current === undefined || score < current) best.set(itemId, score);
   };
 
   const exactId = exactTodoId(text);
-  if (exactId) record(exactId, EXACT_ID_SCORE, { field: 'id', snippet: exactId });
+  if (exactId) keep(exactId, EXACT_ID_SCORE);
 
   const expression = toFtsMatchExpression(text);
-  if (expression) recordFtsMatches(db, expression, record);
+  if (expression) {
+    for (const row of db.prepare(OWN_FIELD_SCORES_SQL).all(expression) as ScoreRow[]) keep(row.itemId, row.score);
+    for (const row of db.prepare(COMMENT_SCORES_SQL).all(expression) as ScoreRow[]) {
+      keep(row.itemId, COMMENT_SCORE_FLOOR + row.score);
+    }
+  }
+  return [...best.keys()].sort((a, b) => best.get(a)! - best.get(b)! || a.localeCompare(b));
+}
 
-  return rank(scored);
+type ScoredMatch = WorkItemMatch & { score: number };
+
+function recordOwnFieldReasons(rows: OwnFieldRow[], into: Map<string, ScoredMatch[]>): void {
+  for (const row of rows) {
+    if (row.titleSnippet?.includes(HIT_OPEN)) {
+      into.get(row.itemId)?.push({ field: 'title', snippet: renderSnippet(row.titleSnippet), score: row.score });
+    }
+    if (row.bodySnippet?.includes(HIT_OPEN)) {
+      into.get(row.itemId)?.push({ field: 'body', snippet: renderSnippet(row.bodySnippet), score: row.score });
+    }
+  }
+}
+
+/**
+ * Why each of `ids` matched `text`, best reason first, keyed by Todo id. Every
+ * requested id gets an entry so a caller never has to distinguish "no reason"
+ * from "not asked about". Bounded by the caller to the page it is returning,
+ * which is what keeps `snippet()` off the whole match set.
+ */
+export function workItemMatchReasons(
+  db: DatabaseType,
+  text: string,
+  ids: readonly string[],
+): Record<string, WorkItemMatch[]> {
+  const reasons = new Map<string, ScoredMatch[]>(ids.map((id) => [id, []]));
+  if (ids.length === 0) return {};
+
+  const exactId = exactTodoId(text);
+  if (exactId) reasons.get(exactId)?.push({ field: 'id', snippet: exactId, score: EXACT_ID_SCORE });
+
+  const expression = toFtsMatchExpression(text);
+  if (expression) {
+    const scope = JSON.stringify(ids);
+    recordOwnFieldReasons(db.prepare(OWN_FIELD_REASONS_SQL).all(expression, scope) as OwnFieldRow[], reasons);
+    for (const row of db.prepare(COMMENT_REASONS_SQL).all(expression, scope) as CommentRow[]) {
+      reasons.get(row.itemId)?.push({
+        field: 'comment',
+        commentId: row.commentId,
+        snippet: renderSnippet(row.snippet),
+        score: COMMENT_SCORE_FLOOR + row.score,
+      });
+    }
+  }
+
+  const matches: Record<string, WorkItemMatch[]> = {};
+  for (const [id, found] of reasons) {
+    found.sort((a, b) => a.score - b.score);
+    matches[id] = found.map(({ score: _score, ...match }) => match);
+  }
+  return matches;
 }

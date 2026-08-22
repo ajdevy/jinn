@@ -117,3 +117,35 @@ describe("search-index migration", () => {
     db.close();
   });
 });
+
+describe("search-index drift", () => {
+  // Both defects below are accepted by a name-only check: the first makes every
+  // later query throw, the second silently loses whatever was written while the
+  // trigger was gone. Neither is visible to the caller, so the migration has to
+  // recognise the shape and rebuild from the content that is still intact.
+  it("replaces an object of the right name but the wrong shape", () => {
+    const { db } = preSearchIndexDatabase("wrong-shape.db");
+    db.exec("CREATE TABLE work_items_fts (title TEXT, body TEXT)");
+
+    searchIndex.migrateWorkItemSearchIndex(db);
+
+    expect(indexed(db, "work_items_fts", "preview")).toBe(1);
+    db.close();
+  });
+
+  it("reindexes an edit made while a trigger was missing", () => {
+    const { db } = preSearchIndexDatabase("lost-trigger.db");
+    searchIndex.migrateWorkItemSearchIndex(db);
+    expect(indexed(db, "work_items_fts", "preview")).toBe(1);
+
+    db.exec("DROP TRIGGER work_items_fts_au");
+    db.prepare("UPDATE work_items SET body = 'Typing a query opens a lightbox.' WHERE body LIKE '%preview%'").run();
+    expect(indexed(db, "work_items_fts", "lightbox")).toBe(0); // the edit went unseen
+
+    searchIndex.migrateWorkItemSearchIndex(db);
+
+    expect(indexed(db, "work_items_fts", "lightbox")).toBe(1);
+    expect(indexed(db, "work_items_fts", "preview")).toBe(0);
+    db.close();
+  });
+});

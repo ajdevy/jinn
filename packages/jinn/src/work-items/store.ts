@@ -9,7 +9,7 @@ import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
 import { KEPT_EXISTS_SQL } from './kept.js';
-import { searchWorkItemText, type WorkItemMatch } from './search.js';
+import { searchWorkItemIds, workItemMatchReasons, type WorkItemMatch } from './search.js';
 import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
 
@@ -621,8 +621,8 @@ function workItemWhere(filter: ListWorkItemsFilter, textIds?: readonly string[])
  * masquerade as the full ledger. */
 export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
   const db = initDb();
-  const search = filter.text ? searchWorkItemText(db, filter.text) : null;
-  const { sql: where, values } = workItemWhere(filter, search?.ids);
+  const textIds = filter.text ? searchWorkItemIds(db, filter.text) : null;
+  const { sql: where, values } = workItemWhere(filter, textIds ?? undefined);
   const limit = typeof filter.limit === 'number' && Number.isFinite(filter.limit)
     ? Math.max(0, Math.floor(filter.limit))
     : 20;
@@ -630,8 +630,8 @@ export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
     ? Math.max(0, Math.floor(filter.offset))
     : 0;
   // Relevance leads only when text was given; otherwise the order is byte-identical to before, and it still breaks relevance ties.
-  const relevance = search ? '(SELECT key FROM json_each(?) WHERE value = work_items.id) ASC, ' : '';
-  const orderValues = search ? [JSON.stringify(search.ids)] : [];
+  const relevance = textIds ? '(SELECT key FROM json_each(?) WHERE value = work_items.id) ASC, ' : '';
+  const orderValues = textIds ? [JSON.stringify(textIds)] : [];
   const rows = db
     .prepare(`SELECT * FROM work_items ${where} ORDER BY ${relevance}(rank IS NULL) ASC, rank ASC, updated_at DESC, created_at DESC, id ASC LIMIT ? OFFSET ?`)
     .all(...values, ...orderValues, limit, offset) as Record<string, unknown>[];
@@ -651,9 +651,9 @@ export function queryWorkItems(filter: ListWorkItemsFilter = {}): WorkItemPage {
     offset,
     nextOffset: workItems.length > 0 && consumed < total ? consumed : null,
   };
-  if (search) {
-    page.matches = Object.fromEntries(workItems.map((item) => [item.id, search.matches[item.id] ?? []]));
-  }
+  // Reasons are asked for the page, not for the whole match set: `snippet()` is
+  // the expensive half, and only the rows actually returned need one.
+  if (filter.text) page.matches = workItemMatchReasons(db, filter.text, workItems.map((item) => item.id));
   return page;
 }
 
