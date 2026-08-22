@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emojiForName } from '@/lib/emoji-pool'
 import { ChatPaneTitleBar } from '../chat-pane-title-bar'
 
@@ -87,5 +87,53 @@ describe('ChatPaneTitleBar', () => {
     fireEvent.click(close)
     expect(onClose).toHaveBeenCalledOnce()
     expect(onPaneClick).not.toHaveBeenCalled()
+  })
+
+  it('renames the owning pane immediately through its dropdown', async () => {
+    const actions = {
+      pinnedIds: new Set<string>(),
+      rename: vi.fn(),
+      togglePin: vi.fn(),
+      duplicate: vi.fn(),
+      archive: vi.fn(),
+      stop: vi.fn(),
+      delete: vi.fn(),
+    }
+    vi.spyOn(window, 'prompt').mockReturnValue('New pane title')
+    render(
+      <ChatPaneTitleBar
+        active
+        title="Old pane title"
+        employee="platform-lead"
+        session={{ id: 'pane-c', status: 'idle' }}
+        sessionActions={actions}
+        onClose={vi.fn()}
+      />,
+    )
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Old pane title' }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+
+    expect(actions.rename).toHaveBeenCalledWith('pane-c', 'New pane title')
+    expect(document.querySelector('[data-chat-pane-title]')?.getAttribute('title')).toBe('New pane title')
+  })
+
+  it('rolls an optimistic pane rename back when persistence fails', async () => {
+    const actions = {
+      pinnedIds: new Set<string>(),
+      rename: vi.fn().mockRejectedValue(new Error('offline')),
+      togglePin: vi.fn(),
+      duplicate: vi.fn(),
+      archive: vi.fn(),
+      stop: vi.fn(),
+      delete: vi.fn(),
+    }
+    vi.spyOn(window, 'prompt').mockReturnValue('Temporary title')
+    render(<ChatPaneTitleBar active title="Durable title" employee="operator" session={{ id: 'pane-c' }} sessionActions={actions} onClose={vi.fn()} />)
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Durable title' }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+
+    await waitFor(() => expect(document.querySelector('[data-chat-pane-title]')?.getAttribute('title')).toBe('Durable title'))
   })
 })

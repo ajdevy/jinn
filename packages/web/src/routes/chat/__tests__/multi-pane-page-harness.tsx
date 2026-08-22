@@ -36,6 +36,13 @@ const apiMocks = vi.hoisted(() => ({
   createSession: vi.fn(async () => ({ id: 'e' })),
   sendMessage: vi.fn(async () => ({})),
   updateSession: vi.fn(async () => ({})),
+  deleteSession: vi.fn(async () => ({})),
+  duplicateSession: vi.fn(async (id: string) => ({ id: `${id}-copy`, title: `Copy of ${id}` })),
+  archiveSession: vi.fn(async () => ({})),
+  unarchiveSession: vi.fn(async () => ({})),
+  stopSession: vi.fn(async () => ({})),
+  pinChat: vi.fn(async () => ({})),
+  unpinChat: vi.fn(async () => ({})),
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => {

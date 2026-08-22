@@ -1,4 +1,7 @@
 import { X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChatPaneSessionMenu } from '@/components/chat/chat-pane-session-menu'
+import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { splitTitleId } from '@/components/chat/chat-tabs'
 import { getStatusDot, StatusDot, type Session } from '@/components/chat/session-signals'
 import type { BackgroundActivity, DelegatedActivity } from '@/lib/api'
@@ -62,12 +65,14 @@ interface ChatPaneTitleBarProps {
   employee: string
   session: Session
   onClose: () => void
+  sessionActions?: PaneSessionActions
 }
 
-function PaneTitleActions({ title, session, onClose }: Pick<ChatPaneTitleBarProps, 'title' | 'session' | 'onClose'>) {
+function PaneTitleActions({ title, session, onClose, sessionActions, onRenamed }: Pick<ChatPaneTitleBarProps, 'title' | 'session' | 'onClose' | 'sessionActions'> & { onRenamed: (title: string) => void }) {
   const status = getStatusDot(session, new Set([session.id]))
   return (
     <span data-testid="chat-pane-title-actions" className="group/title-actions relative flex h-full w-[52px] shrink-0 items-center justify-end">
+      {sessionActions ? <ChatPaneSessionMenu title={title} session={session} actions={sessionActions} onRenamed={onRenamed} /> : null}
       <span className="grid size-[26px] place-items-center transition-opacity duration-[var(--duration-fast)] group-hover/chat-pane:opacity-0 group-focus-within/title-actions:opacity-0">
         {status ? <StatusDot data-testid="chat-pane-status-dot" color={status.color} pulse={status.pulse} title={status.label} className="size-2" /> : null}
       </span>
@@ -87,8 +92,11 @@ function PaneTitleActions({ title, session, onClose }: Pick<ChatPaneTitleBarProp
   )
 }
 
-export function ChatPaneTitleBar({ active, title, employee, session, onClose }: ChatPaneTitleBarProps) {
-  const { id, rest } = splitTitleId(title)
+export function ChatPaneTitleBar({ active, title, employee, session, onClose, sessionActions }: ChatPaneTitleBarProps) {
+  const [renamedTitle, setRenamedTitle] = useState<string>()
+  useEffect(() => setRenamedTitle(undefined), [session.id, title])
+  const visibleTitle = renamedTitle ?? title
+  const { id, rest } = splitTitleId(visibleTitle)
 
   return (
     <div
@@ -103,14 +111,14 @@ export function ChatPaneTitleBar({ active, title, employee, session, onClose }: 
         {emojiForName(employee)}
       </span>
       <span
-        title={title}
+        title={visibleTitle}
         data-chat-pane-title
         className={`min-w-0 flex-1 truncate text-[length:var(--text-subheadline)] transition-colors duration-[var(--duration-fast)] ${active ? 'font-[var(--weight-medium)] text-[var(--text-primary)]' : 'font-[var(--weight-regular)] text-[var(--text-tertiary)]'}`}
       >
         {id ? <span className={`transition-colors duration-[var(--duration-fast)] ${active ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]'}`}>{id} </span> : null}
         <span>{rest}</span>
       </span>
-      <PaneTitleActions title={title} session={session} onClose={onClose} />
+      <PaneTitleActions title={visibleTitle} session={session} onClose={onClose} sessionActions={sessionActions} onRenamed={setRenamedTitle} />
     </div>
   )
 }

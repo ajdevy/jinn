@@ -33,6 +33,7 @@ interface MultiChatGridProps {
   metaById: Record<string, SessionMeta>
   sessionTitleFor: (sessionId: string) => unknown
   runtime: PaneRuntime
+  sessionActions?: PaneProps['sessionActions']
   scrollTopFor: (sessionId: string) => number | undefined
   viewModeFor: (sessionId: string) => ViewMode
   focusTriggerFor: (sessionId: string) => number
@@ -133,6 +134,7 @@ function GridChatPane({
       paneTitle={titleForGridId(owner, gridId)}
       paneEmployee={sessionId ? safePaneTitle(owner.metaById[sessionId]?.employee) : undefined}
       onClose={() => removeGridPane(owner, gridId)}
+      sessionActions={owner.sessionActions}
       onFocus={() => { if (sessionId) owner.onFocus(sessionId) }}
       onSessionCreated={primary ? owner.primary.onSessionCreated : pickerPane?.onSessionCreated}
       onNewChat={owner.onNewChat}

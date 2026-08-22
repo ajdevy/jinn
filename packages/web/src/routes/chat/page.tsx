@@ -14,7 +14,7 @@ import {
 import { useGateway } from '@/hooks/use-gateway'
 import { useModelRegistry } from '@/hooks/use-model-registry'
 import { PageLayout } from '@/components/page-layout'
-import { ChatSidebar, pickDeleteFallbackId, type SidebarOrder } from '@/components/chat/chat-sidebar'
+import { ChatSidebar, type SidebarOrder } from '@/components/chat/chat-sidebar'
 import { NavRibbon } from '@/components/pill-nav'
 import { MobileTabBar } from '@/components/chat/mobile-tab-bar'
 import type { FreshChatSourceSession } from '@/components/chat/chat-pane'
@@ -36,6 +36,8 @@ import { formatMessage } from '@/components/chat/chat-messages'
 import { useChatGridWorkspace } from './use-chat-grid-workspace'
 import { useMobileWorkingSet } from './use-mobile-working-set'
 import { adjacentSessionId } from './session-navigation'
+import { usePaneSessionActions } from './use-pane-session-actions'
+import { useSessionLifecycleActions } from './use-session-lifecycle-actions'
 // Lazy so the file viewer's syntax-highlighter grammars + react-markdown are
 // fetched only when a file tab is actually opened — not on the landing route.
 const FileView = lazy(() =>
@@ -46,8 +48,7 @@ import { ShortcutOverlay } from '@/components/chat/shortcut-overlay'
 import { useChatTabs, type ChatTab } from '@/hooks/use-chat-tabs'
 import { invalidateLiveSessionSnapshot, prefetchLiveSessionSnapshot } from '@/hooks/use-live-session'
 import { useKeyboardShortcuts, type ShortcutDef } from '@/hooks/use-keyboard-shortcuts'
-import { useArchiveSession, useDeleteSession, useDuplicateSession, useSessions, useUnarchiveSession } from '@/hooks/use-sessions'
-import { clearIntermediateMessages } from '@/lib/conversations'
+import { useDuplicateSession, useSessions } from '@/hooks/use-sessions'
 import type { Message } from '@/lib/conversations'
 import { useSettings } from '@/routes/settings-provider'
 import { useQueryClient } from '@tanstack/react-query'
@@ -115,6 +116,7 @@ function ChatPage() {
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
   const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data)
+  const removeWorkingSetPane = workingSet.remove
   const { viewport, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
   const sessionMeta = paneState.meta
@@ -147,9 +149,6 @@ function ChatPage() {
   const { events, connectionSeq, skillsVersion, subscribe } = useGateway()
   const { data: engineRegistry } = useModelRegistry() // PTY capability per engine — drives the CLI view toggle
   const chatTabs = useChatTabs()
-  const deleteSessionMutation = useDeleteSession()
-  const archiveSessionMutation = useArchiveSession()
-  const unarchiveSessionMutation = useUnarchiveSession()
   const duplicateSessionMutation = useDuplicateSession()
   const focusedDelegatedActivity = useMemo(
     () => selectedDelegatedActivityFromList(sessionsQuery.data, focusedSessionId),
@@ -452,73 +451,22 @@ function ChatPage() {
     [selectedId, handleSelect]
   )
 
-  // THE post-delete routine — every delete entry point (sidebar row menu,
-  // page ⋯ menu, Backspace) resolves here and performs ONE atomic history
-  // REPLACE straight to the fallback session ('/' only when no sessions
-  // remain). Never a clear-to-'/' first: the WS deleted event and the
-  // sessions refetch race the router transition, and any intermediate write
-  // desyncs the URL from the pane (F5 would then lose the fallback).
-  const handleDeleteSession = useCallback(async (id: string) => {
-    const wasActive = selectedIdRef.current === id
-    // Decide the fallback UP FRONT and pre-claim the navigation sentinel so
-    // the tab→URL reconciler stands down for the whole delete window (the WS
-    // session:deleted event can close tabs before the mutation resolves).
-    const allByRecency = (sessionsQuery.data ?? []).map((s) => String((s as { id?: unknown }).id ?? ''))
-    const fallback = wasActive
-      ? pickDeleteFallbackId(sidebarOrderRef.current.sessionIds, allByRecency, id)
-      : null
-    if (wasActive) pendingNavRef.current = fallback
-    try {
-      await deleteSessionMutation.mutateAsync(id)
-    } catch { /* sidebar may have already deleted it */ }
-    clearIntermediateMessages(id)
-    chatTabs.closeTab(chatTabs.tabs.findIndex(t => t.kind === 'session' && t.sessionId === id))
-    setShowMoreMenu(false)
-    if (wasActive) {
-      if (fallback) {
-        handleSelect(fallback, { replace: true, navigateMobile: false })
-      } else {
-        pendingNavRef.current = null
-        navigate('/', { replace: true })
-      }
-    }
-    qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
-  }, [chatTabs, deleteSessionMutation, qc, navigate, handleSelect, sessionsQuery.data])
-
-  // Archive follows the same one-step fallback as delete, but keeps the full
-  // transcript durable for search and an explicit future restore.
-  const handleArchiveSession = useCallback(async (id: string) => {
-    const wasActive = selectedIdRef.current === id
-    const allByRecency = (sessionsQuery.data ?? []).map((s) => String((s as { id?: unknown }).id ?? ''))
-    const fallback = wasActive
-      ? pickDeleteFallbackId(sidebarOrderRef.current.sessionIds, allByRecency, id)
-      : null
-    if (wasActive) pendingNavRef.current = fallback
-    try {
-      await archiveSessionMutation.mutateAsync(id)
-    } catch {
-      if (wasActive) pendingNavRef.current = undefined
-      return
-    }
-    chatTabs.closeTab(chatTabs.tabs.findIndex(t => t.kind === 'session' && t.sessionId === id))
-    setShowMoreMenu(false)
-    if (wasActive) {
-      if (fallback) handleSelect(fallback, { replace: true, navigateMobile: false })
-      else {
-        pendingNavRef.current = null
-        navigate('/', { replace: true })
-      }
-    }
-    qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
-  }, [archiveSessionMutation, chatTabs, qc, navigate, handleSelect, sessionsQuery.data])
-
-  const handleUnarchiveSession = useCallback(async (id: string) => {
-    try {
-      await unarchiveSessionMutation.mutateAsync(id)
-      setShowMoreMenu(false)
-      qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
-    } catch { /* retain the archived state until the gateway confirms restoration */ }
-  }, [unarchiveSessionMutation, qc])
+  // Delete/archive own the atomic fallback navigation and working-set cleanup.
+  const {
+    deleteSession: handleDeleteSession,
+    archiveSession: handleArchiveSession,
+    unarchiveSession: handleUnarchiveSession,
+  } = useSessionLifecycleActions({
+    selectedIdRef,
+    pendingNavRef,
+    sidebarOrderRef,
+    sessionRows: sessionsQuery.data,
+    tabs: chatTabs,
+    navigate,
+    selectSession: handleSelect,
+    removePane: removeWorkingSetPane,
+    setMenuOpen: setShowMoreMenu,
+  })
 
   const handleDuplicate = useCallback(async (id: string) => {
     try {
@@ -547,6 +495,11 @@ function ChatPage() {
     chatTabs.openTab({ sessionId: newSessionId, label: 'Duplicated Chat', status: 'idle', unread: false, pinned: true })
     qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
   }, [chatTabs, qc])
+  const paneSessionActions = usePaneSessionActions({
+    archive: handleArchiveSession,
+    unarchive: handleUnarchiveSession,
+    delete: handleDeleteSession,
+  })
 
   const handleStartFreshChat = useCallback(async (previous: FreshChatSourceSession) => {
     const prompt = buildContinuationPrompt(previous.id)
@@ -995,6 +948,7 @@ function ChatPage() {
                 onRemove={handleRemovePane}
                 metaById={paneState.metaById} sessionTitleFor={(id) => sessionsQuery.data?.find((session) => String(session.id ?? '') === id)?.title}
                 runtime={{ portalName, subscribe, engineRegistry, connectionSeq, skillsVersion, events }}
+                sessionActions={paneSessionActions}
                 scrollTopFor={(sessionId) => sessionScrollRef.current.get(sessionId)}
                 viewModeFor={paneState.viewModeFor}
                 focusTriggerFor={paneState.focusTriggerFor}

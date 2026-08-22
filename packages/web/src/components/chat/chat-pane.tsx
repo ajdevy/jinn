@@ -14,6 +14,7 @@ import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
 import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
 import { ChatPaneTitleBar, paneTitleBarState } from '@/components/chat/chat-pane-title-bar'
+import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { useOnboardingSeed } from '@/components/chat/use-onboarding-seed'
 
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
@@ -81,7 +82,7 @@ interface ChatPaneProps {
   /** Warm list/meta fallback while the pane's authoritative session detail loads. */
   paneTitle?: string
   paneEmployee?: string
-  onClose?: () => void
+  onClose?: () => void; sessionActions?: PaneSessionActions
 }
 export type { FreshChatSourceSession }
 
@@ -108,9 +109,8 @@ export function ChatPane({
   onStartFreshChat,
   newChatEmptyState,
   multiPane = false,
-  paneTitle,
-  paneEmployee,
-  onClose,
+  paneTitle, paneEmployee,
+  onClose, sessionActions,
 }: ChatPaneProps) {
   const seedFromOnboarding = useOnboardingSeed(sessionId, pendingUserMessage)
 
@@ -433,7 +433,7 @@ export function ChatPane({
         position: 'relative',
       }}
       data-chat-pane-session={sessionId ?? 'new'} data-chat-pane-active={String(isActive)}
-      onClick={onFocus} onFocusCapture={(event) => { if (!(event.target as Element).closest('[data-pane-focus-preserving]')) onFocus() }}
+      onClick={(event) => { if (!(event.target as Element).closest('[data-pane-focus-preserving]')) onFocus() }} onFocusCapture={(event) => { if (!(event.target as Element).closest('[data-pane-focus-preserving]')) onFocus() }}
       className="group/chat-pane"
       {...fileDrop.handlers}
     >
@@ -475,7 +475,7 @@ export function ChatPane({
         </div>
       )}
       {multiPane && onClose ? (
-        <ChatPaneTitleBar {...titleBarState} active={isActive} onClose={onClose} />
+        <ChatPaneTitleBar {...titleBarState} active={isActive} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} />
       ) : null}
       {showSessionHydration && <ChatHydrationOverlay />}
 
