@@ -103,9 +103,9 @@ async function updateSkill(req: HttpRequest, res: ServerResponse, name: string):
 async function deleteSkill(res: ServerResponse, name: string): Promise<void> {
   const skillDir = path.join(SKILLS_DIR, name);
   if (!fs.existsSync(skillDir)) return notFound(res);
-  fs.rmSync(skillDir, { recursive: true, force: true });
   const { removeFromManifest } = await import("../cli/skills.js");
   removeFromManifest(name);
+  fs.rmSync(skillDir, { recursive: true, force: true });
   logger.info(`Skill removed via API: ${name}`);
   return json(res, { status: "removed", name });
 }
