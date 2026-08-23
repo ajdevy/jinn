@@ -251,6 +251,10 @@ const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   read_talk_capability: readCapability,
 };
 
+/** Every operation name this module can execute. Exported so the manifest can
+ *  be proven complete rather than assumed to be. */
+export const DOMAIN_HANDLER_NAMES: readonly string[] = Object.keys(DOMAIN_HANDLERS);
+
 async function execute(host: TalkControlHost, operation: TalkControlOperation, args: Record<string, unknown>, call: TalkControlAdapterContext): Promise<TalkControlExecution> {
   const handler = DOMAIN_HANDLERS[operation.name];
   if (!handler) throw new Error(`No domain adapter for ${operation.name}`);

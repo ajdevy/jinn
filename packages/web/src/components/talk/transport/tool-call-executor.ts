@@ -19,7 +19,14 @@ interface TalkToolExecutionOptions {
   applyUiEffect?: (effect: TalkUiEffect | null) => Promise<void>
 }
 
-const APPROVAL_OPERATIONS = new Set(["prepare_voice_approval", "commit_voice_approval"])
+/** Operations the gateway will only accept bound to the operator's own live
+ *  utterance. Posting one without that identity is refused there, so it is
+ *  refused here too rather than sent to fail. */
+const BOUND_EVIDENCE_OPERATIONS = new Set([
+  "prepare_voice_approval",
+  "commit_voice_approval",
+  "talk_send_to_session",
+])
 const APPLIED_EFFECT_LIMIT = 500
 const appliedEffects = new Set<string>()
 
@@ -84,8 +91,8 @@ async function executeGatewayTool(
   call: Extract<RealtimeFrame, { type: "tool_call" }>,
   options: TalkToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
-  const hasApprovalIdentity = [options.browserInstanceId, options.credentialGeneration, options.operatorTranscript].every(Boolean)
-  if (APPROVAL_OPERATIONS.has(call.name) && !hasApprovalIdentity) {
+  const hasBoundIdentity = [options.browserInstanceId, options.credentialGeneration, options.operatorTranscript].every(Boolean)
+  if (BOUND_EVIDENCE_OPERATIONS.has(call.name) && !hasBoundIdentity) {
     return { ok: false, code: "credential-missing", error: "The active Talk credential identity is missing." }
   }
   if (options.operatorTranscript) await options.operatorTranscript.persisted

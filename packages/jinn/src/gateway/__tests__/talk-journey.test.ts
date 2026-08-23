@@ -161,6 +161,55 @@ describe("PLA-224 journey", () => {
     expect(answered.body.evidence).toMatchObject({ sessionId: chat.id, messages: 2 });
   });
 
+  it("step 2: 'send them a message' runs the prescribed gate and the message arrives", async () => {
+    const context = testContext();
+    const orb = await pressTheOrb(context);
+    const chat = seededChat();
+    // Each attempt is its own provider call, as it is on a real turn: a
+    // provider call id is single-use, so a retry never reuses one.
+    const send = {
+      tool: "talk_send_to_session",
+      arguments: JSON.stringify({ id: chat.id, message: "ping, are you still on this?" }),
+    };
+
+    // The gate the voice-approval contract prescribes: the live browser
+    // instance, its credential generation, and the operator's own final
+    // transcript item. A model that decided to send on its own has none of them.
+    const withoutCredential = await call(context, "POST", orb.route, { ...send, providerCallId: "send-unbound" });
+    expect(withoutCredential).toMatchObject({ status: 409, body: { code: "credential-mismatch" } });
+
+    const withoutUtterance = await call(context, "POST", orb.route, {
+      ...send,
+      providerCallId: "send-no-utterance",
+      browserInstanceId: orb.browserInstanceId,
+      credentialGeneration: orb.credentialGeneration,
+    });
+    expect(withoutUtterance.body).toMatchObject({
+      ok: false,
+      code: "send-evidence-required",
+      error: "Sending a message into a session requires bound final transcript evidence.",
+    });
+    expect(sessions.getMessages(chat.id).filter((message) => message.role === "user")).toHaveLength(1);
+
+    // Gate passed: it sends, and it really lands.
+    const sent = await call(context, "POST", orb.route, {
+      ...send,
+      providerCallId: "send-bound",
+      browserInstanceId: orb.browserInstanceId,
+      credentialGeneration: orb.credentialGeneration,
+      providerTranscriptItemId: "operator-utterance-1",
+    });
+
+    expect(sent.body).toMatchObject({ ok: true, operation: "talk_send_to_session", verified: true, replayed: false });
+    expect(sessions.getMessages(chat.id).map((message) => message.content)).toEqual([
+      "Should the ring stay?",
+      "The ring keeps the state legible.",
+      "ping, are you still on this?",
+    ]);
+    // The re-read is what makes "it sent" a fact rather than the adapter's word.
+    expect(sent.body.evidence).toMatchObject({ sessionId: chat.id });
+  });
+
   it("step 5a: an id that does not exist is refused in the words the operator needs", async () => {
     const context = testContext();
     const { route } = await pressTheOrb(context);

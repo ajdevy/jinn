@@ -60,10 +60,21 @@ async function readControlBody(
   return null;
 }
 
-function approvalCredentialMatches(body: ControlBody, session: ReturnType<TalkSessionRegistry["get"]>): boolean {
+/**
+ * Writes that reach past this browser, and so must be bound to the credential
+ * generation the live orb was opened with — not merely posted with the
+ * operator's token. `operator-evidence.ts` states the same contract adapter-side.
+ */
+const BOUND_CREDENTIAL_OPERATIONS = new Set([
+  "prepare_voice_approval",
+  "commit_voice_approval",
+  "talk_send_to_session",
+]);
+
+function boundCredentialMatches(body: ControlBody, session: ReturnType<TalkSessionRegistry["get"]>): boolean {
   if (!session) return false;
-  const approval = new Set(["prepare_voice_approval", "commit_voice_approval"]).has(body.tool);
-  return !approval || (body.browserInstanceId === session.browserInstanceId && body.credentialGeneration === session.credentialGeneration);
+  return !BOUND_CREDENTIAL_OPERATIONS.has(body.tool)
+    || (body.browserInstanceId === session.browserInstanceId && body.credentialGeneration === session.credentialGeneration);
 }
 
 function auditVerifiedControl(
@@ -143,7 +154,7 @@ export async function handleTalkControl(
   const body = await readControlBody(req, res, options.send);
   if (!body) return;
   const session = options.registry.get(id);
-  if (!approvalCredentialMatches(body, session)) {
+  if (!boundCredentialMatches(body, session)) {
     options.send(res, 409, { ok: false, code: "credential-mismatch", error: "The control call does not match the active browser credential generation." });
     return;
   }

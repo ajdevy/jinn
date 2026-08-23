@@ -141,6 +141,11 @@ const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   read_talk_capability: verifyCapability,
 };
 
+/** Every operation name with an authoritative re-read. A gateway operation
+ *  missing from here fails closed (`ok: false`), which is correct but silent —
+ *  the manifest suite asserts the pairing instead of waiting for it. */
+export const VERIFY_HANDLER_NAMES: readonly string[] = Object.keys(VERIFY_HANDLERS);
+
 export async function verifyTalkDomainOperation(
   operation: TalkControlOperation,
   args: Record<string, unknown>,
