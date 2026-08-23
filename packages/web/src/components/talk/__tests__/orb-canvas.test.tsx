@@ -81,14 +81,16 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
     expect(raf).not.toHaveBeenCalled()
   })
 
-  it("still paints, so the orb reads as parked rather than as broken", () => {
+  it("still paints the layered material, so the orb reads as parked, not broken", () => {
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
     stubReducedMotion(true)
 
     render(<OrbCanvas state="listening" energyRef={energyRef} size={64} />)
 
     expect(ctx.createRadialGradient).toHaveBeenCalled()
-    expect(ctx.fill).toHaveBeenCalledOnce()
+    // One frame, but the whole sphere: body, lobes, core, specular, rim. A
+    // single fill here would be the flat blob this work replaced.
+    expect(ctx.fill.mock.calls.length).toBeGreaterThan(1)
   })
 })
 

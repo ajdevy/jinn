@@ -385,14 +385,19 @@
   --ribbon-bg: #232019;
   --sidebar-bg: #1C1A14;
   --sidebar-backdrop: blur(40px) saturate(160%);
-  /* Talk orb material. Geometry stays flat; one warm-to-violet palette gives
-     all four shapes the same voice without a universal spherical body. */
+  /* Talk orb material: a lit sphere, not a coloured shape. --orb-shadow is the
+     limb the light never reaches, --orb-specular the highlight where it lands,
+     --orb-rim the fresnel that brightens at the edge. All four theme blocks
+     carry the full set — light is a shipped state, not a fallback. */
   --orb-core: rgba(255,206,132,0.78);
   --orb-base: rgba(56,32,80,0.90);
   --orb-bloom: rgba(172,84,138,0.64);
   --orb-lobe-a: rgba(255,182,88,0.84);
   --orb-lobe-b: rgba(198,110,204,0.62);
   --orb-lobe-c: rgba(120,110,222,0.54);
+  --orb-shadow: rgba(18,10,30,0.92);
+  --orb-specular: rgba(255,250,236,0.92);
+  --orb-rim: rgba(214,178,255,0.50);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -465,6 +470,9 @@
   --orb-lobe-a: rgba(255,232,174,0.78);
   --orb-lobe-b: rgba(223,175,202,0.62);
   --orb-lobe-c: rgba(177,167,221,0.55);
+  --orb-shadow: rgba(120,84,36,0.42);
+  --orb-specular: rgba(255,255,252,0.96);
+  --orb-rim: rgba(150,112,190,0.42);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -535,6 +543,9 @@
     --orb-lobe-a: rgba(255,232,174,0.78);
     --orb-lobe-b: rgba(223,175,202,0.62);
     --orb-lobe-c: rgba(177,167,221,0.55);
+    --orb-shadow: rgba(120,84,36,0.42);
+    --orb-specular: rgba(255,255,252,0.96);
+    --orb-rim: rgba(150,112,190,0.42);
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
@@ -604,6 +615,9 @@
     --orb-lobe-a: rgba(255,182,88,0.84);
     --orb-lobe-b: rgba(198,110,204,0.62);
     --orb-lobe-c: rgba(120,110,222,0.54);
+    --orb-shadow: rgba(18,10,30,0.92);
+    --orb-specular: rgba(255,250,236,0.92);
+    --orb-rim: rgba(214,178,255,0.50);
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;

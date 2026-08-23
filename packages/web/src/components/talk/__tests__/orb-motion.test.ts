@@ -190,24 +190,57 @@ describe("orbScene", () => {
   })
 
   it("locks each named paint strategy to its promised geometry", () => {
-    const mist = orbScene("mist", "idle")
-    expect(mist).toHaveLength(1)
-    expect(mist[0]).toMatchObject({ kind: "disc", fade: true })
+    const kinds = (variant: Parameters<typeof orbScene>[0]) =>
+      orbScene(variant, "idle").map((shape) => shape.kind)
 
-    const coin = orbScene("coin", "idle")
-    expect(coin).toHaveLength(2)
-    expect(coin.every((shape) => shape.kind === "disc" && shape.flat === true)).toBe(true)
-    expect(coin[1]).toMatchObject({ x: coin[0].x, y: coin[0].y })
-    expect(coin[1].rx).toBeLessThan(coin[0].rx)
+    // The cloud sphere carries the whole material, lobes included.
+    expect(kinds("mist")).toEqual([
+      "body", "caustic", "caustic", "caustic", "core", "specular", "rim",
+    ])
 
-    const ring = orbScene("ring", "idle")
-    expect(ring).toHaveLength(1)
-    expect(ring[0].kind).toBe("ring")
+    // Machined: a lit body under one flat face.
+    expect(kinds("coin")).toEqual(["body", "shade", "core", "specular", "rim"])
 
+    // Rim-lit torus: the band carries the light and the middle stays open.
+    expect(kinds("ring")).toEqual(["ring", "core", "specular", "rim"])
+
+    // Concentric bands, smallest first.
     const pulse = orbScene("pulse", "idle")
-    expect(pulse).toHaveLength(3)
-    expect(pulse.every((shape) => shape.kind === "ring" && shape.x === 0.5 && shape.y === 0.5)).toBe(true)
-    expect(pulse.map((shape) => shape.rx)).toEqual([...pulse].map((shape) => shape.rx).sort((a, b) => a - b))
+    expect(pulse.map((shape) => shape.kind)).toEqual(["ring", "ring", "ring", "core", "specular"])
+    const bands = pulse.filter((shape) => shape.kind === "ring")
+    expect(bands.map((shape) => shape.rx)).toEqual([...bands].map((s) => s.rx).sort((a, b) => a - b))
+  })
+
+  /**
+   * The bug this slice exists to kill: the old `mist` was one faded ellipse, so
+   * every state of the default variant was a blurry blob with a different
+   * alpha. Depth means layers that disagree about where the light is.
+   */
+  it("never renders a state as one faded ellipse", () => {
+    for (const variant of ORB_VARIANTS) {
+      for (const state of ORB_STATES) {
+        const scene = orbScene(variant, state, BOTH, 2.5)
+        expect(scene.length, `${variant}/${state}`).toBeGreaterThan(2)
+        // Something is lit off-centre, and something composites additively.
+        expect(scene.some((shape) => shape.lightX !== undefined), `${variant}/${state} lit`).toBe(true)
+        expect(scene.some((shape) => shape.add), `${variant}/${state} glow`).toBe(true)
+      }
+    }
+  })
+
+  it("gives every state a specular and an edge, so none of them reads as a sticker", () => {
+    for (const variant of ORB_VARIANTS) {
+      for (const state of ORB_STATES) {
+        const kinds = new Set(orbScene(variant, state).map((shape) => shape.kind))
+        expect(kinds.has("specular"), `${variant}/${state}`).toBe(true)
+        expect(kinds.has("rim") || kinds.has("ring"), `${variant}/${state}`).toBe(true)
+      }
+    }
+  })
+
+  it("drifts the caustic lobes over time, and only for the states that move", () => {
+    const at = (seconds: number) => JSON.stringify(orbScene("mist", "listening", BOTH, seconds))
+    expect(at(0)).not.toEqual(at(2.5))
   })
 
   it("holds interruption still even if time and audio continue", () => {

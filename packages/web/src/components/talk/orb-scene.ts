@@ -1,50 +1,48 @@
 /**
- * The orb's paint list: state and amplitude in, primitives out.
+ * How each variant stacks the material into a scene.
  *
- * Split from `orb-motion.ts` so the vocabulary (what the states are, and which
- * audio channel each one rides) stays separate from the material (what a state
- * looks like). The canvas is the only thing that paints; this decides what.
+ * `orb-materials.ts` says what a body, a caustic, a specular and a fresnel rim
+ * are; this says which of them a given variant uses and in what order. Pure, so
+ * every arrangement can be held to its promise by a test rather than by eye.
  */
 import {
   energyGain,
   isDriven,
+  lobeCentres,
+  orbParams,
   stateEnergy,
   SILENT_ENERGY,
   type OrbEnergy,
   type OrbState,
   type OrbVariant,
 } from "./orb-motion"
+import {
+  LIGHT_X,
+  LIGHT_Y,
+  SPHERE,
+  body,
+  caustics,
+  core,
+  rim,
+  specular,
+  type OrbPrimitive,
+  type SceneEnergy,
+  type SceneInput,
+} from "./orb-materials"
 
-export type OrbTone = "warm" | "violet" | "mixed" | "alert"
+export type { OrbPrimitive, OrbPrimitiveKind, OrbTone } from "./orb-materials"
 
-export interface OrbPrimitive {
-  kind: "disc" | "ring"
-  /** Normalized canvas coordinates. */
-  x: number
-  y: number
-  rx: number
-  ry: number
-  /** Ring hole as a fraction of the outer radii. */
-  inner?: number
-  alpha: number
-  tone: OrbTone
-  /** Fade the perimeter instead of exposing an ellipse edge. */
-  fade?: boolean
-  /** Use one token fill instead of a lit radial gradient. */
-  flat?: boolean
-}
-
-const STATE_ENERGY: Record<OrbState, { scale: number; alpha: number; flatten: number }> = {
+const STATE_ENERGY: Record<OrbState, SceneEnergy> = {
   idle: { scale: 0.9, alpha: 0.74, flatten: 1 },
   listening: { scale: 1, alpha: 0.94, flatten: 1.04 },
-  user_speaking: { scale: 1.04, alpha: 0.97, flatten: 1.1 },
+  user_speaking: { scale: 1.04, alpha: 0.97, flatten: 1.06 },
   thinking: { scale: 0.84, alpha: 0.68, flatten: 0.92 },
   assistant_speaking: { scale: 1.08, alpha: 1, flatten: 1 },
   interrupted: { scale: 0.78, alpha: 0.72, flatten: 0.72 },
   error: { scale: 0.82, alpha: 0.82, flatten: 0.84 },
 }
 
-function sceneEnergy(state: OrbState, energy: OrbEnergy): { scale: number; alpha: number; flatten: number } {
+function sceneEnergy(state: OrbState, energy: OrbEnergy): SceneEnergy {
   const base = STATE_ENERGY[state]
   const envelope = stateEnergy(state, energy)
   return {
@@ -54,45 +52,81 @@ function sceneEnergy(state: OrbState, energy: OrbEnergy): { scale: number; alpha
   }
 }
 
-interface SceneInput {
-  state: OrbState
-  energy: ReturnType<typeof sceneEnergy>
-  drift: number
-  tone: OrbTone
-}
-
-function mistScene({ energy, drift, tone }: SceneInput): readonly OrbPrimitive[] {
+/** The cloud sphere: the full material, lobes and all. */
+function mistScene(input: SceneInput): readonly OrbPrimitive[] {
+  const { energy, tone, brightness, feather } = input
   return [
-    { kind: "disc", x: 0.5 + drift, y: 0.5, rx: 0.39 * energy.scale, ry: 0.24 * energy.scale * energy.flatten, alpha: energy.alpha, tone, fade: true },
+    body(energy, tone, SPHERE),
+    ...caustics(input),
+    core(energy, tone, SPHERE, brightness, feather),
+    specular(energy, brightness, SPHERE),
+    rim(energy, tone, SPHERE, brightness),
   ]
 }
 
-function coinScene({ energy, tone }: SceneInput): readonly OrbPrimitive[] {
+/** Machined: a lit body under one flat face, so it reads as a struck disc. */
+function coinScene({ energy, tone, brightness, feather }: SceneInput): readonly OrbPrimitive[] {
   return [
-    { kind: "disc", x: 0.5, y: 0.5, rx: 0.36 * energy.scale, ry: 0.2 * energy.scale * energy.flatten, alpha: energy.alpha, tone, flat: true },
-    { kind: "disc", x: 0.5, y: 0.5, rx: 0.25 * energy.scale, ry: 0.12 * energy.scale * energy.flatten, alpha: energy.alpha * 0.28, tone: "violet", flat: true },
+    body(energy, tone, SPHERE),
+    {
+      kind: "shade",
+      x: 0.5,
+      y: 0.5,
+      rx: SPHERE * 0.74 * energy.scale,
+      ry: SPHERE * 0.74 * energy.scale * energy.flatten,
+      alpha: energy.alpha * 0.42,
+      tone: "violet",
+    },
+    core(energy, tone, SPHERE * 0.8, brightness, feather),
+    specular(energy, brightness, SPHERE),
+    rim(energy, tone, SPHERE, brightness),
   ]
 }
 
-function ringScene({ state, energy, drift, tone }: SceneInput): readonly OrbPrimitive[] {
-  const hole = isDriven(state) ? 0.58 : state === "interrupted" ? 0.72 : 0.66
+/** Rim-lit torus: the band carries the light, the middle stays open. */
+function ringScene({ state, energy, tone, brightness, feather }: SceneInput): readonly OrbPrimitive[] {
+  const hole = isDriven(state) ? 0.54 : state === "interrupted" ? 0.72 : 0.64
   return [
-    { kind: "ring", x: 0.5 + drift, y: 0.5, rx: 0.37 * energy.scale, ry: 0.25 * energy.scale * energy.flatten, inner: hole, alpha: energy.alpha, tone },
+    {
+      kind: "ring",
+      x: 0.5,
+      y: 0.5,
+      rx: SPHERE * energy.scale,
+      ry: SPHERE * energy.scale * energy.flatten,
+      inner: hole,
+      alpha: energy.alpha,
+      tone,
+      lightX: LIGHT_X,
+      lightY: LIGHT_Y,
+      feather,
+    },
+    core(energy, tone, SPHERE * hole, brightness * 0.5, feather),
+    specular(energy, brightness * 0.8, SPHERE),
+    rim(energy, tone, SPHERE, brightness),
   ]
 }
 
-function pulseScene({ state, energy, tone }: SceneInput): readonly OrbPrimitive[] {
-  const radii = state === "interrupted" ? [0.14, 0.23, 0.32] : [0.16, 0.27, 0.39]
-  return radii.map((radius, index) => ({
+/** Concentric: three bands the energy travels out through. */
+function pulseScene({ state, energy, tone, brightness, feather }: SceneInput): readonly OrbPrimitive[] {
+  const radii = state === "interrupted" ? [0.34, 0.58, 0.8] : [0.38, 0.64, 0.92]
+  const bands = radii.map((fraction, index) => ({
     kind: "ring" as const,
     x: 0.5,
     y: 0.5,
-    rx: radius * energy.scale,
-    ry: radius * 0.64 * energy.flatten,
-    inner: isDriven(state) ? 0.66 : 0.76,
-    alpha: energy.alpha * (index === 1 ? 1 : 0.62),
-    tone: state === "error" ? "alert" : index === 2 ? "violet" : tone,
+    rx: SPHERE * fraction * energy.scale,
+    ry: SPHERE * fraction * 0.86 * energy.scale * energy.flatten,
+    inner: isDriven(state) ? 0.7 : 0.8,
+    alpha: energy.alpha * (index === 1 ? 1 : 0.58),
+    tone: index === 2 ? "violet" : tone,
+    lightX: LIGHT_X,
+    lightY: LIGHT_Y,
+    feather,
   }))
+  return [
+    ...bands,
+    core(energy, tone, SPHERE * 0.44, brightness, feather),
+    specular(energy, brightness * 0.7, SPHERE * 0.5),
+  ]
 }
 
 const SCENE_BUILDERS: Record<OrbVariant, (input: SceneInput) => readonly OrbPrimitive[]> = {
@@ -102,6 +136,15 @@ const SCENE_BUILDERS: Record<OrbVariant, (input: SceneInput) => readonly OrbPrim
   pulse: pulseScene,
 }
 
+/**
+ * `softness` is an edge falloff in sphere diameters; the canvas wants a 0..1
+ * gradient stop. Softer states reach half-strength earlier, which is what makes
+ * thinking read as diffuse and interrupted as hard-edged.
+ */
+function featherOf(softness: number): number {
+  return Math.max(0.16, Math.min(0.92, 1 - softness * 7))
+}
+
 /** One scene vocabulary hides all four paint strategies from the canvas. */
 export function orbScene(
   variant: OrbVariant,
@@ -109,8 +152,16 @@ export function orbScene(
   energy: OrbEnergy = SILENT_ENERGY,
   seconds = 0,
 ): readonly OrbPrimitive[] {
-  const scene = sceneEnergy(state, energy)
-  const drift = state === "interrupted" ? 0 : Math.sin(seconds * 0.8) * 0.018
-  const tone: OrbTone = state === "error" ? "alert" : "mixed"
-  return SCENE_BUILDERS[variant]({ state, energy: scene, drift, tone })
+  // Interruption is a held breath: time stops, and so does the audio it would
+  // otherwise ride.
+  const frozen = state === "interrupted"
+  const params = orbParams(state, frozen ? SILENT_ENERGY : energy)
+  return SCENE_BUILDERS[variant]({
+    state,
+    energy: sceneEnergy(state, frozen ? SILENT_ENERGY : energy),
+    lobes: lobeCentres(params, frozen ? 0 : seconds),
+    feather: featherOf(params.softness),
+    brightness: params.brightness,
+    tone: state === "error" ? "alert" : "mixed",
+  })
 }
