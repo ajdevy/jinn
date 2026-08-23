@@ -28,15 +28,16 @@ function usePaneViewMode(committedId: string | null, focusedId: string | null) {
     [viewModes],
   )
   const viewMode = focusedId ? viewModeFor(focusedId) : newViewMode
-  const setViewMode = useCallback((mode: ViewMode) => {
-    if (!focusedId) {
+  const setViewModeFor = useCallback((sessionId: string | null, mode: ViewMode) => {
+    if (!sessionId) {
       setNewViewMode(mode)
       return
     }
-    setViewModes((current) => ({ ...current, [focusedId]: mode }))
-    writeViewMode(focusedId, mode)
-  }, [focusedId])
-  return { viewMode, viewModeFor, setViewMode }
+    setViewModes((current) => ({ ...current, [sessionId]: mode }))
+    writeViewMode(sessionId, mode)
+  }, [])
+  const setViewMode = useCallback((mode: ViewMode) => setViewModeFor(focusedId, mode), [focusedId, setViewModeFor])
+  return { viewMode, viewModeFor, setViewMode, setViewModeFor }
 }
 
 function usePaneFocus() {

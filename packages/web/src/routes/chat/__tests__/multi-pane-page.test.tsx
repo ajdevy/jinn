@@ -17,6 +17,9 @@ function openChatBeside() {
   fireEvent.click(within(actionsPill).getByRole('button', { name: 'More options' }))
   fireEvent.click(within(actionsPill).getByRole('button', { name: 'Open chat beside' }))
 }
+function seedWorkingSet(ids = sessionIds) {
+  localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({ version: 1, sessionIds: ids, focusedId: ids[0], focusHistory: ids }))
+}
 
 describe('the routed multi-pane surface', () => {
   const desktopWidth = 1440
@@ -30,12 +33,7 @@ describe('the routed multi-pane surface', () => {
     gateway.listeners.clear()
     apiMocks.sendMessage.mockClear()
     apiMocks.createSession.mockClear()
-    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
-      version: 1,
-      sessionIds,
-      focusedId: 'a',
-      focusHistory: sessionIds,
-    }))
+    seedWorkingSet()
   })
   afterEach(() => {
     pickerLayout?.release()
@@ -196,19 +194,21 @@ describe('the routed multi-pane surface', () => {
   })
 
   it('uses one capped pane for the composer and restores the folded member on dismiss and commit', async () => {
+    sessionIds.splice(0, sessionIds.length, 'a', 'b', 'c', 'd', 'f', 'g')
+    seedWorkingSet()
     renderRoute()
-    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6))
 
     fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
 
     await waitFor(() => expect(pane('new')).toBeDefined())
-    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6)
     expect(document.querySelector('[data-chat-pane-session="b"]')).toBeNull()
     expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(sessionIds)
 
     fireEvent.click(screen.getByRole('button', { name: 'Test browser back' }))
     await waitFor(() => expect(pane('a')).toBeDefined())
-    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6))
     expect(pane('b')).toBeDefined()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
@@ -220,7 +220,7 @@ describe('the routed multi-pane surface', () => {
 
     await waitFor(() => expect(apiMocks.createSession).toHaveBeenCalled())
     await waitFor(() => expect(pane('e').textContent).toContain('commit-composer'))
-    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6)
     expect(pane('b')).toBeDefined()
   })
 

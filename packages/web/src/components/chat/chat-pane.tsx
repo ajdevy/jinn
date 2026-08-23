@@ -13,6 +13,10 @@ import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-se
 import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
 import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
+import { ChatPaneTitleBar, paneTitleBarState, paneViewControls } from '@/components/chat/chat-pane-title-bar'
+import { ChatCopyToast } from '@/components/chat/chat-copy-toast'
+import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
+import { useOnboardingSeed } from '@/components/chat/use-onboarding-seed'
 
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
 import type { CliTerminalHandle } from '@/components/cli-terminal'
@@ -72,9 +76,14 @@ interface ChatPaneProps {
   /** Create and navigate to a continuation of the current session. */
   onStartFreshChat?: (session: FreshChatSourceSession) => Promise<void>
   newChatEmptyState?: ReactNode
+  /** Pane-owned identity chrome appears only when the desktop grid has siblings. */
+  multiPane?: boolean
+  /** Warm list/meta fallback while the pane's authoritative session detail loads. */
+  paneTitle?: string
+  paneEmployee?: string
+  onClose?: () => void; sessionActions?: PaneSessionActions; paneBackTo?: { label: string; onClick: () => void }; copyNotice?: boolean
 }
 export type { FreshChatSourceSession }
-
 export function ChatPane({
   sessionId, isActive, onFocus,
   onSessionCreated,
@@ -96,31 +105,13 @@ export function ChatPane({
   delegatedActivity,
   onStartFreshChat,
   newChatEmptyState,
+  multiPane = false,
+  paneTitle, paneEmployee,
+  onClose, sessionActions, paneBackTo, copyNotice,
 }: ChatPaneProps) {
-  // If this pane was opened from the onboarding wizard, the wizard stored the
-  // seed user message in sessionStorage so we can display it immediately
-  // (loading=true + seed bubble) without waiting for useLiveSession's first
-  // network fetch. Content-identity reconcile in conversations.ts merges it
-  // with the server-persisted twin once the fetch returns (no duplicate).
-  const seedFromOnboarding = useMemo<Message | undefined>(() => {
-    if (!sessionId || pendingUserMessage) return undefined
-    try {
-      const raw = sessionStorage.getItem('jinn-onboarding-seed')
-      if (!raw) return undefined
-      const data = JSON.parse(raw) as { sessionId: string; message: Message }
-      if (data.sessionId === sessionId) return data.message
-    } catch { /* ignore */ }
-    return undefined
-  }, [sessionId, pendingUserMessage])
-  // Consume the storage entry once detected so a page refresh doesn't re-show
-  // the seed as an optimistic bubble on top of the already-loaded messages.
-  useEffect(() => {
-    if (seedFromOnboarding) sessionStorage.removeItem('jinn-onboarding-seed')
-  }, [seedFromOnboarding])
+  const seedFromOnboarding = useOnboardingSeed(sessionId, pendingUserMessage)
 
-  // Live read pipeline (messages, streaming, loading, session, reconnect/watchdog)
-  // is owned by useLiveSession; this pane keeps the composer + send on top and
-  // drives optimistic writes through the hook's write API.
+  // useLiveSession owns reads; this pane layers the composer and optimistic writes.
   const live = useLiveSession(sessionId, {
     subscribe,
     connectionSeq,
@@ -423,6 +414,9 @@ export function ChatPane({
   // A threshold, not a default: a load that resolves inside the delay never
   // announces itself, and the transcript stays mounted underneath either way.
   const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
+  const titleBarState = paneTitleBarState({ sessionId, currentSession, loading, turnPending,
+    backgroundActivity, delegatedActivity, paneTitle, paneEmployee, portalName })
+  const titleBarViewControls = paneViewControls(titleBarState.session, engineRegistry)
 
   return (
     <div
@@ -435,7 +429,8 @@ export function ChatPane({
         position: 'relative',
       }}
       data-chat-pane-session={sessionId ?? 'new'} data-chat-pane-active={String(isActive)}
-      onClick={onFocus} onFocusCapture={onFocus}
+      onClick={(event) => { if (!(event.target as Element).closest('[data-pane-focus-preserving]')) onFocus() }} onFocusCapture={(event) => { if (!(event.target as Element).closest('[data-pane-focus-preserving]')) onFocus() }}
+      className="group/chat-pane"
       {...fileDrop.handlers}
     >
       {/* Drop zone overlay */}
@@ -475,6 +470,10 @@ export function ChatPane({
           </div>
         </div>
       )}
+      {multiPane && onClose ? (
+        <ChatPaneTitleBar {...titleBarState} {...titleBarViewControls} active={isActive} backTo={paneBackTo} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} viewMode={viewMode} />
+      ) : null}
+      {multiPane && copyNotice ? <ChatCopyToast placement="pane" /> : null}
       {showSessionHydration && <ChatHydrationOverlay />}
 
       {/* Messages / CLI transcript — CliTerminal is display-only; ChatInput below

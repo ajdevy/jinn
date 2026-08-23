@@ -97,7 +97,7 @@ describe('mobile chat header title', () => {
       sessions: [{ id: 'a', title: '', status: 'idle' }], counts: {}, perGroup: {},
     }))
     apiMocks.getSession.mockImplementation(async (id: string) => ({
-      id, title: '', status: 'idle', engine: 'claude', messages: [],
+      id, title: '', status: 'idle', engine: 'claude', engineSessionId: `engine-${id}`, messages: [],
     }))
     renderRoute('/?session=a')
 

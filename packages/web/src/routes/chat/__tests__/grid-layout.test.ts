@@ -14,8 +14,8 @@ describe('chat grid layout', () => {
     expect(layoutFor(4, 1440, 900)).toEqual({ columns: 2, rows: 2 })
   })
 
-  it('holds four panes at the 1440x900 desktop floor', () => {
-    expect(capForViewport(1440, 900)).toBeGreaterThanOrEqual(4)
+  it('holds six panes at the 1440x900 acceptance viewport', () => {
+    expect(capForViewport(1440, 900)).toBe(6)
   })
 
   it('grows on an ultrawide and shrinks again around 1100px', () => {
@@ -43,14 +43,14 @@ describe('chat grid layout', () => {
   })
 
   it('reserves a capped pane for the composer without mutating the stored set', () => {
-    const state = createWorkingSet(['a', 'b', 'c', 'd'], 'a')
+    const state = createWorkingSet(['a', 'b', 'c', 'd', 'e', 'f'], 'a')
 
     const composing = overflowForViewport(state, 1440, 900, 1)
 
-    expect(capForViewport(1440, 900)).toBe(4)
-    expect(composing.visible.sessionIds).toHaveLength(3)
+    expect(capForViewport(1440, 900)).toBe(6)
+    expect(composing.visible.sessionIds).toHaveLength(5)
     expect(composing.foldedIds).toHaveLength(1)
-    expect(state.sessionIds).toEqual(['a', 'b', 'c', 'd'])
+    expect(state.sessionIds).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
     expect(overflowForViewport(state, 1440, 900).visible.sessionIds).toEqual(state.sessionIds)
   })
 })
