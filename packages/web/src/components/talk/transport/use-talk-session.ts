@@ -10,7 +10,7 @@
  * open a second one. What renders is only what the orb shows.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
-import type { OrbState } from "../orb-motion"
+import type { OrbEnergy, OrbState } from "../orb-motion"
 import {
   clearResumableTalkSession,
   readResumableTalkSession,
@@ -40,7 +40,8 @@ export interface TalkSessionHandle {
   /** A durable conversation is ready, but no credential or microphone is live. */
   parked: boolean
   state: OrbState
-  levelRef: RefObject<number>
+  /** Live 0..1 loudness of each side, mutated in place by the connection. */
+  energyRef: RefObject<OrbEnergy>
   /** The last failure, in the words of whoever refused. Null once it is past. */
   error: string | null
   /** Set instead of `error` when the only thing wrong is that voice was never
@@ -217,11 +218,11 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   const [state, setState] = useState<OrbState>("idle")
   const [error, setError] = useState<string | null>(null)
   const [setup, setSetup] = useState<TalkSetupNeeded | null>(null)
-  const levelRef = useRef(0)
+  const energyRef = useRef<OrbEnergy>({ input: 0, output: 0 })
   const liveRef = useRef<LiveSession | null>(null)
   const openingRef = useRef(false)
   const generationRef = useRef(0)
-  const attach = useAttach(connect, levelRef, setState, setError)
+  const attach = useAttach(connect, energyRef, setState, setError)
   const forget = useForget(liveRef, generationRef, setActive, setParked, setState)
 
   const controls = useMemo<SessionControls>(
@@ -251,5 +252,5 @@ export function useTalkSession(connect: ConnectRealtime = connectRealtime): Talk
   useParkWhileHidden(controls)
   useCloseOnLeaving(liveRef, generationRef, forget)
 
-  return { active, parked, state, levelRef, error, setup, toggle, startOver, cue }
+  return { active, parked, state, energyRef, error, setup, toggle, startOver, cue }
 }

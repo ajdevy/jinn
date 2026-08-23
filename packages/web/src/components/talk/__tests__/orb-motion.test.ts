@@ -2,11 +2,18 @@ import { describe, expect, it } from "vitest"
 import {
   ORB_STATES,
   ORB_VARIANTS,
+  SILENT_ENERGY,
   lobeCentres,
   orbParams,
-  orbScene,
+  stateEnergy,
   type OrbState,
 } from "../orb-motion"
+import { orbScene } from "../orb-scene"
+
+/** The operator talking, the assistant talking, and both at once. */
+const MIC = { input: 1, output: 0 }
+const PLAYBACK = { input: 0, output: 1 }
+const BOTH = { input: 1, output: 1 }
 
 function expectBoundedScene(scene: ReturnType<typeof orbScene>) {
   expect(scene.length).toBeGreaterThan(0)
@@ -62,26 +69,78 @@ describe("orbParams", () => {
   })
 
   it("pushes the listening lobes outward and brighter as amplitude rises", () => {
-    const quiet = orbParams("listening", 0)
-    const loud = orbParams("listening", 1)
+    const quiet = orbParams("listening", SILENT_ENERGY)
+    const loud = orbParams("listening", MIC)
     expect(loud.radius).toBeGreaterThan(quiet.radius)
     expect(loud.orbit).toBeGreaterThan(quiet.orbit)
     expect(loud.brightness).toBeGreaterThan(quiet.brightness)
   })
 
-  it("rides brightness on the output envelope while speaking", () => {
-    expect(orbParams("speaking", 1).brightness).toBeGreaterThan(orbParams("speaking", 0).brightness)
+  it("rides brightness on the output envelope while the assistant speaks", () => {
+    expect(orbParams("assistant_speaking", PLAYBACK).brightness)
+      .toBeGreaterThan(orbParams("assistant_speaking", SILENT_ENERGY).brightness)
   })
 
   it("ignores amplitude in the states nothing is driving", () => {
-    expect(orbParams("idle", 1)).toEqual(orbParams("idle", 0))
-    expect(orbParams("thinking", 1)).toEqual(orbParams("thinking", 0))
+    expect(orbParams("idle", BOTH)).toEqual(orbParams("idle", SILENT_ENERGY))
+    expect(orbParams("thinking", BOTH)).toEqual(orbParams("thinking", SILENT_ENERGY))
+    expect(orbParams("interrupted", BOTH)).toEqual(orbParams("interrupted", SILENT_ENERGY))
+    expect(orbParams("error", BOTH)).toEqual(orbParams("error", SILENT_ENERGY))
   })
 
   it("clamps amplitude out of range instead of exploding the sphere", () => {
-    expect(orbParams("speaking", 4)).toEqual(orbParams("speaking", 1))
-    expect(orbParams("speaking", -2)).toEqual(orbParams("speaking", 0))
-    expect(orbParams("speaking", Number.NaN)).toEqual(orbParams("speaking", 0))
+    expect(orbParams("assistant_speaking", { input: 0, output: 4 }))
+      .toEqual(orbParams("assistant_speaking", PLAYBACK))
+    expect(orbParams("assistant_speaking", { input: 0, output: -2 }))
+      .toEqual(orbParams("assistant_speaking", SILENT_ENERGY))
+    expect(orbParams("assistant_speaking", { input: 0, output: Number.NaN }))
+      .toEqual(orbParams("assistant_speaking", SILENT_ENERGY))
+  })
+})
+
+/**
+ * The routing this whole feature turns on. `user_speaking` must ride the
+ * microphone and `assistant_speaking` must ride the playback: swap them and the
+ * orb goes still exactly when the operator is talking to it, which is the bug
+ * this slice exists to fix. Asserted on both the params and the scene, because
+ * the canvas only ever reads the scene.
+ */
+describe("which channel a state listens to", () => {
+  it("rides the microphone while the operator speaks and ignores the playback", () => {
+    expect(stateEnergy("user_speaking", MIC)).toBe(1)
+    expect(stateEnergy("user_speaking", PLAYBACK)).toBe(0)
+    expect(orbParams("user_speaking", MIC)).not.toEqual(orbParams("user_speaking", SILENT_ENERGY))
+    expect(orbParams("user_speaking", PLAYBACK)).toEqual(orbParams("user_speaking", SILENT_ENERGY))
+    expect(orbParams("user_speaking", BOTH)).toEqual(orbParams("user_speaking", MIC))
+  })
+
+  it("rides the playback while the assistant speaks and ignores the microphone", () => {
+    expect(stateEnergy("assistant_speaking", PLAYBACK)).toBe(1)
+    expect(stateEnergy("assistant_speaking", MIC)).toBe(0)
+    expect(orbParams("assistant_speaking", PLAYBACK))
+      .not.toEqual(orbParams("assistant_speaking", SILENT_ENERGY))
+    expect(orbParams("assistant_speaking", MIC)).toEqual(orbParams("assistant_speaking", SILENT_ENERGY))
+    expect(orbParams("assistant_speaking", BOTH)).toEqual(orbParams("assistant_speaking", PLAYBACK))
+  })
+
+  it("paints the same split, so the canvas cannot read the other channel", () => {
+    for (const variant of ORB_VARIANTS) {
+      expect(orbScene(variant, "user_speaking", MIC))
+        .not.toEqual(orbScene(variant, "user_speaking", SILENT_ENERGY))
+      expect(orbScene(variant, "user_speaking", PLAYBACK))
+        .toEqual(orbScene(variant, "user_speaking", SILENT_ENERGY))
+
+      expect(orbScene(variant, "assistant_speaking", PLAYBACK))
+        .not.toEqual(orbScene(variant, "assistant_speaking", SILENT_ENERGY))
+      expect(orbScene(variant, "assistant_speaking", MIC))
+        .toEqual(orbScene(variant, "assistant_speaking", SILENT_ENERGY))
+    }
+  })
+
+  it("leaves the states with nothing behind them deaf to both channels", () => {
+    for (const state of ["idle", "thinking", "interrupted", "error"] as const) {
+      expect(stateEnergy(state, BOTH)).toBe(0)
+    }
   })
 })
 
@@ -120,7 +179,7 @@ describe("orbScene", () => {
   it("keeps every variant/state scene finite and inside the canvas", () => {
     for (const variant of ORB_VARIANTS) {
       for (const state of ORB_STATES) {
-        expectBoundedScene(orbScene(variant, state, 1, 4.2))
+        expectBoundedScene(orbScene(variant, state, BOTH, 4.2))
       }
     }
   })
@@ -153,8 +212,8 @@ describe("orbScene", () => {
 
   it("holds interruption still even if time and audio continue", () => {
     for (const variant of ORB_VARIANTS) {
-      expect(orbScene(variant, "interrupted", 0, 0)).toEqual(
-        orbScene(variant, "interrupted", 1, 99),
+      expect(orbScene(variant, "interrupted", SILENT_ENERGY, 0)).toEqual(
+        orbScene(variant, "interrupted", BOTH, 99),
       )
     }
   })

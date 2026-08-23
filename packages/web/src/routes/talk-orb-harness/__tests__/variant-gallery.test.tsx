@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import TalkOrbHarnessPage from "../page"
 
 const VARIANTS = ["mist", "coin", "ring", "pulse"] as const
-const STATES = ["idle", "listening", "thinking", "speaking", "interrupted", "error"] as const
+const STATES = [
+  "idle",
+  "listening",
+  "user_speaking",
+  "thinking",
+  "assistant_speaking",
+  "interrupted",
+  "error",
+] as const
 
 let originalGetContext: HTMLCanvasElement["getContext"]
 

@@ -1,7 +1,7 @@
 /**
  * The orb says what it is doing with motion alone — no text, ever. This module
- * is the whole vocabulary: state in, lobe geometry out. Pure, so the four states
- * can be held apart by a test rather than by eye.
+ * is the whole vocabulary: state in, lobe geometry out. Pure, so the states can
+ * be held apart by a test rather than by eye.
  */
 
 export type OrbVariant = "mist" | "coin" | "ring" | "pulse"
@@ -12,16 +12,43 @@ export function isOrbVariant(value: unknown): value is OrbVariant {
   return typeof value === "string" && ORB_VARIANTS.includes(value as OrbVariant)
 }
 
-export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "interrupted" | "error"
+export type OrbState =
+  | "idle"
+  | "listening"
+  | "user_speaking"
+  | "thinking"
+  | "assistant_speaking"
+  | "interrupted"
+  | "error"
 
+/** Product order: the arc of one turn, then the two exceptional states. */
 export const ORB_STATES: readonly OrbState[] = [
   "idle",
   "listening",
+  "user_speaking",
   "thinking",
-  "speaking",
+  "assistant_speaking",
   "interrupted",
   "error",
 ]
+
+/**
+ * The two things the orb can hear, kept apart.
+ *
+ * One shared number cannot answer "pulsate as we talk": while the operator
+ * speaks the orb has to ride the microphone, and while the assistant speaks it
+ * has to ride the voice coming out of the speakers. Those are two streams that
+ * are live at the same moment — a barge-in has both — so they are two channels
+ * rather than one that something has to remember to switch.
+ */
+export interface OrbEnergy {
+  /** 0..1 loudness of the operator's own microphone. */
+  input: number
+  /** 0..1 loudness of the assistant's voice, as it is being played. */
+  output: number
+}
+
+export const SILENT_ENERGY: OrbEnergy = { input: 0, output: 0 }
 
 export interface OrbParams {
   /** Lobe radius, as a fraction of the sphere radius. */
@@ -59,6 +86,16 @@ const BASE: Record<OrbState, OrbParams> = {
     orbit: 0.34,
     periods: [5, 7, 9],
   },
+  user_speaking: {
+    // Direction stays forward: counter-rotation is thinking's one signature, and
+    // two states sharing it would cost the viewer the axis.
+    radius: 0.58,
+    softness: 0.058,
+    brightness: 1,
+    rotationSign: 1,
+    orbit: 0.28,
+    periods: [3.6, 4.8, 6.2],
+  },
   thinking: {
     radius: 0.36,
     softness: 0.088,
@@ -67,7 +104,7 @@ const BASE: Record<OrbState, OrbParams> = {
     orbit: 0.18,
     periods: [3.2, 4.4, 5.6],
   },
-  speaking: {
+  assistant_speaking: {
     radius: 0.64,
     softness: 0.04,
     brightness: 1.1,
@@ -93,100 +130,44 @@ const BASE: Record<OrbState, OrbParams> = {
   },
 }
 
-export type OrbTone = "warm" | "violet" | "mixed" | "alert"
-
-export interface OrbPrimitive {
-  kind: "disc" | "ring"
-  /** Normalized canvas coordinates. */
-  x: number
-  y: number
-  rx: number
-  ry: number
-  /** Ring hole as a fraction of the outer radii. */
-  inner?: number
-  alpha: number
-  tone: OrbTone
-  /** Fade the perimeter instead of exposing an ellipse edge. */
-  fade?: boolean
-  /** Use one token fill instead of a lit radial gradient. */
-  flat?: boolean
+/**
+ * Which channel a state rides, and how hard.
+ *
+ * This table is the whole routing decision, in one place: `user_speaking` reads
+ * the microphone and `assistant_speaking` reads the playback, and a state with
+ * no entry is not audio-driven at all — thinking must not twitch because the
+ * room is noisy.
+ */
+interface EnergyDrive {
+  channel: keyof OrbEnergy
+  /** How much of the sphere's size the channel is allowed to add. */
+  scale: number
 }
 
-const STATE_ENERGY: Record<OrbState, { scale: number; alpha: number; flatten: number }> = {
-  idle: { scale: 0.9, alpha: 0.74, flatten: 1 },
-  listening: { scale: 1, alpha: 0.94, flatten: 1.04 },
-  thinking: { scale: 0.84, alpha: 0.68, flatten: 0.92 },
-  speaking: { scale: 1.08, alpha: 1, flatten: 1 },
-  interrupted: { scale: 0.78, alpha: 0.72, flatten: 0.72 },
-  error: { scale: 0.82, alpha: 0.82, flatten: 0.84 },
+const ENERGY_DRIVE: Record<OrbState, EnergyDrive | null> = {
+  idle: null,
+  listening: { channel: "input", scale: 0.08 },
+  user_speaking: { channel: "input", scale: 0.14 },
+  thinking: null,
+  assistant_speaking: { channel: "output", scale: 0.12 },
+  interrupted: null,
+  error: null,
 }
 
-function sceneEnergy(state: OrbState, level: number): { scale: number; alpha: number; flatten: number } {
-  const base = STATE_ENERGY[state]
-  const envelope = (state === "listening" || state === "speaking") ? clamp01(level) : 0
-  return {
-    ...base,
-    scale: base.scale + envelope * (state === "speaking" ? 0.12 : 0.08),
-    alpha: Math.min(1, base.alpha + envelope * 0.06),
-  }
+/** The 0..1 envelope a state is actually driven by, having picked its channel. */
+export function stateEnergy(state: OrbState, energy: OrbEnergy): number {
+  const drive = ENERGY_DRIVE[state]
+  return drive ? clamp01(energy[drive.channel]) : 0
 }
 
-interface SceneInput {
-  state: OrbState
-  energy: ReturnType<typeof sceneEnergy>
-  drift: number
-  tone: OrbTone
+/** How much of the sphere's size that state's channel may add. */
+export function energyGain(state: OrbState): number {
+  return ENERGY_DRIVE[state]?.scale ?? 0
 }
 
-function mistScene({ energy, drift, tone }: SceneInput): readonly OrbPrimitive[] {
-  return [
-    { kind: "disc", x: 0.5 + drift, y: 0.5, rx: 0.39 * energy.scale, ry: 0.24 * energy.scale * energy.flatten, alpha: energy.alpha, tone, fade: true },
-  ]
-}
-
-function coinScene({ energy, tone }: SceneInput): readonly OrbPrimitive[] {
-  return [
-    { kind: "disc", x: 0.5, y: 0.5, rx: 0.36 * energy.scale, ry: 0.2 * energy.scale * energy.flatten, alpha: energy.alpha, tone, flat: true },
-    { kind: "disc", x: 0.5, y: 0.5, rx: 0.25 * energy.scale, ry: 0.12 * energy.scale * energy.flatten, alpha: energy.alpha * 0.28, tone: "violet", flat: true },
-  ]
-}
-
-function ringScene({ state, energy, drift, tone }: SceneInput): readonly OrbPrimitive[] {
-  const active = state === "listening" || state === "speaking"
-  const hole = active ? 0.58 : state === "interrupted" ? 0.72 : 0.66
-  return [
-    { kind: "ring", x: 0.5 + drift, y: 0.5, rx: 0.37 * energy.scale, ry: 0.25 * energy.scale * energy.flatten, inner: hole, alpha: energy.alpha, tone },
-  ]
-}
-
-function pulseScene({ state, energy, tone }: SceneInput): readonly OrbPrimitive[] {
-  const radii = state === "interrupted" ? [0.14, 0.23, 0.32] : [0.16, 0.27, 0.39]
-  const active = state === "listening" || state === "speaking"
-  return radii.map((radius, index) => ({
-    kind: "ring" as const,
-    x: 0.5,
-    y: 0.5,
-    rx: radius * energy.scale,
-    ry: radius * 0.64 * energy.flatten,
-    inner: active ? 0.66 : 0.76,
-    alpha: energy.alpha * (index === 1 ? 1 : 0.62),
-    tone: state === "error" ? "alert" : index === 2 ? "violet" : tone,
-  }))
-}
-
-const SCENE_BUILDERS: Record<OrbVariant, (input: SceneInput) => readonly OrbPrimitive[]> = {
-  mist: mistScene,
-  coin: coinScene,
-  ring: ringScene,
-  pulse: pulseScene,
-}
-
-/** One scene vocabulary hides all four paint strategies from the canvas. */
-export function orbScene(variant: OrbVariant, state: OrbState, level = 0, seconds = 0): readonly OrbPrimitive[] {
-  const energy = sceneEnergy(state, level)
-  const drift = state === "interrupted" ? 0 : Math.sin(seconds * 0.8) * 0.018
-  const tone: OrbTone = state === "error" ? "alert" : "mixed"
-  return SCENE_BUILDERS[variant]({ state, energy, drift, tone })
+/** True while the state has a live stream behind it. */
+export function isDriven(state: OrbState): boolean {
+  return ENERGY_DRIVE[state] !== null
 }
 
 /** Relative lobe sizes, so the three read as cloud rather than as one painted
@@ -201,29 +182,27 @@ function clamp01(value: number): number {
 }
 
 /**
- * The lobe parameters for a state at a given amplitude. `level` is the 0..1
- * envelope of whatever audio is flowing — input while listening, output while
- * speaking. Idle and thinking have nothing driving them and ignore it.
+ * The lobe parameters for a state at a given amplitude. The state picks which
+ * channel of `energy` it rides; the states with nothing driving them ignore
+ * both.
  */
-export function orbParams(state: OrbState, level = 0): OrbParams {
+export function orbParams(state: OrbState, energy: OrbEnergy = SILENT_ENERGY): OrbParams {
   const base = BASE[state]
-  const amplitude = clamp01(level)
-  if (state === "listening") {
-    return {
-      ...base,
-      radius: base.radius + 0.12 * amplitude,
-      orbit: base.orbit + 0.1 * amplitude,
-      brightness: base.brightness + 0.28 * amplitude,
-    }
-  }
-  if (state === "speaking") {
+  const amplitude = stateEnergy(state, energy)
+  if (amplitude === 0) return base
+  if (state === "assistant_speaking") {
     return {
       ...base,
       radius: base.radius + 0.08 * amplitude,
       brightness: base.brightness + 0.34 * amplitude,
     }
   }
-  return base
+  return {
+    ...base,
+    radius: base.radius + 0.12 * amplitude,
+    orbit: base.orbit + 0.1 * amplitude,
+    brightness: base.brightness + 0.28 * amplitude,
+  }
 }
 
 export interface Lobe {

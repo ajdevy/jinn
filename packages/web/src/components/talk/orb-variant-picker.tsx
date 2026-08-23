@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { ORB_VARIANTS, type OrbState, type OrbVariant } from "./orb-motion"
+import { ORB_VARIANTS, SILENT_ENERGY, type OrbState, type OrbVariant } from "./orb-motion"
 import { OrbCanvas } from "./orb-canvas"
 
 const LABELS: Record<OrbVariant, string> = {
@@ -9,7 +9,7 @@ const LABELS: Record<OrbVariant, string> = {
   pulse: "Pulse",
 }
 
-const QUIET_LEVEL = { current: 0 }
+const QUIET_ENERGY = { current: SILENT_ENERGY }
 
 interface OrbVariantPickerProps {
   value: OrbVariant
@@ -53,7 +53,7 @@ export function OrbVariantPicker({
                 : "bg-[var(--fill-quaternary)] shadow-[var(--shadow-subtle)] hover:bg-[var(--fill-tertiary)]",
             )}
           >
-            <OrbCanvas variant={variant} state={state} levelRef={QUIET_LEVEL} size={64} motion="still" />
+            <OrbCanvas variant={variant} state={state} energyRef={QUIET_ENERGY} size={64} motion="still" />
             <span>{LABELS[variant]}</span>
           </button>
         )

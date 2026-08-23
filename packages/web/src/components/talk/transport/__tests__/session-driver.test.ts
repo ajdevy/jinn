@@ -198,19 +198,27 @@ describe("what a turn costs", () => {
 })
 
 describe("what the orb shows", () => {
-  it("moves through thinking and speaking and back, reporting only what changed", () => {
+  it("walks one whole turn, naming who is speaking and reporting only what changed", () => {
     const states: string[] = []
     const { driver: talk } = driver({ onState: (state) => states.push(state) })
 
-    // A live session is already listening, so the first frame reports nothing —
-    // and two transcript deltas are one stretch of speaking, not two.
+    // The arc an operator actually sees: they talk, they stop, the response is
+    // created and nothing is audible yet, then it speaks. Two transcript deltas
+    // are one stretch of speaking, not two.
     talk.receive(JSON.stringify({ type: "input_audio_buffer.speech_started" }))
     talk.receive(JSON.stringify({ type: "input_audio_buffer.speech_stopped" }))
+    talk.receive(JSON.stringify({ type: "response.created", response: { id: "response-1" } }))
     talk.receive(JSON.stringify({ type: "response.output_audio_transcript.delta", delta: "on " }))
     talk.receive(JSON.stringify({ type: "response.output_audio_transcript.delta", delta: "it" }))
     talk.receive(turnDone({}))
 
-    expect(states).toEqual(["thinking", "speaking", "listening"])
+    expect(states).toEqual([
+      "user_speaking",
+      "listening",
+      "thinking",
+      "assistant_speaking",
+      "listening",
+    ])
   })
 
   it("stays quiet about the operator's own transcript, which is not the orb talking", () => {

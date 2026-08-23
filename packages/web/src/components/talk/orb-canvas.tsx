@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
-import {
-  orbScene,
-  type OrbPrimitive,
-  type OrbState,
-  type OrbTone,
-  type OrbVariant,
-} from "./orb-motion"
+import { SILENT_ENERGY, type OrbEnergy, type OrbState, type OrbVariant } from "./orb-motion"
+import { orbScene, type OrbPrimitive, type OrbTone } from "./orb-scene"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
 
 /**
@@ -39,7 +34,7 @@ interface Frame {
   palette: OrbPalette
   variant: OrbVariant
   state: OrbState
-  level: number
+  energy: OrbEnergy
   seconds: number
 }
 
@@ -82,7 +77,7 @@ function paintOrb(ctx: CanvasRenderingContext2D, frame: Frame): void {
   ctx.globalCompositeOperation = "source-over"
   ctx.globalAlpha = 1
   ctx.clearRect(0, 0, frame.size, frame.size)
-  for (const primitive of orbScene(frame.variant, frame.state, frame.level, frame.seconds)) {
+  for (const primitive of orbScene(frame.variant, frame.state, frame.energy, frame.seconds)) {
     paintPrimitive(ctx, frame, primitive)
   }
   ctx.globalAlpha = 1
@@ -111,16 +106,16 @@ function useThemeAttribute(): string {
 interface OrbCanvasProps {
   state: OrbState
   variant?: OrbVariant
-  /** Live 0..1 amplitude, read once per frame. React state here would re-render
-   *  the whole app on every audio frame. */
-  levelRef: RefObject<number>
+  /** Live 0..1 amplitude per channel, read once per frame. React state here
+   *  would re-render the whole app on every audio frame. */
+  energyRef: RefObject<OrbEnergy>
   /** CSS size in px. The sphere fills the square. */
   size: number
   /** Comparison surfaces paint one deterministic frame even when motion is allowed. */
   motion?: "live" | "still"
 }
 
-export function OrbCanvas({ state, variant = "mist", levelRef, size, motion = "live" }: OrbCanvasProps) {
+export function OrbCanvas({ state, variant = "mist", energyRef, size, motion = "live" }: OrbCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reduce = usePrefersReducedMotion()
   const themeAttribute = useThemeAttribute()
@@ -137,19 +132,19 @@ export function OrbCanvas({ state, variant = "mist", levelRef, size, motion = "l
 
     // Still, not dead: one frame per state, in that state's own geometry.
     if (reduce || motion === "still") {
-      paintOrb(ctx, { size, palette, variant, state, level: 0, seconds: 0 })
+      paintOrb(ctx, { size, palette, variant, state, energy: SILENT_ENERGY, seconds: 0 })
       return
     }
 
     let frame = 0
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw)
-      paintOrb(ctx, { size, palette, variant, state, level: levelRef.current, seconds: now / 1000 })
+      paintOrb(ctx, { size, palette, variant, state, energy: energyRef.current, seconds: now / 1000 })
     }
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
     // `themeAttribute` is not read here — it re-reads the palette when the theme flips.
-  }, [state, variant, size, reduce, motion, themeAttribute, levelRef])
+  }, [state, variant, size, reduce, motion, themeAttribute, energyRef])
 
   return (
     <canvas

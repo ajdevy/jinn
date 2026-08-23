@@ -8,7 +8,7 @@ import {
 } from "react"
 import { cn } from "@/lib/utils"
 import { OrbCanvas } from "./orb-canvas"
-import type { OrbState, OrbVariant } from "./orb-motion"
+import { SILENT_ENERGY, type OrbEnergy, type OrbState, type OrbVariant } from "./orb-motion"
 import { nearestCorner, readPark, writePark, type ParkCorner, type Point } from "./orb-park"
 import { dockPath } from "./situation-choreography"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
@@ -125,8 +125,9 @@ interface TalkOrbProps {
   /** What the orb is doing. Motion is the only channel — the orb carries no text. */
   state?: OrbState
   variant?: OrbVariant
-  /** Live 0..1 amplitude driving the lobes. Absent until something is talking. */
-  levelRef?: RefObject<number>
+  /** Live per-channel amplitude driving the lobes. Absent until something is
+   *  talking. */
+  energyRef?: RefObject<OrbEnergy>
   /** Where the sphere's centre should sit while a situation is open, in viewport
    *  px. Null flies it home. Applied as a transform, so the canvas keeps its own
    *  animation frame and never remounts. */
@@ -216,8 +217,8 @@ function sphereStyle(drag: Point | null, flight: Flight | null, reduce: boolean)
  * hand every tap meant for the sphere to the scrim and the orb would go dead for
  * exactly as long as a decision is on screen.
  */
-export function TalkOrb({ variant = "mist", state = "idle", levelRef, dock, active = false, label, onToggle }: TalkOrbProps) {
-  const silent = useRef(0)
+export function TalkOrb({ variant = "mist", state = "idle", energyRef, dock, active = false, label, onToggle }: TalkOrbProps) {
+  const silent = useRef(SILENT_ENERGY)
   const sphereRef = useRef<HTMLButtonElement | null>(null)
   const { corner, offset, takeDragged, handlers } = useOrbDrag()
   const flight = useDockFlight(dock, sphereRef)
@@ -251,7 +252,7 @@ export function TalkOrb({ variant = "mist", state = "idle", levelRef, dock, acti
         onClick={onClick}
         {...handlers}
       >
-        <OrbCanvas variant={variant} state={state} levelRef={levelRef ?? silent} size={SPHERE_SIZE} />
+        <OrbCanvas variant={variant} state={state} energyRef={energyRef ?? silent} size={SPHERE_SIZE} />
       </button>
     </div>
   )

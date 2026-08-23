@@ -35,7 +35,7 @@ export function TalkLiveSurface({ sessionId = null, variant = "mist" }: TalkLive
     <TalkSurface
       state={state}
       variant={variant}
-      levelRef={talk.levelRef}
+      energyRef={talk.energyRef}
       sessionId={sessionId}
       active={talk.active}
       label={label}
