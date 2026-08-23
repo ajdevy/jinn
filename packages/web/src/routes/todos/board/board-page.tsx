@@ -450,8 +450,8 @@ export default function TodoBoardPage() {
   // Filtered-empty (states mock §6): zero visible items with filters/search
   // set always offers the way back. An unfiltered empty board celebrates
   // quietly — the columns and their quick-adds ARE the empty state — except
-  // Home, which is empty until the operator pins something and so has to name
-  // the gesture rather than look broken (PLA-172).
+  // Home, which is empty until the operator creates or pins something and so
+  // has to name those gestures rather than look broken (PLA-230).
   const filterCount = activeFilterCount(filters) + (filters.q ? 1 : 0)
   const boardEmpty = !data.isLoading && visibleItemCount(filters.status, itemsByStatus) === 0
   const filteredEmpty = boardEmpty && filterCount > 0
@@ -543,7 +543,7 @@ export default function TodoBoardPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />
               </div>
-              {board.kind === "home" && <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">The Todos you pinned.</p>}
+              {board.kind === "home" && <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">The Todos you created or pinned.</p>}
               <div className="mt-1 flex items-center gap-2 text-[13px] text-[var(--text-tertiary)]">
                 {deptSummary && (
                   <>
