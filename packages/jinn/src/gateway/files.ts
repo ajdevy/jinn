@@ -106,7 +106,7 @@ function requireOperatorFileAuthority(req: HttpRequest, res: ServerResponse, act
     return false;
   }
   if (identity.kind === "session") {
-    json(res, { error: `${action} is operator-only; capability-bound sessions cannot read, transfer, or delete local gateway files` }, 403);
+    json(res, { error: `${action} is operator-only; capability-bound sessions cannot read or delete local gateway files` }, 403);
     return false;
   }
   return true;
@@ -992,166 +992,6 @@ async function handleJsonUpload(req: HttpRequest, res: ServerResponse, context: 
   }
 }
 
-// ── Transfer types ──────────────────────────────────────────────
-
-interface TransferSpec {
-  file: string;       // managed file ID from /api/files
-  remotePath?: string; // destination path on remote (defaults to same relative path)
-}
-
-interface TransferResult {
-  file: string;
-  remotePath: string | null;
-  status: "ok" | "error";
-  remoteId?: string;
-  error?: string;
-}
-
-const MAX_TRANSFER_SIZE = 50 * 1024 * 1024; // 50 MB
-type RemoteConfig = { remotes?: Record<string, { url: string; label?: string; token?: string }> };
-
-/** Resolve a file spec to { buffer, filename, relativePath }. */
-function resolveFileSpec(spec: TransferSpec): { buffer: Buffer; filename: string; relativePath: string | null } {
-  const meta = getFile(spec.file);
-  if (meta) {
-    const candidates = [path.join(FILES_DIR, meta.id, meta.filename), meta.path].filter(
-      (p): p is string => !!p,
-    );
-    const filePath = candidates.find((p) => isServablePath(p) && fs.existsSync(p) && fs.statSync(p).isFile());
-    if (!filePath) {
-      throw new Error(`Managed file ${spec.file} exists in DB but not on disk`);
-    }
-    const stat = fs.statSync(filePath);
-    if (stat.size > MAX_TRANSFER_SIZE) {
-      throw new Error(`File ${spec.file} is ${(stat.size / 1024 / 1024).toFixed(1)} MB — exceeds 50 MB transfer limit`);
-    }
-    const assessment = assessFileRead(filePath, { authenticated: true });
-    if (!assessment.allowed) throw new Error(assessment.reason || "File read blocked by security policy");
-    return {
-      buffer: fs.readFileSync(filePath),
-      filename: meta.filename,
-      relativePath: meta.path || null,
-    };
-  }
-
-  throw new Error(`Managed file not found: ${spec.file}`);
-}
-
-/** Resolve destination URL — accept raw URL or remote name from config. Whitelist is enforced after resolution. */
-function resolveDestination(destination: string, config: RemoteConfig): string {
-  // If it looks like a URL, use directly
-  if (destination.startsWith("http://") || destination.startsWith("https://")) {
-    return destination.replace(/\/+$/, "");
-  }
-  // Look up in config remotes
-  const remote = config.remotes?.[destination];
-  if (!remote) {
-    throw new Error(`Unknown remote "${destination}". Add it to config.yaml remotes or use a full URL.`);
-  }
-  return remote.url.replace(/\/+$/, "");
-}
-
-/** Check if a destination URL is whitelisted in config remotes. */
-function isAllowedRemote(destUrl: string, config: RemoteConfig): boolean {
-  if (!config.remotes) return false;
-  const normalized = destUrl.replace(/\/+$/, "");
-  return Object.values(config.remotes).some(r => r.url.replace(/\/+$/, "") === normalized);
-}
-
-export function buildRemoteUploadBody(filename: string, buffer: Buffer, remotePath: string | null | undefined): Record<string, string> {
-  return {
-    filename,
-    content: buffer.toString("base64"),
-    ...(remotePath ? { path: remotePath } : {}),
-  };
-}
-
-function remoteTokenFor(destUrl: string, config: RemoteConfig): string | undefined {
-  const normalized = destUrl.replace(/\/+$/, "");
-  return Object.values(config.remotes ?? {}).find((remote) => remote.url.replace(/\/+$/, "") === normalized)?.token;
-}
-
-export function remoteUploadHeaders(destUrl: string, config: RemoteConfig): Record<string, string> {
-  const token = remoteTokenFor(destUrl, config);
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-/** POST /api/files/transfer — send files to a remote gateway. */
-async function handleTransfer(req: HttpRequest, res: ServerResponse, context: ApiContext): Promise<void> {
-  let body: Record<string, unknown>;
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch {
-    return badRequest(res, "Invalid JSON body");
-  }
-
-  const destination = body.destination as string | undefined;
-  if (!destination) return badRequest(res, "destination is required");
-
-  // Normalize: accept single file spec or array
-  let fileSpecs: TransferSpec[];
-  if (body.files && Array.isArray(body.files)) {
-    fileSpecs = body.files as TransferSpec[];
-  } else if (body.file) {
-    fileSpecs = [{
-      file: body.file as string,
-      remotePath: body.remotePath as string | undefined,
-    }];
-  } else {
-    return badRequest(res, "file or files is required");
-  }
-
-  if (fileSpecs.length === 0) return badRequest(res, "files array is empty");
-
-  // Resolve and validate destination
-  const config = context.getConfig();
-  let destUrl: string;
-  try {
-    destUrl = resolveDestination(destination, config);
-  } catch (err) {
-    return badRequest(res, err instanceof Error ? err.message : String(err));
-  }
-
-  if (!isAllowedRemote(destUrl, config)) {
-    return json(res, { error: `Remote "${destUrl}" is not in config.yaml remotes whitelist` }, 403);
-  }
-
-  // Transfer each file
-  const results: TransferResult[] = [];
-  for (const spec of fileSpecs) {
-    try {
-      const { buffer, filename } = resolveFileSpec(spec);
-      const targetPath = spec.remotePath || null;
-      const uploadBody = buildRemoteUploadBody(filename, buffer, targetPath);
-
-      const response = await fetch(`${destUrl}/api/files`, {
-        method: "POST",
-        headers: remoteUploadHeaders(destUrl, config),
-        body: JSON.stringify(uploadBody),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        results.push({ file: spec.file, remotePath: targetPath, status: "error", error: `HTTP ${response.status}: ${errText}` });
-      } else {
-        const remoteMeta = await response.json() as { id: string };
-        results.push({ file: spec.file, remotePath: targetPath, status: "ok", remoteId: remoteMeta.id });
-      }
-    } catch (err) {
-      results.push({ file: spec.file, remotePath: spec.remotePath || null, status: "error", error: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  const ok = results.filter(r => r.status === "ok").length;
-  const failed = results.filter(r => r.status === "error").length;
-  logger.info(`File transfer to ${destUrl}: ${ok} ok, ${failed} failed`);
-
-  json(res, { destination: destUrl, results, summary: { ok, failed, total: results.length } });
-}
-
 // ── Session attachments (outbound: session → web UI) ─────────────
 
 export { fileIdsToMedia } from "./message-media.js";
@@ -1415,13 +1255,6 @@ export async function handleFilesRequest(
     } catch (err) {
       serverError(res, err instanceof Error ? err.message : "Read failed");
     }
-    return true;
-  }
-
-  // POST /api/files/transfer — send files to remote gateway
-  if (method === "POST" && pathname === "/api/files/transfer") {
-    if (!requireOperatorFileAuthority(req, res, "file transfer", context)) return true;
-    await handleTransfer(req, res, context);
     return true;
   }
 

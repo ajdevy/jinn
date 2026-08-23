@@ -173,5 +173,4 @@ export interface JinnConfig {
    * slated for removal.
    */
   realtime?: RealtimeConfig;
-  remotes?: Record<string, { url: string; label?: string; token?: string }>;
 }
