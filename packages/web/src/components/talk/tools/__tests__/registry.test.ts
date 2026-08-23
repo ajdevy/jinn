@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { queryClient } from "@/lib/query-client"
 import { queryKeys } from "@/lib/query-keys"
 import { clearToolTimings, lastToolTiming, TOOL_BUDGET_MS } from "../budget"
-import { alwaysOnDefinitions, TOOL_EXPOSURE, toolsWithExposure } from "../exposure"
 import { clearTalkNavigator, registerTalkNavigator } from "../router-handle"
 import { executeToolCall, findTool, TALK_TOOLS, toolDefinitions } from "../registry"
 
@@ -38,40 +37,6 @@ describe("the registered set", () => {
   it("has no duplicate names", () => {
     const names = TALK_TOOLS.map((tool) => tool.name)
     expect(new Set(names).size).toBe(names.length)
-  })
-
-  it("tags every tool with an exposure", () => {
-    for (const tool of TALK_TOOLS) {
-      expect(TOOL_EXPOSURE[tool.name], tool.name).toMatch(/^(always|on-intent)$/)
-    }
-    expect(Object.keys(TOOL_EXPOSURE)).toHaveLength(TALK_TOOLS.length)
-  })
-
-  it("keeps the always-on set small enough to name", () => {
-    expect(toolsWithExposure("always").map((tool) => tool.name).sort()).toEqual([
-      "focus_element",
-      "open_chats",
-      "open_todos",
-      "read_todo",
-      "resolve_and_open",
-      "talk_draft_and_send",
-      "talk_draft_reply",
-      "talk_replace_draft",
-      "talk_search_chat_messages",
-      "talk_send_draft",
-    ])
-    expect(alwaysOnDefinitions()).toHaveLength(10)
-  })
-
-  it("keeps the decision verbs and the generic page actions off the resident list", () => {
-    // A session that has not talked about deciding anything, or about driving
-    // the page by hand, is not carrying the vocabulary to.
-    for (const name of [
-      "talk_decide_approval", "talk_decide_workflow_approval", "talk_unblock_todo",
-      "click_by_text", "type_into", "find_element_by_text", "scroll_to",
-    ]) {
-      expect(TOOL_EXPOSURE[name], name).toBe("on-intent")
-    }
   })
 
   it("covers all six domains with a navigate tool and the four read shapes", () => {

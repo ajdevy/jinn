@@ -7,7 +7,6 @@
  * provider connection without destroying the recoverable Talk history.
  */
 import { randomUUID } from "node:crypto";
-import type { RealtimeTool } from "../../shared/voice.js";
 import {
   TALK_CONTEXT_BUDGET_TOKENS,
   contextTokens,
@@ -15,7 +14,7 @@ import {
   handoffSuggested,
   truncateTurns,
 } from "./context.js";
-import { alwaysOnTools, toolsForIntents } from "./tools.js";
+import { allTools } from "./tools.js";
 import type {
   TalkActionRecord,
   TalkInterruptionRecord,
@@ -112,8 +111,7 @@ export class TalkSessionRegistry {
       turns: [],
       truncatedTurns: 0,
       tokenExpiresAt: options.tokenExpiresAt,
-      exposedTools: alwaysOnTools().map((tool) => tool.name),
-      expandedIntents: [],
+      exposedTools: allTools().map((tool) => tool.name),
       actions: [],
       interruptions: [],
       visualReceiptKeys: [],
@@ -224,18 +222,6 @@ export class TalkSessionRegistry {
     }
     this.store.save(session);
     return interruption;
-  }
-
-  /** The tools these intents add on top of what the session already carries. */
-  exposeTools(id: string, intents: readonly string[]): RealtimeTool[] {
-    const session = this.require(id);
-    const added = toolsForIntents(intents, session.exposedTools);
-    session.exposedTools.push(...added.map((tool) => tool.name));
-    for (const intent of intents) {
-      if (!session.expandedIntents.includes(intent)) session.expandedIntents.push(intent);
-    }
-    this.store.save(session);
-    return added;
   }
 
   /** Idempotent: terminal rows remain stored for normal chat history and audit,

@@ -16,35 +16,8 @@ function providerTool(operation: ReturnType<typeof buildTalkControlManifest>["op
   };
 }
 
-/** Intent names accepted by the compatibility expansion endpoint. */
-export const TALK_TOOL_INTENTS = [
-  ...new Set(buildTalkControlManifest().operations.map((operation) => operation.intent)),
-].sort();
-
 export function allTools(): RealtimeTool[] {
   return buildTalkControlManifest().operations.map(providerTool);
-}
-
-export function alwaysOnTools(): RealtimeTool[] {
-  return buildTalkControlManifest().operations
-    .filter((operation) => operation.exposure === "always")
-    .map(providerTool);
-}
-
-export function isKnownIntent(intent: string): boolean {
-  return TALK_TOOL_INTENTS.includes(intent);
-}
-
-/**
- * The manifest currently exposes the universal catalog at open. Keep this
- * compatibility seam for older clients without manufacturing a second list.
- */
-export function toolsForIntents(intents: readonly string[], exposedNames: readonly string[]): RealtimeTool[] {
-  const requested = new Set(intents);
-  const exposed = new Set(exposedNames);
-  return buildTalkControlManifest().operations
-    .filter((operation) => operation.exposure === "on-intent" && requested.has(operation.intent) && !exposed.has(operation.name))
-    .map(providerTool);
 }
 
 /** Estimated provider-context cost of a tool list. */

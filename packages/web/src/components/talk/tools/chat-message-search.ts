@@ -68,7 +68,6 @@ async function searchCurrentChat(query: string, sessionId: string): Promise<Tool
 export const CHAT_MESSAGE_SEARCH_TOOL: TalkTool = {
   name: "talk_search_chat_messages",
   description: "Search earlier messages in the chat currently on screen. Returns matching excerpts only, with speaker and relative time.",
-  exposure: "always",
   parameters: params({ query: str(`All words to match in this chat, at most ${QUERY_CHAR_LIMIT} characters.`) }, ["query"]),
   execute: (args) => {
     const problem = queryProblem(args.query)

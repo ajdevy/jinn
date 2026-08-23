@@ -21,7 +21,6 @@ function gateway(
     description,
     parameters,
     target: "gateway",
-    exposure: "always",
     intent,
     mutability: policy.mutability,
     operatorOnly: policy.mutability === "write",

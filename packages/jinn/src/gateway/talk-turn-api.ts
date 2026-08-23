@@ -1,7 +1,7 @@
 /**
  * The `/api/talk/sessions/:id/*` operations that carry a request body: recording
- * a turn's usage, logging an attempted write, widening the exposed tool set, and
- * handing a request off to a normal text session.
+ * a turn's usage, logging an attempted write, and handing a request off to a
+ * normal text session.
  *
  * Split out of talk-api.ts, which keeps the routing, the credential minting, and
  * the lifecycle transitions. The registry is passed in rather than imported so
@@ -14,7 +14,6 @@ import type { RealtimeUsage } from "../shared/voice.js";
 import { createSession, insertMessage } from "../sessions/registry.js";
 import { priceTurn } from "../talk/session/pricing.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
-import { TALK_TOOL_INTENTS, estimateToolTokens, isKnownIntent, toolsByName } from "../talk/session/tools.js";
 import type { TalkActionRecord, TalkSession, VisualCaptureReceipt } from "../talk/session/types.js";
 import { readJsonBody } from "./http-helpers.js";
 import { json } from "./route-helpers.js";
@@ -208,34 +207,6 @@ export async function recordAction(
     consent: body.consent as TalkActionRecord["consent"],
     undoOf: body.undoOf as string | undefined,
   }));
-}
-
-export async function expandTools(
-  req: IncomingMessage,
-  res: ServerResponse,
-  session: TalkSession,
-  registry: TalkSessionRegistry,
-): Promise<void> {
-  const parsed = await readJsonBody(req as JsonRequest, res);
-  if (!parsed.ok) return;
-  const intents = (parsed.body as { intents?: unknown } | null)?.intents;
-  if (!Array.isArray(intents) || intents.some((intent) => typeof intent !== "string")) {
-    send(res, 400, { error: "intents must be an array of strings." });
-    return;
-  }
-  const unknown = (intents as string[]).filter((intent) => !isKnownIntent(intent));
-  if (unknown.length > 0) {
-    send(res, 400, {
-      error: `Unknown tool intent(s): ${unknown.join(", ")}. Known intents: ${TALK_TOOL_INTENTS.join(", ")}.`,
-    });
-    return;
-  }
-  const added = registry.exposeTools(session.id, intents as string[]);
-  send(res, 200, {
-    tools: added,
-    exposedTools: session.exposedTools,
-    toolTokens: estimateToolTokens(toolsByName(session.exposedTools)),
-  });
 }
 
 /** Spawn a normal text session with the talk session's row as its parent, so the

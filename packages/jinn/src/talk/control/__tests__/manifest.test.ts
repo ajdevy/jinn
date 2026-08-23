@@ -61,7 +61,6 @@ describe("the authoritative Talk control manifest", () => {
     }
     expect(byName.get("talk_send_to_session")).toMatchObject({
       target: "browser",
-      exposure: "always",
       mutability: "effect",
       operatorOnly: false,
       verification: "browser-receipt",
