@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runCronJob } from "../runner.js";
 import type { CronJob, Connector, JinnConfig } from "../../shared/types.js";
-import { scanOrg } from "../../gateway/org.js";
+import { orgRegistry } from "../../gateway/org-registry.js";
 
 // Stub the run-log append so these tests never touch the filesystem. Real
 // file-writing coverage lives in cron/__tests__/jobs.test.ts against a temp JINN_HOME.
 vi.mock("../jobs.js", () => ({ appendRunLog: vi.fn() }));
 
-// Stub org scanning
-vi.mock("../../gateway/org.js", () => ({
-  scanOrg: vi.fn(() => new Map()),
+// Stub the org read owner
+vi.mock("../../gateway/org-registry.js", () => ({
+  orgRegistry: vi.fn(() => new Map()),
 }));
 
 // Stub the work-item store so these tests never touch a real registry.db (this
@@ -361,7 +361,7 @@ describe("runCronJob — engine selection", () => {
   });
 
   it("passes cron job effortLevel as the session-level override without clobbering the employee default", async () => {
-    vi.mocked(scanOrg).mockReturnValue(new Map([["jimbo", {
+    vi.mocked(orgRegistry).mockReturnValue(new Map([["jimbo", {
       name: "jimbo",
       department: "operations",
       rank: "manager",
@@ -393,7 +393,7 @@ describe("runCronJob — engine selection", () => {
   });
 
   it("leaves session effortLevel undefined when the cron job sets none (legacy behavior)", async () => {
-    vi.mocked(scanOrg).mockReturnValue(new Map([["jimbo", {
+    vi.mocked(orgRegistry).mockReturnValue(new Map([["jimbo", {
       name: "jimbo",
       department: "operations",
       rank: "manager",
@@ -420,7 +420,7 @@ describe("runCronJob — engine selection", () => {
   });
 
   it("passes cron job effortLevel even when no employee file is found", async () => {
-    vi.mocked(scanOrg).mockReturnValue(new Map() as any);
+    vi.mocked(orgRegistry).mockReturnValue(new Map() as any);
     const connectors = new Map<string, Connector>([["slack", makeMockConnector()]]);
     const sessionManager = makeMockSessionManager(0);
 

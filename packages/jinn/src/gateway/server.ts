@@ -83,7 +83,7 @@ import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
 import { startScheduler, stopScheduler } from "../cron/scheduler.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry, refreshOrg } from "./org-registry.js";
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -673,7 +673,7 @@ export async function startGateway(
   };
 
   // Build employee registry
-  let employeeRegistry = scanOrg();
+  let employeeRegistry = orgRegistry(config);
   logger.info(`Loaded ${employeeRegistry.size} employee(s) from org directory`);
   const sessionManager = new SessionManager(config, engines, bootId, (id) => employeeRegistry.get(id));
 
@@ -772,7 +772,7 @@ export async function startGateway(
   // employee-update handler (immediate refresh, no watcher lag) and the chokidar
   // onOrgChange watcher.
   const reloadOrg = () => {
-    employeeRegistry = scanOrg();
+    employeeRegistry = refreshOrg(currentConfig).registry;
     logger.info(`Org directory changed, reloaded ${employeeRegistry.size} employee(s)`);
     // GRS-017e-fix (finding 1): an employee YAML gaining/losing `jinnMcp: true`
     // changes whether the jinn-attachment smoke gate must be armed — re-arm on

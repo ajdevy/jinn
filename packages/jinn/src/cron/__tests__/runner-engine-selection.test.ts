@@ -13,7 +13,7 @@ import type { CronJob, Connector, JinnConfig } from "../../shared/types.js";
  */
 
 vi.mock("../jobs.js", () => ({ appendRunLog: vi.fn() }));
-vi.mock("../../gateway/org.js", () => ({ scanOrg: vi.fn(() => []), findEmployee: vi.fn() }));
+vi.mock("../../gateway/org-registry.js", () => ({ orgRegistry: vi.fn(() => new Map()) }));
 vi.mock("../../work-items/store.js", () => ({ createWorkItem: vi.fn(() => ({ id: "wi_test" })), linkSession: vi.fn() }));
 vi.mock("../../work-items/reconcile.js", () => ({ reconcileWorkItem: vi.fn() }));
 vi.mock("../../shared/logger.js", () => ({

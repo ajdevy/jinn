@@ -241,7 +241,7 @@ import {
 } from "../work-items/approvals.js";
 import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry } from "./org-registry.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
 import {
@@ -1131,7 +1131,7 @@ function requireCallbackRecoveryAuthority(req: HttpRequest, res: ServerResponse,
   if (identity.kind === "operator") return true;
   if (identity.kind === "session") {
     const session = getSession(identity.callerId);
-    const employee = session?.employee ? scanOrg().get(session.employee) : undefined;
+    const employee = session?.employee ? orgRegistry(context.getConfig()).get(session.employee) : undefined;
     if (employee?.rank === "manager" || employee?.rank === "executive") return true;
   }
   json(res, { error: "Callback recovery diagnostics require operator or manager authority" }, 403);
@@ -2797,7 +2797,7 @@ export async function handleApiRequest(
         if (typeof body.assignee === "string") {
           const assignee = body.assignee.trim();
           if (!assignee) return todoEditValidationError(res, "assignee must be a non-empty string or null");
-          if (!scanOrg().has(assignee)) {
+          if (!orgRegistry(context.getConfig()).has(assignee)) {
             return todoEditValidationError(res, "Unknown employee for Todo assignee. Check the organization directory.", "todo_invalid_assignee");
           }
           patch.assignee = assignee;
@@ -3037,8 +3037,7 @@ export async function handleApiRequest(
         ? (body.assignee as string).trim()
         : "";
       if (!assignee) return badRequest(res, "assignee is required");
-      const { scanOrg } = await import("./org.js");
-      const roster = scanOrg();
+      const roster = orgRegistry(context.getConfig());
       const employee = roster.get(assignee);
       if (!employee) {
         const near = nearestEmployee(assignee, [...roster.keys()]);
@@ -3153,7 +3152,7 @@ export async function handleApiRequest(
       if (!claim) return;
 
       const config = context.getConfig();
-      const dispatcher = scanOrg(config).get(TODO_DISPATCHER_NAME);
+      const dispatcher = orgRegistry(config).get(TODO_DISPATCHER_NAME);
       if (!dispatcher?.system) {
         claim.release();
         return serverError(res, "the built-in Todo Dispatcher is unavailable");
@@ -3696,9 +3695,8 @@ export async function handleApiRequest(
         const employee = caller.session.employee;
         let manager = false;
         if (employee) {
-          const { scanOrg } = await import("./org.js");
           const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-          const node = resolveOrgHierarchy(scanOrg()).nodes[employee];
+          const node = resolveOrgHierarchy(orgRegistry(context.getConfig())).nodes[employee];
           manager = (node?.directReports.length ?? 0) > 0;
         }
         if (!manager) {
@@ -3760,7 +3758,7 @@ export async function handleApiRequest(
         : authorizeWorkItemOwnerManagerOrRoot(caller, item, "request approval on");
       if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       if (target) {
-        const roster = scanOrg();
+        const roster = orgRegistry(context.getConfig());
         const root = resolveRootApprovalTarget();
         if (!roster.has(target) && root?.name !== target) {
           return badRequest(res, `approval target "${target}" is not an org employee or the configured root approval target`);
@@ -4020,11 +4018,11 @@ export async function handleApiRequest(
         }
       }
       const config = context.getConfig();
-      let orgRegistry: Map<string, Employee> | undefined;
+      let roster: Map<string, Employee> | undefined;
       let delegateEmployee: Employee | undefined;
       if (employeeName) {
-        orgRegistry = scanOrg(config);
-        delegateEmployee = orgRegistry.get(employeeName);
+        roster = orgRegistry(config);
+        delegateEmployee = roster.get(employeeName);
         if (!delegateEmployee) {
           return badRequest(res, `unknown employee "${employeeName}" — GET /api/org lists valid employees`);
         }
@@ -4276,9 +4274,9 @@ export async function handleApiRequest(
         queueItemId: delegationQueueItemId,
         attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
       });
-      if (employeeName && orgRegistry) {
+      if (employeeName && roster) {
         surfaceManagerVisibility({
-          roster: orgRegistry,
+          roster,
           employee: employeeName,
           delegatorSession,
           childSession: session,

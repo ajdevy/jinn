@@ -17,7 +17,7 @@ import { createSession } from "../sessions/registry.js";
 import { buildTalkControlManifest } from "../talk/control/manifest.js";
 import { createTalkDomainRuntime } from "../talk/control/domain-adapters.js";
 import type { TalkControlRuntime } from "../talk/control/runtime.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry } from "./org-registry.js";
 import { buildStandingBrief } from "../talk/session/brief.js";
 import { UNPINNED_MODEL } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
@@ -117,7 +117,7 @@ async function openRoute(req: IncomingMessage, res: ServerResponse, options: Tal
   const session = talkSessions.open({
     sessionId: row.id,
     model: pinnedModel(config),
-    brief: buildStandingBrief(config, scanOrg(config)).text,
+    brief: buildStandingBrief(config, orgRegistry(config)).text,
     tokenExpiresAt: token.expiresAt,
     ...(requested.browserInstanceId ? { browserInstanceId: requested.browserInstanceId } : {}),
   });

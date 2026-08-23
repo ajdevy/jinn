@@ -76,8 +76,8 @@ async function resolveSelection(
 ): Promise<SpawnSelection> {
   let employeeDefaults: { engine: string; model: string; effortLevel?: string; employee?: string } | undefined;
   if (employeeName) {
-    const { scanOrg } = await import("./org.js");
-    const emp = scanOrg().get(employeeName);
+    const { orgRegistry } = await import("./org-registry.js");
+    const emp = orgRegistry(config).get(employeeName);
     // A transient org-registry/file-watcher miss must not silently turn an
     // employee spawn into a gateway-default session. Resolve the employee
     // first or fail closed, matching the delegation route.

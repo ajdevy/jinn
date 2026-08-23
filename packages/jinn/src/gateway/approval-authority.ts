@@ -7,7 +7,7 @@ import { logger } from "../shared/logger.js";
 import type { Employee, Session } from "../shared/types.js";
 import type { WorkItem } from "../work-items/store.js";
 import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry } from "./org-registry.js";
 import { resolveCallerIdentity } from "./session-comm-guards.js";
 
 export type ApprovalRootKind = "employee" | "virtual";
@@ -113,7 +113,7 @@ function sourceEmployee(item: WorkItem, registry: Map<string, Employee>): string
 }
 
 export function resolveApprovalRouteTarget(item: WorkItem): ApprovalRouteTarget {
-  const registry = scanOrg();
+  const registry = orgRegistry();
   const hierarchy = resolveOrgHierarchy(registry);
   const rootTarget = resolveRootApprovalTargetFrom(registry, hierarchy.root);
   const root = rootTarget?.name ?? null;
@@ -186,7 +186,7 @@ export function resolveApprovalRouteTarget(item: WorkItem): ApprovalRouteTarget 
 }
 
 export function resolveRootApprovalTarget(): RootApprovalTarget | null {
-  const registry = scanOrg();
+  const registry = orgRegistry();
   const root = resolveOrgHierarchy(registry).root;
   return resolveRootApprovalTargetFrom(registry, root);
 }
@@ -236,7 +236,7 @@ export function resolveApprovalDecisionAuthority(
   if (!employee) {
     return { ok: false, status: 403, error: `session ${caller.session.id} has no employee identity; approval decisions require manager/COO authority` };
   }
-  const registry = scanOrg();
+  const registry = orgRegistry();
   const emp = registry.get(employee);
   if (!emp) {
     return { ok: false, status: 403, error: `employee "${employee}" is not in the org roster; approval decisions require manager/COO authority` };

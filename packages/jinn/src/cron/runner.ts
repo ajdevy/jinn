@@ -1,7 +1,7 @@
 import type { CronJob, Connector, JinnConfig } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { appendRunLog } from "./jobs.js";
-import { scanOrg } from "../gateway/org.js";
+import { orgRegistry } from "../gateway/org-registry.js";
 import { CronConnector } from "../connectors/cron/index.js";
 import type { SessionManager } from "../sessions/manager.js";
 import { createWorkItem, linkSession, type WorkItem } from "../work-items/store.js";
@@ -100,7 +100,7 @@ export async function runCronJob(
     // mid-edit must surface as a logged job failure, not an unhandled rejection.
     let employee;
     if (job.employee) {
-      employee = scanOrg().get(job.employee);
+      employee = orgRegistry(config).get(job.employee);
     }
 
     const routeResult = await sessionManager.route(

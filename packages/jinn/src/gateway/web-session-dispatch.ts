@@ -4,6 +4,7 @@ import { getFile, getSession, beginSessionAttempt } from "../sessions/registry.j
 import { FILES_DIR } from "../shared/paths.js";
 import { settleTurn } from "../sessions/turn/completion.js";
 import { resolveTurnHierarchy } from "../sessions/turn/preflight.js";
+import { orgRegistry } from "./org-registry.js";
 import { runTurn } from "../sessions/turn/runner.js";
 import { logger } from "../shared/logger.js";
 import type { Engine, Session } from "../shared/types.js";
@@ -155,8 +156,7 @@ async function runWebSession(
 
   let employee: import("../shared/types.js").Employee | undefined;
   if (currentSession.employee) {
-    const { scanOrg } = await import("./org.js");
-    employee = scanOrg(context.getConfig()).get(currentSession.employee);
+    employee = orgRegistry(context.getConfig()).get(currentSession.employee);
   }
 
   await runTurn({
@@ -170,7 +170,7 @@ async function runWebSession(
     engineOverride: runtimeEngine,
     gatewayBootId: context.gatewayBootId ?? "",
     connectorNames: Array.from(context.connectors.keys()),
-    hierarchy: await resolveTurnHierarchy(context.getConfig()),
+    roster: await resolveTurnHierarchy(context.getConfig()),
     channel: currentSession.sourceRef,
     user: currentSession.userId ?? "web-user",
   }, webTurnSurface(currentSession.id, context));

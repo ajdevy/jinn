@@ -1,5 +1,5 @@
 import { loadJobs } from "../cron/jobs.js";
-import { scanOrg } from "../gateway/org.js";
+import { orgRegistry } from "../gateway/org-registry.js";
 import { listSkills } from "../gateway/skills-api.js";
 import { listNotes } from "../notes/store.js";
 import { searchSessionsFiltered, type SearchSessionsFilter } from "../sessions/registry.js";
@@ -88,7 +88,7 @@ export function searchEntities(
 }
 
 export function employeeCandidates(config?: JinnConfig): Candidate[] {
-  return [...scanOrg(config).values()].map((employee) => ({
+  return [...orgRegistry(config).values()].map((employee) => ({
     id: employee.name,
     title: employee.displayName,
     url: "/org",
