@@ -11,6 +11,7 @@ import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
+import type { WorkflowDeciderAuthority } from "../approval-gate.js";
 import type { WorkflowTodoLifecycle } from "../runner.js";
 import { endRequirementIssues } from "../validation.js";
 
@@ -106,14 +107,25 @@ function save(id: string, nodes: WorkflowNode[], edges: ReturnType<typeof edge>[
   return repository.setEnabled(saved.id, true, saved.revision);
 }
 
-/** trigger → plan → operator gate → land, where the success End demands the
+/** A gate class, with the decider whose approval that class accepts. */
+interface Gate {
+  config: Record<string, unknown>;
+  decidedBy: string;
+  decidedByAuthority?: WorkflowDeciderAuthority;
+}
+const OPERATOR_GATE: Gate = { config: { operatorOnly: true }, decidedBy: "operator" };
+const COO_GATE: Gate = { config: { decidableBy: "coo" }, decidedBy: "session:portal", decidedByAuthority: "coo" };
+/** Neither class: an ordinary routed gate, which authorizes nothing to close. */
+const ROUTED_GATE: Gate = { config: {}, decidedBy: "worker" };
+
+/** trigger → plan → reserved gate → land, where the success End demands the
  *  commit `land` says it produced, in the checkout `plan` named. */
-function landingPipeline(id: string, errorRoute = false): WorkflowDefinition {
+function landingPipeline(id: string, errorRoute = false, gate: Gate = OPERATOR_GATE): WorkflowDefinition {
   const requires = { nodeId: "land", field: "mergeCommit", commitIn: { nodeId: "plan", field: "worktree" } };
   return save(id, [
     { id: "start", type: "trigger", name: "Start", config: { kind: "manual" } },
     worker("plan", "worktree"),
-    { id: "gate", type: "approval", name: "Gate", config: { description: "Approving merges this branch.", operatorOnly: true } },
+    { id: "gate", type: "approval", name: "Gate", config: { description: "Approving merges this branch.", ...gate.config } } as WorkflowNode,
     worker("land", "mergeCommit"),
     { id: "done", type: "end", name: "Done", config: { result: "success", requires } },
     { id: "not-merged", type: "end", name: "Not merged", config: { result: "failure" } },
@@ -129,12 +141,14 @@ function landingPipeline(id: string, errorRoute = false): WorkflowDefinition {
 }
 
 /** Run the PLA-180 sequence up to the point where the landing reports back. */
-async function approvedLanding(id: string, errorRoute = false): Promise<{ definition: WorkflowDefinition; runId: string }> {
-  const definition = landingPipeline(id, errorRoute);
+async function approvedLanding(id: string, errorRoute = false, gate: Gate = OPERATOR_GATE):
+Promise<{ definition: WorkflowDefinition; runId: string }> {
+  const definition = landingPipeline(id, errorRoute, gate);
   const run = await service.startManual({ workflowId: definition.id, input: {}, todoId: "PLA-180" });
   await executor.succeed("plan", { worktree: "/checkouts/pla-180" });
   await service.decideApproval({ workflowId: definition.id, runId: run.id, nodeId: "gate", decision: "approve",
-    decidedBy: "operator", expectedRevision: service.getRun(definition.id, run.id)!.revision });
+    decidedBy: gate.decidedBy, ...(gate.decidedByAuthority ? { decidedByAuthority: gate.decidedByAuthority } : {}),
+    expectedRevision: service.getRun(definition.id, run.id)!.revision });
   return { definition, runId: run.id };
 }
 
@@ -227,6 +241,30 @@ describe("a success End that demands landing evidence", () => {
     expect(service.getRun(definition.id, runId)!.status).toBe("failed");
     expect(lifecycle.completions).toEqual([]);
     expect(lifecycle.reflections.at(-1)).toEqual({ status: "blocked", nodeId: "handled" });
+  });
+});
+
+/* `operatorOnly` was the Todo-close token as well as the reservation, so a gate
+ * the COO may decide had to become a second class rather than that flag dropped.
+ * Both reserved classes close; an ordinary routed gate still does not. */
+describe("which gate class authorizes a completed run to close its Todo", () => {
+  it("closes it behind an approved COO gate, crediting the session that decided", async () => {
+    const { definition, runId } = await approvedLanding("landing-coo", false, COO_GATE);
+    await executor.succeed("land", { mergeCommit: MERGED });
+
+    expect(service.getRun(definition.id, runId)!.status).toBe("completed");
+    expect(lifecycle.completions).toEqual([{
+      todoId: "PLA-180", workflowId: definition.id, runId, nodeId: "gate",
+      approvedBy: "session:portal", approvedAt: now.toISOString(),
+    }]);
+  });
+
+  it("leaves it open behind an approved gate that reserved itself for nobody", async () => {
+    const { definition, runId } = await approvedLanding("landing-routed", false, ROUTED_GATE);
+    await executor.succeed("land", { mergeCommit: MERGED });
+
+    expect(service.getRun(definition.id, runId)!.status).toBe("completed");
+    expect(lifecycle.completions).toEqual([]);
   });
 });
 

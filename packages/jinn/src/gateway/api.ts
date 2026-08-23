@@ -235,8 +235,8 @@ import {
   escalateApproval,
   requestApproval,
 } from "../work-items/approvals.js";
-import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
-import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
+import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget, type ApprovalDecisionAuthorityOptions } from "./approval-authority.js";
+import { approvalGateClass } from "./workflow-todo-binding.js";
 import { orgRegistry } from "./org-registry.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
@@ -938,12 +938,12 @@ function rejectUnverifiedIdentifiedApiCaller(req: HttpRequest, res: ServerRespon
   return true;
 }
 
-/** A gate is reserved for the human operator either because the Todo approval
- *  was requested that way, or because it mirrors a workflow Approval node the
- *  definition declared operator-only. Both decision surfaces read this one
- *  answer, so escalating cannot open a path that deciding refuses. */
-function approvalReservedForOperator(item: WorkItem, service: WorkflowService | undefined): boolean {
-  return currentApproval(item.id)?.operatorOnly === true || approvalIsOperatorOnly(item, service);
+/** Who this Todo's pending gate is reserved for: the human operator (the Todo asked for it, or the
+ *  workflow node it mirrors declared it), or the COO's own lane. Both decision surfaces read this
+ *  one answer, so escalating cannot open a path that deciding refuses. */
+function approvalReservation(item: WorkItem, service: WorkflowService | undefined): Pick<ApprovalDecisionAuthorityOptions, "operatorOnly" | "cooDecidable"> {
+  const gate = approvalGateClass(item, service);
+  return { operatorOnly: currentApproval(item.id)?.operatorOnly === true || gate === "operator", cooDecidable: gate === "coo" };
 }
 
 function operatorOnlyControlPlaneRoute(method: string, pathname: string): string | null {
@@ -3560,7 +3560,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
 
@@ -3599,7 +3599,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
       const body = (parsed.body ?? {}) as { reason?: unknown };

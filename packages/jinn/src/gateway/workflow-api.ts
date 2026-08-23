@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { WorkflowRepositoryError, WorkflowServiceError, type WorkflowService } from "../workflows/service.js";
 import { CALLER_SESSION_HEADER } from "../mcp/identity.js";
 import { logger } from "../shared/logger.js";
-import { getSession } from "../sessions/registry.js";
+import { approvalActor, approvalAuthority } from "./workflow-decider-authority.js";
 import type { DefinitionListQuery, RunListQuery } from "../workflows/repository.js";
 import type { WorkflowAttemptWire, WorkflowRunDetail, WorkflowRunDetailWire, WorkflowRunLeanWire } from "../workflows/wire.js";
 import { WorkflowOutputError } from "../workflows/output.js";
@@ -40,12 +40,6 @@ function failure(res: ServerResponse, error: unknown): void {
   // The 500 says nothing, so this is the only record the cause ever gets.
   logger.error(`Workflow API unexpected error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
   send(res, 500, { code: "internal-error", message: "Workflow operation failed." });
-}
-
-function approvalActor(req: IncomingMessage): string {
-  const caller = req.headers[CALLER_SESSION_HEADER];
-  if (typeof caller !== "string" || !caller) return "operator";
-  return getSession(caller)?.employee ?? `session:${caller}`;
 }
 
 function segments(pathname: string): string[] | null {
@@ -161,7 +155,8 @@ async function definitions(req: IncomingMessage, res: ServerResponse, url: URL, 
   return false;
 }
 
-async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: string[], service: WorkflowService): Promise<boolean> {
+async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: string[], options: WorkflowApiOptions): Promise<boolean> {
+  const { service } = options;
   const method = req.method ?? "GET"; const workflowId = parts[2]; if (!workflowId || parts[3] !== "runs") return false;
   if (parts.length === 4 && method === "GET") { send(res, 200, service.listRuns(workflowId, runQuery(url))); return true; }
   if (parts.length === 4 && method === "POST") {
@@ -192,6 +187,7 @@ async function runs(req: IncomingMessage, res: ServerResponse, url: URL, parts: 
     const value = record(parsed, ["decision", "reason", "choice", "expectedRevision"]);
     send(res, 200, await service.decideApproval({ workflowId, runId, nodeId: parts[6]!,
       decision: value.decision as never, expectedRevision: value.expectedRevision as number, decidedBy: approvalActor(req),
+      decidedByAuthority: approvalAuthority(req, options.authenticated),
       ...(value.reason === undefined ? {} : { reason: value.reason as string }),
       ...(value.choice === undefined ? {} : { choice: value.choice as string }) })); return true;
   }
@@ -294,7 +290,7 @@ export async function handleWorkflowApi(req: IncomingMessage, res: ServerRespons
   try {
     if (await attempts(req, res, parts, options.service)) return true;
     if (await event(req, res, parts, options.service)) return true;
-    if (await runs(req, res, url, parts, options.service)) return true;
+    if (await runs(req, res, url, parts, options)) return true;
     return await definitions(req, res, url, parts, options);
   } catch (error) { failure(res, error); return true; }
 }
