@@ -15,8 +15,10 @@
  * are the part worth testing, and they are testable here without a gateway.
  */
 
-/** Ordered. A capture only ever moves forward through these, or to `failed`. */
-export const TODO_CAPTURE_STAGES = ["starting", "shaping", "created", "dispatching", "routed", "failed"] as const;
+/** Ordered. A capture moves forward through the first five, and then settles on
+ *  exactly one of three terminals: `routed` (its own Todo is moving), `landed`
+ *  (it restated a Todo that already existed) or `failed`. */
+export const TODO_CAPTURE_STAGES = ["starting", "shaping", "created", "dispatching", "routed", "landed", "failed"] as const;
 export type TodoCaptureStage = (typeof TODO_CAPTURE_STAGES)[number];
 
 export interface TodoCaptureSessionFact {
@@ -49,6 +51,11 @@ export interface TodoCaptureFacts {
   session: TodoCaptureSessionFact | null;
   /** Todos whose creator is the shaping session, oldest first. */
   todos: TodoCaptureTodoFact[];
+  /** The Todo this capture recorded itself as landing ON — a Todo that already
+   *  existed and already covered it. Read from the shaping session's own
+   *  work-item link, which `land_on_work_item` is the only thing that writes.
+   *  Null when the capture never claimed to restate anything. */
+  landedWorkItem: { id: string; title: string } | null;
   /** The employee name the Dispatcher runs as, so a linked Dispatcher is not
    *  mistaken for the delegate it goes on to choose. */
   dispatcherEmployee: string;
@@ -64,6 +71,9 @@ export interface TodoCaptureState {
   captureId: string;
   sessionId: string | null;
   stage: TodoCaptureStage;
+  /** On `landed` this is the Todo the capture landed on, not one it created —
+   *  which is the point: the operator is being shown where their sentence went,
+   *  and that is the same question either way. */
   workItemId: string | null;
   workItemTitle: string | null;
   routedTo: TodoCaptureRoute | null;
@@ -102,6 +112,24 @@ function routeOf(todo: TodoCaptureTodoFact, facts: TodoCaptureFacts): TodoCaptur
 
 function hasDispatcher(todo: TodoCaptureTodoFact, dispatcherEmployee: string): boolean {
   return todo.linked.some((linked) => linked.employee === dispatcherEmployee);
+}
+
+/** The capture restated something the board already had. Terminal, and a
+ *  SUCCESS: the operator's sentence reached the Todo that owns it, which is the
+ *  outcome they wanted even though nothing new was created. Reporting it as
+ *  `failed` — which is what a missing Todo used to mean — would teach the
+ *  operator to distrust a strip that was telling the truth. */
+function landed(facts: TodoCaptureFacts, on: { id: string; title: string }): TodoCaptureState {
+  return {
+    captureId: facts.captureId,
+    sessionId: facts.session?.id ?? null,
+    stage: "landed",
+    workItemId: on.id,
+    workItemTitle: on.title,
+    routedTo: null,
+    extraWorkItemIds: [],
+    error: null,
+  };
 }
 
 function failed(facts: TodoCaptureFacts, error: string, todo?: TodoCaptureTodoFact): TodoCaptureState {
@@ -173,6 +201,13 @@ export function deriveTodoCaptureState(facts: TodoCaptureFacts): TodoCaptureStat
   if (!session) {
     return failed(facts, `the shaping session for capture ${facts.captureId} is gone, so this capture cannot be followed any further`);
   }
+
+  // Checked before anything else about progress, and only when the capture made
+  // no Todo of its own: a landing is a statement about a Todo that was already
+  // there, so there is no ladder left to climb and nothing later can add to it.
+  // A capture that created a Todo AND linked itself somewhere is reported by the
+  // created-Todo rules below, because that Todo is the thing still in motion.
+  if (facts.todos.length === 0 && facts.landedWorkItem) return landed(facts, facts.landedWorkItem);
 
   const todo = facts.todos[0];
   const progress = todo ? stageAfterTodo(todo, facts) : null;

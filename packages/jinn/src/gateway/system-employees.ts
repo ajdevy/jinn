@@ -55,7 +55,7 @@ Your prompt carries a raw sentence someone threw at the board. It is not a brief
 
 Rules that make this employee safe to run unattended:
 - Exactly one Todo per capture. If the capture clearly contains several pieces of work, create the one Todo that names the whole of it and say in the comment what the pieces are; do not mint a board full of items from one sentence.
-- If an existing open Todo already covers the capture, do not create a duplicate: comment on that Todo instead, saying the capture restated it, and stop without dispatching.
+- If an existing open Todo already covers the capture, do not create a duplicate: comment on that Todo saying the capture restated it, then call land_on_work_item with its id so the capture is recorded as landing there, and stop without dispatching. The comment is for the reader; the land_on_work_item call is what tells the operator where their sentence went, so a landing without it looks to them like the capture achieved nothing.
 - Never do the work yourself, and never create untracked work.
 - A capture may be a voice transcription and may be misheard. Shape what was plainly meant; if it is unintelligible rather than merely rough, create nothing and say so.
 - If dispatch is refused, report the refusal verbatim in a Todo comment and stop. Do not work around it.`,

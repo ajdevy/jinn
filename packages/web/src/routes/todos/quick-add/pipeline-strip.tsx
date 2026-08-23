@@ -1,6 +1,6 @@
-import { Check, CircleAlert, LoaderCircle } from "lucide-react"
+import { Check, CircleAlert, CornerDownRight, LoaderCircle } from "lucide-react"
 import type { TodoCaptureWire } from "@/lib/api"
-import { CAPTURE_STEPS, stepLabel, type CaptureStep } from "./capture-stages"
+import { CAPTURE_STEPS, landedLabel, stepLabel, type CaptureStep } from "./capture-stages"
 
 /**
  * The live pipeline, one line per fact.
@@ -45,18 +45,43 @@ export function PipelineStrip({
         )
       })}
 
-      {error && (
-        <li
-          data-testid="capture-error"
-          className="flex items-start gap-2.5 text-[length:var(--text-subheadline)] motion-safe:animate-capture-step-in"
-          style={{ color: "var(--system-red)" }}
-        >
-          <CircleAlert className="mt-[3px] size-[15px] shrink-0" aria-hidden />
-          {/* The gateway's own words. Never softened, never replaced. */}
-          <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
-        </li>
-      )}
+      <TerminalLine state={state} error={error} />
     </ol>
+  )
+}
+
+/**
+ * The two endings that are not a rung on the ladder.
+ *
+ * A landing is a SUCCESS — the sentence reached the Todo that already owned it
+ * — so it gets the ordinary text colour and its own mark, deliberately not the
+ * red slot below it. Reading a correct dedupe as an error is the exact thing
+ * this line exists to stop.
+ */
+function TerminalLine({ state, error }: { state: TodoCaptureWire | null; error: string | null }) {
+  if (state?.stage === "landed") {
+    return (
+      <li
+        data-testid="capture-landed"
+        className="flex items-center gap-2.5 text-[length:var(--text-subheadline)] motion-safe:animate-capture-step-in"
+        style={{ color: "var(--text-primary)" }}
+      >
+        <CornerDownRight className="size-[15px] shrink-0" style={{ color: "var(--accent)" }} aria-hidden />
+        <span className="min-w-0 truncate">{landedLabel(state)}</span>
+      </li>
+    )
+  }
+  if (!error) return null
+  return (
+    <li
+      data-testid="capture-error"
+      className="flex items-start gap-2.5 text-[length:var(--text-subheadline)] motion-safe:animate-capture-step-in"
+      style={{ color: "var(--system-red)" }}
+    >
+      <CircleAlert className="mt-[3px] size-[15px] shrink-0" aria-hidden />
+      {/* The gateway's own words. Never softened, never replaced. */}
+      <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
+    </li>
   )
 }
 

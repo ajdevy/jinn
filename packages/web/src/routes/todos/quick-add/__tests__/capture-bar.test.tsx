@@ -5,11 +5,12 @@ import type { GatewayEvent, GatewayEventListener } from "@jinn/gateway-events"
 import type { TodoCaptureWire } from "@/lib/api"
 
 /**
- * The capture bar's contract with the wire.
+ * The capture bar's contract with the wire, on the TEXT path.
  *
  * Two properties matter more than the rest and are asserted directly: a capture
  * posts exactly once (it spawns a session and spends money), and the strip
- * never shows a stage the server has not reported.
+ * never shows a stage the server has not reported. The voice path and its one
+ * confirm live in capture-bar-voice.test.tsx — same bar, different contract.
  */
 
 const startTodoCapture = vi.hoisted(() => vi.fn())
@@ -203,6 +204,42 @@ describe("QuickCaptureBar — the text path", () => {
     await waitFor(() => expect(screen.getByTestId("capture-step-routed").textContent).toContain("Delegated to route-worker"))
   })
 
+  // A dedupe is a different ending, not a broken one. It gets its own line, in
+  // the ordinary text colour rather than the error slot, and it names the Todo
+  // the operator's sentence actually reached.
+  it("names the existing Todo on its own terminal line when the capture restated one", async () => {
+    renderBar()
+    const input = await type("the closed rail scrolls under the header on mobile")
+    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }) })
+
+    getTodoCapture.mockResolvedValue(wire({
+      stage: "landed",
+      workItemId: "PLA-4",
+      workItemTitle: "Collapsed rail scrolls under the header",
+    }))
+    await act(async () => { listener?.("todo-capture:stage", { captureId: "cap-1", stage: "landed", workItemId: "PLA-4" }) })
+
+    await waitFor(() => expect(screen.getByTestId("capture-landed").textContent).toContain("Already tracked as PLA-4"))
+    expect(screen.queryByTestId("capture-error")).toBeNull()
+  })
+
+  // The honesty contract, on the branch where it is easiest to break: a landing
+  // created nothing, dispatched nothing and routed nothing, so none of those
+  // rungs may appear under it.
+  it("claims no stage a landing never reached", async () => {
+    renderBar()
+    const input = await type("a capture that restates something")
+    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }) })
+
+    getTodoCapture.mockResolvedValue(wire({ stage: "landed", workItemId: "PLA-4" }))
+    await act(async () => { listener?.("todo-capture:stage", { captureId: "cap-1", stage: "landed", workItemId: "PLA-4" }) })
+
+    await waitFor(() => expect(screen.getByTestId("capture-landed")).toBeTruthy())
+    for (const step of ["created", "dispatching", "routed"]) {
+      expect(screen.queryByTestId(`capture-step-${step}`)).toBeNull()
+    }
+  })
+
   it("shows the server's failure text verbatim, and no stage past the failing one", async () => {
     const reason = 'engine "codex" not available; change the Todo Shaper engine override and try again'
     renderBar()
@@ -227,65 +264,3 @@ describe("QuickCaptureBar — the text path", () => {
   })
 })
 
-describe("QuickCaptureBar — the voice path and its one confirm", () => {
-  async function dictate() {
-    const mic = screen.getByTestId("quick-capture-mic")
-    fireEvent.pointerDown(mic, { pointerId: 1 })
-    stt.state = "recording"
-    // A hold, not a tap: past MIC_HOLD_THRESHOLD_MS the release transcribes.
-    vi.setSystemTime(Date.now() + 400)
-    await act(async () => { fireEvent.pointerUp(mic) })
-  }
-
-  // The whole point of the asymmetry. A misheard sentence must not be able to
-  // spawn a session before the operator has seen it.
-  it("lands the transcript in the field and posts NOTHING", async () => {
-    renderBar()
-
-    await dictate()
-
-    expect((screen.getByTestId("quick-capture-input") as HTMLInputElement).value).toBe("the closed rail scrolls under the header")
-    expect(startTodoCapture).not.toHaveBeenCalled()
-    expect(screen.getByTestId("quick-capture-confirm-hint")).toBeTruthy()
-  })
-
-  it("posts once, as speech-derived, when the confirm is tapped", async () => {
-    renderBar()
-    await dictate()
-
-    await act(async () => { fireEvent.click(screen.getByTestId("quick-capture-send")) })
-
-    expect(startTodoCapture).toHaveBeenCalledTimes(1)
-    expect(startTodoCapture).toHaveBeenCalledWith({
-      text: "the closed rail scrolls under the header",
-      speechDerived: true,
-    })
-  })
-
-  it("lets the operator correct a misheard transcript before confirming", async () => {
-    renderBar()
-    await dictate()
-
-    fireEvent.change(screen.getByTestId("quick-capture-input"), { target: { value: "the closed rail scrolls under the header on mobile" } })
-    expect(startTodoCapture).not.toHaveBeenCalled()
-
-    await act(async () => { fireEvent.click(screen.getByTestId("quick-capture-send")) })
-
-    expect(startTodoCapture).toHaveBeenCalledWith({
-      text: "the closed rail scrolls under the header on mobile",
-      speechDerived: true,
-    })
-  })
-
-  // The other half of the contract: typing is still fully autonomous.
-  it("still posts a typed capture with no confirm, and not as speech-derived", async () => {
-    renderBar()
-    const input = await type("typed straight through")
-
-    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }) })
-
-    expect(screen.queryByTestId("quick-capture-confirm-hint")).toBeNull()
-    expect(startTodoCapture).toHaveBeenCalledTimes(1)
-    expect(startTodoCapture).toHaveBeenCalledWith({ text: "typed straight through", speechDerived: false })
-  })
-})

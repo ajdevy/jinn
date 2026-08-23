@@ -629,6 +629,6 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  const { dispatch, dispatchConfig } = workItemDispatchTools();
-  return [list, get, tree, search, create, update, edit, assign, archive, dispatch, comment, listComments, attach, listAttachments, link, unlink, ...labelTools(), dispatchConfig, departments];
+  const { dispatch, dispatchConfig, landOn } = workItemDispatchTools();
+  return [list, get, tree, search, create, update, edit, assign, archive, dispatch, landOn, comment, listComments, attach, listAttachments, link, unlink, ...labelTools(), dispatchConfig, departments];
 }

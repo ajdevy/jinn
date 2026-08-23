@@ -17,9 +17,18 @@ import { logger } from "../../shared/logger.js";
 
 let registry: Registry;
 let workItems: WorkItems;
+/** Headers that make a call the SESSION's own rather than the operator's. The
+ *  capability is minted the same way the gateway mints it for a real engine
+ *  child, because the landing route deliberately refuses an operator caller. */
+let asSession: (sessionId: string) => Record<string, string>;
 
 beforeAll(async () => {
   ({ registry, workItems } = await startRouteHarness());
+  const { CALLER_SESSION_CAPABILITY_HEADER, CALLER_SESSION_HEADER, ensureSessionCapability } = await import("../../mcp/identity.js");
+  asSession = (sessionId) => ({
+    [CALLER_SESSION_HEADER]: sessionId,
+    [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(sessionId),
+  });
 });
 
 afterAll(async () => {
@@ -168,6 +177,47 @@ describe("GET /api/todo-captures/:id", () => {
       workItemId: item.id,
       routedTo: { kind: "employee", employee: "route-worker", sessionId: worker.id },
     });
+  });
+
+  /**
+   * The dedupe path, over the real route rather than against fixtures: the
+   * Shaper's own verb writes the link, and the capture's stage is read back out
+   * of it. This is the join the stage unit tests cannot make — that
+   * `land_on_work_item`'s route and `factsFor` are talking about the same field.
+   */
+  it("reports landed, naming the existing Todo, once the capture records where it went", async () => {
+    const existing = workItems.createWorkItem({
+      title: "Collapsed rail scrolls under the header on mobile",
+      source: "session",
+      sourceRef: "session:someone-else:6cd126d21e70",
+      createdBy: "todo-shaper",
+      department: "platform",
+    });
+    const started = await call("POST", "/api/todo-captures", { text: "the closed rail scrolls under the header on mobile" });
+    const captureId = started.body.captureId as string;
+
+    const landing = await call("POST", `/api/work-items/${existing.id}/capture-landing`, {}, asSession(captureId));
+    expect(landing.status).toBe(200);
+
+    const response = await call("GET", `/api/todo-captures/${captureId}`);
+
+    expect(response.body).toMatchObject({
+      stage: "landed",
+      workItemId: existing.id,
+      workItemTitle: "Collapsed rail scrolls under the header on mobile",
+      routedTo: null,
+      error: null,
+    });
+  });
+
+  it("404s a landing on a Todo that is not there, without linking anything", async () => {
+    const started = await call("POST", "/api/todo-captures", { text: "a capture with nowhere to land" });
+    const captureId = started.body.captureId as string;
+
+    const landing = await call("POST", "/api/work-items/PLA-99999/capture-landing", {}, asSession(captureId));
+
+    expect(landing.status).toBe(404);
+    expect((await call("GET", `/api/todo-captures/${captureId}`)).body.stage).not.toBe("landed");
   });
 
   it("surfaces every Todo one capture made rather than hiding the extras", async () => {

@@ -30,7 +30,7 @@ function nextRun(prev: TodoCaptureRun, state: TodoCaptureWire): TodoCaptureRun {
     state,
     error: state.stage === "failed" ? state.error : null,
     pending: false,
-    settled: state.stage === "failed" || state.stage === "routed",
+    settled: state.stage === "failed" || state.stage === "routed" || state.stage === "landed",
   }
 }
 

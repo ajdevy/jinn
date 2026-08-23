@@ -2,10 +2,13 @@ import crypto from "node:crypto";
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import { createSession, getMessages, getSession, insertMessage, listSessionsByWorkItem, updateSession } from "../sessions/registry.js";
 import { enqueueQueueItem } from "../sessions/queue-item-registry.js";
-import { listWorkItems } from "../work-items/store.js";
+import { getWorkItem, linkSession, listWorkItems } from "../work-items/store.js";
 import { logger } from "../shared/logger.js";
 import { readJsonBody } from "./http-helpers.js";
 import { sourceSessionId } from "./approval-authority.js";
+import { resolveCallerIdentity } from "./session-comm-guards.js";
+import { UNIDENTIFIED_TOOL_CALL_ERROR, verifySessionCapability } from "../mcp/identity.js";
+import { isTodoId } from "../work-items/id.js";
 import { orgRegistry } from "./org-registry.js";
 import { json, matchRoute, serverError, type ParsedRoute } from "./route-helpers.js";
 import { resolveMessageAudiences } from "./speech-context.js";
@@ -44,6 +47,29 @@ export interface TodoCaptureWire extends TodoCaptureState {}
  *  the next GET re-pushes, which is the correct behaviour rather than a leak. */
 const lastEmitted = new Map<string, string>();
 
+/**
+ * The Todo a capture landed ON, if it landed anywhere.
+ *
+ * A capture that restated an existing Todo creates nothing, so there is no Todo
+ * of its own to read. What it leaves instead is a link from its OWN session to
+ * the Todo it restated — one field on the session object the caller already
+ * holds. `land_on_work_item` is the only thing that writes it on a shaping
+ * session, which is what makes reading it a fact rather than a guess about what
+ * the Shaper's comment meant.
+ *
+ * Todos the capture created itself are excluded: those are answered by the
+ * ladder, and a capture linked to its own Todo has not restated anything.
+ */
+function landedWorkItem(
+  session: ReturnType<typeof getSession>,
+  created: readonly { id: string }[],
+): { id: string; title: string } | null {
+  const landedId = session?.workItemId;
+  if (!landedId || created.some((item) => item.id === landedId)) return null;
+  const item = getWorkItem(landedId);
+  return item ? { id: item.id, title: item.title } : null;
+}
+
 function factsFor(captureId: string, dispatcherEmployee: string, shaperEmployee: string): TodoCaptureFacts {
   const session = getSession(captureId);
   // Narrow in SQL to Todos this employee made from a session, then match the
@@ -59,6 +85,7 @@ function factsFor(captureId: string, dispatcherEmployee: string, shaperEmployee:
 
   return {
     captureId,
+    landedWorkItem: landedWorkItem(session, todos),
     session: session
       ? {
         id: session.id,
@@ -208,6 +235,44 @@ async function startCapture(req: HttpRequest, res: ServerResponse, context: ApiC
   return json(res, refreshTodoCapture(context, session.id), 201);
 }
 
+/**
+ * A capture that restated a Todo the board already had.
+ *
+ * It lives beside the capture routes rather than among the work-item ones
+ * because it is a fact about a CAPTURE — it is the third way one can end, and
+ * `factsFor` above is its only reader. The route is essentially one call:
+ * `linkSession` is what turns "the Shaper said this was a duplicate" from prose
+ * in a comment into something the derived stage is allowed to read, and it
+ * already appends the `session_linked` audit event.
+ *
+ * Session callers only. The operator has no capture to land, and an operator
+ * link here would put a stage on a capture that never claimed it.
+ */
+function recordCaptureLanding(req: HttpRequest, res: ServerResponse, todoId: string): boolean {
+  const identity = resolveCallerIdentity(req.headers, {
+    sessionExists: (sessionId) => !!getSession(sessionId),
+    verifySessionCapability,
+    requireCapability: true,
+  });
+  if (identity.kind !== "session") {
+    const error = identity.kind === "unidentified-tool"
+      ? UNIDENTIFIED_TOOL_CALL_ERROR
+      : "capture-landing records where a session's own capture landed, so it needs a session caller";
+    return json(res, { error }, 403), true;
+  }
+  if (!isTodoId(todoId)) {
+    return json(res, { error: "Invalid Todo ID; expected <AAA>-N with a positive safe-integer suffix" }, 400), true;
+  }
+  const item = getWorkItem(todoId);
+  if (!item) return json(res, { error: `Todo ${todoId} not found` }, 404), true;
+  try {
+    linkSession(item.id, identity.callerId, getSession(identity.callerId)?.employee ?? null);
+  } catch (error) {
+    return serverError(res, `capture landing on ${item.id} failed: ${error instanceof Error ? error.message : String(error)}`), true;
+  }
+  return json(res, { workItemId: item.id, workItemTitle: item.title, sessionId: identity.callerId }), true;
+}
+
 export async function handleTodoCaptureApi(
   req: HttpRequest,
   res: ServerResponse,
@@ -218,6 +283,9 @@ export async function handleTodoCaptureApi(
     await startCapture(req, res, context);
     return true;
   }
+
+  const landing = matchRoute("/api/work-items/:id/capture-landing", route.pathname);
+  if (route.method === "POST" && landing) return recordCaptureLanding(req, res, landing.id);
 
   const params = matchRoute("/api/todo-captures/:id", route.pathname);
   if (route.method === "GET" && params) {

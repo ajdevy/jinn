@@ -25,6 +25,7 @@ function facts(over: Partial<TodoCaptureFacts> = {}): TodoCaptureFacts {
     captureId: "shaper-1",
     session: session(),
     todos: [],
+    landedWorkItem: null,
     dispatcherEmployee: "todo-dispatcher",
     shaperEmployee: "todo-shaper",
     ...over,
@@ -176,5 +177,58 @@ describe("deriveTodoCaptureState — the failure edges", () => {
     const state = deriveTodoCaptureState(facts({ session: null, todos: [todo(), todo({ id: "PLA-10" })] }));
 
     expect(state).toMatchObject({ stage: "failed", extraWorkItemIds: ["PLA-10"] });
+  });
+});
+
+/**
+ * A dedupe is an outcome, not a breakdown. These two describe the seam between
+ * them: a capture that recorded where it landed is terminal and fine, and a
+ * capture that recorded nothing is terminal and broken — and the fix for the
+ * first must not reach the second.
+ */
+describe("deriveTodoCaptureState — landing on a Todo that already existed", () => {
+  const existing = { id: "PLA-4", title: "Collapsed rail scrolls under the header" };
+
+  it("is landed, naming that Todo, once the capture records where it went", () => {
+    const state = deriveTodoCaptureState(facts({ landedWorkItem: existing }));
+
+    expect(state).toMatchObject({
+      stage: "landed",
+      workItemId: "PLA-4",
+      workItemTitle: "Collapsed rail scrolls under the header",
+      routedTo: null,
+      error: null,
+    });
+  });
+
+  it("stays landed after the Shaper's turn ends, because the landing is the whole outcome", () => {
+    const over = facts({ landedWorkItem: existing, session: session({ status: "idle" }) });
+
+    expect(deriveTodoCaptureState(over).stage).toBe("landed");
+  });
+
+  it("does not report a landing as failed even when the session recorded an error", () => {
+    const over = facts({ landedWorkItem: existing, session: session({ status: "error", lastError: "engine died" }) });
+
+    expect(deriveTodoCaptureState(over)).toMatchObject({ stage: "landed", error: null });
+  });
+
+  it("prefers the Todo the capture CREATED when it somehow did both", () => {
+    const over = facts({ todos: [todo()], landedWorkItem: existing });
+
+    expect(deriveTodoCaptureState(over)).toMatchObject({ stage: "created", workItemId: "PLA-9" });
+  });
+
+  // The direction the fix must not turn green. A Shaper that died having
+  // created nothing AND landed nowhere is still a failure, and still has to say
+  // why in the gateway's own words.
+  it("still fails, with the real reason, when the session ended having recorded nothing at all", () => {
+    const over = facts({ session: session({ status: "error", lastError: "engine not available" }) });
+
+    expect(deriveTodoCaptureState(over)).toMatchObject({
+      stage: "failed",
+      workItemId: null,
+      error: "the Todo Shaper stopped without creating a Todo: engine not available",
+    });
   });
 });

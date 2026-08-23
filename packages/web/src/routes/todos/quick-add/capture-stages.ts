@@ -16,6 +16,13 @@ export function stepIndex(step: CaptureStep): number {
   return CAPTURE_STEPS.indexOf(step)
 }
 
+/** The terminal line for a capture that restated a Todo the board already had.
+ *  Distinct from `routed` on purpose: it is a different outcome, not a worse
+ *  one, and the operator's next question is which Todo — so it says which. */
+export function landedLabel(state: TodoCaptureWire | null): string {
+  return state?.workItemId ? `Already tracked as ${state.workItemId}` : "Already tracked"
+}
+
 /** The line for a stage, given the facts that stage carries. */
 export function stepLabel(step: CaptureStep, state: TodoCaptureWire | null): string {
   switch (step) {
@@ -51,7 +58,12 @@ function routedLabel(state: TodoCaptureWire | null): string {
  * has said is ever drawn.
  */
 export function foldCaptureSteps(seen: CaptureStep[], state: TodoCaptureWire): CaptureStep[] {
-  if (state.stage === "failed") return seen
+  // Neither terminal adds a rung. `failed` is self-evident; `landed` is the
+  // subtler one — a capture that restated an existing Todo never created one,
+  // never dispatched one and never routed one, so drawing `created` or anything
+  // after it would be claiming three facts that did not happen. The landing is
+  // rendered as its own line instead.
+  if (state.stage === "failed" || state.stage === "landed") return seen
   const reached = stepIndex(state.stage as CaptureStep)
   if (reached < 0) return seen
   const next = CAPTURE_STEPS.slice(0, reached + 1)

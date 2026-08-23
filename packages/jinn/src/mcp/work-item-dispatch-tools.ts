@@ -11,6 +11,11 @@ import { requireSkillNames, requireString, requireTodoId } from "./work-item-arg
  * content and relation verbs. They are also the pair a system employee reaches
  * for: the Shaper hands its Todo on with `dispatch_work_item`, and a caller
  * that needs the next attempt on another engine sets that first.
+ *
+ * `land_on_work_item` is the third way a capture ends, and it lives here for
+ * the same reason: it is the Shaper's OTHER handoff. When the board already has
+ * the Todo the capture restates, there is nothing to dispatch — but there is
+ * still an answer to "where did my sentence go", and this is what records it.
  */
 
 const TODO_ID_SCHEMA = { type: "string", pattern: "^[A-Z]{3}-[1-9][0-9]*$" } as const;
@@ -23,7 +28,7 @@ const TODO_ID_SCHEMA = { type: "string", pattern: "^[A-Z]{3}-[1-9][0-9]*$" } as 
 function dispatchTool(): JinnMcpTool {
   return {
     name: "dispatch_work_item",
-    description: "Start the Todo Dispatcher on a Todo.",
+    description: "Start the Todo Dispatcher.",
     inputSchema: {
       type: "object",
       properties: { id: TODO_ID_SCHEMA },
@@ -72,6 +77,32 @@ function dispatchConfigTool(): JinnMcpTool {
   };
 }
 
-export function workItemDispatchTools(): { dispatch: JinnMcpTool; dispatchConfig: JinnMcpTool } {
-  return { dispatch: dispatchTool(), dispatchConfig: dispatchConfigTool() };
+/** Where a capture landed when it created nothing.
+ *
+ *  Without this the shaping session leaves only prose — a comment saying "this
+ *  restated PLA-12" — and prose is not something the capture's derived stage is
+ *  allowed to read: matching on comment text would be exactly the guessing that
+ *  deriving the stage exists to forbid. The link this writes is a fact, and the
+ *  strip reads the fact. */
+function landOnTool(): JinnMcpTool {
+  return {
+    name: "land_on_work_item",
+    description: "Record that your capture restated this Todo.",
+    inputSchema: {
+      type: "object",
+      properties: { id: TODO_ID_SCHEMA },
+      required: ["id"],
+    },
+    handler: async (args, ctx) => {
+      assertIdentity(ctx);
+      const id = requireTodoId(args);
+      const { status, body } = await gatewayRequest(ctx, "POST", `/api/work-items/${encodeURIComponent(id)}/capture-landing`, {});
+      if (status >= 400) throw gatewayFailure(`recording a capture landing on work item "${id}"`, status, body);
+      return mutationResult(body, "The capture is recorded as landing here; do not create a duplicate.");
+    },
+  };
+}
+
+export function workItemDispatchTools(): { dispatch: JinnMcpTool; dispatchConfig: JinnMcpTool; landOn: JinnMcpTool } {
+  return { dispatch: dispatchTool(), dispatchConfig: dispatchConfigTool(), landOn: landOnTool() };
 }

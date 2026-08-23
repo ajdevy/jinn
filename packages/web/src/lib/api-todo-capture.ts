@@ -12,6 +12,7 @@ export type TodoCaptureStageWire =
   | "created"
   | "dispatching"
   | "routed"
+  | "landed"
   | "failed"
 
 export type TodoCaptureRouteWire =
@@ -22,6 +23,8 @@ export interface TodoCaptureWire {
   captureId: string
   sessionId: string | null
   stage: TodoCaptureStageWire
+  /** On `landed` this names the Todo the capture RESTATED rather than one it
+   *  created — the operator's question is the same either way: where did it go. */
   workItemId: string | null
   workItemTitle: string | null
   routedTo: TodoCaptureRouteWire | null

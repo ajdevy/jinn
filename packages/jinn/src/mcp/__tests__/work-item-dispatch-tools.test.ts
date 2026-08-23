@@ -39,7 +39,7 @@ function stub(responder: (call: SeenCall) => { status: number; body: unknown }) 
 
 function tool(name: string): JinnMcpTool {
   const tools = workItemDispatchTools();
-  const found = [tools.dispatch, tools.dispatchConfig].find((t) => t.name === name);
+  const found = [tools.dispatch, tools.dispatchConfig, tools.landOn].find((t) => t.name === name);
   if (!found) throw new Error(`no tool ${name}`);
   return found;
 }
@@ -108,5 +108,35 @@ describe("set_work_item_dispatch", () => {
     await tool("set_work_item_dispatch").handler({ id: "JIN-9", engine: null, model: null }, ctx);
 
     expect(calls[0].body).toEqual({ engine: null, model: null });
+  });
+});
+
+describe("land_on_work_item", () => {
+  it("posts to the Todo's capture-landing route with no body of its own", async () => {
+    const { calls, ctx } = stub(() => ({ status: 200, body: { workItemId: "JIN-4", workItemTitle: "Rail scrolls", sessionId: "session-test" } }));
+
+    const result = await tool("land_on_work_item").handler({ id: "JIN-4" }, ctx);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url).toContain("/api/work-items/JIN-4/capture-landing");
+    expect(calls[0].body).toEqual({});
+    expect(result).toMatchObject({ workItemId: "JIN-4", sessionId: "session-test" });
+  });
+
+  // Same contract as the dispatch verb: the gateway's refusal reaches the agent
+  // word for word, so a Todo that is gone reads as gone rather than as a
+  // generic failure it might retry around.
+  it("surfaces the gateway's own words when the Todo is not there", async () => {
+    const { ctx } = stub(() => ({ status: 404, body: { error: "Todo JIN-9 not found" } }));
+
+    await expect(tool("land_on_work_item").handler({ id: "JIN-9" }, ctx)).rejects.toThrow(/Todo JIN-9 not found/);
+  });
+
+  it("refuses a Todo id that is not one", async () => {
+    const { calls, ctx } = stub(() => ({ status: 200, body: {} }));
+
+    await expect(tool("land_on_work_item").handler({ id: "nope" }, ctx)).rejects.toThrow();
+    expect(calls).toHaveLength(0);
   });
 });
