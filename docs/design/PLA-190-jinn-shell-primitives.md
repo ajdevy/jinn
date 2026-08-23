@@ -1,6 +1,6 @@
 # PLA-190 — Jinn Shell primitives
 
-Design spec. No product code. Base SHA `6d656b99`.
+Design spec. No product code. Base SHA `76be9932`.
 
 This document is the contract PLA-191..195 implement against. Eight primitives, one section
 each, in the same shape every time: **anatomy**, **states**, **breakpoint behaviour**, **tokens
@@ -16,7 +16,14 @@ The grammar here is borrowed from Ionic, Konsta UI v5, Apple HIG and Material 3.
 is.** Nothing in PLA-187's tree adds a dependency on Ionic or Konsta; the citations exist so a
 reader can check the source of an idea, not so a slice can install it.
 
-Paths are repo-relative. `web/` abbreviates `packages/web/src/`.
+Paths are repo-relative and resolve at the base SHA — every one of them, with no exception.
+
+Two authorities cited below are **not** files in this repository, and are therefore named rather
+than pathed: **Jinn taste**, the shared standard the planner, implementer and verifier all read,
+and the **Jinn design skill**, the workspace playbook in the Jinn home that settles the Shared
+Visual Language and the editable-sheet contract. Neither is quotable by path from a checkout, so
+every rule this document takes from either is quoted inline and verbatim instead. A reader who
+has only this repository can still check every rule that binds a primitive here.
 
 ---
 
@@ -69,11 +76,16 @@ header, and no scroll container — every level of it is `overflow-hidden`, and 
 says so: *"pages that want a heading render their own inline header (e.g. Todos)"* and *"each page
 renders its own inline large-title header + top-right actions in content"*.
 
-`PageScaffold` is the **page** shell: the thing 27 render sites across 23 files are each
-hand-rolling today, every one of them repeating the same `text-[length:var(--text-title1)] …
-md:text-[length:var(--text-large-title)]` `<h1>` recipe (`web/routes/settings/page.tsx:264`,
-`experiments/page.tsx:72`, `skills/page.tsx:85`, `cron/page.tsx:181`, `limits/page.tsx:201`,
-`more/page.tsx:134`, `workflow/list.tsx:111`, and five more).
+`PageScaffold` is the **page** shell: the thing 12 render sites across 12 files are each
+hand-rolling today. Eleven of them repeat one identical `text-[length:var(--text-title1)] …
+md:text-[length:var(--text-large-title)]` `<h1>` recipe — `web/routes/settings/page.tsx:264`,
+`experiments/page.tsx:72`, `experiments/detail.tsx:140`, `skills/page.tsx:85`,
+`skills/detail.tsx:181`, `cron/page.tsx:181`, `cron/detail.tsx:159`, `limits/page.tsx:201`,
+`more/page.tsx:134`, `settings/plugins/page.tsx:29`, and
+`todos/board/board-switcher.tsx:58`. The twelfth, `workflow/list.tsx:111`, has already drifted
+off it: that one jumps straight to `--text-large-title` with no `md:` step, so a phone renders
+the desktop title size. That drift is the argument for the primitive, not a counterexample to
+it — one hand-rolled recipe copied eleven times is what a twelfth copy diverges from.
 
 So the composition is:
 
@@ -151,7 +163,7 @@ In that mode it renders the header and the children and creates **no** scroll bo
 its own scrollers entirely. The Todos board takes it, for a reason that is structural rather than
 stylistic: it keeps **two** scrollports permanently mounted, `listScrollRef` and `boardScrollRef`,
 one of them `hidden`, so that a rotation between the mobile list and the desktop board does not
-lose the reader's place (`board-page.tsx:674` and `:711`). A scaffold offering one scroll slot
+lose the reader's place (`board-page.tsx:671` and `:708`). A scaffold offering one scroll slot
 cannot express that, and flattening it to one would be a regression dressed as adoption.
 
 `scroll="external"` costs the page its collapsing header — collapse requires the title to live
@@ -243,12 +255,24 @@ omitted; the scrollport becomes the whole box) · `empty` (the page's own empty 
 the scrollport; the scaffold has no opinion) · `keyboard raised` (bottom padding grows by
 `var(--keyboard-inset)`).
 
-**Breakpoint behaviour.** The shell's switch is `lg` (1024px), because that is where `NavRibbon`
-appears and `MobileTabBar` stands down. Below `lg`: content padding is `--space-3`, `PrimaryAction`
-renders, the header may collapse. At `lg` and up: padding is `--space-10`, `PrimaryAction` does not
-render and its action moves into the header's trailing slot, and the header is permanently
-expanded — a 900px-tall desktop viewport has room for the title, and collapsing it buys nothing.
-Verification viewports are 1440×900 and 390×844, both themes.
+**Breakpoint behaviour. Two switches, at two different widths, and that is deliberate.**
+
+*Padding switches at `md` (768px).* Padding is a measure concern: it answers how wide the text
+column may run, and by 768px `--space-3` gutters leave text reading edge-to-edge. This is the
+switch `web/routes/todos/list/todo-list.tsx:23` ships today — `px-3 pb-24 pt-5 md:px-10 md:pb-10` —
+and the scaffold adopts it unchanged rather than moving a padding every Todos screenshot depends on.
+
+*Chrome switches at `lg` (1024px).* Chrome is a navigation concern: `lg` is where `NavRibbon`
+appears and `MobileTabBar` stands down. Below `lg`, `PrimaryAction` renders and the header may
+collapse. At `lg` and up, `PrimaryAction` does not render — its action moves into the header's
+trailing slot — and the header is permanently expanded, because a 900px-tall desktop viewport has
+room for the title and collapsing it buys nothing.
+
+So between 768px and 1024px a page carries desktop padding with mobile chrome. **That is the
+reading that survives**: the reader gets the wider measure the moment the width supports it, and
+keeps the tab bar and the FAB until the ribbon actually replaces them. Neither number is a typo for
+the other, and no primitive below reads `md` and `lg` as the same boundary. Verification viewports
+are 1440×900 and 390×844, both themes.
 
 **Tokens.** `--space-3`, `--space-5`, `--space-10`, `--bg`, `--safe-top`, `--safe-bottom`,
 `--keyboard-inset`.
@@ -369,12 +393,42 @@ shape. A sheet declares one at mount. Dragging between detents is **not** in thi
 second gesture recogniser alongside `useEdgeBackGesture`, and no page has asked for one.
 
 **States.** `closed` · `entering` (`--animate-sheet-in` mobile, `--animate-pop-in` desktop) ·
-`open` · `exiting` (`--animate-sheet-out` / `--animate-pop-out`) · `keyboard raised` (the body's
-bottom padding grows by `var(--keyboard-inset)`; the container does not move) · `scrolled body`
-(no shadow, no hairline appears under the header — §10.1).
+`open` · `saving` (editable sheets only; dismissal has been requested and not yet granted — see
+the contract below) · `exiting` (`--animate-sheet-out` / `--animate-pop-out`) · `keyboard raised`
+(the body's bottom padding grows by `var(--keyboard-inset)`; the container does not move) ·
+`scrolled body` (no shadow, no hairline appears under the header — §10.1).
 
 All four enter/exit animations are wrapped in `motion-safe:`, as both reference implementations
 already do.
+
+**Editable sheets acknowledge revisions, not requests.** This is settled law in the Jinn design
+skill, quoted verbatim: *"Persist item-scoped drafts before transport; serialize/coalesce saves
+against the last acknowledged revision; a close may complete only when the latest local revision is
+durably acknowledged. Browser history owns one reversible detail entry, while opaque transport IDs
+stay out of URLs and rendered metadata."* PLA-193 extracts it with the visuals rather than leaving
+each caller to re-derive it, which is what makes §5 a codification rather than a restyle. Four
+obligations follow, and they bind any `Sheet` that edits something:
+
+1. **The draft is persisted before transport.** The sheet writes its item-scoped draft — keyed by
+   the edited item's own id, not by the sheet's — before it sends anything. A dropped connection, a
+   reload, or a backgrounded tab loses no typing.
+2. **Saves serialize and coalesce against the last acknowledged revision.** Writes do not overlap.
+   Each carries the revision the server last acknowledged, and a newer local edit supersedes an
+   in-flight one rather than racing it.
+3. **A close completes only on acknowledgement.** Requesting dismissal moves the sheet to `saving`,
+   not to `exiting`; `exiting` is reached from `saving` only once the latest local revision is
+   durably acknowledged. On failure the sheet stays open and says what went wrong, because a
+   dismissal that silently discards an unacknowledged edit is data loss wearing an animation.
+4. **History owns exactly one reversible entry.** Opening pushes one entry; a back gesture (§8)
+   pops it and closes the sheet; closing by scrim, close button or `Esc` consumes that same
+   entry. Never two, never zero. Opaque transport ids stay out of the URL and out of rendered
+   metadata.
+
+A **read-only** `Sheet` — a filter panel, a picker — carries none of the four: it has no revision
+to acknowledge and nothing to persist. That is the split between the two reference implementations
+named above: `todo-filter-sheet.tsx` is the read-only case and `new-todo-dialog.tsx` the editable
+one. The visual anatomy, detents and breakpoint behaviour in this section apply identically to
+both.
 
 **Breakpoint behaviour.** Below `sm` (640px): full-bleed bottom sheet, `inset-x-0 bottom-0`, top
 corners `--radius-2xl`, grabber shown. At `sm` and up: centred, `w-[min(620px,calc(100vw-32px))]`,
@@ -413,9 +467,12 @@ the track) · `disabled` (labels `--text-quaternary`, no thumb movement).
 animates `width`; equal-width segments mean a translate is sufficient, and a width animation would
 reflow the labels on every frame.
 
-**Breakpoint behaviour.** Identical at every breakpoint — the control is sized by its content, not
-by the viewport. Below `sm` it may go full-width (`w-full`); labels truncate with an ellipsis
-rather than wrapping, because a two-line segment breaks the 34px height.
+**Breakpoint behaviour.** Sized by its content at every breakpoint, with exactly one rule to the
+contrary. **The trigger is role, not taste: below `sm` (640px), a control that is its page's
+primary view switch — the one that changes what the scrollport shows — goes full-width
+(`w-full`).** Every other segmented control keeps its content width at every width, including
+below `sm`. Labels truncate with an ellipsis rather than wrapping in both cases, because a
+two-line segment breaks the 34px height.
 
 **Tokens.** `--fill-tertiary`, `--bg-secondary`, `--radius-sm`, `--radius-md`, `--shadow-subtle`,
 `--inset-shine`, `--text-subheadline`, `--weight-medium`, `--text-primary`, `--text-secondary`,
@@ -430,7 +487,7 @@ draws neither, and separates by fill and `--shadow-subtle` instead (§10.1).*
 ## 7. `ListSection`
 
 A collection of rows. This primitive **reuses the settled Shared Visual Language and does not
-redefine it** — `skills/jinn-design/SKILL.md` § "Shared Visual Language" is authoritative for the
+redefine it** — the Jinn design skill's § "Shared Visual Language" is authoritative for the
 grouped-inset grammar, and PLA-195 owns any update to it.
 
 **Anatomy.** Quoting the settled rule: a collection is *ONE grouped-inset container
@@ -466,6 +523,27 @@ the trailing accessory hides below `sm` if the primary text would otherwise trun
 `--fill-tertiary`, `--fill-quaternary`, `--text-body`, `--text-footnote`, `--text-primary`,
 `--text-secondary`, `--text-tertiary`, `--text-quaternary`, `--font-code`, `--weight-semibold`,
 `--space-3`, `--space-10`.
+
+**The other three Shared Visual Language units, and where each one lands.** The settled language
+has four parts. §7 folds in the grouped-inset grammar above, verbatim. The remaining three are
+**content** units rather than chrome, so the shell's obligation to each is to leave it intact, not
+to restyle or reimplement it:
+
+- **QuietCard** — *not used by any primitive in this document.* It is the inline-**object** surface
+  (`--fill-tertiary`, `--radius-xl`, `--shadow-subtle`), and none of the eight primitives is an
+  inline object. The nearest miss is `Sheet`'s container (§5), which is a modal surface
+  (`--bg-secondary` + `--shadow-overlay`) and stays one — a sheet is not a card that grew. A
+  QuietCard rendered inside a `PageScaffold` scrollport is page content, and the scaffold has no
+  opinion on it.
+- **EmployeeChip** — *not applicable: no shell primitive renders identity.* Where a page puts one
+  in a `LargeTitleHeader` trailing slot or as a `ListSection` row's leading glyph, it renders the
+  settled chip unchanged — emoji avatar on a `--fill-secondary` circle at 36 / 22 / 20px, never a
+  monogram, and never a shell-local variant of it.
+- **StateLine** — *not applicable to chrome, and one near-miss is called out so it stays that way.*
+  `PullToRefresh`'s indicator (§9) is deliberately **not** a StateLine: a StateLine reports live
+  work (`--system-blue` dot, `jinn-pulse`, `Working · 12m`), and a refresh spinner is a transient
+  gesture affordance with no work to report. A `ListSection` row whose content *is* live work
+  renders the settled StateLine unchanged.
 
 *Source: Apple HIG (grouped inset lists — the inset container, the section header above it, the
 footer caption below). HIG's separators between rows are declined (§10.1); the settled Jinn
@@ -591,7 +669,7 @@ Each row: what the source does, what Jinn says, who wins, why.
 bar once content scrolls beneath it, between rows of a grouped inset list, around a segmented
 control's track and its thumb.
 
-**Jinn.** Taste §2 and `skills/jinn-design/SKILL.md`: *"No hairlines at rest. Separation comes from
+**Jinn.** Taste §2, restated verbatim from the design skill: *"No hairlines at rest. Separation comes from
 soft fills + shadow + whitespace — never a 1px border on the input, buttons, chips, or cards.
 (Elevated menus may carry the shadow's built-in ~0.5px ring; that's it.)"*
 
@@ -707,21 +785,26 @@ breakpoints below `lg`, on every platform.
 ## 11. Token gaps handed to PLA-191
 
 Per the scope rule, this spec consumes Ledger as it stands. Three properties a primitive here
-genuinely wants **do not exist** at the base SHA, and are named as gaps rather than used:
+reaches for **do not exist** at the base SHA. Two are real gaps and are named rather than used;
+the third is settled here as a non-gap, so PLA-191 inherits a decision instead of a question:
 
 1. **A tab-bar height token.** `PrimaryAction` needs `MobileTabBar`'s height to clear it and
    currently must write the literal `55px` (§4). The bar's own box is
    `min-h-[49px] + py-1.5` at `web/components/chat/mobile-tab-bar.tsx:58, 85`. One token, declared
    next to `--safe-bottom`, removes the literal from at least three call sites — the FAB, the
    scaffold's mobile bottom padding, and `todo-list.tsx`'s `pb-24`.
-2. **A large-title collapse distance.** §1.4 sets `--jinn-collapse-distance` inline from a
-   measured height. If PLA-191 prefers a fixed distance, it declares the token; otherwise the
-   inline property stands and no global token is added.
+2. **A large-title collapse distance — settled, and not a token.** `--jinn-collapse-distance`
+   stays the inline per-instance property §1.4 sets from the large title's own measured height.
+   PLA-191 declares no Ledger token for it. A fixed global distance would be wrong rather than
+   merely coarser: `--text-large-title` is a `clamp()` multiplied by `--text-scale`, so the
+   title's rendered height moves with the reader's text-size setting, and one constant range
+   would finish the collapse early at large scales and leave it unfinished at small ones. This
+   entry exists to close the question, not to hand it on.
 3. **A progress/spinner colour role.** `PullToRefresh` borrows `--text-secondary` for its
    indicator. That reads correctly, but a spinner is not text, and the next spinner in the app
    will make the same borrow independently.
 
-None of these blocks PLA-192..195. Each is a one-line addition to both theme blocks, and per Jinn
+Neither gap blocks PLA-192..195. Each is a one-line addition to both theme blocks, and per Jinn
 taste every new token ships in *both*.
 
 ---
@@ -730,9 +813,9 @@ taste every new token ships in *both*.
 
 - All code, components, tests and CI gates. This document is a contract; PLA-191..195 implement it.
 - Any dependency on Ionic or Konsta UI. Settled: steal the grammar, not the package.
-- New tokens or colours beyond the three gaps named in §11.
-- Rewriting `skills/jinn-design/SKILL.md`. PLA-195 owns that update; §7 quotes the settled Shared
-  Visual Language and changes none of it.
+- New tokens or colours beyond the two gaps named in §11.
+- Rewriting the Jinn design skill. PLA-195 owns that update; §5 and §7 quote the settled
+  editable-sheet contract and Shared Visual Language verbatim and change neither.
 - Chat. It stays chromeless and draws its own rail and pills.
 - Drag-between-detents on `Sheet` (§5), and any second gesture recogniser.
 - Anything under the Tauri shell work (PLA-188/189).
