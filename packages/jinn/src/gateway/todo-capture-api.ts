@@ -3,14 +3,17 @@ import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import { createSession, getMessages, getSession, insertMessage, listSessionsByWorkItem, updateSession } from "../sessions/registry.js";
 import { enqueueQueueItem } from "../sessions/queue-item-registry.js";
 import { listWorkItems } from "../work-items/store.js";
+import { logger } from "../shared/logger.js";
 import { readJsonBody } from "./http-helpers.js";
+import { sourceSessionId } from "./approval-authority.js";
 import { orgRegistry } from "./org-registry.js";
-import { badRequest, json, matchRoute, serverError, type ParsedRoute } from "./route-helpers.js";
+import { json, matchRoute, serverError, type ParsedRoute } from "./route-helpers.js";
 import { resolveMessageAudiences } from "./speech-context.js";
 import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { TODO_DISPATCHER_NAME, TODO_SHAPER_NAME } from "./system-employees.js";
 import { deriveTodoCaptureState, type TodoCaptureFacts, type TodoCaptureState, type TodoCaptureTodoFact } from "./todo-capture-stage.js";
 import { dispatchWebSessionRun } from "./web-session-dispatch.js";
+import type { Employee, Engine } from "../shared/types.js";
 import type { ApiContext } from "./api.js";
 
 /**
@@ -43,10 +46,15 @@ const lastEmitted = new Map<string, string>();
 
 function factsFor(captureId: string, dispatcherEmployee: string, shaperEmployee: string): TodoCaptureFacts {
   const session = getSession(captureId);
+  // Narrow in SQL to Todos this employee made from a session, then match the
+  // exact capture on provenance. `createdBy` records the EMPLOYEE, so it cannot
+  // tell two captures apart — `sourceRef` names the session, and is the same
+  // link the dispatch authority walk reads.
+  //
   // `listWorkItems` orders for the board, not by age. The capture's Todo is the
   // FIRST one its session made, so age is what this needs.
-  const todos = listWorkItems({ createdBy: `session:${captureId}` })
-    .slice()
+  const todos = listWorkItems({ source: "session", createdBy: shaperEmployee })
+    .filter((item) => sourceSessionId(item) === captureId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 
   return {
@@ -104,6 +112,14 @@ function capturePrompt(text: string): string {
   ].join("\n");
 }
 
+/** Both halves of the honesty contract at once: the operator sees the reason in
+ *  the strip, and the same sentence lands in the gateway log. A refusal that
+ *  only ever existed in one HTTP response is not diagnosable after the fact. */
+function refuse(res: ServerResponse, status: number, error: string): void {
+  logger.warn(`Quick capture refused (${status}): ${error}`);
+  json(res, { error }, status);
+}
+
 /** The capture itself, or a refusal already written to the response. */
 async function readCapture(
   req: HttpRequest,
@@ -114,25 +130,29 @@ async function readCapture(
   const body = (parsed.body ?? {}) as { text?: unknown; speechDerived?: unknown };
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!text) {
-    badRequest(res, "text is required — a capture with nothing in it has nothing to shape");
+    refuse(res, 400, "text is required — a capture with nothing in it has nothing to shape");
     return undefined;
   }
   if (text.length > CAPTURE_TEXT_MAX) {
-    badRequest(res, `text is ${text.length} characters; the cap is ${CAPTURE_TEXT_MAX}. Use the full Todo form for something this long.`);
+    refuse(res, 400, `text is ${text.length} characters; the cap is ${CAPTURE_TEXT_MAX}. Use the full Todo form for something this long.`);
     return undefined;
   }
   return { text, speechDerived: body.speechDerived === true };
 }
 
-async function startCapture(req: HttpRequest, res: ServerResponse, context: ApiContext): Promise<void> {
-  const capture = await readCapture(req, res);
-  if (!capture) return;
-  const { text, speechDerived } = capture;
-
-  const config = context.getConfig();
+/** The Shaper and a live engine for it, or a refusal already written. */
+function readyShaper(
+  res: ServerResponse,
+  context: ApiContext,
+  config: ReturnType<ApiContext["getConfig"]>,
+): { shaper: Employee; engine: Engine } | undefined {
   const shaper = orgRegistry(config).get(TODO_SHAPER_NAME);
-  if (!shaper?.system) return serverError(res, "the built-in Todo Shaper is unavailable");
-
+  if (!shaper?.system) {
+    const error = "the built-in Todo Shaper is unavailable";
+    logger.warn(`Quick capture refused (500): ${error}`);
+    serverError(res, error);
+    return undefined;
+  }
   // The same two questions the Dispatcher route asks, answered in the same
   // words: a Shaper that cannot attach the company tools cannot create a Todo,
   // so starting it would spend a turn to achieve nothing.
@@ -141,7 +161,22 @@ async function startCapture(req: HttpRequest, res: ServerResponse, context: ApiC
     engineName: shaper.engine, globalMcp: config.mcp,
     getEngine: (name) => context.sessionManager.getEngine(name),
   });
-  if (!preflight.ok) return json(res, { error: preflight.error }, preflight.status);
+  if (!preflight.ok) {
+    refuse(res, preflight.status, preflight.error);
+    return undefined;
+  }
+  return { shaper, engine: preflight.engine };
+}
+
+async function startCapture(req: HttpRequest, res: ServerResponse, context: ApiContext): Promise<void> {
+  const capture = await readCapture(req, res);
+  if (!capture) return;
+  const { text, speechDerived } = capture;
+
+  const config = context.getConfig();
+  const ready = readyShaper(res, context, config);
+  if (!ready) return;
+  const { shaper, engine } = ready;
 
   const prompt = capturePrompt(text);
   // A voice capture is a transcription and may be misheard. The Shaper is told
@@ -168,7 +203,7 @@ async function startCapture(req: HttpRequest, res: ServerResponse, context: ApiC
 
   const queueItemId = enqueueQueueItem(session.id, sessionKey, visible, { dispatch: { attachments: [], speechDerived } });
   context.emit("queue:updated", { sessionId: session.id, sessionKey });
-  dispatchWebSessionRun(session, enginePrompt, preflight.engine, context, { queueItemId });
+  dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId });
 
   return json(res, refreshTodoCapture(context, session.id), 201);
 }

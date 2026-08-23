@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { logger } from "../../shared/logger.js";
 import { call, config, startRouteHarness, stopRouteHarness, unavailableEngines, type Registry, type WorkItems } from "./todo-route-harness.js";
 
 /**
@@ -124,8 +125,8 @@ describe("GET /api/todo-captures/:id", () => {
     const item = workItems.createWorkItem({
       title: "Closed rail scrolls under the board header on mobile",
       source: "session",
-      sourceRef: `session:${captureId}:idempotency:capture`,
-      createdBy: `session:${captureId}`,
+      sourceRef: `session:${captureId}:6cd126d21e61`,
+      createdBy: "todo-shaper",
       department: "platform",
     });
 
@@ -147,8 +148,8 @@ describe("GET /api/todo-captures/:id", () => {
     const item = workItems.createWorkItem({
       title: "Delegated onward",
       source: "session",
-      sourceRef: `session:${captureId}:idempotency:delegated`,
-      createdBy: `session:${captureId}`,
+      sourceRef: `session:${captureId}:6cd126d21e62`,
+      createdBy: "todo-shaper",
     });
 
     const worker = registry.createSession({
@@ -170,15 +171,59 @@ describe("GET /api/todo-captures/:id", () => {
     const started = await call("POST", "/api/todo-captures", { text: "a capture that misbehaves" });
     const captureId = started.body.captureId as string;
     const first = workItems.createWorkItem({
-      title: "First", source: "session", sourceRef: `session:${captureId}:idempotency:a`, createdBy: `session:${captureId}`,
+      title: "First", source: "session", sourceRef: `session:${captureId}:6cd126d21e63`, createdBy: "todo-shaper",
     });
     const second = workItems.createWorkItem({
-      title: "Second", source: "session", sourceRef: `session:${captureId}:idempotency:b`, createdBy: `session:${captureId}`,
+      title: "Second", source: "session", sourceRef: `session:${captureId}:6cd126d21e64`, createdBy: "todo-shaper",
     });
 
     const response = await call("GET", `/api/todo-captures/${captureId}`);
 
     expect(response.body.workItemId).toBe(first.id);
     expect(response.body.extraWorkItemIds).toEqual([second.id]);
+  });
+
+  // The live run's lesson, pinned. The route used to look for
+  // `createdBy: session:<id>` — which the Shaper never writes, because
+  // `createdBy` records the EMPLOYEE. A capture whose Todo was real then
+  // reported "ended without creating a Todo". Provenance lives in `sourceRef`.
+  it("ignores a Todo made by a DIFFERENT capture of the same employee", async () => {
+    const mine = await call("POST", "/api/todo-captures", { text: "my capture" });
+    const theirs = await call("POST", "/api/todo-captures", { text: "someone else's capture" });
+
+    workItems.createWorkItem({
+      title: "Belongs to the other capture",
+      source: "session",
+      sourceRef: `session:${theirs.body.captureId}:6cd126d21e65`,
+      createdBy: "todo-shaper",
+    });
+
+    const response = await call("GET", `/api/todo-captures/${mine.body.captureId}`);
+
+    expect(response.body.workItemId).toBeNull();
+    expect(response.body.stage).toBe("starting");
+  });
+
+  // Acceptance (d) has two halves and the live run only had one: the strip
+  // quoted the gateway's reason while the gateway log said nothing, so a
+  // refusal was undiagnosable the moment the browser tab closed.
+  it("writes every pre-spawn refusal to the gateway log, not only to the response", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const { setJinnAttachGate } = await import("../../mcp/attachment.js");
+    setJinnAttachGate({ ok: false, reason: "mcp.gateway.enabled: false (global kill switch)" });
+
+    try {
+      const response = await call("POST", "/api/todo-captures", { text: "this capture cannot be shaped" });
+
+      expect(response.status).toBe(409);
+      const logged = warn.mock.calls.map((args) => String(args[0])).join("\n");
+      expect(logged).toContain("Quick capture refused (409)");
+      expect(logged).toContain("mcp.gateway.enabled: false (global kill switch)");
+      // The operator and the log read the same sentence.
+      expect(logged).toContain(response.body.error);
+    } finally {
+      setJinnAttachGate({ ok: true });
+      warn.mockRestore();
+    }
   });
 });
