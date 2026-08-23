@@ -1499,7 +1499,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1117,
+      "lines": 1094,
       "exempt": [
         "complexity"
       ]
@@ -1693,7 +1693,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 917,
+      "lines": 915,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

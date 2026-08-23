@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom"
-import { ListFilter, Plus } from "lucide-react"
+import { ListFilter } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { ApiError, type WorkItemCompactWire, type WorkItemStatusWire } from "@/lib/api"
 import {
@@ -28,6 +28,8 @@ import { FilterBar } from "../filter-bar"
 import { TodoFilterSheet } from "../todo-filter-sheet"
 import { NeedsYouView } from "../needs-you-view"
 import { NewTodoDialog } from "../new-todo-dialog"
+import { QuickCaptureBar } from "../quick-add/capture-bar"
+import { BoardHeaderActions } from "./board-header-actions"
 import { TodoList } from "../list/todo-list"
 import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
 import { FilteredEmptyCard, HomeEmptyCard } from "./board-empty"
@@ -372,6 +374,7 @@ export default function TodoBoardPage() {
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)
+  const [capturing, setCapturing] = useState(false)
   // A URL naming a closed status asked for closed work — never one tap short.
   const closedFilter = CLOSED_STATUSES.some((status) => status === filters.status)
   const [closedOpen, setClosedOpen] = useState(closedFilter)
@@ -578,17 +581,10 @@ export default function TodoBoardPage() {
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              data-testid="todo-new"
-              onClick={() => setCreating({ department: board.kind === "department" ? board.slug : undefined })}
-              aria-label="New todo"
-              className="ml-auto inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center gap-1.5 rounded-full text-[length:var(--text-subheadline)] font-semibold transition-transform hover:scale-[0.98] md:px-[18px]"
-              style={{ background: "var(--accent-fill)", color: "var(--accent)", boxShadow: "var(--inset-shine)" }}
-            >
-              <Plus className="size-4" aria-hidden />
-              <span className="max-md:hidden">New Todo</span>
-            </button>
+            <BoardHeaderActions
+              onQuickCapture={() => setCapturing(true)}
+              onNewTodo={() => setCreating({ department: board.kind === "department" ? board.slug : undefined })}
+            />
           </div>
 
           {!isAttention && !mobile && (
@@ -786,6 +782,8 @@ export default function TodoBoardPage() {
         </div>
       )}
       <span ref={liveRef} aria-live="polite" className="sr-only" />
+
+      {capturing && <QuickCaptureBar onClose={() => setCapturing(false)} />}
 
       {creating && (
         <NewTodoDialog
