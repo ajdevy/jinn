@@ -621,7 +621,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 666,
+      "lines": 665,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1500,7 +1500,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1118,
+      "lines": 1117,
       "exempt": [
         "complexity"
       ]
