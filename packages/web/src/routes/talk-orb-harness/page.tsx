@@ -67,7 +67,7 @@ function VariantGallery() {
           >
             {variant}
           </h2>
-          <div className="grid grid-cols-3 gap-[var(--space-2)] sm:grid-cols-6">
+          <div className="grid grid-cols-4 gap-[var(--space-2)] sm:grid-cols-7">
             {ORB_STATES.map((state) => (
               <div
                 key={state}
