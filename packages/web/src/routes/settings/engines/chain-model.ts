@@ -75,20 +75,37 @@ export interface EngineHealthDisplay {
 
 /** How a health record reads on a card. No record at all means healthy: the
  *  reading is advisory, and an engine nobody has observed failing is fine. */
-export function classifyEngineHealth(health: EngineHealth | undefined): EngineHealthDisplay {
+export function classifyEngineHealth(health: EngineHealth | undefined, now: number = Date.now()): EngineHealthDisplay {
   if (health?.state === "degraded") return { tone: "degraded", label: "Degraded" }
   if (health?.state !== "exhausted") return { tone: "healthy", label: "Healthy" }
-  const until = formatUntil(health.until)
-  return { tone: "exhausted", label: until ? `Out of allowance until ${until}` : "Out of allowance" }
+  const limit = health.window ? windowLabel(health.window) : "Out of allowance"
+  const wait = formatWait(health.until, now)
+  return { tone: "exhausted", label: wait ? `${limit}, back ${wait}` : limit }
 }
 
-/** The ISO reopening as a local clock time, or null when it is absent or is not
- *  a date — a record written by a misparse should read as "no time", not "Invalid Date". */
-function formatUntil(until: string | undefined): string | null {
+/** Which limit is binding, in the operator's words. Telemetry names the two that
+ *  matter; anything else is the provider's own name and is shown as given. */
+function windowLabel(window: string): string {
+  if (window === "5h") return "5-hour limit"
+  if (window === "7d") return "Weekly limit"
+  return `${window} limit`
+}
+
+/** The wait until the stated reopening, or null when it is absent, is not a date,
+ *  or has already passed — a misparsed record should read as "no time", not as
+ *  "Invalid Date". A reopening days out is a duration or a date and never a bare
+ *  clock time, which would read as this afternoon. */
+function formatWait(until: string | undefined, now: number): string | null {
   if (!until) return null
   const at = new Date(until)
   if (Number.isNaN(at.getTime())) return null
-  return at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  const mins = Math.round((at.getTime() - now) / 60_000)
+  if (mins <= 0) return null
+  if (mins < 60) return `in ${mins}m`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `in ${hrs}h`
+  const days = Math.round(hrs / 24)
+  return days <= 7 ? `in ${days}d` : `on ${at.toLocaleDateString()}`
 }
 
 /** A path/value pair for the Settings page's `updateConfig`. */

@@ -16,8 +16,10 @@ export interface ModelInfo {
  *  healthy, and a stale reading only reorders a chain, never refuses a turn. */
 export interface EngineHealth {
   state: "ok" | "exhausted" | "degraded";
-  /** ISO. When the engine said it can serve again. */
+  /** ISO. The reopening the engine itself stated, verbatim. */
   until?: string;
+  /** The binding quota window as telemetry names it (`5h`, `7d`), when it does. */
+  window?: string;
   reason?: string;
   observedAt?: string;
 }
