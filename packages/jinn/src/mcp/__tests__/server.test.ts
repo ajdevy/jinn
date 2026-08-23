@@ -103,7 +103,7 @@ describe("buildTools", () => {
       "decide_work_item_approval",
       "decide_workflow_approval",
       "delegate_task",
-      "disable_workflow",
+      "disable_workflow", "dispatch_work_item",
       "duplicate_workflow",
       "edit_work_item",
       "enable_workflow",
@@ -255,7 +255,7 @@ describe("handleMcpRequest — tools/call", () => {
 
   it("compiles every advertised registry schema or supplies its shared runtime schema", () => {
     const tools = buildTools();
-    expect(tools).toHaveLength(73);
+    expect(tools).toHaveLength(74);
     for (const tool of tools) {
       expect(() => tool.runtimeSchema ?? z.fromJSONSchema({ ...tool.inputSchema, additionalProperties: false } as Parameters<typeof z.fromJSONSchema>[0]), tool.name).not.toThrow();
     }

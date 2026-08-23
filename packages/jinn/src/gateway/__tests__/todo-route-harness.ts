@@ -121,13 +121,18 @@ function makeResponse() {
   };
 }
 
-export async function call(method: string, url: string, body?: unknown): Promise<{ status: number; body: any }> {
+export async function call(
+  method: string,
+  url: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: any }> {
   const request = Object.assign(
     Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]),
     {
       method,
       url,
-      headers: { host: "localhost", authorization: "Bearer test-token", "content-type": "application/json" },
+      headers: { host: "localhost", authorization: "Bearer test-token", "content-type": "application/json", ...headers },
     },
   );
   const captured = makeResponse();

@@ -1,11 +1,11 @@
 import { gatewayRequest, JinnMcpToolError, type JinnMcpTool } from "./toolkit.js";
 import { labelTools } from "./label-tools.js";
+import { workItemDispatchTools } from "./work-item-dispatch-tools.js";
 import { assertIdentity, gatewayFailure, mutationResult } from "./work-item-result.js";
 import type { JinnMcpContext } from "./toolkit.js";
 import { BLOCK_KIND_ERROR, BLOCK_KINDS, parseBlockKind } from "../work-items/blocks.js";
 import { PARKED_UNTIL_ERROR, UNBLOCK_HINT_ERROR, parseParkedUntil, parseUnblockHint } from "../work-items/stop-cause.js";
 import { parseTodoId } from "../work-items/id.js";
-import { TODO_SKILLS_MAX } from "../work-items/dispatch-config.js";
 import {
   clampInt,
   FILTER_CHAR_CAP,
@@ -17,7 +17,6 @@ import {
   requireRelationKind,
   requireString,
   requireTodoId,
-  requireSkillNames,
   requireTodoIdField,
   validatedVerifyPolicy,
 } from "./work-item-args.js";
@@ -618,37 +617,6 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  const dispatchConfig: JinnMcpTool = {
-    name: "set_work_item_dispatch",
-    description: "Set how a Todo's NEXT attempt runs. Safe while executing.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: TODO_ID_SCHEMA,
-        skills: { type: "array", items: { type: "string" }, maxItems: TODO_SKILLS_MAX },
-        engine: { type: ["string", "null"] },
-        model: { type: ["string", "null"] },
-      },
-      required: ["id"],
-    },
-    handler: async (args, ctx) => {
-      assertIdentity(ctx);
-      const id = requireTodoId(args);
-      const payload: Record<string, unknown> = {};
-      if (args.skills !== undefined) payload.skills = requireSkillNames(args);
-      for (const key of ["engine", "model"] as const) {
-        if (args[key] === null) payload[key] = null;
-        else if (args[key] !== undefined) payload[key] = requireString(args, key);
-      }
-      if (Object.keys(payload).length === 0) {
-        throw new JinnMcpToolError("pass at least one of skills, engine or model — an empty call would change nothing");
-      }
-      const { status, body } = await gatewayRequest(ctx, "PUT", `/api/work-items/${encodeURIComponent(id)}/dispatch-config`, payload);
-      if (status >= 400) throw gatewayFailure(`setting dispatch config on work item "${id}"`, status, body);
-      return mutationResult(body, "The next attempt on this Todo uses it; the one running now is untouched.");
-    },
-  };
-
   const departments: JinnMcpTool = {
     name: "list_departments",
     description: "List departments with Todo prefixes and counts.",
@@ -661,5 +629,6 @@ export function buildWorkItemTools(): JinnMcpTool[] {
     },
   };
 
-  return [list, get, tree, search, create, update, edit, assign, archive, comment, listComments, attach, listAttachments, link, unlink, ...labelTools(), dispatchConfig, departments];
+  const { dispatch, dispatchConfig } = workItemDispatchTools();
+  return [list, get, tree, search, create, update, edit, assign, archive, dispatch, comment, listComments, attach, listAttachments, link, unlink, ...labelTools(), dispatchConfig, departments];
 }

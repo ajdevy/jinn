@@ -66,7 +66,7 @@ describe("work-item tools — registry + schemas", () => {
       "update_work_item",
       "edit_work_item",
       "assign_work_item",
-      "archive_work_item",
+      "archive_work_item", "dispatch_work_item",
       "comment_work_item",
       "list_work_item_comments",
       "attach_to_work_item",
@@ -88,7 +88,7 @@ describe("work-item tools — registry + schemas", () => {
     expect(names).toContain("fire_workflow_event");
     expect(names).toContain("cancel_workflow_run");
     expect(names.some((n) => /cancel/i.test(n) && /work_item/.test(n))).toBe(false);
-    expect(names).toHaveLength(73);
+    expect(names).toHaveLength(74);
   });
 
   it("positions list as recent/filter summaries and search as text/filter hits", () => {
