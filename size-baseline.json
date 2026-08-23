@@ -1568,7 +1568,7 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 318,
+      "lines": 305,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1772,7 +1772,7 @@
       ]
     },
     "packages/web/src/routes/todos/new-todo-dialog.tsx": {
-      "lines": 464,
+      "lines": 414,
       "exempt": [
         "complexity",
         "max-lines-per-function"

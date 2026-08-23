@@ -14,19 +14,20 @@ export interface SearchKeyboardOptions {
  * wraps, so both ends of a list are one keypress from the other. Esc is not
  * here: the dialog owns dismissal, and clearing the query is a step before it.
  *
- * Keys struck inside the workbench are the workbench's: its composer takes ⏎
- * and its picker rows take ↑↓, and neither is the list's to answer.
+ * Keys struck inside the workbench or the command form are theirs: the
+ * composer takes ⏎, the picker rows take ↑↓, and the object picker runs a list
+ * of its own — none of which is this list's to answer.
  */
-/** Whether the key was struck inside the workbench, which answers its own. */
-function insideWorkbench(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("[data-search-workbench]") !== null
+function insideOwnKeys(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest("[data-search-workbench],[data-command-form]") !== null
 }
 
 export function useSearchKeyboard({
   rowCount, selectedIndex, onMove, onActivate, onToggleLiteral,
 }: SearchKeyboardOptions) {
   return useCallback((event: KeyboardEvent) => {
-    if (insideWorkbench(event.target)) return
+    if (insideOwnKeys(event.target)) return
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       onToggleLiteral()

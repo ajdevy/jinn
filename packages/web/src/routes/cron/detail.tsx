@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, ChevronLeft, Play } from "lucide-react"
 import { api } from "@/lib/api"
+import { useTriggerCronJob } from "@/hooks/use-cron"
 import {
   agoLabel,
   describeCron,
@@ -104,21 +105,7 @@ export default function CronDetailPage() {
     onSettled: () => void qc.invalidateQueries({ queryKey: ["cron-jobs"] }),
   })
 
-  const [triggered, setTriggered] = useState(false)
-  const triggerTimer = useRef<number | null>(null)
-  const trigger = useMutation({
-    mutationFn: () => api.triggerCronJob(id),
-    onSuccess: () => {
-      setTriggered(true)
-      if (triggerTimer.current != null) window.clearTimeout(triggerTimer.current)
-      triggerTimer.current = window.setTimeout(() => setTriggered(false), 2000)
-      // The run lands in the log a beat after the trigger returns.
-      window.setTimeout(() => {
-        void qc.invalidateQueries({ queryKey: ["cron-runs", id] })
-        void qc.invalidateQueries({ queryKey: ["cron-jobs"] })
-      }, 2000)
-    },
-  })
+  const { trigger, triggered } = useTriggerCronJob(id)
 
   const next = useMemo(
     () => (job?.enabled ? nextCronDate(job.schedule, job.timezone ?? undefined, now) : null),

@@ -4,15 +4,20 @@ import { Search } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useSettings } from "@/routes/settings-provider"
 import type { QueryFacetWire, SearchKind } from "@/lib/search-api"
+import { CommandList } from "./global-search/command-list"
+import { CommandPane } from "./global-search/command-pane"
 import { KIND_META } from "./global-search/kind-meta"
 import { PreviewPane } from "./global-search/preview-pane"
+import { QuickCreateTodo } from "./global-search/quick-create-todo"
 import { ReadBackLine } from "./global-search/read-back-line"
 import { ResultList } from "./global-search/result-list"
 import { loadRecent, saveRecent, type RecentItem } from "./global-search/recents"
 import { recentRows, resultRows, rowTarget, type SearchRow } from "./global-search/rows"
+import { useCommandMode } from "./global-search/use-command"
 import { useGlobalSearch } from "./global-search/use-global-search"
 import { useSearchKeyboard } from "./global-search/use-search-keyboard"
 import { useTodoWorkbench } from "./global-search/use-todo-workbench"
+import { activatePrimary, commandFor, parseCommand, type Verb } from "./global-search/verbs"
 
 // The palette stays a module rather than becoming `global-search/index.tsx`, so
 // `import("./global-search")` and every `@/components/global-search` specifier
@@ -75,19 +80,28 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
 
   useEffect(() => { if (open) setRecents(loadRecent()) }, [open])
 
-  const typing = query.trim().length > 0
-  const search = useGlobalSearch({ query, scope, literal })
+  // A leading ">" is the whole of the disambiguation: a plain query is never
+  // parsed for verbs, so the search behind it cannot be taken over by one.
+  const command = parseCommand(query)
+  const typing = !command && query.trim().length > 0
+  const search = useGlobalSearch({ query: command ? "" : query, scope, literal })
   const rows = useMemo(
     () => (typing ? resultRows(search.data?.results) : recentRows(recents)),
     [typing, search.data, recents],
   )
-  const rowKey = rows.map(row => row.key).join(" ")
-  useEffect(() => { setSelected(0) }, [rowKey])
-  const row = rows[selected]
+  const row = command ? undefined : rows[selected]
+  const mode = useCommandMode(command, row, open)
+  const verbs = mode?.command.matches ?? []
+  // Both lists share the selection, so both have to reset it when their contents
+  // change under it.
+  const listKey = mode ? verbs.map(verb => verb.name).join(" ") : rows.map(item => item.key).join(" ")
+  useEffect(() => { setSelected(0) }, [listKey])
   // The selected Todo's write half. Held here rather than in the preview because
-  // the result row shows the same live status the preview does.
+  // the result row shows the same live status the preview does. One instance,
+  // pointed at the list's selection in find mode and at the command's object in
+  // command mode — so assign and move have exactly one implementation.
   const [pickerOpen, setPickerOpen] = useState(false)
-  const workbench = useTodoWorkbench(row, setPickerOpen)
+  const workbench = useTodoWorkbench(mode ? mode.object : row, setPickerOpen)
 
   const activate = useCallback((target: SearchRow) => {
     const recent = rowTarget(target)
@@ -98,6 +112,17 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
 
   const toggleLiteral = useCallback(() => setLiteral(wasLiteral => !wasLiteral), [])
 
+  const pickVerb = useCallback((verb: Verb) => setQuery(commandFor(verb)), [])
+
+  /** `new` hands over to the board's own create dialog, which is a sibling of
+   *  the palette rather than a child: the palette closes as it opens, and a
+   *  dialog inside a closing one would go with it. */
+  const [creating, setCreating] = useState<string | null>(null)
+  const startNewTodo = useCallback((title: string) => {
+    setCreating(title)
+    changeOpen(false)
+  }, [changeOpen])
+
   /** Facet spans index the query the gateway parsed, so that is what is cut. */
   const removeFacet = useCallback((facet: QueryFacetWire) => {
     const base = search.data?.query ?? query
@@ -105,99 +130,120 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
   }, [search.data, query])
 
   const handleKeyDown = useSearchKeyboard({
-    rowCount: rows.length,
+    rowCount: mode ? verbs.length : rows.length,
     selectedIndex: selected,
     onMove: setSelected,
-    onActivate: () => { if (row) activate(row) },
+    onActivate: () => {
+      if (!mode) {
+        if (row) activate(row)
+        return
+      }
+      // A committed verb has a form; ⏎ hands the field over to it rather than
+      // re-picking the verb that is already on screen.
+      if (mode.verb) activatePrimary(mode.verb)
+      else if (verbs[selected]) pickVerb(verbs[selected])
+    },
     onToggleLiteral: toggleLiteral,
   })
 
   const loading = typing && search.isFetching && !search.data
   const hint = typing
     ? "Nothing matched. Try fewer words, or search literally."
-    : "Type to search Todos, chats, notes, people, cron and skills."
+    : "Type to search Todos, chats, notes, people, cron and skills. Press > for commands — assign, move, run, new."
 
   return (
-    <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent
-        className={PALETTE}
-        overlayClassName={SCRIM}
-        showCloseButton={false}
-        aria-describedby={undefined}
-        onEscapeKeyDown={event => {
-          // A workbench picker owns Escape while it is up. Radix registers this
-          // handler in the same capture phase the picker's own listener runs in,
-          // so the picker's stopPropagation() cannot reach it — the overlay has
-          // to stand down here instead, or one Escape closes the picker AND
-          // throws the query away with it.
-          if (pickerOpen) {
+    <>
+      <Dialog open={open} onOpenChange={changeOpen}>
+        <DialogContent
+          className={PALETTE}
+          overlayClassName={SCRIM}
+          showCloseButton={false}
+          aria-describedby={undefined}
+          onEscapeKeyDown={event => {
+            // A workbench picker owns Escape while it is up. Radix registers this
+            // handler in the same capture phase the picker's own listener runs in,
+            // so the picker's stopPropagation() cannot reach it — the overlay has
+            // to stand down here instead, or one Escape closes the picker AND
+            // throws the query away with it.
+            if (pickerOpen) {
+              event.preventDefault()
+              return
+            }
+            if (!query) return
             event.preventDefault()
-            return
-          }
-          if (!query) return
-          event.preventDefault()
-          setQuery("")
-        }}
-        onKeyDown={handleKeyDown}
-      >
-        {/* Radix requires an accessible title; the field is the visible one. */}
-        <DialogTitle className="sr-only">Search {portalName}</DialogTitle>
+            setQuery("")
+          }}
+          onKeyDown={handleKeyDown}
+        >
+          {/* Radix requires an accessible title; the field is the visible one. */}
+          <DialogTitle className="sr-only">Search {portalName}</DialogTitle>
 
-        <div className="flex items-center gap-[11px] px-5 pb-[15px] pt-[17px] max-[480px]:px-4 max-[480px]:pb-3 max-[480px]:pt-3.5">
-          <Search size={18} aria-hidden="true" className="flex-none text-[var(--text-tertiary)]" />
-          {scope && (
-            <button type="button" data-testid="search-scope-pill" onClick={() => setScope(undefined)} className={PILL}>
-              {KIND_META[scope].plural}
-              <span aria-hidden="true" className="opacity-55">&times;</span>
-              <span className="sr-only">Search everything instead</span>
-            </button>
+          <div className="flex items-center gap-[11px] px-5 pb-[15px] pt-[17px] max-[480px]:px-4 max-[480px]:pb-3 max-[480px]:pt-3.5">
+            <Search size={18} aria-hidden="true" className="flex-none text-[var(--text-tertiary)]" />
+            {scope && (
+              <button type="button" data-testid="search-scope-pill" onClick={() => setScope(undefined)} className={PILL}>
+                {KIND_META[scope].plural}
+                <span aria-hidden="true" className="opacity-55">&times;</span>
+                <span className="sr-only">Search everything instead</span>
+              </button>
+            )}
+            <input
+              autoFocus
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder={`Search ${portalName}`}
+              aria-label={`Search ${portalName}`}
+              className="min-w-0 flex-1 bg-transparent text-[21px] tracking-[-0.012em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] max-[480px]:text-[19px]"
+            />
+            <span className="flex-none rounded-md bg-[var(--fill-tertiary)] px-[7px] py-[3px] text-[11px] font-medium text-[var(--text-tertiary)]">esc</span>
+          </div>
+
+          {search.data && (
+            <ReadBackLine parsed={search.data.parsed} onRemoveFacet={removeFacet} onToggleLiteral={toggleLiteral} />
           )}
-          <input
-            autoFocus
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            placeholder={`Search ${portalName}`}
-            aria-label={`Search ${portalName}`}
-            className="min-w-0 flex-1 bg-transparent text-[21px] tracking-[-0.012em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] max-[480px]:text-[19px]"
-          />
-          <span className="flex-none rounded-md bg-[var(--fill-tertiary)] px-[7px] py-[3px] text-[11px] font-medium text-[var(--text-tertiary)]">esc</span>
-        </div>
 
-        {search.data && (
-          <ReadBackLine parsed={search.data.parsed} onRemoveFacet={removeFacet} onToggleLiteral={toggleLiteral} />
-        )}
-
-        <div className="flex min-h-0 flex-1 max-[480px]:flex-col">
-          <div className="w-[396px] flex-none overflow-y-auto px-[10px] pb-[10px] pt-0.5 max-[480px]:w-full max-[480px]:flex-1 max-[480px]:px-2">
-            <ResultList
-              rows={rows}
-              selectedIndex={selected}
-              onSelect={setSelected}
-              onActivate={activate}
-              emptyLabel={typing ? "No results" : "Nothing opened from here yet"}
-              loading={loading}
-              selectedStatus={workbench?.status}
-            />
+          <div className="flex min-h-0 flex-1 max-[480px]:flex-col">
+            <div className="w-[396px] flex-none overflow-y-auto px-[10px] pb-[10px] pt-0.5 max-[480px]:w-full max-[480px]:flex-1 max-[480px]:px-2">
+              {mode ? (
+                <CommandList verbs={verbs} selectedIndex={selected} onSelect={setSelected} onPick={pickVerb} />
+              ) : (
+                <ResultList
+                  rows={rows}
+                  selectedIndex={selected}
+                  onSelect={setSelected}
+                  onActivate={activate}
+                  emptyLabel={typing ? "No results" : "Nothing opened from here yet"}
+                  loading={loading}
+                  selectedStatus={workbench?.status}
+                />
+              )}
+            </div>
+            <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:pb-[max(18px,env(safe-area-inset-bottom))] max-[480px]:shadow-[var(--shadow-overlay)]">
+              <div aria-hidden="true" className="mx-auto mb-3.5 hidden h-[5px] w-9 rounded-[3px] bg-[var(--fill-primary)] max-[480px]:block" />
+              {mode ? (
+                <CommandPane mode={mode} workbench={workbench} onCreateTodo={startNewTodo} />
+              ) : (
+                <PreviewPane
+                  row={row}
+                  error={search.error}
+                  hint={hint}
+                  literal={literal}
+                  onSearchLiterally={toggleLiteral}
+                  workbench={workbench}
+                />
+              )}
+            </div>
           </div>
-          <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:pb-[max(18px,env(safe-area-inset-bottom))] max-[480px]:shadow-[var(--shadow-overlay)]">
-            <div aria-hidden="true" className="mx-auto mb-3.5 hidden h-[5px] w-9 rounded-[3px] bg-[var(--fill-primary)] max-[480px]:block" />
-            <PreviewPane
-              row={row}
-              error={search.error}
-              hint={hint}
-              literal={literal}
-              onSearchLiterally={toggleLiteral}
-              workbench={workbench}
-            />
-          </div>
-        </div>
 
-        <div className={FOOTER}>
-          <span><b className={FOOTER_KEY}>&#8593;&#8595;</b> navigate</span>
-          <span><b className={FOOTER_KEY}>&#9166;</b> open</span>
-          <span><b className={FOOTER_KEY}>&#8984;&#9166;</b> search literally</span>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className={FOOTER}>
+            <span><b className={FOOTER_KEY}>&#8593;&#8595;</b> navigate</span>
+            <span><b className={FOOTER_KEY}>&#9166;</b> open</span>
+            <span><b className={FOOTER_KEY}>&#8984;&#9166;</b> search literally</span>
+            <span><b className={FOOTER_KEY}>&gt;</b> commands</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {creating !== null && <QuickCreateTodo title={creating} onDone={() => setCreating(null)} />}
+    </>
   )
 }
