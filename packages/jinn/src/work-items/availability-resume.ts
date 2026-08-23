@@ -42,9 +42,10 @@ const AVAILABILITY_CLASSES = ['quota', 'rate-limit', 'provider-outage', 'network
  *  because a close and an escalation are decisions a clock does not revisit. */
 const RESUMABLE_STATUSES: readonly WorkItemStatus[] = ['assigned', 'executing', 'in_review', 'blocked'];
 
-/** Past this, a stalled Todo stopped being a clock problem. `MAX_EXHAUSTION_MS`
- *  caps a stated window at 12h, so a day-old failure has no reset left to wait
- *  for and re-arming it would be resurrecting history rather than resuming it. */
+/** Past this, a stalled Todo stopped being a clock problem: re-arming a day-old
+ *  failure is resurrecting history rather than resuming it. A window longer than
+ *  this — a weekly cap, now that engine health reports one as stated — ages the
+ *  Todo out instead, which is a separate decision from this sweep's. */
 const MAX_RESUMABLE_AGE_MS = 24 * 60 * 60_000;
 
 const DEFAULT_RESUME_INTERVAL_MS = 5 * 60_000;

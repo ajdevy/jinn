@@ -45,7 +45,8 @@ vi.mock('@/routes/auth-provider', () => ({
   useAuth: () => ({ authState: {}, devices: [], createPairingCode: vi.fn(), logout: vi.fn(), unpairDevice: vi.fn() }),
 }))
 
-const EXHAUSTED_UNTIL = '2026-08-19T17:30:00.000Z'
+/** Six days out: the case a bare clock time used to render as this afternoon. */
+const EXHAUSTED_UNTIL = new Date(Date.now() + 6 * 24 * 60 * 60_000).toISOString()
 
 function engine(name: string, available: boolean, defaultModel: string, health?: unknown) {
   return { name, available, defaultModel, effortMechanism: 'none', models: [], ...(health ? { health } : {}) }
@@ -73,7 +74,7 @@ beforeEach(() => {
   registry.current = {
     default: 'claude',
     engines: {
-      claude: engine('claude', true, 'opus', { state: 'exhausted', until: EXHAUSTED_UNTIL }),
+      claude: engine('claude', true, 'opus', { state: 'exhausted', until: EXHAUSTED_UNTIL, window: '7d' }),
       codex: engine('codex', true, 'gpt-5.6-sol'),
       grok: engine('grok', false, 'grok-build', { state: 'degraded' }),
     },
@@ -96,13 +97,12 @@ describe('Engine Fallbacks section', () => {
 
   it('lists every engine with its installed state, default model and health', async () => {
     await renderSettings()
-    const localTime = new Date(EXHAUSTED_UNTIL).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
     expect(screen.getByText('Installed · opus')).toBeTruthy()
     expect(screen.getByText('Installed · gpt-5.6-sol')).toBeTruthy()
     // Uninstalled engines are listed too, not hidden.
     expect(screen.getByText('Not installed · grok-build')).toBeTruthy()
-    expect(screen.getByText(`Out of allowance until ${localTime}`)).toBeTruthy()
+    expect(screen.getByText('Weekly limit, back in 6d')).toBeTruthy()
     expect(screen.getByText('Degraded')).toBeTruthy()
     expect(screen.getByText('Healthy')).toBeTruthy()
   })
