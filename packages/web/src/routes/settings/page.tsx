@@ -1411,6 +1411,10 @@ export default function SettingsPage() {
               <VoiceSection
                 provider={config.realtime?.provider ?? ""}
                 apiKey={config.realtime?.apiKey ?? ""}
+                model={config.realtime?.model ?? ""}
+                voice={config.realtime?.voice ?? ""}
+                turnDetection={config.realtime?.turnDetection}
+                noiseReduction={config.realtime?.noiseReduction ?? ""}
                 capability={voiceCapability}
                 onChange={updateConfig}
                 talkOrbOn={settings.talkOrb}

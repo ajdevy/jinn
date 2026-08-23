@@ -5,7 +5,7 @@
  * `docs/talk-session-runtime.md` is the contract these routes implement.
  */
 import { authFetch } from "@/lib/auth"
-import { loadSettings, type TalkMicrophone } from "@/lib/settings"
+import type { RealtimeNoiseReduction } from "./opened-session"
 import type { TalkUsage } from "./usage-delta"
 import type { VisualCaptureReceipt } from "../context/visual-capture"
 import { parseTalkControlManifest, type TalkControlManifest } from "./control-manifest"
@@ -38,7 +38,7 @@ export interface OpenTalkSession {
   manifest: TalkControlManifest
   topicMemory?: string
   vadType: TalkVadType
-  noiseReduction: TalkMicrophone
+  noiseReduction: RealtimeNoiseReduction
 }
 
 export interface TalkToken {
@@ -47,7 +47,7 @@ export interface TalkToken {
   browserInstanceId: string
   credentialGeneration: number
   vadType?: TalkVadType
-  noiseReduction?: TalkMicrophone
+  noiseReduction?: RealtimeNoiseReduction
 }
 
 export interface ResumableTalkSession {
@@ -120,12 +120,14 @@ function jsonBody(body: unknown): RequestInit {
  * possible, and asking costs nothing.
  */
 export async function openTalkSession(): Promise<OpenTalkSession> {
-  const noiseReduction = loadSettings().talkMicrophone
+  // Noise reduction is not sent. It lives in `realtime.noiseReduction`, and the
+  // browser used to override it with a localStorage copy that always had a
+  // value — so the configured setting could never win, and the field in
+  // config.yaml did nothing. The gateway decides; the response reports.
   const opened = await talkFetch<Partial<OpenTalkSession>>("/api/talk/sessions", jsonBody({
     browserInstanceId: browserInstanceId(),
-    noiseReduction,
   }))
-  return parseOpenedSession(opened, noiseReduction)
+  return parseOpenedSession(opened)
 }
 
 /** Inspect a candidate without minting a credential or touching the microphone. */
@@ -243,9 +245,7 @@ export async function parkTalkSession(id: string): Promise<void> {
 /** Resume returns a fresh credential, because the one the session was parked
  *  with expires within its 600 seconds. */
 export async function resumeTalkSession(id: string): Promise<TalkToken> {
-  const resumed = await talkFetch<TalkToken>(sessionPath(id, "resume"), jsonBody({
-    noiseReduction: loadSettings().talkMicrophone,
-  }))
+  const resumed = await talkFetch<TalkToken>(sessionPath(id, "resume"), jsonBody({}))
   return {
     token: resumed.token,
     expiresAt: resumed.expiresAt,

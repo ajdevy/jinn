@@ -31,7 +31,6 @@ interface SettingsContextValue {
   setTalkOrb: (enabled: boolean) => void
   setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
   setTalkOrbIntensity: (intensity: JinnSettings["talkOrbIntensity"]) => void
-  setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
   setTextScale: (textScale: JinnSettings["textScale"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
@@ -55,7 +54,6 @@ const SettingsContext = createContext<SettingsContextValue>({
   setTalkOrb: () => {},
   setTalkOrbVariant: () => {},
   setTalkOrbIntensity: () => {},
-  setTalkMicrophone: () => {},
   setTextScale: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
@@ -199,7 +197,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const setTalkOrb = useField(update, "talkOrb")
   const setTalkOrbVariant = useField(update, "talkOrbVariant")
   const setTalkOrbIntensity = useField(update, "talkOrbIntensity")
-  const setTalkMicrophone = useField(update, "talkMicrophone")
 
   const setTextScale = useCallback(
     (textScale: JinnSettings["textScale"]) => {
@@ -268,7 +265,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setTalkOrb,
         setTalkOrbVariant,
         setTalkOrbIntensity,
-        setTalkMicrophone,
         setTextScale,
         setEmployeeOverride,
         clearEmployeeOverride,

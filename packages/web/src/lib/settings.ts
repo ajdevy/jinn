@@ -5,8 +5,6 @@ export interface EmployeeOverride {
   profileImage?: string
 }
 
-export type TalkMicrophone = "far_field" | "near_field"
-
 export interface TextScaleStep {
   label: string
   value: number
@@ -46,8 +44,6 @@ export interface JinnSettings {
   /** How much the orb is allowed to move. Taste, not accessibility — reduced
    *  motion is honoured regardless of what this says. */
   talkOrbIntensity: OrbIntensity
-  /** Provider-side filtering for the microphone used by Talk. */
-  talkMicrophone: TalkMicrophone
   /** Multiplier on every type step. Per-device on purpose — it tracks the screen
    *  being read, not the account. */
   textScale: number
@@ -69,7 +65,6 @@ export const DEFAULTS: JinnSettings = {
   talkOrb: false,
   talkOrbVariant: "mist",
   talkOrbIntensity: "standard",
-  talkMicrophone: "far_field",
   textScale: 1,
   employeeOverrides: {},
 }
@@ -85,9 +80,6 @@ export function loadSettings(): JinnSettings {
     const merged = { ...DEFAULTS, ...parsed } as JinnSettings
     if (!isOrbVariant(merged.talkOrbVariant)) merged.talkOrbVariant = DEFAULTS.talkOrbVariant
     if (!isOrbIntensity(merged.talkOrbIntensity)) merged.talkOrbIntensity = DEFAULTS.talkOrbIntensity
-    if (merged.talkMicrophone !== "near_field" && merged.talkMicrophone !== "far_field") {
-      merged.talkMicrophone = DEFAULTS.talkMicrophone
-    }
     if (!isTextScale(merged.textScale)) merged.textScale = DEFAULTS.textScale
     return merged
   } catch {

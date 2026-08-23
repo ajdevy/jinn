@@ -4,9 +4,15 @@ import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
 import type { OrbIntensity } from "@/components/talk/orb-motion"
 import type { OrbVariant } from "@/components/talk/orb-motion"
 import type { TalkCapability } from "@/lib/talk-capability"
-import type { TalkMicrophone } from "@/lib/settings"
 import { useSettings } from "@/routes/settings-provider"
 import { FieldRow, Section, SettingsInput, SettingsSelect } from "./shared"
+import {
+  ModelField,
+  NoiseReductionField,
+  TurnDetectionField,
+  VoiceField,
+  type TurnDetection,
+} from "./voice-realtime-fields"
 
 /**
  * The `realtime` block, as a settings section.
@@ -25,6 +31,10 @@ const REDACTED = "***"
 interface VoiceSectionProps {
   provider: string
   apiKey: string
+  model: string
+  voice: string
+  turnDetection: TurnDetection
+  noiseReduction: string
   /** Null while the probe is in flight: the section claims nothing about
    *  readiness until it knows. */
   capability: TalkCapability | null
@@ -148,28 +158,6 @@ function ProviderField({
   )
 }
 
-function MicrophoneField({
-  microphone,
-  onMicrophoneChange,
-}: {
-  microphone: TalkMicrophone
-  onMicrophoneChange: (microphone: TalkMicrophone) => void
-}) {
-  return (
-    <FieldRow label="Microphone">
-      <SettingsSelect
-        ariaLabel="Talk microphone"
-        value={microphone}
-        onChange={(value) => onMicrophoneChange(value as TalkMicrophone)}
-        options={[
-          { value: "far_field", label: "Laptop or room mic" },
-          { value: "near_field", label: "Headset or close mic" },
-        ]}
-      />
-    </FieldRow>
-  )
-}
-
 function OrbMotionField({
   intensity,
   onChange,
@@ -215,34 +203,51 @@ function OrbStyleField({
   )
 }
 
+/** The three `realtime` fields that shape a session once the provider and key
+ *  are settled. Grouped so the section reads as key, then session, then taste. */
+function SessionFields({
+  voice,
+  turnDetection,
+  noiseReduction,
+  capability,
+  onChange,
+}: {
+  voice: string
+  turnDetection: TurnDetection
+  noiseReduction: string
+  capability: TalkCapability | null
+  onChange: (path: string[], value: unknown) => void
+}) {
+  return (
+    <>
+      <VoiceField voice={voice} capability={capability} onChange={onChange} />
+      <TurnDetectionField turnDetection={turnDetection} onChange={onChange} />
+      <NoiseReductionField noiseReduction={noiseReduction} onChange={onChange} />
+    </>
+  )
+}
+
 /**
  * The knobs that are taste rather than configuration: they live in this
  * browser's settings, not in config.yaml, so they read their own store instead
  * of being threaded through the section's props.
  */
 function OrbTasteFields() {
-  const { settings, setTalkMicrophone, setTalkOrbVariant, setTalkOrbIntensity } = useSettings()
+  const { settings, setTalkOrbVariant, setTalkOrbIntensity } = useSettings()
   return (
     <>
-      <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
       <OrbMotionField intensity={settings.talkOrbIntensity} onChange={setTalkOrbIntensity} />
       <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
     </>
   )
 }
 
-export function VoiceSection({
-  provider,
-  apiKey,
-  capability,
-  onChange,
-  talkOrbOn,
-}: VoiceSectionProps) {
+export function VoiceSection(props: VoiceSectionProps) {
+  const { provider, apiKey, model, capability, onChange, talkOrbOn } = props
   // Replacing is a decision the operator makes here, not something the config
   // can be read for: an emptied field and a gateway with no key look the same.
   const [replacing, setReplacing] = useState(false)
   const stored = apiKey === REDACTED
-  const note = readiness(capability, provider, apiKey)
 
   function replace() {
     setReplacing(true)
@@ -261,17 +266,19 @@ export function VoiceSection({
       </div>
 
       <ProviderField provider={provider} capability={capability} onChange={onChange} />
+      <ModelField model={model} onChange={onChange} />
 
       <FieldRow label="API key">
         <KeyField stored={stored} apiKey={apiKey} onReplace={replace} onChange={onChange} />
       </FieldRow>
 
+      <SessionFields {...props} />
       <OrbTasteFields />
 
       <Guidance
         replacing={replacing}
         stored={stored}
-        note={note}
+        note={readiness(capability, provider, apiKey)}
         talkOrbOn={talkOrbOn}
         onKeepCurrent={keepCurrent}
       />
