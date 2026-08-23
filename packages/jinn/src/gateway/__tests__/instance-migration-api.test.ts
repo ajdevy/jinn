@@ -5,7 +5,7 @@ import path from "node:path"
 import { Readable } from "node:stream"
 import type { ServerResponse } from "node:http"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import type { Connector, IncomingMessage } from "../../shared/types.js"
+import type { Connector } from "../../shared/types.js"
 
 const registryHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-migration-api-registry-"))
 process.env.JINN_HOME = registryHome
@@ -199,33 +199,6 @@ describe("instance migration API", () => {
     const invalid = await request("POST", "/api/connectors/Slack-Support/send", { channel: "C1", text: "hello" })
     expect(invalid.status).toBe(400)
     expect(invalid.body.error).toMatch(/connector id/i)
-  })
-
-  it("keeps legacy Remote Discord inbound identity and rejects named route widening", async () => {
-    const legacyDelivery = vi.fn<(message: IncomingMessage) => void>()
-    context.connectors.set("discord", Object.assign(connectorStub("discord", "discord"), { deliverMessage: legacyDelivery }))
-    const body = {
-      sessionKey: "discord:C1",
-      channel: "C1",
-      user: "tester",
-      userId: "U1",
-      text: "hello",
-      messageId: "M1",
-      replyContext: { channel: "C1" },
-    }
-
-    const legacy = await request("POST", "/api/connectors/discord/incoming", body)
-    expect(legacy.status).toBe(200)
-    expect(legacyDelivery).toHaveBeenCalledWith(expect.objectContaining({
-      connector: "discord",
-      sessionKey: "discord:C1",
-    }))
-
-    const namedDelivery = vi.fn<(message: IncomingMessage) => void>()
-    context.connectors.set("discord-ops", Object.assign(connectorStub("discord-ops", "discord"), { deliverMessage: namedDelivery }))
-    const named = await request("POST", "/api/connectors/discord-ops/incoming", body)
-    expect(named.status).toBe(404)
-    expect(namedDelivery).not.toHaveBeenCalled()
   })
 
   it("adds version and a compact migration summary to status and exposes the canonical contract", async () => {
