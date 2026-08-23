@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAllowedCorsOrigin } from "../server.js";
+import { CORS_ALLOWED_REQUEST_HEADERS, CORS_EXPOSED_RESPONSE_HEADERS } from "../request-handler.js";
 
 describe("CORS origin policy", () => {
   it("allows absent origins for same-origin requests and CLI/curl clients", () => {
@@ -38,5 +39,21 @@ describe("CORS origin policy", () => {
     expect(
       isAllowedCorsOrigin("https://evil.example", "operator-mac-mini.tail0b18b3.ts.net"),
     ).toBe(false);
+  });
+});
+
+describe("CORS header policy", () => {
+  it("lets an allowed cross-origin caller both send and read the config revision", () => {
+    // One without the other is the silent half-failure: a PUT the preflight
+    // strips the revision from still saves, which is exactly the clobber the
+    // revision exists to prevent.
+    expect(CORS_ALLOWED_REQUEST_HEADERS).toContain("X-Jinn-Config-Revision");
+    expect(CORS_EXPOSED_RESPONSE_HEADERS).toContain("X-Jinn-Config-Revision");
+  });
+
+  it("keeps the headers the gateway already accepted", () => {
+    expect(CORS_ALLOWED_REQUEST_HEADERS).toContain("Content-Type");
+    expect(CORS_ALLOWED_REQUEST_HEADERS).toContain("Authorization");
+    expect(CORS_ALLOWED_REQUEST_HEADERS).toContain("X-Jinn-Bootstrap-Grant");
   });
 });

@@ -87,6 +87,14 @@ export {
 import { forkEngineSession } from "../sessions/fork.js";
 import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
+import { deepMerge, sanitizeConfigForApi } from "./config-payload.js";
+export { isSensitiveConfigKey, sanitizeConfigForApi } from "./config-payload.js";
+import {
+  CONFIG_CONFLICT_BODY,
+  CONFIG_REVISION_HEADER,
+  currentConfigRevision,
+  isStaleConfigRevision,
+} from "./config-revision.js";
 import {
   CONFIG_PATH,
   ORG_DIR,
@@ -615,76 +623,6 @@ function noteStoreFailureResponse(
     error: result.detail,
     ...(result.currentRevision ? { currentRevision: result.currentRevision } : {}),
   }, status);
-}
-
-const REDACTED_SECRET = "***";
-
-export function isSensitiveConfigKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return (
-    normalized.includes("token") ||
-    normalized.includes("secret") ||
-    normalized.includes("apikey") ||
-    normalized.includes("privatekey") ||
-    normalized.includes("password") ||
-    normalized === "authorization"
-  );
-}
-
-/**
- * Replace any secret-bearing fields with the "***" sentinel before sending
- * config to the UI.
- * deepMerge round-trips the sentinel back to the original value on PUT.
- */
-export function sanitizeConfigForApi<T>(value: T, key = ""): T {
-  const isNumericTokenThreshold = key === "tokenThreshold" && typeof value === "number";
-  if (isSensitiveConfigKey(key) && !isNumericTokenThreshold && value !== undefined && value !== null && value !== "") {
-    return REDACTED_SECRET as T;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeConfigForApi(item)) as T;
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
-      out[childKey] = sanitizeConfigForApi(childValue, childKey);
-    }
-    return out as T;
-  }
-  return value;
-}
-
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    const sv = source[key];
-    const tv = target[key];
-    // A sanitized secret keeps the stored value; an explicit null clears the field.
-    if (isSensitiveConfigKey(key) && sv === REDACTED_SECRET) continue;
-    if (sv === null) delete result[key];
-    else if (Array.isArray(sv)) {
-      // For arrays (e.g. instances), preserve secrets from matching items
-      if (Array.isArray(tv)) {
-        result[key] = sv.map((item: unknown) => {
-          if (item && typeof item === "object" && !Array.isArray(item)) {
-            const srcItem = item as Record<string, unknown>;
-            const matchTarget = (tv as unknown[]).find(
-              (t) => t && typeof t === "object" && (t as Record<string, unknown>).id === srcItem.id
-            ) as Record<string, unknown> | undefined;
-            if (matchTarget) return deepMerge(matchTarget, srcItem);
-          }
-          return item;
-        });
-      } else {
-        result[key] = sv;
-      }
-    } else if (sv && typeof sv === "object" && !Array.isArray(sv) && tv && typeof tv === "object" && !Array.isArray(tv)) {
-      result[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
-    } else {
-      result[key] = sv;
-    }
-  }
-  return result;
 }
 
 function sessionHasRuntimeActivity(session: Session, context: ApiContext): boolean {
@@ -4903,6 +4841,9 @@ export async function handleApiRequest(
     // GET /api/config
     if (method === "GET" && pathname === "/api/config") {
       const config = context.getConfig();
+      // The revision comes off the FILE, not off this in-memory config: the file is
+      // what a PUT deep-merges into, so the file is what a conflict is about.
+      res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
       return json(res, sanitizeConfigForApi(config));
     }
 
@@ -4919,6 +4860,12 @@ export async function handleApiRequest(
       const unknownKeys = Object.keys(body).filter((k) => !CONFIG_TOP_LEVEL_KEYS.includes(k));
       if (unknownKeys.length > 0) {
         return badRequest(res, `Unknown config keys: ${unknownKeys.join(", ")}`);
+      }
+      // Before the merge and before the write: a caller holding a revision older than
+      // the file is about to overwrite an edit it never saw. A caller that sends no
+      // revision is untouched — see isStaleConfigRevision for why that is deliberate.
+      if (isStaleConfigRevision(req.headers, currentConfigRevision())) {
+        return json(res, { ...CONFIG_CONFLICT_BODY }, 409);
       }
       // GET /api/config serves the EFFECTIVE binding, so the Settings page echoes
       // JINN_HOST/JINN_PORT back with every unrelated edit; saveConfigAtomic drops those.
@@ -4956,6 +4903,7 @@ export async function handleApiRequest(
       context.reloadConfig?.(); // refresh in-memory config now (don't wait on the watcher)
       invalidateModelRegistry(); // models/engines may have changed — rebuild on next read
       logger.info("Config updated via API");
+      res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
       return json(res, { status: "ok" });
     }
 

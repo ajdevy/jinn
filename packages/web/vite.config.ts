@@ -124,6 +124,10 @@ export default defineConfig(() => {
         // never resolves at build time — it exists so `tsc` and Vite agree on
         // what the specifier means.
         '@jinn/workflow-wire': path.resolve(__dirname, '../jinn/src/workflows/wire.ts'),
+        // Unlike the line above, this one does resolve at build time: the module
+        // is runtime code the bundle really carries. It is a pure leaf with an
+        // empty import list, which is what keeps that safe with no polyfills.
+        '@jinn/fallback-map-wire': path.resolve(__dirname, '../jinn/src/shared/fallback-map-wire.ts'),
       },
     },
     build: {

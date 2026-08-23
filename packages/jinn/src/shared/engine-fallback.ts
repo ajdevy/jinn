@@ -1,3 +1,9 @@
+import {
+  blankSourceProblem,
+  mapNotAMappingProblem,
+  targetNotAModelIdProblem,
+  unservedTargetWarning,
+} from "./fallback-map-wire.js";
 import { logger } from "./logger.js";
 import { ENGINE_NAMES, isKnownEngine, type EngineName } from "./models.js";
 import type { JinnConfig, ModelRegistry } from "./types.js";
@@ -44,12 +50,6 @@ function isYamlMapping(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** What a config value turned out to be, phrased for the operator reading the error. */
-function shapeOf(value: unknown): string {
-  if (value === null) return "null";
-  return Array.isArray(value) ? "array" : typeof value;
-}
-
 /** Problems with the entries of one engine's map, which is already a mapping. */
 function modelMapEntryProblems(engine: string, map: Record<string, unknown>): string[] {
   const problems: string[] = [];
@@ -57,10 +57,10 @@ function modelMapEntryProblems(engine: string, map: Record<string, unknown>): st
   for (const [from, to] of Object.entries(map)) {
     // YAML hands every key over as a string, so "not a model id" is a blank one.
     if (!from.trim()) {
-      problems.push(`engines.${engine}.fallbackModelMap has a blank model id as a key`);
+      problems.push(blankSourceProblem(engine));
     }
     if (typeof to !== "string" || !to.trim()) {
-      problems.push(`engines.${engine}.fallbackModelMap["${from}"] must be a nonempty model id (got ${shapeOf(to)})`);
+      problems.push(targetNotAModelIdProblem(engine, from, to));
     }
   }
 
@@ -83,9 +83,7 @@ export function validateEngineFallbackModelMaps(engines: Record<string, unknown>
     const map = section.fallbackModelMap;
     if (map === undefined) continue;
     if (!isYamlMapping(map)) {
-      problems.push(
-        `engines.${name}.fallbackModelMap must be a mapping of model id to model id (got ${shapeOf(map)})`,
-      );
+      problems.push(mapNotAMappingProblem(name, map));
       continue;
     }
 
@@ -116,10 +114,7 @@ export function resolveSubstituteModel(
   if (!mapped) return undefined;
   if (registry[to]?.models.some((candidate) => candidate.id === mapped)) return mapped;
 
-  logger.warn(
-    `engines.${from}.fallbackModelMap maps "${model}" to "${mapped}", which engine "${to}" does not serve — ` +
-      `running ${to} on its own default model instead.`,
-  );
+  logger.warn(unservedTargetWarning({ engine: from, model, target: mapped, substitute: to }));
   return undefined;
 }
 
