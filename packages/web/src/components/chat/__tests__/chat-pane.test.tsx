@@ -101,9 +101,6 @@ vi.mock('@/components/chat/chat-employee-picker', () => ({
   ChatEmployeePicker: () => <div data-testid="employee-picker" />,
 }))
 
-vi.mock('@/components/chat/queue-panel', () => ({
-  QueuePanel: () => null,
-}))
 
 vi.mock('@/components/chat/background-activity-status', () => ({
   BackgroundActivityStatus: ({ delegatedActivity, employeeDisplayNames }: {

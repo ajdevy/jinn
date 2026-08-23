@@ -795,9 +795,9 @@ export function ChatInput({
           onPaste={handlePaste}
           onPointerDown={(e) => e.stopPropagation()}
           placeholder={
-            disabled
-              ? 'Waiting for response...'
-              : 'Type a message...'
+            disabled ? 'Waiting for response...'
+              : loading ? 'Queue another message...'
+                : 'Type a message...'
           }
           rows={1}
           disabled={disabled}

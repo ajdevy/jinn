@@ -344,7 +344,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5562,
+      "lines": 5432,
       "exempt": [
         "complexity",
         "max-depth",
@@ -746,7 +746,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2760,
+      "lines": 2635,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1165,7 +1165,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 588,
+      "lines": 582,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1264,12 +1264,6 @@
       "lines": 525,
       "exempt": [
         "complexity",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/web/src/components/chat/queue-panel.tsx": {
-      "exempt": [
-        "@typescript-eslint/no-floating-promises",
         "max-lines-per-function"
       ]
     },
@@ -1506,7 +1500,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1120,
+      "lines": 1118,
       "exempt": [
         "complexity"
       ]
@@ -1568,7 +1562,7 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 318,
+      "lines": 305,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1667,7 +1661,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1568,
+      "lines": 1493,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1772,7 +1766,7 @@
       ]
     },
     "packages/web/src/routes/todos/new-todo-dialog.tsx": {
-      "lines": 464,
+      "lines": 414,
       "exempt": [
         "complexity",
         "max-lines-per-function"

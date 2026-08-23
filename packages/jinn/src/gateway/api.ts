@@ -65,7 +65,6 @@ import {
   cancelQueueItem,
   markRunningQueueItemsCompletedForSession,
   getQueueItems,
-  cancelAllPendingQueueItems,
   listAllPendingQueueItems,
   getSessionDelivery,
   getSessionDeliveryByQueueItemId,
@@ -117,7 +116,7 @@ import {
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
+import { supersedeRunningTurn } from "../sessions/turn/superseded.js";
 import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
 import { spawnSession } from "./spawn-session.js";
 export { deliverConnectorReply } from "./connector-reply.js";
@@ -130,6 +129,7 @@ import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type Pendin
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
+import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
@@ -1100,6 +1100,8 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
+  if (method === "PATCH" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item edit";
+  if (method === "POST" && matchRoute("/api/sessions/:id/queue/:itemId/send-now", pathname)) return "session queue item send now";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue", pathname)) return "session queue clear";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/pause", pathname)) return "session queue pause";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/resume", pathname)) return "session queue resume";
@@ -1338,26 +1340,6 @@ function serializeSessionList(sessions: readonly Session[], context: ApiContext)
 function serializeSessionResponse(session: Session, context: ApiContext): Session {
   const delegatedActivityIndex = buildSessionDelegatedActivityIndex(listSessions(), context);
   return serializeSession(session, context, delegatedActivityIndex);
-}
-
-function withTransportMeta(session: Session, updates: JsonObject): JsonObject {
-  const base =
-    session.transportMeta && typeof session.transportMeta === "object" && !Array.isArray(session.transportMeta)
-      ? session.transportMeta
-      : {};
-  return { ...base, ...updates };
-}
-
-function supersedeRunningTurn(session: Session): void {
-  updateSession(session.id, {
-    transportMeta: withTransportMeta(session, {
-      [SUPERSEDED_TURN_META_KEY]: new Date().toISOString(),
-    }),
-    ...(session.workflowProvenance?.kind === "phase" ? {
-      attemptInterruptionCause: "user-message",
-      attemptInterruptionTurn: (session.attemptTurn ?? 0) + 1,
-    } : {}),
-  });
 }
 
 function isSessionLiveRunning(session: Session, context: ApiContext): boolean {
@@ -2419,65 +2401,7 @@ export async function handleApiRequest(
       }
     }
 
-    // DELETE /api/sessions/:id/queue/:itemId — cancel specific item
-    const queueItemParams = matchRoute("/api/sessions/:id/queue/:itemId", pathname);
-    if (method === "DELETE" && queueItemParams) {
-      const session = getSession(queueItemParams.id);
-      if (!session) return notFound(res);
-      const cancelled = cancelQueueItem(queueItemParams.itemId);
-      if (!cancelled) {
-        res.writeHead(409, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Item not found or already running" }));
-        return;
-      }
-      context.emit("queue:updated", { sessionId: queueItemParams.id, sessionKey: session.sessionKey });
-      return json(res, { status: "cancelled", itemId: queueItemParams.itemId });
-    }
-
-    // GET /api/sessions/:id/queue
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "GET" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const items = getQueueItems(session.sessionKey || session.sourceRef || session.id);
-      return json(res, items);
-    }
-
-    // DELETE /api/sessions/:id/queue — clear all pending
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "DELETE" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      // Cancel only operator-visible rows. SessionQueue checks each durable row
-      // before execution, so no coarse in-memory cancellation is needed here;
-      // setting one would also discard protected internal callback rows.
-      const cancelled = cancelAllPendingQueueItems(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, depth: 0 });
-      return json(res, { status: "cleared", cancelled });
-    }
-
-    // POST /api/sessions/:id/queue/pause
-    params = matchRoute("/api/sessions/:id/queue/pause", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().pauseQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: true });
-      return json(res, { status: "paused", sessionId: params.id });
-    }
-
-    // POST /api/sessions/:id/queue/resume
-    params = matchRoute("/api/sessions/:id/queue/resume", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().resumeQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: false });
-      return json(res, { status: "resumed", sessionId: params.id });
-    }
+    if (await handleSessionQueueRoute(method, pathname, req, res, context)) return;
 
     // POST /api/sessions/bulk-delete
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
@@ -4748,33 +4672,31 @@ export async function handleApiRequest(
 
       const attachmentPaths = resolveAttachmentPaths(body.attachments);
 
-      // Internal notification-role messages are already durably queued above;
-      // only real user messages create a visible queue-panel item here.
-      if (!isNotification) {
-        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-        context.emit("queue:updated", { sessionId: session.id, sessionKey });
-      }
-
       // Speech-derived operator messages carry a hidden context note to the engine
       // only. Everything persisted/queued/emitted above uses the clean `prompt`;
       // notifications (callbacks, relays) never qualify, and interactive dispatch
       // (ptyEngine truthy) suppresses the note so the visible PTY paste stays the
       // operator's exact text. Recomputed per request → exactly one note, never
       // persisted, never rendered, never duplicated on retry/reload/reconnect.
-      const { engine: enginePrompt } = resolveMessageAudiences(
-        prompt,
-        speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine }),
-      );
+      const speechDerived = speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine });
+      const { engine: enginePrompt } = resolveMessageAudiences(prompt, speechDerived);
+
+      // Internal notification-role messages are already durably queued above;
+      // only real user messages create a visible queue-panel item here. The row
+      // carries the whole payload so "send this one now" can move all of it.
+      if (!isNotification) {
+        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId, dispatch: { attachments: attachmentPaths, speechDerived } });
+        context.emit("queue:updated", { sessionId: session.id, sessionKey });
+      }
+
       dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",
         sessionId: session.id,
-        ...(callbackDelivery ? {
-          callbackDeliveryId: callbackDelivery.id,
-          messageId: incomingMessageId,
-          queueItemId,
-        } : {}),
+        messageId: incomingMessageId,
+        queueItemId,
+        ...(callbackDelivery ? { callbackDeliveryId: callbackDelivery.id } : {}),
       });
     }
 

@@ -7,7 +7,7 @@ import { ChatInput } from '@/components/chat/chat-input'
 import { CliKeybar } from '@/components/chat/cli-keybar'
 import { ChatEmployeePicker } from '@/components/chat/chat-employee-picker'
 import { ChatHydrationOverlay, useHydrationSpinner } from '@/components/chat/chat-hydration'
-import { QueuePanel } from '@/components/chat/queue-panel'
+import { SessionQueueContext, useSessionQueue } from '@/components/chat/use-session-queue'
 import { BackgroundActivityStatus } from '@/components/chat/background-activity-status'
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
 import { useLiveSession } from '@/hooks/use-live-session'
@@ -142,6 +142,7 @@ export function ChatPane({
     reset: resetPane,
     reload: reloadSession,
   } = live
+  const sessionQueue = useSessionQueue(sessionId, subscribe)
   const { notice: staleChatNotice, answerBySending: answerStaleChatBySending } = useStaleChatNotice({
     sessionId,
     session: currentSession,
@@ -343,7 +344,7 @@ export function ChatPane({
           // CLI view → route to the interactive PTY engine so the user sees the prompt
           // get injected into the live xterm + claude's streaming response.
           const mode = viewMode === 'cli' && engineRegistry?.engines?.[String(currentSession?.engine ?? '')]?.supportsPty ? 'interactive' : undefined
-          await api.sendMessage(sid, { message, interrupt: interrupt || undefined, attachments: attachmentIds, mode, speech: speech || undefined })
+          sessionQueue.adopt(userMsg.id, await api.sendMessage(sid, { message, interrupt: interrupt || undefined, attachments: attachmentIds, mode, speech: speech || undefined }))
           onRefresh?.()
         }
         return true
@@ -353,7 +354,7 @@ export function ChatPane({
       }
     },
     // Keep viewMode and stale-notice handling fresh across chat↔CLI sends.
-    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, engineRegistry, beginSend, failSend, answerStaleChatBySending]
+    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, engineRegistry, beginSend, failSend, answerStaleChatBySending, sessionQueue]
   )
 
   const handleStatusRequest = useCallback(async () => {
@@ -488,42 +489,35 @@ export function ChatPane({
           <CliTerminal ref={cliTerminalRef} sessionId={sessionId} />
         </Suspense>
       ) : (
-        <ChatMessages
-          initialScrollTop={initialScrollTop}
-          messages={messages}
-          loading={loading}
-          hydrating={hydrating}
-          turnPending={turnPending}
-          liveFinalResponseId={liveFinalResponseId}
-          streamingText={streamingText}
-          onRetry={(t, m) => void handleSend(t, m)}
-          hasOlderMessages={hasOlderMessages}
-          loadingOlderMessages={loadingOlderMessages}
-          olderMessagesError={olderMessagesError}
-          onLoadOlderMessages={loadOlderMessages}
-          onPeek={onPeek}
-          blockArrivals={blockArrivals}
-          liveTerminalDelegationIds={liveTerminalDelegationIds}
-          blockAnnouncement={blockAnnouncement}
-          footer={staleChatNotice}
-          emptyState={sessionId ? undefined : newChatEmptyState ?? (
-            <ChatEmployeePicker
-              employees={pickerEmployees}
-              selectedEmployee={selectedEmployee}
-              onSelect={setSelectedEmployee}
-              portalName={portalName}
-            />
-          )}
-        />
-      )}
-
-      {/* Queue panel — hidden in the live xterm view (noise on top of the PTY). */}
-      {!(viewMode === 'cli' && sessionId) && (
-        <QueuePanel
-          sessionId={sessionId}
-          events={events}
-          paused={currentSession?.paused as boolean ?? false}
-        />
+        <SessionQueueContext.Provider value={sessionQueue}>
+          <ChatMessages
+            initialScrollTop={initialScrollTop}
+            messages={messages}
+            loading={loading}
+            hydrating={hydrating}
+            turnPending={turnPending}
+            liveFinalResponseId={liveFinalResponseId}
+            streamingText={streamingText}
+            onRetry={(t, m) => void handleSend(t, m)}
+            hasOlderMessages={hasOlderMessages}
+            loadingOlderMessages={loadingOlderMessages}
+            olderMessagesError={olderMessagesError}
+            onLoadOlderMessages={loadOlderMessages}
+            onPeek={onPeek}
+            blockArrivals={blockArrivals}
+            liveTerminalDelegationIds={liveTerminalDelegationIds}
+            blockAnnouncement={blockAnnouncement}
+            footer={staleChatNotice}
+            emptyState={sessionId ? undefined : newChatEmptyState ?? (
+              <ChatEmployeePicker
+                employees={pickerEmployees}
+                selectedEmployee={selectedEmployee}
+                onSelect={setSelectedEmployee}
+                portalName={portalName}
+              />
+            )}
+          />
+        </SessionQueueContext.Provider>
       )}
 
       {/* Contributed chat surface. Composer-adjacent rather than in the message

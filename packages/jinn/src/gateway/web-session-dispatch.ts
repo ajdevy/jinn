@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getFile, getSession, beginSessionAttempt } from "../sessions/registry.js";
+import { getFile, getSession, getQueueItem, beginSessionAttempt } from "../sessions/registry.js";
 import { FILES_DIR } from "../shared/paths.js";
 import { settleTurn } from "../sessions/turn/completion.js";
 import { resolveTurnHierarchy } from "../sessions/turn/preflight.js";
@@ -9,6 +9,7 @@ import { runTurn } from "../sessions/turn/runner.js";
 import { logger } from "../shared/logger.js";
 import type { Engine, Session } from "../shared/types.js";
 import { createWebTurnSurface } from "./web-turn-surface.js";
+import { resolveMessageAudiences } from "./speech-context.js";
 // Type-only, so the pair below can name the context every web route already
 // carries without this module and api.ts importing each other at runtime.
 import type { ApiContext } from "./api.js";
@@ -91,6 +92,32 @@ async function runQueuedTurn(
   }
 }
 
+/**
+ * What this turn actually runs, decided when the queue lets it through rather
+ * than when it was enqueued.
+ *
+ * A parked row can be edited, or have another message's payload rotated onto it
+ * by "send this one now", while it waits. The operator is looking at the row, so
+ * the row wins — and it wins whole: text, attachments and speech origin travel
+ * together, because a promoted message arriving with the attachment of the row
+ * it displaced would be worse than not reordering at all. The speech note is
+ * recomputed from that text exactly as `resolveMessageAudiences` requires:
+ * derived per dispatch, never persisted.
+ */
+function requestForTurn(
+  dispatched: Omit<WebTurnRequest, "attemptToken">,
+  queueItemId?: string,
+): Omit<WebTurnRequest, "attemptToken"> {
+  const parked = queueItemId ? getQueueItem(queueItemId) : undefined;
+  if (!parked) return dispatched;
+  // Its text always. Its attachments only if it recorded any: the notification,
+  // workflow and plugin paths enqueue without a payload and still carry files on
+  // the closure, and overriding those with "none" would silently drop them.
+  const prompt = resolveMessageAudiences(parked.prompt, parked.dispatch?.speechDerived === true).engine;
+  if (!parked.dispatch) return { ...dispatched, prompt };
+  return { ...dispatched, prompt, attachments: parked.dispatch.attachments.length > 0 ? parked.dispatch.attachments : undefined };
+}
+
 export function dispatchWebSessionRun(
   session: Session,
   prompt: string,
@@ -103,7 +130,7 @@ export function dispatchWebSessionRun(
   const run = async () => {
     try {
       await context.sessionManager.getQueue().enqueue(sessionKey, () =>
-        runQueuedTurn(session, context, { prompt, engine, attachments: opts?.attachments }, {
+        runQueuedTurn(session, context, requestForTurn({ prompt, engine, attachments: opts?.attachments }, opts?.queueItemId), {
           sessionKey,
           queueItemId: opts?.queueItemId,
           onAttempt: (token) => {
