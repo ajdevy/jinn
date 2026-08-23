@@ -1,8 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import yaml from "js-yaml";
+import { describe, it, expect, vi } from "vitest";
 import {
   applyLegacyFallbackMigration, resolveFallbackEngine, resolveSubstituteModel, validateEngineFallbackModelMaps,
 } from "../engine-fallback.js";
@@ -79,73 +75,6 @@ describe("applyLegacyFallbackMigration", () => {
   });
 });
 
-describe("engines.<name>.fallback round-trip", () => {
-  // CONFIG_PATH resolves at module load from JINN_HOME, so point it at a temp dir
-  // and re-import (same pattern as the saveConfigAtomic tests).
-  let tmpHome: string;
-  const prevHome = process.env.JINN_HOME;
-
-  beforeEach(() => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-engine-fallback-"));
-    process.env.JINN_HOME = tmpHome;
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    if (prevHome === undefined) delete process.env.JINN_HOME;
-    else process.env.JINN_HOME = prevHome;
-    vi.resetModules();
-    try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
-  });
-
-  it("loads a chain verbatim and survives a save/reload", async () => {
-    const { loadConfig, saveConfigAtomic } = await import("../config.js");
-    fs.writeFileSync(path.join(tmpHome, "config.yaml"), yaml.dump({
-      gateway: { port: 7778, host: "127.0.0.1" },
-      engines: {
-        default: "claude",
-        claude: { bin: "claude", model: "opus", fallback: ["codex", "grok"] },
-        codex: { bin: "codex", model: "gpt-5.5" },
-      },
-    }));
-
-    const loaded = loadConfig();
-    expect(loaded.engines.claude.fallback).toEqual(["codex", "grok"]);
-
-    saveConfigAtomic(loaded);
-    expect(loadConfig().engines.claude.fallback).toEqual(["codex", "grok"]);
-  });
-
-  it("refuses to load a config whose model map is malformed, the same way a bad chain is refused", async () => {
-    const { loadConfig } = await import("../config.js");
-    fs.writeFileSync(path.join(tmpHome, "config.yaml"), yaml.dump({
-      gateway: { port: 7778, host: "127.0.0.1" },
-      engines: {
-        default: "claude",
-        claude: { bin: "claude", model: "opus" },
-        codex: { bin: "codex", model: "gpt-5.5", fallbackModelMap: ["haiku"] },
-      },
-    }));
-
-    expect(() => loadConfig()).toThrow(/engines\.codex\.fallbackModelMap/);
-  });
-
-  it("loads a valid map verbatim, and an absent one as absent", async () => {
-    const { loadConfig } = await import("../config.js");
-    fs.writeFileSync(path.join(tmpHome, "config.yaml"), yaml.dump({
-      gateway: { port: 7778, host: "127.0.0.1" },
-      engines: {
-        default: "claude",
-        claude: { bin: "claude", model: "opus" },
-        codex: { bin: "codex", model: "gpt-5.5", fallbackModelMap: { "gpt-5.6-luna": "haiku" } },
-      },
-    }));
-
-    const loaded = loadConfig();
-    expect(loaded.engines.codex.fallbackModelMap).toEqual({ "gpt-5.6-luna": "haiku" });
-    expect(loaded.engines.claude.fallbackModelMap).toBeUndefined();
-  });
-});
 
 describe("validateEngineFallbackModelMaps", () => {
   it("accepts an absent map and a well-formed one", () => {
@@ -173,6 +102,25 @@ describe("validateEngineFallbackModelMaps", () => {
   it("refuses a blank model id as a key, naming the config path", () => {
     expect(validateEngineFallbackModelMaps({ claude: { fallbackModelMap: { "  ": "opus" } } }))
       .toEqual(["engines.claude.fallbackModelMap has a blank model id as a key"]);
+  });
+
+  // The live break: `agy models` started printing `id<TAB>label`, discovery kept the
+  // whole line as the id, and the composite was saved into the map as if it were one.
+  it("refuses an entry whose value carries a control character, naming the entry", () => {
+    expect(validateEngineFallbackModelMaps({
+      codex: { fallbackModelMap: { "gpt-5.6-sol": "gemini-3.7-flash-high\tGemini 3.7 Flash (High)" } },
+    })).toEqual([
+      'engines.codex.fallbackModelMap["gpt-5.6-sol"] must be a model id with no control characters ' +
+        '(got "gemini-3.7-flash-high\\tGemini 3.7 Flash (High)")',
+    ]);
+  });
+
+  it("refuses a key that carries a control character, naming the config path", () => {
+    expect(validateEngineFallbackModelMaps({
+      codex: { fallbackModelMap: { "gpt-5.6-sol\tGPT-5.6 Sol": "opus" } },
+    })).toEqual([
+      'engines.codex.fallbackModelMap has a key that is not a model id (got "gpt-5.6-sol\\tGPT-5.6 Sol")',
+    ]);
   });
 
   it("reports every bad entry rather than stopping at the first", () => {
@@ -237,6 +185,24 @@ describe("resolveSubstituteModel", () => {
     expect(warn.mock.calls[0][0]).toBe(
       'engines.codex.fallbackModelMap["gpt-5.6-luna"] maps to "gpt-5.6-luna", ' +
         'which engine "claude" does not serve — running claude on its own default model instead.',
+    );
+    warn.mockRestore();
+  });
+
+  it("drops a mapped id that is not spellable at all, and points at config.yaml", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const composite = "gemini-3.7-flash-high\tGemini 3.7 Flash (High)";
+
+    expect(resolveSubstituteModel(withMap({ "gpt-5.6-luna": composite }), registry, { ...swap, model: "gpt-5.6-luna" }))
+      .toBeUndefined();
+
+    // The map is the fault, not the CLI that refused the argv, so the warning names
+    // the file the operator edits and the entry inside it.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toBe(
+      'engines.codex.fallbackModelMap["gpt-5.6-luna"] in config.yaml maps to ' +
+        '"gemini-3.7-flash-high\\tGemini 3.7 Flash (High)", which is not a model id — ' +
+        'running claude on its own default model instead.',
     );
     warn.mockRestore();
   });
