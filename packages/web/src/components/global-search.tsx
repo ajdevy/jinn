@@ -84,7 +84,8 @@ export function GlobalSearch({ initialOpen = false, initialScope }: GlobalSearch
   const row = rows[selected]
   // The selected Todo's write half. Held here rather than in the preview because
   // the result row shows the same live status the preview does.
-  const workbench = useTodoWorkbench(row)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const workbench = useTodoWorkbench(row, setPickerOpen)
 
   const activate = useCallback((target: SearchRow) => {
     const recent = rowTarget(target)
@@ -122,6 +123,15 @@ export function GlobalSearch({ initialOpen = false, initialScope }: GlobalSearch
         showCloseButton={false}
         aria-describedby={undefined}
         onEscapeKeyDown={event => {
+          // A workbench picker owns Escape while it is up. Radix registers this
+          // handler in the same capture phase the picker's own listener runs in,
+          // so the picker's stopPropagation() cannot reach it — the overlay has
+          // to stand down here instead, or one Escape closes the picker AND
+          // throws the query away with it.
+          if (pickerOpen) {
+            event.preventDefault()
+            return
+          }
           if (!query) return
           event.preventDefault()
           setQuery("")

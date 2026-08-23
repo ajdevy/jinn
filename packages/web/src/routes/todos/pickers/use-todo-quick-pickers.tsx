@@ -242,7 +242,15 @@ export function useTodoQuickPickers({ detail, employees, shell, prefix, onOpenCh
 }) {
   const [open, setOpen] = useState<TodoQuickPickerKey | null>(null)
   const refusal = useRefusal()
-  const children = useCloseGate(detail?.workItem.id, open === 'status')
+  const id = detail?.workItem.id
+  const children = useCloseGate(id, open === 'status')
+
+  // A picker belongs to the Todo it was opened on. A surface that keeps one
+  // instance of this hook across a changing selection — the search workbench,
+  // whose list re-ranks itself when a debounced result set lands — would
+  // otherwise leave the menu up and re-point it at whatever is selected now,
+  // and the next Enter would write to a Todo nobody opened a picker for.
+  useEffect(() => { setOpen(null) }, [id])
   const transitionTo = useStatusLane(detail?.workItem.id, refusal)
   const commitAssignee = useAssignLane(detail, refusal)
   const close = useCloseToAnchor(setOpen, prefix)

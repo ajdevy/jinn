@@ -6,6 +6,9 @@ import { detailOf } from "@/components/peek/__tests__/peek-fixtures"
  * door in workbench.test.tsx; this is only the harness and its fixtures. */
 
 export const TODO_ID = "AAA-1"
+/** A second Todo row, so a selection can move Todo-to-Todo without the
+ *  workbench unmounting on the way. */
+export const OTHER_TODO_ID = "AAA-2"
 
 export const EMPLOYEES: Employee[] = ["a-lead", "b-lead"].map((name, index) => ({
   name,
@@ -17,8 +20,11 @@ export const EMPLOYEES: Employee[] = ["a-lead", "b-lead"].map((name, index) => (
   persona: "",
 }))
 
-export function todoDetail(over: Partial<WorkItemDetailWire["workItem"]> = {}): WorkItemDetailWire {
-  return detailOf(TODO_ID, over)
+export function todoDetail(
+  over: Partial<WorkItemDetailWire["workItem"]> = {},
+  id: string = TODO_ID,
+): WorkItemDetailWire {
+  return detailOf(id, over)
 }
 
 /** The subtree behind the close gate, as the gateway hands it back. */

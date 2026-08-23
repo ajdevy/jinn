@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import type { WorkItemStatusWire } from "@/lib/api"
 import { useAddTodoComment } from "@/routes/todos/use-todo-comment"
-import { useOrg, useTodoById } from "@/routes/todos/use-todos"
+import { useEmployeesByName, useOrg, useTodoById } from "@/routes/todos/use-todos"
+import { displayNameOf } from "@/routes/todos/util"
 import {
   useTodoQuickPickers,
   type Refusal,
@@ -26,6 +27,8 @@ export interface TodoWorkbench {
    *  optimistically and rolls back on refusal, which is what moves the result
    *  row and this preview together without a second patcher. */
   status: WorkItemStatusWire | undefined
+  /** The owner as the rest of Jinn writes it — the roster's display name, not
+   *  the employee key the wire carries. */
   assignee: string | null | undefined
   /** The detail is still on its way; the controls have nothing to act on yet. */
   loading: boolean
@@ -73,24 +76,33 @@ function useCommentLane(id: string | null, refusal: Refusal): TodoWorkbench["com
   return { draft, setDraft, submit, pending: send.isPending }
 }
 
-export function useTodoWorkbench(row: SearchRow | undefined): TodoWorkbench | undefined {
+export function useTodoWorkbench(
+  row: SearchRow | undefined,
+  /** Told while a picker is up, so the overlay can stand its own Escape down.
+   *  Radix listens in the same capture phase the picker does, so the picker's
+   *  stopPropagation() never reaches it. */
+  onPickerOpenChange: (open: boolean) => void,
+): TodoWorkbench | undefined {
   const id = todoIdOf(row)
   const detailQuery = useTodoById(id)
   const detail = detailQuery.data ?? undefined
   const org = useOrg()
+  const byName = useEmployeesByName(org.data?.employees)
   const pickers = useTodoQuickPickers({
     detail,
     employees: org.data?.employees ?? [],
     shell: "inline",
     prefix: WORKBENCH_PREFIX,
+    onOpenChange: onPickerOpenChange,
   })
   const comment = useCommentLane(id, pickers.refusal)
 
+  const assignee = detail?.workItem.assignee
   if (!id) return undefined
   return {
     id,
     status: detail?.workItem.status,
-    assignee: detail?.workItem.assignee,
+    assignee: assignee ? displayNameOf(assignee, byName) : assignee,
     loading: detailQuery.isPending,
     missing: !detailQuery.isPending && !detail,
     rowFor: pickers.rowFor,

@@ -31,7 +31,8 @@ import { StatusPickerContent } from "@/routes/todos/pickers/status-picker-conten
 import { renderOverlay, searchField } from "./harness"
 import { searchResponse, searchResult } from "./fixtures"
 import {
-  EMPLOYEES, TODO_ID, deferred, openPicker, previewText, rowText, selectRow, todoDetail, treeOf,
+  EMPLOYEES, OTHER_TODO_ID, TODO_ID, deferred, openPicker, previewText, rowText, selectRow,
+  todoDetail, treeOf,
 } from "./workbench-harness"
 
 /* The overlay's write half. Every guard, every refusal string and every cache
@@ -47,6 +48,12 @@ const RESULTS = [
     id: TODO_ID,
     preview: { title: "First row", excerpt: "", url: `/todos/${TODO_ID}`, status: "executing" },
     url: `/todos/${TODO_ID}`,
+  }),
+  searchResult({
+    kind: "todo",
+    id: OTHER_TODO_ID,
+    preview: { title: "Second row", excerpt: "", url: `/todos/${OTHER_TODO_ID}`, status: "executing" },
+    url: `/todos/${OTHER_TODO_ID}`,
   }),
   ...OTHER_KINDS.map(kind => searchResult({ kind, id: `${kind}-1` })),
 ]
@@ -65,7 +72,7 @@ describe("the search workbench", () => {
     // A fake with a memory: a settled write reads back as the server's truth,
     // so a value still on screen afterwards is the write's, not the fixture's.
     const stored = { status: "executing" as WorkItemStatusWire, assignee: "a-lead" as string | null }
-    mocks.getWorkItem.mockImplementation(() => Promise.resolve(todoDetail({ ...stored })))
+    mocks.getWorkItem.mockImplementation((id: string) => Promise.resolve(todoDetail({ ...stored }, id)))
     mocks.setWorkItemStatus.mockImplementation((_id: string, status: WorkItemStatusWire) => {
       stored.status = status
       return Promise.resolve({ workItem: todoDetail({ ...stored, version: 5 }).workItem })
@@ -102,7 +109,9 @@ describe("the search workbench", () => {
     fireEvent.click(screen.getByTestId("assignee-option-b-lead"))
 
     await waitFor(() => expect(mocks.assignWorkItem).toHaveBeenCalledWith(TODO_ID, "b-lead"))
-    await waitFor(() => expect(screen.getByTestId("workbench-row-assignee").textContent).toContain("b-lead"))
+    // The chip says what the roster calls them, never the employee key.
+    await waitFor(() => expect(screen.getByTestId("workbench-row-assignee").textContent).toContain("B Lead"))
+    expect(screen.getByTestId("workbench-row-assignee").textContent).not.toContain("b-lead")
   })
 
   it("posts a comment on the selected Todo and makes its feed refetch", async () => {
@@ -198,11 +207,41 @@ describe("the search workbench", () => {
     expect(previewText()).toContain("First row")
   })
 
+  it("closes an open picker when the selection moves to another Todo", async () => {
+    // The overlay re-ranks its own list when a debounced result set lands, so an
+    // open picker can be re-pointed at a Todo nobody opened it on. Its next
+    // Enter would then write to that one.
+    await openOnTheTodo()
+    await openPicker("status")
+
+    // Todo-to-Todo, so the workbench itself never unmounts on the way.
+    selectRow(1)
+    await waitFor(() => expect(previewText()).toContain(OTHER_TODO_ID))
+    await screen.findByTestId("search-workbench")
+
+    expect(screen.queryByTestId("workbench-picker-status")).toBeNull()
+    expect(screen.queryByTestId("status-option-backlog")).toBeNull()
+  })
+
+  it("lets Escape close the picker without taking the query with it", async () => {
+    await openOnTheTodo()
+    await openPicker("status")
+
+    fireEvent.keyDown(document, { key: "Escape" })
+
+    await waitFor(() => expect(screen.queryByTestId("workbench-picker-status")).toBeNull())
+    // Wave 3's Escape contract: the first one clears a non-empty query. It does
+    // not get to fire on the same keypress that dismissed the picker.
+    expect(searchField().value).toBe("match")
+    expect(screen.getByTestId(`search-row-todo:${TODO_ID}`)).toBeTruthy()
+  })
+
   it("gives a row of any other kind no write control at all", async () => {
     renderOverlay()
     fireEvent.change(searchField(), { target: { value: "match" } })
     await screen.findByTestId("search-workbench")
 
+    selectRow(1) // past the second Todo
     for (let index = 1; index <= OTHER_KINDS.length; index += 1) {
       selectRow(1)
       expect(previewText()).toContain(`${OTHER_KINDS[index - 1]}-1 row`)
