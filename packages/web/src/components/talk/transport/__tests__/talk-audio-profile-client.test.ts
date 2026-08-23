@@ -34,34 +34,53 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-describe("persisted Talk audio profile", () => {
-  it("mints a new session against a close microphone", async () => {
+/**
+ * Noise reduction is the gateway's to decide, from `realtime.noiseReduction`.
+ *
+ * It used to be a browser setting the page sent on every open — and because
+ * that setting always had a value, it always won, so the configured field
+ * could never take effect. These tests pin the fold: the browser asks for
+ * nothing and reports what it was given.
+ */
+describe("who decides the Talk audio profile", () => {
+  it("does not send a noise-reduction preference when opening a session", async () => {
     localStorage.setItem("jinn-settings", JSON.stringify({ talkMicrophone: "near_field" }))
     authFetch.mockResolvedValue(json({ id: "talk-1", token: "secret", manifest: MANIFEST }))
 
     await openTalkSession()
 
     const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toMatchObject({ noiseReduction: "near_field" })
+    // A stale browser-local copy must not travel, let alone override config.
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("noiseReduction")
   })
 
-  it("falls back to far-field when stored microphone data is invalid", async () => {
-    localStorage.setItem("jinn-settings", JSON.stringify({ talkMicrophone: "studio" }))
-    authFetch.mockResolvedValue(json({ id: "talk-1", token: "secret", manifest: MANIFEST }))
+  it("reports the profile the gateway chose, so the session knows what it got", async () => {
+    authFetch.mockResolvedValue(
+      json({ id: "talk-1", token: "secret", manifest: MANIFEST, noiseReduction: "near_field" }),
+    )
 
-    await openTalkSession()
+    const opened = await openTalkSession()
 
-    const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toMatchObject({ noiseReduction: "far_field" })
+    expect(opened.noiseReduction).toBe("near_field")
   })
 
-  it("re-mints a resumed session against the current profile", async () => {
+  it("falls back to far-field only when the gateway reports nothing usable", async () => {
+    authFetch.mockResolvedValue(
+      json({ id: "talk-1", token: "secret", manifest: MANIFEST, noiseReduction: "studio" }),
+    )
+
+    const opened = await openTalkSession()
+
+    expect(opened.noiseReduction).toBe("far_field")
+  })
+
+  it("asks for nothing on resume either — the config has not moved", async () => {
     localStorage.setItem("jinn-settings", JSON.stringify({ talkMicrophone: "near_field" }))
     authFetch.mockResolvedValue(json({ token: "fresh", expiresAt: 99 }))
 
     await resumeTalkSession("talk-1")
 
     const [, init] = authFetch.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toEqual({ noiseReduction: "near_field" })
+    expect(JSON.parse(String(init.body))).toEqual({})
   })
 })

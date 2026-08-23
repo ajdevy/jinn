@@ -7,7 +7,7 @@
  * answered by nobody. `use-talk-session.ts` is left with the session lifecycle.
  */
 import { useCallback, type RefObject } from "react"
-import type { OrbState } from "../orb-motion"
+import type { OrbEnergy, OrbState } from "../orb-motion"
 import { createTalkDriver, type TalkDriver } from "./session-driver"
 import type { ConnectRealtime, TalkConnection } from "./webrtc-connection"
 import type { TalkControlManifest } from "./control-manifest"
@@ -61,7 +61,7 @@ function reportDriverState(
  */
 export function useAttach(
   connect: ConnectRealtime,
-  level: RefObject<number>,
+  energy: RefObject<OrbEnergy>,
   setState: (state: OrbState) => void,
   setError: (message: string | null) => void,
 ) {
@@ -91,7 +91,7 @@ export function useAttach(
 
       connection = await connect({
         token,
-        level,
+        energy,
         onOpen: () => {
           channelOpen = true
           start()
@@ -105,6 +105,6 @@ export function useAttach(
       start()
       return { connection, driver }
     },
-    [connect, level, setState, setError],
+    [connect, energy, setState, setError],
   )
 }

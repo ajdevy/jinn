@@ -7,12 +7,26 @@
  */
 import { resolveEnvVar } from "../../shared/env-ref.js";
 import type { RealtimeConfig, RealtimeProvider } from "../../shared/voice.js";
-import { createOpenAiRealtimeProvider } from "./openai.js";
+import { OPENAI_REALTIME_VOICES, createOpenAiRealtimeProvider } from "./openai.js";
 
 export type { RealtimeConfig };
 
 /** Provider names `createRealtimeProvider` accepts. */
 export const REALTIME_PROVIDERS = ["openai"] as const;
+
+/**
+ * The voices the named provider offers, for a setup surface that wants to show
+ * a picker instead of a text field. Empty for a provider this gateway does not
+ * implement — the same answer `createRealtimeProvider` gives, in list form.
+ */
+export function realtimeProviderVoices(provider: string | undefined): readonly string[] {
+  switch (provider) {
+    case "openai":
+      return OPENAI_REALTIME_VOICES;
+    default:
+      return [];
+  }
+}
 
 export class UnknownRealtimeProviderError extends Error {
   readonly provider: string | undefined;

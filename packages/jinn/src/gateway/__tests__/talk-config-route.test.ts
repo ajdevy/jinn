@@ -14,6 +14,12 @@ function realtimeOf(config: JinnConfig) {
   return (config as { realtime?: Record<string, unknown> }).realtime!;
 }
 
+/** The payload's voice list, typed — `body` is deliberately loose. */
+function voicesOf(res: { body: Record<string, unknown> }): string[] {
+  const voices = res.body.voices;
+  return Array.isArray(voices) ? voices as string[] : [];
+}
+
 async function probe() {
   const res = await call(config, "GET", "/api/talk/config");
   expect(res.status).toBe(200);
@@ -48,6 +54,26 @@ describe("GET /api/talk/config", () => {
     expect(res.body.providers).toEqual(["openai"]);
   });
 
+  it("carries the configured provider's own voices, so Settings can offer a picker", async () => {
+    const res = await probe();
+
+    const voices = voicesOf(res);
+    expect(voices.length).toBeGreaterThan(1);
+    // A real one, named: the picker is only useful if these are the strings the
+    // provider actually accepts on a session.
+    expect(voices).toContain("marin");
+    // Sorted and unique, so the picker never shows a duplicate or a jumble.
+    expect(voices).toEqual([...new Set(voices)].sort());
+  });
+
+  it("offers no voices for a provider it does not implement", async () => {
+    realtimeOf(config).provider = "gemini";
+
+    const res = await probe();
+
+    expect(voicesOf(res)).toEqual([]);
+  });
+
   it("reports unconfigured for a provider name the gateway does not implement", async () => {
     realtimeOf(config).provider = "gemini";
 
@@ -80,6 +106,9 @@ describe("GET /api/talk/config", () => {
   it("never puts the key in the response, literal or referenced", async () => {
     const literal = await probe();
     expect(literal.text).not.toContain(ACCOUNT_KEY);
+    // The voice list is provider knowledge and travels; the account key is not
+    // and never does, no matter what else the payload grows.
+    expect(voicesOf(literal).length).toBeGreaterThan(0);
 
     realtimeOf(config).apiKey = "${TALK_TEST_REALTIME_KEY}";
     process.env.TALK_TEST_REALTIME_KEY = ACCOUNT_KEY;

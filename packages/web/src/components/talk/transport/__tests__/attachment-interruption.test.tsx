@@ -38,7 +38,7 @@ describe("production Talk attachment interruption telemetry", () => {
       options.onOpen();
       return { send: () => {}, close: () => {} };
     };
-    const level = { current: 0 };
+    const level = { current: { input: 0, output: 0 } };
     const attached = renderHook(() => useAttach(connect, level, () => {}, () => {}));
 
     await act(async () => {
