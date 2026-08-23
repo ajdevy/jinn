@@ -88,15 +88,43 @@ describe('mobile chat header title centring', () => {
     expect(title.className).toContain('text-center')
   })
 
-  it('lets the mobile working set size against its real neighbouring controls', () => {
+  it('centres the working set on the header when the actions are the wider cluster', () => {
+    const row = renderNavBar({
+      backWidth: BARE_BACK_WIDTH,
+      title: 'Ignored while the working set is present',
+      mobileWorkingSet: true,
+    })
+    expect(sideTracks(row)).toEqual([`${ACTIONS_WIDTH}px`, `${ACTIONS_WIDTH}px`])
+  })
+
+  it('centres the working set on the header when a labelled back is the wider cluster', () => {
     const row = renderNavBar({
       backWidth: LABELLED_BACK_WIDTH,
       title: 'Ignored while the working set is present',
       backTo: 'Parent',
       mobileWorkingSet: true,
     })
+    expect(sideTracks(row)).toEqual([`${LABELLED_BACK_WIDTH}px`, `${LABELLED_BACK_WIDTH}px`])
+  })
 
-    expect(row.style.gridTemplateColumns).toBe('')
-    expect(row.className).toContain('grid-cols-[auto_minmax(0,1fr)_auto]')
+  // Mirroring the back control onto the right track spends its width twice, so a
+  // labelled back keeps a tighter cap while the chips hold the middle — four
+  // 36px chips plus gaps need 156px, and 27vw a side leaves that intact at 390px.
+  it('caps a labelled back control tighter while the working set holds the middle', () => {
+    const withChips = renderNavBar({
+      backWidth: LABELLED_BACK_WIDTH,
+      title: 'Ignored while the working set is present',
+      backTo: 'Parent',
+      mobileWorkingSet: true,
+    })
+    const withTitle = renderNavBar({
+      backWidth: LABELLED_BACK_WIDTH,
+      title: 'Quarterly infrastructure migration planning and rollout review',
+      backTo: 'Parent',
+    })
+    const back = (row: HTMLElement) => (row.firstElementChild as HTMLElement).className
+
+    expect(back(withChips)).toContain('max-w-[27vw]')
+    expect(back(withTitle)).toContain('max-w-[34vw]')
   })
 })
