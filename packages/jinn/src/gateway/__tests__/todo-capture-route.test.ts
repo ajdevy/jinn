@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { logger } from "../../shared/logger.js";
+// The harness comes FIRST, before `logger` or anything else that reaches
+// shared/paths.js: paths freezes JINN_HOME at import, so an earlier one would
+// leave this file on the run-wide home. startRouteHarness asserts it.
 import { call, config, startRouteHarness, stopRouteHarness, unavailableEngines, type Registry, type WorkItems } from "./todo-route-harness.js";
+import { logger } from "../../shared/logger.js";
 
 /**
  * The capture routes over a real gateway: what the POST refuses before it

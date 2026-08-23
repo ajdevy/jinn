@@ -150,6 +150,19 @@ export async function call(
 }
 
 export async function startRouteHarness(): Promise<{ registry: Registry; workItems: WorkItems }> {
+  // shared/paths.js freezes JINN_HOME at import. If a test file imported
+  // anything that reaches it BEFORE this module — shared/logger.js is the easy
+  // mistake — then the home set above never took, and the whole file runs
+  // against vitest's run-wide home: one SQLite registry shared with every other
+  // suite in the run, which silently turns a session-count assertion into a race
+  // against unrelated tests. Fail here, naming the cause, rather than flake there.
+  const paths = await import("../../shared/paths.js");
+  if (paths.JINN_HOME !== home) {
+    throw new Error(
+      `todo-route-harness: JINN_HOME was frozen to ${paths.JINN_HOME} before this harness could set ${home}. `
+      + "Import ./todo-route-harness.js before any module that reads the home.",
+    );
+  }
   api = await import("../api.js");
   const registry = await import("../../sessions/registry.js");
   const workItems = await import("../../work-items/store.js");
