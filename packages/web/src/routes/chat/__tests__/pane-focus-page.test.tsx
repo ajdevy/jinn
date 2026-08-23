@@ -114,9 +114,16 @@ describe('desktop pane focus', () => {
     const paneB = pane('b')
     fireEvent.pointerDown(within(paneB).getByRole('button', { name: 'Actions for Title b' }), { button: 0, ctrlKey: false })
     let menu = await screen.findByRole('menu')
-    expect(within(menu).getByRole('menuitem', { name: 'Open chat beside' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Open beside' })).toBeTruthy()
     expect(within(menu).getByRole('button', { name: 'Chat' })).toBeTruthy()
     expect(within(menu).getByRole('button', { name: 'CLI' })).toBeTruthy()
+    // The pane title bar is the multi-pane home of the header's Open beside, so it has to
+    // read the same and sit in the same slot: view toggle first, then Open beside, then the
+    // session items. PLA-180 introduced it above the toggle under a different name.
+    const paneMenuOrder = Array.from(menu.querySelectorAll('[role="menuitem"], button'))
+      .map((element) => element.textContent?.trim() ?? '')
+    expect(paneMenuOrder.indexOf('Open beside')).toBe(paneMenuOrder.indexOf('CLI') + 1)
+    expect(paneMenuOrder.indexOf('Open beside')).toBeLessThan(paneMenuOrder.indexOf('Rename'))
     expect(within(menu).getByRole('menuitem', { name: 'Copy CLI Resume Command' })).toBeTruthy()
     expect(within(menu).getByRole('menuitem', { name: 'Share debug log' })).toBeTruthy()
     expect(within(menu).getByRole('menuitem', { name: 'Clear debug log' })).toBeTruthy()

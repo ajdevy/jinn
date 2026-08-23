@@ -46,10 +46,6 @@ function PaneViewControls({ actions, viewMode, cliModeAvailable, viewSwitchLocke
   if (!actions.openBeside) return null
   return (
     <>
-      <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={actions.openBeside}>
-        <PanelRightOpen aria-hidden />
-        Open chat beside
-      </DropdownMenuItem>
       <div className="flex items-center gap-1 px-2.5 py-1.5">
         <button
           type="button"
@@ -74,6 +70,13 @@ function PaneViewControls({ actions, viewMode, cliModeAvailable, viewSwitchLocke
           )}
         >CLI</button>
       </div>
+      {/* Same label and same slot as the header's More menu: the view toggle, then Open
+          beside, then everything else. The pane title bar is the multi-pane home of an
+          action the header owns in single-pane, so the two have to read alike. */}
+      <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={actions.openBeside}>
+        <PanelRightOpen aria-hidden />
+        Open beside
+      </DropdownMenuItem>
       <DropdownMenuSeparator className={SESSION_MENU_SEPARATOR_CLASS} />
     </>
   )
