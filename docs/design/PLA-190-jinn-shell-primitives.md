@@ -16,7 +16,8 @@ The grammar here is borrowed from Ionic, Konsta UI v5, Apple HIG and Material 3.
 is.** Nothing in PLA-187's tree adds a dependency on Ionic or Konsta; the citations exist so a
 reader can check the source of an idea, not so a slice can install it.
 
-Paths are repo-relative and resolve at the base SHA — every one of them, with no exception.
+Paths are repo-relative. `web/` abbreviates `packages/web/src/`. Expand that shorthand and
+every path here resolves at the base SHA — every one of them, with no exception.
 
 Two authorities cited below are **not** files in this repository, and are therefore named rather
 than pathed: **Jinn taste**, the shared standard the planner, implementer and verifier all read,
