@@ -51,6 +51,22 @@ describe("template materialization", () => {
     expect(findUnresolvedTemplatePlaceholders(materialized)).toEqual(["{{futureValue}}"])
   })
 
+  it("does not mistake a Workflow binding expression for an unresolved placeholder", () => {
+    const doc = [
+      "Read the pick as `{{ node.<approvalNodeId>.choice }}`.",
+      "The body is told `{{ trigger.round }}` of `{{ trigger.maxRounds }}`,",
+      "and reads a mapped value as `{{ input.<name> }}`.",
+      "A Todo-bound run carries `{{ run.todoId }}`.",
+    ].join("\n")
+
+    expect(findUnresolvedTemplatePlaceholders(doc)).toEqual([])
+  })
+
+  it("still reports a padded placeholder name it cannot substitute", () => {
+    expect(findUnresolvedTemplatePlaceholders("a: {{ futureValue }}\nb: {{portalRegion}}\n"))
+      .toEqual(["{{ futureValue }}", "{{portalRegion}}"])
+  })
+
   it("never transforms non-Markdown/YAML payloads", () => {
     const source = '{"name":"{{portalName}}","slug":"{{portalSlug}}"}\n'
 

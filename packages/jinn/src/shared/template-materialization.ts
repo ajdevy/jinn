@@ -47,6 +47,19 @@ export function materializeTemplateBytes(
   return Buffer.from(materializeTemplateContent(filePath, content.toString("utf8"), inputs), "utf8")
 }
 
+/**
+ * A template placeholder is a bare name: `{{portalName}}`, optionally padded.
+ * Matching the shape rather than a fixed vocabulary keeps this forward-compatible,
+ * so a placeholder a newer template introduces is still reported as unresolved by
+ * an older materializer that cannot substitute it.
+ *
+ * It deliberately does NOT match a dotted expression such as `{{ trigger.round }}`.
+ * Those are Workflow binding expressions, which shipped documentation quotes
+ * verbatim; they are never substituted here and must not be mistaken for a
+ * placeholder that failed to resolve.
+ */
+const TEMPLATE_PLACEHOLDER_PATTERN = /\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}/g
+
 export function findUnresolvedTemplatePlaceholders(content: string): string[] {
-  return [...new Set(content.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])].sort()
+  return [...new Set(content.match(TEMPLATE_PLACEHOLDER_PATTERN) ?? [])].sort()
 }
