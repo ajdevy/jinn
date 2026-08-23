@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { ArrowUp } from "lucide-react"
+import { ArrowUp, Check } from "lucide-react"
 import { TodoDialog } from "../todo-dialog"
+import { CaptureMic } from "./capture-mic"
 import { PipelineStrip } from "./pipeline-strip"
 import { useTodoCapture } from "./use-todo-capture"
 
@@ -22,12 +23,16 @@ function CaptureField({
   text,
   onChange,
   onSubmit,
+  onTranscript,
   locked,
+  confirming,
 }: {
   text: string
   onChange: (value: string) => void
   onSubmit: () => void
+  onTranscript: (value: string) => void
   locked: boolean
+  confirming: boolean
 }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -46,31 +51,71 @@ function CaptureField({
         placeholder="What's on your mind?"
         className="min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] disabled:opacity-60"
       />
+      {!locked && <CaptureMic onTranscript={onTranscript} />}
       <button
         type="button"
         onClick={onSubmit}
         disabled={!text.trim() || locked}
-        aria-label="Send capture"
+        aria-label={confirming ? "Send dictated capture" : "Send capture"}
         data-testid="quick-capture-send"
+        data-confirming={confirming || undefined}
         className="focus-ring inline-flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[var(--accent-fill)] text-[var(--accent)] shadow-[var(--inset-shine)] outline-none transition-transform hover:scale-[0.96] disabled:opacity-40 motion-reduce:transition-none"
       >
-        <ArrowUp className="size-4" aria-hidden />
+        {confirming ? <Check className="size-4" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
       </button>
     </div>
   )
 }
 
-export function QuickCaptureBar({ onClose, onTodoCreated }: { onClose: () => void; onTodoCreated?: () => void }) {
+/** The one thing this surface ever asks the operator, and why it asks it. */
+function ConfirmHint() {
+  return (
+    <p className="mt-2 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]" data-testid="quick-capture-confirm-hint">
+      Edit if it misheard you, then send.
+    </p>
+  )
+}
+
+/**
+ * The bar's own state, and the one asymmetry in it.
+ *
+ * A landed transcript sets `confirming` and NOTHING is posted. The typed path
+ * has no such state and posts straight through. That is deliberate: the
+ * operator has already read what they typed, but has only *heard* what they
+ * said — and a misheard sentence would spawn a real session doing real work on
+ * the wrong thing. One tap is the cheapest guard against that, and it is the
+ * only place in this surface where the operator is asked anything.
+ */
+function useCaptureDraft(onTodoCreated?: () => void) {
   const [text, setText] = useState("")
-  const [leaving, setLeaving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const { run, start } = useTodoCapture(onTodoCreated)
   const started = run.steps.length > 0
 
   function submit() {
     const value = text.trim()
     if (!value || started) return
-    void start(value, false)
+    const speechDerived = confirming
+    setConfirming(false)
+    void start(value, speechDerived)
   }
+
+  function change(value: string) {
+    setText(value)
+    if (!value.trim()) setConfirming(false)
+  }
+
+  function landTranscript(transcript: string) {
+    setText((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript))
+    setConfirming(true)
+  }
+
+  return { text, confirming, run, started, submit, change, landTranscript }
+}
+
+export function QuickCaptureBar({ onClose, onTodoCreated }: { onClose: () => void; onTodoCreated?: () => void }) {
+  const [leaving, setLeaving] = useState(false)
+  const { text, confirming, run, started, submit, change, landTranscript } = useCaptureDraft(onTodoCreated)
 
   return (
     <TodoDialog
@@ -81,7 +126,16 @@ export function QuickCaptureBar({ onClose, onTodoCreated }: { onClose: () => voi
       onClosed={onClose}
       className={SHELL}
     >
-      <CaptureField text={text} onChange={setText} onSubmit={submit} locked={started} />
+      <CaptureField
+        text={text}
+        onChange={change}
+        onSubmit={submit}
+        onTranscript={landTranscript}
+        locked={started}
+        confirming={confirming}
+      />
+
+      {confirming && !started && <ConfirmHint />}
 
       {started && (
         <div className="mt-3.5 border-t border-[var(--separator)] pt-3.5">
