@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { cellRectForIndex } from '../../packages/web/src/routes/chat/grid-cells'
-import { artifactPath, openGridPage, openSeededGridPage } from './chat-grid-drop.context'
+import { capForViewport, layoutFor } from '../../packages/web/src/routes/chat/grid-layout'
+import { artifactPath, DESKTOP, openGridPage, openSeededGridPage, type Viewport } from './chat-grid-drop.context'
 import {
   describeRect,
   dragSession,
@@ -36,12 +37,56 @@ test('real pointer preview matches the 2-to-3 pane right-region result', async (
   await context.close()
 })
 
-for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
+/**
+ * Whether a drop aimed at the grid's lower-right quarter can land in the 'end' region at all.
+ *
+ * placementForPointer only reports 'end' for a point inside the grid but outside every pane, so
+ * 'end' exists only while the layout still has an empty trailing cell under that point. A grid
+ * that fills its rectangle exactly -- four panes as 2x2, six as 3x2 -- has no 'end' to hit, and
+ * asking for one there would drag into whichever pane occupies the corner instead.
+ */
+function endReachable(count: number, viewport: Viewport): boolean {
+  const { columns, rows } = layoutFor(count, viewport.width, viewport.height)
+  const column = Math.min(columns - 1, Math.floor(columns * 0.75))
+  const row = Math.min(rows - 1, Math.floor(rows * 0.75))
+  return row * columns + column >= count
+}
+
+/**
+ * Every region at every pane count up to the viewport's TRUE cap.
+ *
+ * The counts are derived from capForViewport and never written down. main moved
+ * MIN_PANE_WIDTH from 480 to 340, which lifted the cap from 4 to 6 at 1440x900 and from 6 to 8
+ * at 1920x1080; the literal matrix this replaces ([2,3,4] and [2,3,5]) then sat below the cap,
+ * so the cases meant to prove behaviour AT the cap quietly stopped doing so while still
+ * passing. Deriving the counts means a future change to the pane geometry re-aims this matrix
+ * instead of hollowing it out.
+ *
+ * The last count in the walk is the cap itself, so its drop is one pane too many: that case is
+ * the eviction path, preview and result included.
+ */
+function dropMatrix(viewport: Viewport): Array<{ count: number; region: DropRegion; target: number }> {
+  const cap = capForViewport(viewport.width, viewport.height)
+  const cases: Array<{ count: number; region: DropRegion; target: number }> = []
+  for (let count = 2; count <= cap; count += 1) {
+    cases.push({ count, region: 'left', target: 0 })
+    cases.push({ count, region: 'right', target: count - 1 })
+    cases.push({ count, region: 'top', target: 0 })
+    cases.push({ count, region: 'between', target: 0 })
+    if (endReachable(count, viewport)) cases.push({ count, region: 'end', target: count - 1 })
+  }
+  return cases
+}
+
+for (const viewport of [DESKTOP, { width: 1920, height: 1080 }]) {
   test(`grid-cell oracle reproduces rendered panes at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     const { context, page } = await openGridPage(browser, { viewport })
     const ids = await seededSessionIds(page)
 
-    const renderedCounts = viewport.width === 1440 ? [2, 3, 4] : [2, 3, 5]
+    // Derived, not listed: the oracle has to be checked at the cap, and the cap moves with
+    // MIN_PANE_WIDTH. cap - 1 keeps the last-row-short layout in the walk beside the full one.
+    const cap = capForViewport(viewport.width, viewport.height)
+    const renderedCounts = [...new Set([2, 3, cap - 1, cap])].filter((count) => count >= 2)
     for (const count of renderedCounts) {
       const seeded = await openSeededGridPage(context, ids.slice(0, count))
 
@@ -66,19 +111,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1920, height: 108
   })
 
   test(`preview simulation matches pointer drops at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
-    test.setTimeout(180_000)
+    // Every region at every count up to the cap is ~22 drags at 1440x900 and ~32 at 1920x1080,
+    // each one a reload plus a settled measurement. The old 180s budget was sized for six.
+    test.setTimeout(900_000)
     const { context, page } = await openGridPage(browser, { viewport })
     const ids = await seededSessionIds(page)
-    const cases: Array<{ count: number; region: DropRegion; target: number }> = [
-      { count: 2, region: 'left', target: 0 },
-      { count: 2, region: 'right', target: 1 },
-      { count: 2, region: 'between', target: 0 },
-      { count: 3, region: 'top', target: 0 },
-      // The pane's bottom quarter is the composer, covered by the rejection journey below.
-      { count: 3, region: 'end', target: 2 },
-      { count: 4, region: 'right', target: 1 },
-    ]
-    if (viewport.width >= 1920) cases.push({ count: 5, region: 'left', target: 0 })
+    // The pane's bottom quarter is the composer, covered by the rejection journey below, so
+    // 'bottom' is deliberately absent from the matrix.
+    const cases = dropMatrix(viewport)
 
     for (const scenario of cases) {
       console.log(`PLA-174 matrix: ${viewport.width}x${viewport.height} ${scenario.count} panes ${scenario.region}`)
@@ -152,9 +192,13 @@ test('ten consecutive member moves have no geometry drift or stale overlay', asy
 test('dark-theme cap drop matches its preview with token-only overlay styling', async ({ browser }) => {
   const { context, page } = await openGridPage(browser, { theme: 'dark', video: true })
   const ids = await seededSessionIds(page)
-  await setWorkingSet(page, ids.slice(0, 4))
+  // Seed AT the cap so the drop below is genuinely one pane too many. Seeding a literal four
+  // here was correct while the cap was four; once main lifted it to six the same case evicted
+  // nothing and asserted eviction geometry against an ordinary insert.
+  const cap = capForViewport(DESKTOP.width, DESKTOP.height)
+  await setWorkingSet(page, ids.slice(0, cap))
 
-  const source = page.locator(`[data-chat-session-row="${ids[4]}"]`).first()
+  const source = page.locator(`[data-chat-session-row="${ids[cap]}"]`).first()
   const target = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[1]}"])`)
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
@@ -177,11 +221,13 @@ test('dark-theme cap drop matches its preview with token-only overlay styling', 
   expect(overlayStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   await page.screenshot({ path: artifactPath('pla-174-dark-1440-held.png') })
   await page.mouse.up()
-  const droppedPane = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[4]}"])`)
+  const droppedPane = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[cap]}"])`)
   await expect(droppedPane).toHaveAttribute('data-grid-motion', 'idle')
   const resultBox = await droppedPane.boundingBox()
   expect(resultBox).not.toBeNull()
   expectGeometryMatch(rect(previewBox!), rect(resultBox!), 'dark cap eviction')
+  // The point of the case: the grid absorbed a (cap + 1)th chat by evicting, not by growing.
+  await expect(page.locator('[data-chat-grid-pane]')).toHaveCount(cap)
   await expectNoDropOverlay(page)
   await page.screenshot({ path: artifactPath('pla-174-dark-1440.png') })
   await context.close()

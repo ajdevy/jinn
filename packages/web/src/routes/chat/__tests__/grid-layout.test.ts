@@ -14,8 +14,13 @@ describe('chat grid layout', () => {
     expect(layoutFor(4, 1440, 900)).toEqual({ columns: 2, rows: 2 })
   })
 
-  it('holds six panes at the 1440x900 acceptance viewport', () => {
+  // Both acceptance viewports are pinned here because the e2e drop matrix derives its pane
+  // counts from capForViewport rather than from literals. A silent change to MIN_PANE_WIDTH
+  // moves the cap, and an e2e matrix that no longer reaches it would keep passing while
+  // testing nothing at the cap -- which is exactly what a 480 -> 340 change did once.
+  it('holds six panes at 1440x900 and eight at 1920x1080', () => {
     expect(capForViewport(1440, 900)).toBe(6)
+    expect(capForViewport(1920, 1080)).toBe(8)
   })
 
   it('grows on an ultrawide and shrinks again around 1100px', () => {

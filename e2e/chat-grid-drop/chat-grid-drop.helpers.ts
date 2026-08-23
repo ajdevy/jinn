@@ -45,6 +45,9 @@ export async function seededSessionIds(page: Page): Promise<string[]> {
     '#4 - Release notes',
     '#5 - Incident review',
     '#6 - Accessibility pass',
+    '#7 - Latency budget',
+    '#8 - Migration dry run',
+    '#9 - Localisation sweep',
   ].map((title) => {
     const entry = sessions.find((session) => typeof session.title === 'string' && session.title.includes(title))
     if (typeof entry?.id !== 'string' || !entry.id) throw new Error(`missing seeded session: ${title}`)
