@@ -1,3 +1,4 @@
+import { useRef } from "react"
 import { Search } from "lucide-react"
 
 /** The Todos search box is an entry point to the one global overlay, not a
@@ -15,17 +16,28 @@ export function SearchLauncher({
   labelClassName: string
   onOpen: (seed?: string) => void
 }) {
+  // The overlay is loaded lazily, so a few hundred milliseconds can pass before
+  // it mounts and takes focus, and every key struck in that window still lands
+  // here. Seeding with the newest key alone would throw the rest of the burst
+  // away, so the whole burst accumulates until focus actually leaves.
+  const burst = useRef("")
+
   return (
     <button
       type="button"
       aria-label="Search todos"
       data-testid="filter-search"
-      onClick={() => onOpen()}
+      onClick={() => {
+        burst.current = ""
+        onOpen()
+      }}
+      onBlur={() => { burst.current = "" }}
       onKeyDown={(e) => {
         // Enter and Space stay the button's own activation keys.
         if (e.key.length !== 1 || e.key === " " || e.metaKey || e.ctrlKey || e.altKey) return
         e.preventDefault()
-        onOpen(e.key)
+        burst.current += e.key
+        onOpen(burst.current)
       }}
       className={`focus-ring outline-none transition-colors hover:bg-[var(--fill-secondary)] ${className}`}
     >

@@ -82,6 +82,27 @@ describe("the Todos search box as the overlay's entry point", () => {
     expect(openedSearch()).toEqual({ scope: "todo", query: "r" })
   })
 
+  it("accumulates a fast burst instead of keeping only the newest character", () => {
+    renderBoard()
+    const box = screen.getByTestId("filter-search")
+
+    fireEvent.keyDown(box, { key: "a" })
+    fireEvent.keyDown(box, { key: "b" })
+
+    expect(openedSearch()).toEqual({ scope: "todo", query: "ab" })
+  })
+
+  it("starts a fresh burst once the palette has taken focus away", () => {
+    renderBoard()
+    const box = screen.getByTestId("filter-search")
+
+    fireEvent.keyDown(box, { key: "a" })
+    fireEvent.blur(box)
+    fireEvent.keyDown(box, { key: "b" })
+
+    expect(openedSearch()).toEqual({ scope: "todo", query: "b" })
+  })
+
   it("leaves Enter and Space as the box's own activation keys", () => {
     renderBoard()
 
