@@ -7,7 +7,7 @@ import { TodoMention } from '@/components/todo-mention'
 import { StatusCircle } from '@/routes/todos/state-glyph'
 import { RailPriorityBars } from '@/routes/todos/task-page/props-rail'
 import { displayNameOf } from '@/routes/todos/util'
-import type { PeekPickerKey, PeekPickerRow } from './use-peek-pickers'
+import type { TodoQuickPickerKey, TodoQuickPickerRow } from '@/routes/todos/pickers/use-todo-quick-pickers'
 
 /* The peek's property stack. Status and Assignee are the quick actions: the
  * chevron they already carried now has a picker behind it. Priority and Parent
@@ -34,8 +34,8 @@ function PropRow({ label, children }: { label: string; children: ReactNode }) {
  *  right edge. It still superimposes the row it belongs to. */
 function EditableRow({ label, propertyKey, row, children }: {
   label: string
-  propertyKey: PeekPickerKey
-  row: PeekPickerRow
+  propertyKey: TodoQuickPickerKey
+  row: TodoQuickPickerRow
   children: ReactNode
 }) {
   return (
@@ -90,7 +90,7 @@ export function TodoProps({ item, byName, parentTitle, rowFor }: {
   item: WorkItemFullWire
   byName: Map<string, Employee>
   parentTitle: string | null
-  rowFor: (key: PeekPickerKey) => PeekPickerRow
+  rowFor: (key: TodoQuickPickerKey) => TodoQuickPickerRow
 }) {
   return (
     <div className="mt-[var(--space-4)] flex flex-col gap-0.5">

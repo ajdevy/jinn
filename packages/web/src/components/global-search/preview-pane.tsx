@@ -3,6 +3,8 @@ import type { SearchMatchReasonWire, SearchPreviewWire } from "@/lib/search-api"
 import { FIELD_ATTRIBUTION, metaFor, statusTint } from "./kind-meta"
 import { MatchSnippet } from "./match-snippet"
 import type { SearchRow } from "./rows"
+import { Workbench } from "./workbench"
+import type { TodoWorkbench } from "./use-todo-workbench"
 
 const KICKER = "text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]"
 const TITLE = "mt-[9px] text-[19px] font-medium leading-[1.28] tracking-[-0.014em] text-[var(--text-primary)]"
@@ -43,6 +45,8 @@ export interface PreviewPaneProps {
   hint: string
   literal: boolean
   onSearchLiterally: () => void
+  /** Present only while a Todo row is selected; every other kind stays read-only. */
+  workbench: TodoWorkbench | undefined
 }
 
 function Rejection({ message, literal, onSearchLiterally }: { message: string; literal: boolean; onSearchLiterally: () => void }) {
@@ -63,14 +67,17 @@ function Rejection({ message, literal, onSearchLiterally }: { message: string; l
   )
 }
 
-/** Status, owner and whatever the kind calls its own subtitle, in that order. */
-function metaOf(preview: SearchPreviewWire): ReactNode[] {
+/** Status, owner and whatever the kind calls its own subtitle, in that order.
+ *  `status` overrides the search payload's copy once the workbench has loaded
+ *  the Todo itself, so a move made here shows here. */
+function metaOf(preview: SearchPreviewWire, status: string | undefined): ReactNode[] {
   const parts: ReactNode[] = []
-  if (preview.status) {
+  const shown = status ?? preview.status
+  if (shown) {
     parts.push(
       <span key="status" className="flex items-center gap-1.5">
-        <span className="size-[7px] flex-none rounded-full" style={{ background: statusTint(preview.status) }} />
-        {preview.status}
+        <span className="size-[7px] flex-none rounded-full" style={{ background: statusTint(shown) }} />
+        {shown}
       </span>,
     )
   }
@@ -92,7 +99,10 @@ function RecentPreview({ label }: { label: string }) {
   )
 }
 
-function ResultPreview({ row }: { row: Extract<SearchRow, { result: unknown }> }) {
+function ResultPreview({ row, workbench }: {
+  row: Extract<SearchRow, { result: unknown }>
+  workbench: TodoWorkbench | undefined
+}) {
   const { preview, reason } = row.result
   const meta = metaFor(row.kind)
   return (
@@ -100,7 +110,7 @@ function ResultPreview({ row }: { row: Extract<SearchRow, { result: unknown }> }
       <div className={KICKER}>{row.kind === "todo" ? `${meta.label} · ${row.result.id}` : meta.label}</div>
       <h2 className={TITLE}>{preview.title}</h2>
       <div className="mt-[9px] flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--text-tertiary)]">
-        {metaOf(preview).map((part, index) => (
+        {metaOf(preview, workbench?.status).map((part, index) => (
           <Fragment key={index}>
             {index > 0 && <span className="text-[var(--text-quaternary)]">·</span>}
             {part}
@@ -108,15 +118,16 @@ function ResultPreview({ row }: { row: Extract<SearchRow, { result: unknown }> }
         ))}
       </div>
       <WhyCard reasons={reason} />
+      {workbench && <Workbench workbench={workbench} />}
     </div>
   )
 }
 
 /** A selected row always says why it is here; the states around it say what the
  *  overlay is doing instead. Neither is ever blank. */
-export function PreviewPane({ row, error, hint, literal, onSearchLiterally }: PreviewPaneProps) {
+export function PreviewPane({ row, error, hint, literal, onSearchLiterally, workbench }: PreviewPaneProps) {
   if (error) return <Rejection message={error.message} literal={literal} onSearchLiterally={onSearchLiterally} />
   if (!row) return <Notice><p data-testid="search-preview-hint">{hint}</p></Notice>
   if (row.kind === "recent") return <RecentPreview label={row.recent.label} />
-  return <ResultPreview row={row} />
+  return <ResultPreview row={row} workbench={workbench} />
 }
