@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as headless from "../antigravity-headless.js";
+import { readAntigravityPrintModeError } from "../antigravity-cli-log.js";
 
 interface FakeProc extends EventEmitter {
   stdin: EventEmitter & { end: (text?: string) => void };
@@ -58,6 +59,10 @@ function makeFakeProc(): FakeProc {
   return proc;
 }
 
+vi.mock("../antigravity-cli-log.js", () => ({
+  readAntigravityPrintModeError: vi.fn(() => undefined),
+}));
+
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
   spawn: vi.fn((bin: string, args: string[], opts: unknown) => {
@@ -69,6 +74,7 @@ vi.mock("node:child_process", () => ({
 
 beforeEach(() => {
   spawnCalls.length = 0;
+  vi.mocked(readAntigravityPrintModeError).mockReturnValue(undefined);
   vi.spyOn(process, "kill").mockImplementation(() => true);
 });
 
@@ -201,6 +207,25 @@ describe("AntigravityHeadlessEngine", () => {
       error: "Antigravity exited with code 1: upstream transport failed",
     });
     expect(engine.isAlive("jinn-session-3")).toBe(false);
+  });
+
+  it("quotes agy's own diagnostic when it gave up without a terminal result", async () => {
+    vi.mocked(readAntigravityPrintModeError).mockReturnValue("Print mode: timed out after 1482 polls");
+    const engine = new headless.AntigravityHeadlessEngine();
+    const resultPromise = engine.run({
+      prompt: "continue",
+      cwd: "/workspace",
+      sessionId: "jinn-session-print-timeout",
+      resumeSessionId: "conversation-print-timeout",
+    });
+    spawnCalls[0]!.proc.close(1);
+
+    await expect(resultPromise).resolves.toEqual({
+      sessionId: "conversation-print-timeout",
+      result: "",
+      error: "Antigravity exited with code 1 without a terminal result."
+        + " agy reported: Print mode: timed out after 1482 polls",
+    });
   });
 
   it("reaps descendants and ignores late output when the leader exits with an inherited pipe", async () => {
