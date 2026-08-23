@@ -1,7 +1,7 @@
 import { createVisualCapture, type VisualCaptureReceipt } from "../context/visual-capture"
 import { executeBrowserToolCall } from "../tools/browser-tool-executor"
 import type { RealtimeFrame } from "./realtime-events"
-import { postTalkControlCall, type TalkControlCall } from "./session-client"
+import { postTalkControlCall, type TalkControlCall, type TalkControlResult } from "./session-client"
 import { operationByName, type TalkControlManifest } from "./control-manifest"
 import { applyTalkUiEffect, type TalkUiEffect } from "./ui-effects"
 import { runVisualToolRequest } from "./visual-tool-request"
@@ -53,6 +53,33 @@ function gatewayCall(call: Extract<RealtimeFrame, { type: "tool_call" }>, option
   }).filter((entry) => entry[1] !== undefined)) as unknown as TalkControlCall
 }
 
+/**
+ * The transport's own words for a control that never reached the gateway.
+ *
+ * A stopped gateway and a refused operation are different facts, and the
+ * operator can only hear the difference if the reason survives the catch.
+ */
+function transportReason(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim()
+  return message
+    ? `The Talk control could not reach the gateway: ${message}`
+    : "The Talk control could not reach the gateway."
+}
+
+/**
+ * The gateway's answer, or an honest failure when the body is not one.
+ *
+ * `postTalkControlCall` returns whatever JSON came back. A body that does not
+ * say whether it succeeded used to reach the model verbatim — an empty object
+ * reads as neither success nor failure, which is the mute shape this feature
+ * exists to remove.
+ */
+function gatewayAnswer(body: TalkControlResult, tool: string): TalkControlResult {
+  return body && typeof body === "object" && typeof (body as { ok?: unknown }).ok === "boolean"
+    ? body
+    : { ok: false, code: "malformed-answer", error: `The gateway's answer to ${tool} did not say whether it succeeded.` }
+}
+
 async function executeGatewayTool(
   call: Extract<RealtimeFrame, { type: "tool_call" }>,
   options: TalkToolExecutionOptions,
@@ -62,7 +89,13 @@ async function executeGatewayTool(
     return { ok: false, code: "credential-missing", error: "The active Talk credential identity is missing." }
   }
   if (options.operatorTranscript) await options.operatorTranscript.persisted
-  const result = await postTalkControlCall(options.sessionId, gatewayCall(call, options))
+  let body: TalkControlResult
+  try {
+    body = await postTalkControlCall(options.sessionId, gatewayCall(call, options))
+  } catch (failure) {
+    return { ok: false, code: "transport-failed", error: transportReason(failure) }
+  }
+  const result = gatewayAnswer(body, call.name)
   if (result.ok) await applyVerifiedEffect(options, result)
   return result
 }
@@ -72,8 +105,12 @@ export async function executeTalkTool(
   options: TalkToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   const operation = operationByName(options.manifest, call.name)
-  if (!operation) return { ok: false, error: `The Talk manifest does not declare ${call.name}.` }
-  if (operation.target === "gateway") return executeGatewayTool(call, options)
+  // An unknown name is reported to the gateway rather than refused here in
+  // silence. The gateway owns the manifest, so it either knows an operation
+  // this client's copy predates, or it records the rejection with a log line
+  // and a transcript row — the trace whose absence made a failed Talk write
+  // look like nothing had ever been attempted.
+  if (!operation || operation.target === "gateway") return executeGatewayTool(call, options)
   if (call.name === "capture_current_view") {
     return runVisualToolRequest({
       arguments: call.arguments,
