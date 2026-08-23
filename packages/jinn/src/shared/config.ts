@@ -62,6 +62,9 @@ export function validateConfigShape(config: unknown): string[] {
       if (c.gateway.insecureAllowUnauthenticatedNetwork !== undefined && typeof c.gateway.insecureAllowUnauthenticatedNetwork !== "boolean") {
         problems.push(`gateway.insecureAllowUnauthenticatedNetwork must be a boolean (got ${typeof c.gateway.insecureAllowUnauthenticatedNetwork})`);
       }
+      if (c.gateway.resumeInterruptedSessions !== undefined && typeof c.gateway.resumeInterruptedSessions !== "boolean") {
+        problems.push(`gateway.resumeInterruptedSessions must be a boolean (got ${typeof c.gateway.resumeInterruptedSessions})`);
+      }
     }
   }
 
