@@ -14,6 +14,7 @@ import { stripMarkdown } from "@/lib/strip-markdown"
 import { MarkdownView } from "@/components/markdown-view"
 import { EmployeeAvatar, OPERATOR_DEFAULT_EMOJI } from "@/components/ui/employee-avatar"
 import { buildCommentThread, type CommentThreadNode } from "../comment-thread"
+import { invalidateTodoComments, useAddTodoComment } from "../use-todo-comment"
 import { commentHeadRequest, mergeCommentPages } from "./comment-window"
 import { displayNameOf, formatRelativeTime } from "../util"
 import { AttachmentTile, useAttachmentPreview } from "./attachment-preview"
@@ -341,29 +342,9 @@ export function ActivitySection({
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: ["work-item-comments", id] })
-    void qc.invalidateQueries({ queryKey: ["work-item-attachments", id] })
-    void qc.invalidateQueries({ queryKey: ["work-item", id] })
-    void qc.invalidateQueries({ queryKey: ["work-items"] })
-  }
+  const invalidate = () => invalidateTodoComments(qc, id)
 
-  const send = useMutation({
-    mutationFn: async ({ body, parentCommentId, files }: { body: string; parentCommentId?: string; files: File[] }) => {
-      const { comment } = await api.addWorkItemComment(id, body, parentCommentId)
-      for (const file of files) {
-        await api.uploadWorkItemAttachment(id, file, comment.id)
-      }
-      return comment
-    },
-    onSuccess: () => {
-      setDraft("")
-      setReplyTo(null)
-      setPending([])
-    },
-    onError: (error) => announce(operatorSafeTodoError(error, "Couldn't post the comment")),
-    onSettled: invalidate,
-  })
+  const send = useAddTodoComment(id)
 
   // Comment edit/delete carried over from the retired sheet (stage-B review
   // disposition b): edit only what the operator authored, delete anything —
@@ -392,7 +373,14 @@ export function ActivitySection({
   const submit = () => {
     const body = draft.trim()
     if (!body || send.isPending) return
-    send.mutate({ body, parentCommentId: replyTo?.id, files: pending.map((p) => p.file) })
+    send.mutate({ body, parentCommentId: replyTo?.id, files: pending.map((p) => p.file) }, {
+      onSuccess: () => {
+        setDraft("")
+        setReplyTo(null)
+        setPending([])
+      },
+      onError: (error) => announce(operatorSafeTodoError(error, "Couldn't post the comment")),
+    })
   }
   useEffect(() => {
     const textarea = composerRef.current

@@ -169,6 +169,54 @@ export function PickerSheet({
   )
 }
 
+/** The third shell (the search workbench): the same option rows, opened in flow
+ *  under the anchor rather than over it. A panel that scrolls its own body clips
+ *  an absolutely positioned menu, and a sheet portalled to the body loses its
+ *  focus to the modal it was opened inside — a disclosure in flow has neither
+ *  problem, at any width. */
+export function PickerInline({
+  label,
+  onClose,
+  autoFocusFirst = true,
+  children,
+  testId,
+}: {
+  label: string
+  onClose: () => void
+  autoFocusFirst?: boolean
+  children: React.ReactNode
+  testId?: string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  usePickerKeyboard(ref, onClose)
+  useDismissOutside(ref, onClose)
+
+  // Not keyed on mount: the status picker opens on a "Checking sub-tasks…" note
+  // and grows its rows when the close gate's read lands, so the first row to
+  // exist is the one that takes focus, whenever it arrives.
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!autoFocusFirst || focused.current) return
+    const row = ref.current?.querySelector<HTMLElement>("[data-picker-row]")
+    if (!row) return
+    row.focus()
+    focused.current = true
+  })
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={label}
+      data-testid={testId}
+      className="mt-1.5 rounded-[12px] p-1.5"
+      style={{ background: "var(--fill-tertiary)" }}
+    >
+      {children}
+    </div>
+  )
+}
+
 /** One option row (36px desktop / 44px in sheets via min-h override). */
 export function PickerRow({
   glyph,

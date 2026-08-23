@@ -12,6 +12,7 @@ import { loadRecent, saveRecent, type RecentItem } from "./global-search/recents
 import { recentRows, resultRows, rowTarget, type SearchRow } from "./global-search/rows"
 import { useGlobalSearch } from "./global-search/use-global-search"
 import { useSearchKeyboard } from "./global-search/use-search-keyboard"
+import { useTodoWorkbench } from "./global-search/use-todo-workbench"
 
 // The palette stays a module rather than becoming `global-search/index.tsx`, so
 // `import("./global-search")` and every `@/components/global-search` specifier
@@ -83,6 +84,10 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
   const rowKey = rows.map(row => row.key).join(" ")
   useEffect(() => { setSelected(0) }, [rowKey])
   const row = rows[selected]
+  // The selected Todo's write half. Held here rather than in the preview because
+  // the result row shows the same live status the preview does.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const workbench = useTodoWorkbench(row, setPickerOpen)
 
   const activate = useCallback((target: SearchRow) => {
     const recent = rowTarget(target)
@@ -120,6 +125,15 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
         showCloseButton={false}
         aria-describedby={undefined}
         onEscapeKeyDown={event => {
+          // A workbench picker owns Escape while it is up. Radix registers this
+          // handler in the same capture phase the picker's own listener runs in,
+          // so the picker's stopPropagation() cannot reach it — the overlay has
+          // to stand down here instead, or one Escape closes the picker AND
+          // throws the query away with it.
+          if (pickerOpen) {
+            event.preventDefault()
+            return
+          }
           if (!query) return
           event.preventDefault()
           setQuery("")
@@ -162,11 +176,19 @@ export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }
               onActivate={activate}
               emptyLabel={typing ? "No results" : "Nothing opened from here yet"}
               loading={loading}
+              selectedStatus={workbench?.status}
             />
           </div>
           <div className="min-w-0 flex-1 overflow-y-auto bg-[var(--material-thin)] max-[480px]:max-h-[55%] max-[480px]:flex-none max-[480px]:rounded-t-[var(--radius-2xl)] max-[480px]:bg-[var(--material-thick)] max-[480px]:pt-2.5 max-[480px]:pb-[max(18px,env(safe-area-inset-bottom))] max-[480px]:shadow-[var(--shadow-overlay)]">
             <div aria-hidden="true" className="mx-auto mb-3.5 hidden h-[5px] w-9 rounded-[3px] bg-[var(--fill-primary)] max-[480px]:block" />
-            <PreviewPane row={row} error={search.error} hint={hint} literal={literal} onSearchLiterally={toggleLiteral} />
+            <PreviewPane
+              row={row}
+              error={search.error}
+              hint={hint}
+              literal={literal}
+              onSearchLiterally={toggleLiteral}
+              workbench={workbench}
+            />
           </div>
         </div>
 

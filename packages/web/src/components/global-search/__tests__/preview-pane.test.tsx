@@ -13,7 +13,15 @@ const ALL_FIELDS: SearchMatchFieldWire[] = [
 
 function renderPreview(row: ReturnType<typeof resultRows>[number] | undefined, over: Partial<Parameters<typeof PreviewPane>[0]> = {}) {
   return render(
-    <PreviewPane row={row} error={null} hint="Type to search." literal={false} onSearchLiterally={vi.fn()} {...over} />,
+    <PreviewPane
+      row={row}
+      error={null}
+      hint="Type to search."
+      literal={false}
+      onSearchLiterally={vi.fn()}
+      workbench={undefined}
+      {...over}
+    />,
   )
 }
 

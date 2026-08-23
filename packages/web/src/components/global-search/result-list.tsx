@@ -19,17 +19,18 @@ function StatusDot({ status }: { status: string }) {
   return <span className="size-[7px] flex-none rounded-full" style={{ background: statusTint(status) }} />
 }
 
-function sublineOf(row: SearchRow): ReactNode[] {
+function sublineOf(row: SearchRow, status: string | undefined): ReactNode[] {
   if (row.kind === "recent") return [<span key="recent">Opened recently</span>]
   const { preview, reason } = row.result
+  const shown = status ?? preview.status
   const parts: ReactNode[] = []
   if (row.kind === "todo") {
     parts.push(<span key="id" className="font-[family-name:var(--font-code)] text-[11px] tracking-normal">{row.result.id}</span>)
   } else if (preview.subtitle) {
     parts.push(<span key="subtitle">{preview.subtitle}</span>)
   }
-  if (preview.status) {
-    parts.push(<span key="status" className="flex items-center gap-1.5"><StatusDot status={preview.status} />{preview.status}</span>)
+  if (shown) {
+    parts.push(<span key="status" className="flex items-center gap-1.5"><StatusDot status={shown} />{shown}</span>)
   }
   parts.push(<span key="field">{FIELD_LABEL[reason[0].field]}</span>)
   return parts
@@ -43,11 +44,15 @@ export interface ResultListProps {
   /** Shown in place of the rows when there are none. */
   emptyLabel: string
   loading: boolean
+  /** The selected Todo's live status, once the workbench has loaded it — the
+   *  same value its preview shows, so both move and revert on the one write. */
+  selectedStatus?: string
 }
 
-function Row({ row, selected, onSelect, onActivate }: {
+function Row({ row, selected, status, onSelect, onActivate }: {
   row: SearchRow
   selected: boolean
+  status: string | undefined
   onSelect: () => void
   onActivate: () => void
 }) {
@@ -67,7 +72,7 @@ function Row({ row, selected, onSelect, onActivate }: {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14.5px] tracking-[-0.005em] text-[var(--text-primary)]">{titleOf(row)}</span>
         <span className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-[var(--text-tertiary)]">
-          {sublineOf(row).map((part, index) => (
+          {sublineOf(row, status).map((part, index) => (
             <Fragment key={index}>
               {index > 0 && <span className="text-[var(--text-quaternary)]">·</span>}
               {part}
@@ -79,7 +84,7 @@ function Row({ row, selected, onSelect, onActivate }: {
   )
 }
 
-export function ResultList({ rows, selectedIndex, onSelect, onActivate, emptyLabel, loading }: ResultListProps) {
+export function ResultList({ rows, selectedIndex, onSelect, onActivate, emptyLabel, loading, selectedStatus }: ResultListProps) {
   if (loading) {
     return (
       <div className="flex flex-col gap-1 px-[10px] pt-4" data-testid="search-list-loading">
@@ -102,6 +107,7 @@ export function ResultList({ rows, selectedIndex, onSelect, onActivate, emptyLab
           <Row
             row={row}
             selected={index === selectedIndex}
+            status={index === selectedIndex ? selectedStatus : undefined}
             onSelect={() => onSelect(index)}
             onActivate={() => onActivate(row)}
           />
