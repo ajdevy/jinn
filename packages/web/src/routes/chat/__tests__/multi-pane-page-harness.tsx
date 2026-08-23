@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
+import type { OrgData } from '@/lib/api'
 import ChatPageWrapper from '../page'
 import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
 
@@ -28,7 +29,9 @@ const apiMocks = vi.hoisted(() => ({
   searchSessions: vi.fn(async (query: string) => sessionIds
     .filter((id) => `Title ${id}`.toLowerCase().includes(query.toLowerCase()))
     .map((id) => ({ id, title: `Title ${id}`, status: 'idle' }))),
-  getOrg: vi.fn(async () => ({ employees: [] })),
+  // Only the employees are read from the org here, and suites that need real
+  // ones override this — so the mock is typed to what it actually supplies.
+  getOrg: vi.fn(async (): Promise<Pick<OrgData, 'employees'>> => ({ employees: [] })),
   getEngines: vi.fn(async () => ({
     engines: {
       claude: { name: 'claude', available: true, defaultModel: 'opus', models: [], supportsPty: true },
