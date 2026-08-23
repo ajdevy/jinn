@@ -97,6 +97,13 @@ describe("the overlay opened scoped to one kind", () => {
     expect(screen.queryByTestId("search-scope-pill")).toBeNull()
   })
 
+  it("opens with the keystroke that summoned it already in the field", async () => {
+    renderOverlay({ initialScope: "todo", initialQuery: "r" })
+    expect(searchField().value).toBe("r")
+
+    await waitFor(() => expect(lastCall()).toMatchObject({ q: "r", scope: "todo" }))
+  })
+
   it("carries no pill and no scope when it opens unscoped", async () => {
     renderOverlay()
     expect(screen.queryByTestId("search-scope-pill")).toBeNull()

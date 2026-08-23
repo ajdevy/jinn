@@ -36,16 +36,18 @@ const FOOTER_KEY = "font-medium text-[var(--text-tertiary)]"
 
 export interface GlobalSearchProps {
   initialOpen?: boolean
-  /** Opens narrowed to one kind, with a pill that widens it again. Wave 4 wires
-   *  the Todos filter bar to this; nothing in this wave passes it. */
+  /** Opens narrowed to one kind, with a pill that widens it again. The Todos
+   *  filter row opens the palette this way. */
   initialScope?: SearchKind
+  /** Seeds the field, so the keystroke that opened the palette is not lost. */
+  initialQuery?: string
 }
 
-export function GlobalSearch({ initialOpen = false, initialScope }: GlobalSearchProps) {
+export function GlobalSearch({ initialOpen = false, initialScope, initialQuery }: GlobalSearchProps) {
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Jinn"
   const [open, setOpen] = useState(initialOpen)
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useState(initialQuery ?? "")
   const [literal, setLiteral] = useState(false)
   const [scope, setScope] = useState<SearchKind | undefined>(initialScope)
   const [selected, setSelected] = useState(0)

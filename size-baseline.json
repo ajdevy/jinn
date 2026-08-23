@@ -1688,7 +1688,7 @@
       "lines": 874
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
-      "lines": 340,
+      "lines": 307,
       "exempt": [
         "@typescript-eslint/no-floating-promises"
       ]
@@ -1700,7 +1700,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 925,
+      "lines": 917,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1743,7 +1743,7 @@
       ]
     },
     "packages/web/src/routes/todos/filter-bar.tsx": {
-      "lines": 533,
+      "lines": 504,
       "exempt": [
         "complexity",
         "max-lines-per-function"
