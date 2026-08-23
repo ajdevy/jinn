@@ -29,7 +29,7 @@ function stub(responder: (call: SeenCall) => { status: number; body: unknown }) 
   return {
     calls,
     ctx: {
-      gatewayUrl: "http://127.0.0.1:7777",
+      gatewayUrl: "http://gateway.test",
       fetchFn,
       callerSessionId: "session-test",
       sessionCapability: "cap-test",

@@ -53,6 +53,11 @@ const engineStub = {
   killAll: () => {},
 };
 
+/** Engines this harness should report as missing, so a route's "engine not
+ *  available" refusal can be driven without a real engine registry. Cleared by
+ *  the test that sets it. */
+export const unavailableEngines = new Set<string>();
+
 const queueStub = {
   enqueue: async (_key: string, fn: () => Promise<void>) => fn(),
   clearCancelled: () => {},
@@ -95,7 +100,7 @@ const context = {
   emit: () => {},
   reloadOrg: () => {},
   sessionManager: {
-    getEngine: () => engineStub,
+    getEngine: (name: string) => (unavailableEngines.has(name) ? undefined : engineStub),
     getEngines: () => new Map(),
     getQueue: () => queueStub,
   },

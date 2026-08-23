@@ -1,0 +1,180 @@
+import { describe, expect, it } from "vitest";
+import {
+  deriveTodoCaptureState,
+  type TodoCaptureFacts,
+  type TodoCaptureLinkedSessionFact,
+  type TodoCaptureSessionFact,
+  type TodoCaptureTodoFact,
+} from "../todo-capture-stage.js";
+
+/**
+ * The rules a capture's progress is read by. Each case fixes one fact and
+ * asserts the stage that fact — and only that fact — earns.
+ */
+
+function session(over: Partial<TodoCaptureSessionFact> = {}): TodoCaptureSessionFact {
+  return { id: "shaper-1", status: "running", spoke: true, ...over };
+}
+
+function todo(over: Partial<TodoCaptureTodoFact> = {}): TodoCaptureTodoFact {
+  return { id: "PLA-9", title: "Closed rail scrolls under the board header", linked: [], ...over };
+}
+
+function facts(over: Partial<TodoCaptureFacts> = {}): TodoCaptureFacts {
+  return {
+    captureId: "shaper-1",
+    session: session(),
+    todos: [],
+    dispatcherEmployee: "todo-dispatcher",
+    shaperEmployee: "todo-shaper",
+    ...over,
+  };
+}
+
+const dispatcher: TodoCaptureLinkedSessionFact = { id: "disp-1", employee: "todo-dispatcher" };
+
+describe("deriveTodoCaptureState — the forward path", () => {
+  it("is starting while the session is running and the engine has not spoken", () => {
+    const state = deriveTodoCaptureState(facts({ session: session({ spoke: false }) }));
+
+    expect(state).toMatchObject({ stage: "starting", sessionId: "shaper-1", workItemId: null, error: null });
+  });
+
+  it("is shaping once the engine has spoken but no Todo exists yet", () => {
+    expect(deriveTodoCaptureState(facts()).stage).toBe("shaping");
+  });
+
+  it("is created once a Todo names the session as its creator, and carries the Todo", () => {
+    const state = deriveTodoCaptureState(facts({ todos: [todo()] }));
+
+    expect(state).toMatchObject({
+      stage: "created",
+      workItemId: "PLA-9",
+      workItemTitle: "Closed rail scrolls under the board header",
+      routedTo: null,
+    });
+  });
+
+  it("is dispatching once a Dispatcher session is linked to that Todo", () => {
+    const state = deriveTodoCaptureState(facts({ todos: [todo({ linked: [dispatcher] })] }));
+
+    expect(state).toMatchObject({ stage: "dispatching", workItemId: "PLA-9", routedTo: null });
+  });
+
+  it("is routed, naming the workflow, once a phase session is linked", () => {
+    const state = deriveTodoCaptureState(facts({
+      todos: [todo({ linked: [dispatcher, { id: "phase-1", employee: "some-employee", workflowId: "jinn-build", workflowName: "Jinn Build", workflowRunId: "run_7" }] })],
+    }));
+
+    expect(state).toMatchObject({
+      stage: "routed",
+      routedTo: { kind: "workflow", workflowId: "jinn-build", workflowName: "Jinn Build", runId: "run_7" },
+    });
+  });
+
+  it("is routed, naming the employee, once a delegate is linked and no workflow is", () => {
+    const state = deriveTodoCaptureState(facts({
+      todos: [todo({ linked: [dispatcher, { id: "worker-1", employee: "route-worker" }] })],
+    }));
+
+    expect(state).toMatchObject({ stage: "routed", routedTo: { kind: "employee", employee: "route-worker", sessionId: "worker-1" } });
+  });
+
+  // The Dispatcher chooses a route; it is not one. Counting it as the delegate
+  // would report every Todo as routed the instant dispatch started.
+  it("does not mistake the Dispatcher's own session for the delegate it picks", () => {
+    expect(deriveTodoCaptureState(facts({ todos: [todo({ linked: [dispatcher] })] })).routedTo).toBeNull();
+  });
+
+  it("does not mistake the Shaper's own linked session for a delegate", () => {
+    const state = deriveTodoCaptureState(facts({
+      todos: [todo({ linked: [{ id: "shaper-1", employee: "todo-shaper" }] })],
+    }));
+
+    expect(state).toMatchObject({ stage: "created", routedTo: null });
+  });
+
+  // A workflow run is the stronger fact: when both are present the Todo went
+  // through the workflow, and the phase session's employee is an implementation
+  // detail of that run rather than a delegation the Dispatcher chose.
+  it("prefers the workflow when a run and a plain employee session are both linked", () => {
+    const state = deriveTodoCaptureState(facts({
+      todos: [todo({ linked: [{ id: "worker-1", employee: "route-worker" }, { id: "phase-1", employee: "x", workflowId: "wf", workflowRunId: "run_1" }] })],
+    }));
+
+    expect(state.routedTo).toMatchObject({ kind: "workflow", workflowId: "wf" });
+  });
+});
+
+describe("deriveTodoCaptureState — the failure edges", () => {
+  it("fails when the shaping session is gone", () => {
+    const state = deriveTodoCaptureState(facts({ session: null }));
+
+    expect(state.stage).toBe("failed");
+    expect(state.error).toMatch(/gone/);
+    expect(state.sessionId).toBeNull();
+  });
+
+  it("fails with the session's own reason when it died before creating a Todo", () => {
+    const state = deriveTodoCaptureState(facts({
+      session: session({ status: "error", spoke: true, lastError: 'engine "codex" exited with code 1' }),
+    }));
+
+    expect(state.stage).toBe("failed");
+    expect(state.error).toContain('engine "codex" exited with code 1');
+  });
+
+  it("still fails honestly when the session ended with no reason recorded", () => {
+    const state = deriveTodoCaptureState(facts({ session: session({ status: "idle", lastError: null }) }));
+
+    expect(state).toMatchObject({ stage: "failed", workItemId: null });
+    expect(state.error).toMatch(/without creating a Todo/);
+  });
+
+  // What a refused claim looks like from outside: the Todo is real, the Shaper
+  // reported the refusal in a comment and stopped, and nothing is running it.
+  it("fails, keeping the Todo, when it was created but the Shaper stopped without dispatching", () => {
+    const state = deriveTodoCaptureState(facts({
+      session: session({ status: "idle" }),
+      todos: [todo()],
+    }));
+
+    expect(state).toMatchObject({ stage: "failed", workItemId: "PLA-9" });
+    expect(state.error).toMatch(/never dispatched|without dispatching/);
+  });
+
+  it("quotes the session's reason when a created Todo was never dispatched", () => {
+    const state = deriveTodoCaptureState(facts({
+      session: session({ status: "error", lastError: "Todo PLA-9 is already being dispatched by session s-earlier" }),
+      todos: [todo()],
+    }));
+
+    expect(state.error).toContain("already being dispatched by session s-earlier");
+  });
+
+  // An interrupted Shaper is over, not pausing. Treating it as still shaping
+  // would leave the strip spinning on a session that will never move again.
+  it("treats an interrupted session as over rather than in flight", () => {
+    expect(deriveTodoCaptureState(facts({ session: session({ status: "interrupted" }) })).stage).toBe("failed");
+  });
+
+  // A Todo created and not yet handed off is not a failure while the Shaper is
+  // still on its turn — that is simply the gap between the two calls.
+  it("stays on created while the Shaper is still running", () => {
+    expect(deriveTodoCaptureState(facts({ session: session({ status: "running" }), todos: [todo()] })).stage).toBe("created");
+  });
+
+  it("reports the first Todo and surfaces the extras when one capture made several", () => {
+    const state = deriveTodoCaptureState(facts({
+      todos: [todo(), todo({ id: "PLA-10" }), todo({ id: "PLA-11" })],
+    }));
+
+    expect(state).toMatchObject({ workItemId: "PLA-9", extraWorkItemIds: ["PLA-10", "PLA-11"] });
+  });
+
+  it("surfaces extras on a failure too, so nothing a capture made is hidden", () => {
+    const state = deriveTodoCaptureState(facts({ session: null, todos: [todo(), todo({ id: "PLA-10" })] }));
+
+    expect(state).toMatchObject({ stage: "failed", extraWorkItemIds: ["PLA-10"] });
+  });
+});
