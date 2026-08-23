@@ -1661,7 +1661,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1493,
+      "lines": 1489,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1988,7 +1988,7 @@
       "lines": 812
     },
     "scripts/upgrade-lab/run.mjs": {
-      "lines": 1140,
+      "lines": 1130,
       "exempt": [
         "complexity",
         "max-depth",

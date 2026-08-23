@@ -767,6 +767,10 @@ function runStateProbe(mode, packageRoot, layout, env) {
   try { return JSON.parse(output) } catch { throw new Error(`State probe returned invalid JSON: ${output}`) }
 }
 
+import { assertServiceOwnedRemovalsApplied, assertStockBundleApplied } from "./assertions.mjs"
+
+export { assertServiceOwnedRemovalsApplied, assertStockBundleApplied }
+
 export function mergeBundle(home, materializedBundleDir, manifest, materializationAudit, version) {
   const reviewedFiles = []
   const skippedItems = []
@@ -848,37 +852,6 @@ export function mergeMigrationChain({
       reviewedFiles: [...reviewedFiles],
       skippedItems: [...skippedItems.values()],
     },
-  }
-}
-
-export function assertServiceOwnedRemovalsApplied({ home, serviceOwnedRemovals }) {
-  for (const removalPath of serviceOwnedRemovals) {
-    if (fs.existsSync(path.join(home, removalPath))) {
-      throw new Error(`service-owned removal path survived completion: ${removalPath}`)
-    }
-  }
-}
-
-export function assertStockBundleApplied({ home, materializedBundleDir, manifest, receipt, preMergeTree }) {
-  if (receipt.skippedItems.length > 0) throw new Error(`stock migration skipped manifest paths: ${JSON.stringify(receipt.skippedItems)}`)
-  const reviewed = new Set(receipt.reviewedFiles)
-  for (const record of manifest.files) {
-    // A removal is service-owned and has not happened yet: the service performs it at
-    // completion. assertServiceOwnedRemovalsApplied proves it there.
-    if (record.operation === "remove") continue
-    if (!reviewed.has(record.path)) throw new Error(`stock migration did not review manifest path: ${record.path}`)
-    const user = path.join(home, record.path)
-    if (!fs.existsSync(user)) throw new Error(`stock path is missing after migration: ${record.path}`)
-    const actualSha256 = sha256(fs.readFileSync(user))
-    const baseSha256 = record.basePayload ? sha256(fs.readFileSync(path.join(materializedBundleDir, record.basePayload))) : null
-    const targetSha256 = record.targetPayload ? sha256(fs.readFileSync(path.join(materializedBundleDir, record.targetPayload))) : null
-    const wasUnmodifiedStock = record.operation === "add" || preMergeTree[record.path] === baseSha256
-    if (wasUnmodifiedStock && actualSha256 !== targetSha256) {
-      throw new Error(`stock path did not reach target: ${record.path}`)
-    }
-    if (!wasUnmodifiedStock && baseSha256 !== targetSha256 && actualSha256 === preMergeTree[record.path]) {
-      throw new Error(`personalized stock path did not incorporate target changes: ${record.path}`)
-    }
   }
 }
 

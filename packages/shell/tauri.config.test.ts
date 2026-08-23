@@ -26,7 +26,12 @@ describe("bundled Tauri shell", () => {
     expect(existsSync(resolve(here, "../shell-ios"))).toBe(false)
     expect(packageJson.scripts["desktop:build"]).toMatch(/^pnpm --filter @jinn\/web build .*cargo tauri build/)
     expect(packageJson.scripts["desktop:build"]).not.toContain("JINN_SHELL_SERVER_URL")
-    expect(packageJson.scripts.test).toContain("cargo test")
+    // The native leg runs through a runner rather than inline `cargo test`: the crate
+    // targets Apple platforms, so it must run on macOS and be skipped, loudly, elsewhere.
+    expect(packageJson.scripts.test).toContain("scripts/test-native.mjs")
+    const nativeRunner = readFileSync(resolve(here, "scripts/test-native.mjs"), "utf8")
+    expect(nativeRunner).toContain("cargo")
+    expect(nativeRunner).toContain("darwin")
   })
 
   it("loads local web assets in one main window under a strict CSP", () => {
