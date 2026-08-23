@@ -11,6 +11,8 @@ import { blockFallbackText, mergeBlock, validateBlockEnvelope } from '../shared/
 import { ptySnapshotStore } from '../engines/pty-snapshot.js';
 
 export const RESTART_ACK_META_KEY = "restartAcknowledgedAt";
+/** Stamped on a session the gateway itself interrupted, so the next boot can tell it apart from one that was already idle. Consumed in sessions/restart-resume.ts. */
+export const RESTART_RESUME_META_KEY = "restartInterruptedAt";
 export const GATEWAY_RESTARTED_MESSAGE = "Gateway restarted successfully.";
 
 function parseJsonObject(value: unknown, label?: string): JsonObject | null {
@@ -1430,18 +1432,16 @@ export function getSessionGroupCounts(portalSlug?: string | null): Record<string
   return out;
 }
 
-/**
- * Mark any sessions stuck in "running" status as "interrupted".
- * Called on gateway startup — if the gateway is starting, no sessions can actually be running.
- * Sessions with an engine_session_id can be resumed via the Claude --resume flag.
+/** Mark any sessions stuck in "running" status as "interrupted". Called on gateway startup — if the
+ * gateway is starting, no sessions can actually be running. Sessions with an engine_session_id can be
+ * resumed via the Claude --resume flag, so each one is stamped for the restart resume nudge as well.
  */
 export function recoverStaleSessions(): number {
   const db = initDb();
   const now = new Date().toISOString();
-  const result = db.prepare(
-    "UPDATE sessions SET status = 'interrupted', attempt_outcome = 'interrupted', attempt_terminal_version = attempt_terminal_version + 1, last_activity = ?, last_error = 'Interrupted: gateway restarted while session was running' WHERE status = 'running' AND workflow_kind IS NULL",
-  ).run(now);
-  return result.changes;
+  return db.prepare(
+    `UPDATE sessions SET status = 'interrupted', attempt_outcome = 'interrupted', attempt_terminal_version = attempt_terminal_version + 1, last_activity = ?, transport_meta = json_set(COALESCE(transport_meta, '{}'), '$.${RESTART_RESUME_META_KEY}', ?), last_error = 'Interrupted: gateway restarted while session was running' WHERE status = 'running' AND workflow_kind IS NULL`,
+  ).run(now, now).changes;
 }
 
 /** Settle workflow attempts whose engine process was lost with the old gateway. The cause is stamped over any same-turn marker — that turn died with the gateway, it did not end on a message — and is what lets the runtime replace the attempt rather than spend its retry budget (see workflows/restart-redispatch.ts). */

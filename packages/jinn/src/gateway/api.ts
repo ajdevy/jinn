@@ -39,13 +39,9 @@ import {
   getSessionGroupCounts,
   coercePortalEmployee,
   searchSessions,
-  searchMessages,
-  searchSessionsFiltered,
   getMessageContext,
   getCostReport,
   MESSAGE_CONTEXT_MAX_RADIUS,
-  type MessageSearchFilter,
-  type SearchSessionsFilter,
   listChildSessions,
   listSessionsByWorkItem,
   getSession,
@@ -130,6 +126,7 @@ export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
 import { handleSkillsApi } from "./skills-api.js";
+import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
 import { handlePluginsApi } from "./plugins-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
@@ -219,6 +216,7 @@ import {
 } from "../work-items/attachments.js";
 import { readWriteOrigin, writeDetail, WRITE_ORIGIN_HEADER } from "../work-items/origin.js";
 import { authorizeActingAsOperator, resolveArmingDelegate, workItemActor, type WorkItemCaller } from "./work-item-arming.js";
+import { authorizeAgentWorkItemStatus, authorizeWorkItemOwnerManagerOrRoot, ownsWorkItem } from "./work-item-authority.js";
 import { fullWorkItemPayload, openWorkItemPayload, workItemPagePayload } from "./work-item-payload.js";
 import { listDepartmentsWithCounts } from "../work-items/departments.js";
 import { parseStatusUpdateFields } from "./work-item-status-fields.js";
@@ -233,7 +231,7 @@ import {
   escalateApproval,
   requestApproval,
 } from "../work-items/approvals.js";
-import { resolveApprovalDecisionAuthority, resolveApprovalRouteTarget, resolveRootApprovalTarget } from "./approval-authority.js";
+import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
 import { scanOrg } from "./org.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
@@ -252,7 +250,6 @@ import {
   readWorkItemQueryParams,
   SEARCH_QUERY_ROUTE_CHAR_CAP,
 } from "./work-item-query.js";
-import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
 import { surfaceManagerVisibility } from "./manager-visibility.js";
 import { NOTE_FILE_MAX_BYTES, createNote, listNotes, readKnowledgeFile, readNote, searchKnowledge, updateNote, type NoteStoreResult } from "../notes/store.js";
 import { loadInstances, saveInstances, type Instance, type InstanceInput } from "../instances/directory.js";
@@ -1282,77 +1279,6 @@ function findApprovalKeysDeep(value: unknown, path = 'body', found: string[] = [
 }
 
 
-function ownsWorkItem(session: Session, item: WorkItem, linked: Session[]): boolean {
-  if (linked.some((s) => s.id === session.id)) return true;
-  if (item.assignee && session.employee && item.assignee === session.employee) return true;
-  return item.source === 'session' && !!item.sourceRef?.startsWith(`session:${session.id}:`);
-}
-
-function authorizeWorkItemOwnerManagerOrRoot(
-  caller: WorkItemCaller,
-  item: WorkItem,
-  action: string,
-): { ok: true } | { ok: false; status: 403; error: string } {
-  if (caller.kind === 'operator') return { ok: true };
-  const employeeName = caller.session.employee;
-  if (!employeeName) {
-    return { ok: false, status: 403, error: `session ${caller.callerId} has no employee identity and cannot ${action} Todo ${item.id}` };
-  }
-  const roster = scanOrg();
-  const employee = roster.get(employeeName);
-  if (!employee) {
-    return { ok: false, status: 403, error: `employee "${employeeName}" is not in the org roster and cannot ${action} Todo ${item.id}` };
-  }
-  const root = resolveRootApprovalTarget();
-  if (root?.kind === 'employee' && root.name === employeeName) return { ok: true };
-
-  const owner = resolveApprovalRouteTarget(item).owner;
-  if (owner === employeeName) return { ok: true };
-  if (owner && (employee.rank === 'manager' || employee.rank === 'executive')) {
-    const hierarchy = resolveOrgHierarchy(roster);
-    if (isOrgAncestor(hierarchy, employeeName, owner)) return { ok: true };
-  }
-  return {
-    ok: false,
-    status: 403,
-    error: `employee "${employeeName}" does not own Todo ${item.id} and is not its authorized manager/root; cannot ${action}`,
-  };
-}
-
-/** Every refusal here names the way forward, because the way forward always
- *  exists: the executor moves the Todo to `in_review` and asks for approval. */
-function canReviewWorkItemDone(session: Session, item: WorkItem, linked: Session[]): { ok: true } | { ok: false; error: string } {
-  const instead = `completion is the reviewer's — move Todo ${item.id} to in_review and request approval`;
-  if (item.status !== 'in_review') {
-    return { ok: false, error: `Todo ${item.id} is ${item.status}, and done is not an agent shortcut: ${instead}` };
-  }
-  if (linked.some((s) => s.id === session.id && s.workflowProvenance?.kind !== 'phase')) {
-    return { ok: false, error: `session ${session.id} executed Todo ${item.id} and cannot close it (self-review ban): ${instead}, or close it from the human review surface` };
-  }
-  return { ok: true };
-}
-
-/**
- * Status is the one Todo write open to every authenticated session.
- *
- * Gating it on a relationship to the Todo bought nothing and cost honesty: a
- * participant that could do the work could not say where it had got to, and had
- * to ask someone with standing to perform the write for it. Status is low-stakes
- * and every participant needs it, so it is open — and each new caller arrives
- * without needing its own relation and its own 403.
- *
- * `done` stays bounded to `in_review` and is withheld from a linked execution
- * attempt because "never close your own work" is the basis of the review model.
- * Workflow phase sessions are linked for spend attribution, not because every
- * phase produced the Todo, so they are reviewers rather than execution attempts.
- * `cancelled` has no agent lane at all and the route refuses it before this
- * point, where cancellation's separate archive path is chosen.
- */
-function authorizeAgentWorkItemStatus(caller: WorkItemCaller, item: WorkItem, target: WorkItemStatus): { ok: true } | { ok: false; status: 403; error: string } {
-  if (caller.kind === 'operator' || target !== 'done') return { ok: true };
-  const review = canReviewWorkItemDone(caller.session, item, listSessionsByWorkItem(item.id));
-  return review.ok ? { ok: true } : { ok: false, status: 403, error: review.error };
-}
 
 /**
  * The refusal for a session trying to mint a child that IS the employee-
@@ -2062,102 +1988,13 @@ export async function handleApiRequest(
       });
     }
 
-    // GET /api/search/messages — GRS-020a company-reference search: FTS5 over
-    // user/assistant message bodies (injection-safe — the store sanitizes the
-    // query into quoted phrases), AND-composed bound-param filters, newest-first.
-    // GRS-020a-fix hardening: control bytes are stripped from every string param
-    // (an embedded NUL made FTS5 throw — finding 2) and the query length is
-    // capped route-side (finding 3; the MCP tools cap earlier and friendlier).
-    if (method === "GET" && pathname === "/api/search/messages") {
-      const readParam = (name: string): string | null => readCleanSearchParam(url, name);
-      const q = readParam("q");
-      if (!q) return badRequest(res, "q is required");
-      if (q.length > SEARCH_QUERY_ROUTE_CHAR_CAP) {
-        return badRequest(res, `q is too long (${q.length} chars, max ${SEARCH_QUERY_ROUTE_CHAR_CAP}) — shorten the query`);
-      }
-      const filter: MessageSearchFilter = {};
-      const sessionId = readParam("sessionId");
-      if (sessionId) filter.sessionId = sessionId;
-      const excludeSessionId = readParam("excludeSessionId");
-      if (excludeSessionId) filter.excludeSessionId = excludeSessionId;
-      const employee = readParam("employee");
-      if (employee) filter.employee = employee;
-      const engine = readParam("engine");
-      if (engine) filter.engine = engine;
-      const role = readParam("role");
-      if (role) {
-        if (role !== "user" && role !== "assistant") {
-          return badRequest(res, `role must be "user" or "assistant" (only those rows are indexed), got "${role}"`);
-        }
-        filter.role = role;
-      }
-      for (const [param, key] of [["since", "since"], ["until", "until"]] as const) {
-        const raw = readParam(param);
-        if (raw) {
-          const ms = Date.parse(raw);
-          if (Number.isNaN(ms)) return badRequest(res, `${param} must be an ISO-8601 timestamp, got "${raw}"`);
-          filter[key] = ms;
-        }
-      }
-      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200));
-      const results = searchMessages(q, limit, filter);
-      return json(res, { query: q, results });
-    }
-
-    // GET /api/search/sessions — GRS-020a: deterministic AND-composed session
-    // search (escaped-LIKE text over title/prompt_excerpt/id + structured
-    // filters). At least one filter required — the unbounded list stays on
-    // GET /api/sessions. Returns COMPACT summaries only (GRS-020a-fix finding
-    // 5: the reference layer's route contract is summaries, not the full
-    // serialized session); string params are control-stripped and the text
-    // filter is length-capped (findings 2+3).
-    if (method === "GET" && pathname === "/api/search/sessions") {
-      const readParam = (name: string): string | null => readCleanSearchParam(url, name);
-      const filter: SearchSessionsFilter = {};
-      const text = readParam("text");
-      if (text) {
-        if (text.length > SEARCH_QUERY_ROUTE_CHAR_CAP) {
-          return badRequest(res, `text is too long (${text.length} chars, max ${SEARCH_QUERY_ROUTE_CHAR_CAP}) — shorten the query`);
-        }
-        filter.text = text;
-      }
-      const employee = readParam("employee");
-      if (employee) filter.employee = employee;
-      const engine = readParam("engine");
-      if (engine) filter.engine = engine;
-      const status = readParam("status");
-      if (status) {
-        const valid: Session["status"][] = ["idle", "running", "error", "waiting", "interrupted"];
-        if (!valid.includes(status as Session["status"])) {
-          return badRequest(res, `status must be one of ${valid.join(", ")}, got "${status}"`);
-        }
-        filter.status = status as Session["status"];
-      }
-      const source = readParam("source");
-      if (source) filter.source = source;
-      const parentSessionId = readParam("parentSessionId");
-      if (parentSessionId) filter.parentSessionId = parentSessionId;
-      const workflowId = readParam("workflowId");
-      if (workflowId) filter.workflowId = workflowId;
-      const workflowRunId = readParam("workflowRunId");
-      if (workflowRunId) filter.workflowRunId = workflowRunId;
-      const workflowPhaseName = readParam("workflowPhaseName");
-      if (workflowPhaseName) filter.workflowPhaseName = workflowPhaseName;
-      for (const key of ["activeSince", "activeBefore"] as const) {
-        const raw = readParam(key);
-        if (raw) {
-          if (Number.isNaN(Date.parse(raw))) return badRequest(res, `${key} must be an ISO-8601 timestamp, got "${raw}"`);
-          filter[key] = new Date(raw).toISOString();
-        }
-      }
-      if (url.searchParams.get("needsAttention") === "true") filter.needsAttention = true;
-      if (Object.keys(filter).length === 0) {
-        return badRequest(res, "at least one filter is required (text, employee, engine, status, source, parentSessionId, workflowId, workflowRunId, workflowPhaseName, activeSince, activeBefore, needsAttention)");
-      }
-      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 50));
-      const sessions = searchSessionsFiltered(filter, limit);
-      return json(res, { sessions: sessions.map(compactSessionSummary) });
-    }
+    // `/api/search/*` — moved to search-api.ts when the global route was added:
+    // api.ts is at its size budget and cannot hold a fifth search route.
+    if (await handleSearchApi(req, res, { method, pathname, url }, {
+      context,
+      compactSessionSummary,
+      resolveNeedsAttentionTarget: (requested) => resolveNeedsAttentionTarget(req, res, requested, context),
+    })) return;
 
     // GET /api/cost/report — GRS-020c cost-only read surface. Deterministic
     // aggregate over existing sessions.total_cost/total_turns; no budgets,
@@ -2182,26 +2019,6 @@ export async function handleApiRequest(
         ...report,
         hint: "Costs are engine-reported per session; missing/zero rows mean the engine reported none.",
       });
-    }
-
-    // GET /api/search/work-items — GRS-021c: deterministic AND-composed Todo
-    // search. Text is escaped-LIKE over title+body (%/_/backslash literal) and
-    // structured filters are exact. Compact summaries only — body/acceptance
-    // dumps stay behind GET /api/work-items/:id.
-    if (method === "GET" && pathname === "/api/search/work-items") {
-      const parsedQuery = readWorkItemQueryParams(url);
-      if (!parsedQuery.ok) return badRequest(res, parsedQuery.error);
-      const { filter, limit, offset } = parsedQuery.value;
-      const needsAttentionFor = readCleanSearchParam(url, "needsAttentionFor");
-      if (needsAttentionFor) {
-        const target = resolveNeedsAttentionTarget(req, res, needsAttentionFor, context);
-        if (!target) return;
-        filter.needsAttentionFor = target;
-      }
-      if (Object.keys(filter).length === 0) {
-        return badRequest(res, "at least one filter is required (q, text, status, source, assignee, department, since, until, needsAttentionFor)");
-      }
-      return json(res, workItemPagePayload(queryWorkItems({ ...filter, limit, offset })));
     }
 
     // Notes is the editable projection of knowledge/**/*.md. docs/ remains on
@@ -3185,6 +3002,11 @@ export async function handleApiRequest(
         if (!permitted.ok) return json(res, { error: permitted.error }, 403);
         actingAsOperator = permitted.actingAs;
       }
+      // A granted claim is the operator's authority arriving on the COO lane,
+      // not just their name on the record: it releases a sticky terminal the
+      // way the operator PUT does. The cascade is not part of it —
+      // parseStatusUpdateFields keeps that on the operator's own surface.
+      const humanAuthority = isOperatorPut || actingAsOperator !== undefined;
       const actor = fields.asOperator ? "operator" : workItemActor(caller);
       // Read the list per request, so adding or removing a delegate takes effect
       // on the next move rather than at the next restart.
@@ -3222,7 +3044,7 @@ export async function handleApiRequest(
             }
           : transition(params.id, target as WorkItemStatus, actor, {
               manual: true,
-              human: isOperatorPut || undefined,
+              human: humanAuthority || undefined,
               // Agent lane: the target allowlist above is what bounds this
               // caller, so the edge map does not also govern it.
               agent: !isOperatorPut || undefined,
@@ -4378,13 +4200,13 @@ export async function handleApiRequest(
           hint: "the work item was minted before the spawn and is preserved as backlog — the delegation intent is durable, not lost",
         }, 502);
       }
+      // The assignment no-ops when the Todo already carries this assignee, so the link is the only record that a caller delegated at all.
+      const delegationActor = workItemActor(delegationCaller.kind === "session"
+        ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
+        : { kind: "operator" });
       if (requestedWorkItemId && employeeName) {
         try {
-          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, workItemActor(
-            delegationCaller.kind === "session"
-              ? { kind: "session", callerId: delegationCaller.callerId, session: getSession(delegationCaller.callerId)! }
-              : { kind: "operator" },
-          )) ?? workItem;
+          workItem = assignWorkItem(workItem.id, employeeName, delegateEmployee?.department ?? null, delegationActor) ?? workItem;
         } catch (assignmentErr) {
           claim.release();
           return json(res, { error: assignmentErr instanceof Error ? assignmentErr.message : String(assignmentErr) }, 409);
@@ -4445,7 +4267,7 @@ export async function handleApiRequest(
       //    preserved ids (backlog item + idle, undispatched, re-linkable session)
       //    instead of dispatching an untracked turn.
       try {
-        linkSession(workItem.id, session.id);
+        linkSession(workItem.id, session.id, delegationActor);
         claim.bind(session.id);
       } catch (linkErr) {
         claim.release();

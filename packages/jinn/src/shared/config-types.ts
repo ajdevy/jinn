@@ -47,6 +47,9 @@ export interface JinnConfig {
     authDisabled?: boolean;
     /** Explicit escape hatch for unauthenticated 0.0.0.0/LAN/Tailscale binds. */
     insecureAllowUnauthenticatedNetwork?: boolean;
+    /** Nudge sessions this gateway's own restart interrupted to continue on the
+     *  next boot. Default true; false leaves them interrupted for the operator. */
+    resumeInterruptedSessions?: boolean;
     /** Opt-in: when set, POST /api/sessions reads the forwarded SSO identity
      *  from this request header (set by an auth proxy such as oauth2-proxy,
      *  Traefik forward-auth, or IAP) and persists it on the session. Accepts a
@@ -78,16 +81,22 @@ export interface JinnConfig {
        *  cycles are tolerated at runtime by the walker's visited set. Absent = no
        *  fallback, which is also what an explicit [] says. */
       fallback?: EngineName[];
+      /** How this engine's pinned models translate onto whichever engine stands in
+       *  for it, as `<model this engine serves>: <model the substitute serves>`. A
+       *  model id belongs to one provider, so an unmapped pin is dropped and the
+       *  substitute runs on its own default — this is only for keeping the tier a
+       *  turn was sized for, e.g. a cheap model swapping to a cheap one. */
+      fallbackModelMap?: Record<string, string>;
     };
-    codex: { bin: string; model: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
+    codex: { bin: string; model: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] ; fallbackModelMap?: Record<string, string> };
     /** Antigravity (`agy`) engine. `bin` is optional — resolved dynamically
      *  (PATH + common install dirs) when absent. agy ignores model/effort flags
      *  today, so those fields are forward-looking. */
-    antigravity?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
-    grok?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
-    pi?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] };
+    antigravity?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] ; fallbackModelMap?: Record<string, string> };
+    grok?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] ; fallbackModelMap?: Record<string, string> };
+    pi?: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string; fallback?: EngineName[] ; fallbackModelMap?: Record<string, string> };
     /** Hermes (`hermes` CLI) engine. `bin` optional — PATH-resolved. No effort. */
-    hermes?: { bin?: string; model?: string; fallback?: EngineName[] };
+    hermes?: { bin?: string; model?: string; fallback?: EngineName[] ; fallbackModelMap?: Record<string, string> };
   };
   /** Optional model + capability registry. When absent, synthesized from engines.<name>.model. */
   models?: ModelsConfig;

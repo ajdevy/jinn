@@ -146,35 +146,27 @@ export class DiscordConnector implements Connector {
   }
 
   async sendMessage(target: Target, text: string): Promise<string | undefined> {
-    try {
-      const channel = await this.client.channels.fetch(target.channel);
-      if (!channel || !channel.isTextBased()) return;
-      const chunks = formatResponse(text);
-      let lastId: string | undefined;
-      for (const chunk of chunks) {
-        const sent = await (channel as TextChannel | DMChannel | ThreadChannel).send(chunk);
-        lastId = sent.id;
-      }
-      return lastId;
-    } catch (err) {
-      logger.error(`Discord sendMessage error: ${err instanceof Error ? err.message : err}`);
+    const channel = await this.client.channels.fetch(target.channel);
+    if (!channel || !channel.isTextBased()) return undefined;
+    const chunks = formatResponse(text);
+    let lastId: string | undefined;
+    for (const chunk of chunks) {
+      const sent = await (channel as TextChannel | DMChannel | ThreadChannel).send(chunk);
+      lastId = sent.id;
     }
+    return lastId;
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
-    try {
-      const channel = await this.client.channels.fetch(target.thread ?? target.channel);
-      if (!channel || !channel.isTextBased()) return;
-      const chunks = formatResponse(text);
-      let lastId: string | undefined;
-      for (const chunk of chunks) {
-        const sent = await (channel as TextChannel | DMChannel | ThreadChannel).send(chunk);
-        lastId = sent.id;
-      }
-      return lastId;
-    } catch (err) {
-      logger.error(`Discord replyMessage error: ${err instanceof Error ? err.message : err}`);
+    const channel = await this.client.channels.fetch(target.thread ?? target.channel);
+    if (!channel || !channel.isTextBased()) return undefined;
+    const chunks = formatResponse(text);
+    let lastId: string | undefined;
+    for (const chunk of chunks) {
+      const sent = await (channel as TextChannel | DMChannel | ThreadChannel).send(chunk);
+      lastId = sent.id;
     }
+    return lastId;
   }
 
   async editMessage(target: Target, text: string): Promise<void> {

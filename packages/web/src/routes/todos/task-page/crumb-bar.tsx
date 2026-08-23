@@ -7,7 +7,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Slot } from "@/contrib/slot"
 import { AREAS } from "@/contrib/types"
+import { gatewayTransport } from "@/lib/gateway-transport"
 import { todoPath } from "@/lib/todo-id"
+import { copyText as platformCopyText } from "@/platform"
 import { KeepToggle } from "../board/keep-control"
 
 /* Todos v2 slice 6 — the task page's breadcrumb bar (design-doc §7.1, mock
@@ -56,7 +58,7 @@ export function CrumbBar({
   kept?: boolean
   onKeep?: (vars: { id: string; kept: boolean }) => void
 }) {
-  const copyText = (text: string) => void navigator.clipboard?.writeText(text).catch(() => {})
+  const copyText = (text: string) => void platformCopyText(text)
   return (
     <div
       data-testid="task-crumb-bar"
@@ -133,7 +135,7 @@ export function CrumbBar({
           type="button"
           aria-label={`Copy link to ${id}`}
           data-testid="task-copy-link"
-          onClick={() => copyText(`${window.location.origin}${todoPath(id)}`)}
+          onClick={() => copyText(gatewayTransport().httpUrl(todoPath(id)))}
           className="focus-ring grid size-[34px] flex-none place-items-center rounded-[10px] text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
         >
           <LinkIcon size={14} strokeWidth={2} aria-hidden />

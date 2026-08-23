@@ -1,7 +1,8 @@
 import { render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildFileReadRequest } from "@/lib/file-read-request";
+import { createBrowserGatewayTransport, installGatewayTransport } from "@/lib/gateway-transport";
 import FilePage from "../page";
 
 vi.mock("@/routes/providers", () => ({
@@ -16,6 +17,8 @@ vi.mock("@/components/markdown-view", () => ({
 }));
 
 const fetchMock = vi.fn<typeof fetch>();
+const GATEWAY_ORIGIN = "https://qa-a.example:7779";
+let restoreTransport: (() => void) | null = null;
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -31,6 +34,17 @@ beforeEach(() => {
     }),
   } as Response);
   vi.stubGlobal("fetch", fetchMock);
+  restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+    origin: GATEWAY_ORIGIN,
+    request: (input, init) => fetch(input, init),
+    navigate: vi.fn(),
+  }));
+});
+
+afterEach(() => {
+  restoreTransport?.();
+  restoreTransport = null;
+  vi.unstubAllGlobals();
 });
 
 describe("standalone /file route", () => {
@@ -50,7 +64,10 @@ describe("standalone /file route", () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expectedUrl));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `${GATEWAY_ORIGIN}${expectedUrl}`,
+      expect.objectContaining({ credentials: "include" }),
+    ));
   });
 
   it("does not decode a double-encoded separator into a path root", async () => {

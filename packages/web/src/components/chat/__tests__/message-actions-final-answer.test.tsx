@@ -22,12 +22,16 @@ const MULTI_PROSE_TURN: Message[] = [
   { id: 'a2', role: 'assistant', content: 'Shipped. Here is the summary.', timestamp: T0 + 2_000 },
 ]
 
-function renderTranscript(messages: Message[], props: { loading?: boolean; streamingText?: string } = {}) {
-  return render(
+function transcript(messages: Message[], props: { loading?: boolean; streamingText?: string } = {}) {
+  return (
     <MemoryRouter>
       <ChatMessages messages={messages} loading={props.loading ?? false} streamingText={props.streamingText} />
-    </MemoryRouter>,
+    </MemoryRouter>
   )
+}
+
+function renderTranscript(messages: Message[], props: { loading?: boolean; streamingText?: string } = {}) {
+  return render(transcript(messages, props))
 }
 
 describe('assistant action row placement', () => {
@@ -64,6 +68,60 @@ describe('assistant action row placement', () => {
     fireEvent.click(screen.getByLabelText('Copy message'))
 
     expect(writeText).toHaveBeenCalledWith('Shipped. Here is the summary.')
+  })
+
+  it('leaves a turn that is still running without any action row at all', () => {
+    // Mid-work the newest prose looks like the answer, and used to grow an
+    // action row for as long as it held that title — then the next interim row
+    // took the title and did it again. A running turn has no answer yet.
+    const { container } = renderTranscript(MULTI_PROSE_TURN, { loading: true, streamingText: 'Ship' })
+
+    expect(container.querySelectorAll('[data-message-id] .msg-actions')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-message-id] [data-message-actions-reserve]')).toHaveLength(0)
+    // The streaming row keeps its band: mid-stream it IS the presumptive
+    // answer, and the stream→final swap must not move its first line.
+    expect(container.querySelector('[data-streaming] [data-message-actions-reserve]')).not.toBeNull()
+  })
+
+  it('hands the row that closes the turn its actions once the turn finishes', () => {
+    const { container, rerender } = renderTranscript(MULTI_PROSE_TURN, { loading: true, streamingText: 'Ship' })
+
+    rerender(transcript(MULTI_PROSE_TURN))
+
+    const actions = container.querySelectorAll('.msg-actions')
+    expect(actions).toHaveLength(1)
+    expect(actions[0].closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('a2')
+  })
+
+  it('leaves an interrupted turn without an action row, half-written row and all', () => {
+    // The stream stopped mid-row. `partial` rows are not answers, so the last
+    // whole row looks like one — but the turn never closed, and offering copy
+    // and retry on prose with a severed stream under it is offering the wrong
+    // thing.
+    const { container } = renderTranscript([
+      { id: 'pi-u1', role: 'user', content: 'Ship it.', timestamp: T0 },
+      { id: 'pi-a1', role: 'assistant', content: 'Looking into it.', timestamp: T0 + 1_000 },
+      { id: 'pi-a2', role: 'assistant', content: 'Half-finished stream', timestamp: T0 + 2_000, partial: true },
+    ])
+
+    expect(container.textContent).toContain('Half-finished stream')
+    expect(container.querySelectorAll('[data-message-id] .msg-actions')).toHaveLength(0)
+  })
+
+  it('keeps actions on a finished turn that only holds its partial row as evidence', () => {
+    // A restored transcript can retain a half-written row from BEFORE the model
+    // recovered and answered. That row is spent evidence, not a severed stream:
+    // the turn did close, and the block that closed it still owns the actions.
+    const { container } = renderTranscript([
+      { id: 'ev-u1', role: 'user', content: 'Ship it.', timestamp: T0 },
+      { id: 'ev-a1', role: 'assistant', content: 'Half-written attempt', timestamp: T0 + 1_000, partial: true },
+      { id: 'ev-a2', role: 'assistant', content: 'Shipped. Here is the summary.', timestamp: T0 + 2_000 },
+    ])
+
+    const actions = container.querySelectorAll('.msg-actions')
+    expect(actions).toHaveLength(1)
+    expect(actions[0].closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('ev-a2')
+    expect(container.querySelector('[data-message-id="ev-a1"] .msg-actions')).toBeNull()
   })
 
   it('keeps the reserved band on the streaming row, which is the presumptive answer', () => {

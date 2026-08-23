@@ -1,10 +1,27 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AttachmentRefText, AttachmentRefs, attachmentRefsOf } from "../attachment-ref-preview"
 import { parseAttachmentRef, type AttachmentRef } from "@/lib/attachment-ref"
+import { createBrowserGatewayTransport, installGatewayTransport } from "@/lib/gateway-transport"
 
 const IMAGE = "attachment:PLA-135:wia_ab12cd34ef56:image/png"
 const PDF = "attachment:PLA-135:wia_00112233aabb:application/pdf"
+const ACTIVE_ORIGIN = "https://qa-a.example:7779"
+
+let restoreTransport: (() => void) | null = null
+
+beforeEach(() => {
+  restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+    origin: ACTIVE_ORIGIN,
+    request: vi.fn(),
+    navigate: vi.fn(),
+  }))
+})
+
+afterEach(() => {
+  restoreTransport?.()
+  restoreTransport = null
+})
 
 function ref(value: string): AttachmentRef {
   return parseAttachmentRef(value)!
@@ -30,13 +47,13 @@ describe("AttachmentRefs", () => {
     render(<AttachmentRefs refs={[ref(IMAGE)]} />)
     const thumb = screen.getByTestId("attachment-ref-thumb-wia_ab12cd34ef56")
     expect(thumb.querySelector("img")?.getAttribute("src"))
-      .toBe("/api/work-items/PLA-135/attachments/wia_ab12cd34ef56?thumb=1")
+      .toBe(`${ACTIVE_ORIGIN}/api/work-items/PLA-135/attachments/wia_ab12cd34ef56?thumb=1`)
   })
 
   it("renders a non-image ref as a named file row, never an image", () => {
     render(<AttachmentRefs refs={[ref(PDF)]} />)
     const row = screen.getByTestId("attachment-ref-file-wia_00112233aabb")
-    expect(row.getAttribute("href")).toBe("/api/work-items/PLA-135/attachments/wia_00112233aabb")
+    expect(row.getAttribute("href")).toBe(`${ACTIVE_ORIGIN}/api/work-items/PLA-135/attachments/wia_00112233aabb`)
     expect(row.querySelector("img")).toBeNull()
     expect(row.textContent).toContain("PDF")
     expect(screen.queryByTestId("attachment-ref-thumb-wia_00112233aabb")).toBeNull()
@@ -56,7 +73,7 @@ describe("AttachmentRefs", () => {
 
     const lightbox = screen.getByTestId("attachment-lightbox")
     expect(lightbox.querySelector("img")?.getAttribute("src"))
-      .toBe("/api/work-items/PLA-135/attachments/wia_ab12cd34ef56")
+      .toBe(`${ACTIVE_ORIGIN}/api/work-items/PLA-135/attachments/wia_ab12cd34ef56`)
   })
 })
 

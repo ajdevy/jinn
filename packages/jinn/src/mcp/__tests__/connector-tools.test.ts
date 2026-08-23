@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTools } from "../server.js";
-import type { JinnMcpContext } from "../toolkit.js";
+import { JinnMcpToolError, type JinnMcpContext } from "../toolkit.js";
 
 function tool(name: string) {
   const found = buildTools().find((candidate) => candidate.name === name);
@@ -39,6 +39,21 @@ describe("connector MCP tools", () => {
       thread: "171.2",
     });
     expect(out).toEqual({ status: "sent", connector: "slack", channel: "C123" });
+  });
+
+  it("surfaces a failed gateway send as an error instead of reporting it sent", async () => {
+    const fetchFn = (async () => ({
+      status: 500,
+      text: async () => JSON.stringify({ error: "slack_api_error: channel_not_found" }),
+    } as Response)) as typeof fetch;
+
+    const attempt = tool("send_connector_message").handler(
+      { connector: "slack", channel: "C123", text: "Ready for review" },
+      boundCtx(fetchFn),
+    );
+
+    await expect(attempt).rejects.toBeInstanceOf(JinnMcpToolError);
+    await expect(attempt).rejects.toThrow(/connector message failed \(HTTP 500\): slack_api_error: channel_not_found/);
   });
 
   it("refuses connector sends without a bound caller identity", async () => {

@@ -263,6 +263,28 @@ describe("the windowed Todo list", () => {
     )
   })
 
+  // The container's top padding is declared to the virtualizer as `scrollMargin`,
+  // which pushes every row's `start` down by that much. Rows take it back off
+  // when they position, so a padded list has to paint where an unpadded one does
+  // — one row lower would be the whole list sitting under its own header.
+  it("paints a row in the same place once the top padding is declared", async () => {
+    const PADDING = 20
+    layout!.release()
+    layout = installVirtualLayout(ROW_H, VIEWPORT_H, TARGETS, () => PADDING)
+
+    renderTodos("/todos/b/platform")
+    await screen.findByTestId("todo-list-row-PLA-0")
+    const scrollTop = 6000
+    layout!.scrollTo(scrollTop)
+    await waitFor(() => expect(screen.queryByTestId("todo-list-row-PLA-0")).toBeNull())
+
+    // Measured from the scrollport's top edge, so the padding counts once — and
+    // exactly once. Declaring the margin without subtracting it in the transform
+    // lands this a further PADDING px down.
+    const row = layout!.mountedRowIds()[0]
+    expect(layout!.offsetOf(row)).toBe(PADDING - scrollTop + modelIndexOf(row) * ROW_H)
+  })
+
   it("narrows to one status and keeps windowing that group", async () => {
     rows.backlog = SHORT_BACKLOG
     renderTodos("/todos/b/platform?status=backlog")

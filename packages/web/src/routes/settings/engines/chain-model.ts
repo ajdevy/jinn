@@ -6,6 +6,9 @@ export interface EngineSettings {
   model?: string
   effortLevel?: string
   fallback?: string[]
+  /** `<model this engine serves>: <model the stand-in serves>`, applied when a
+   *  turn falls through the chain. Edited in config.yaml, read-only here. */
+  fallbackModelMap?: Record<string, string>
 }
 
 /** The `engines` block. `default` names an engine; every other key is one. */
@@ -31,6 +34,14 @@ export function engineLabel(name: string): string {
 export function chainFor(engines: EnginesConfig | undefined, engine: string): string[] {
   const entry = engines?.[engine]
   return (typeof entry === "object" ? entry.fallback : undefined) ?? []
+}
+
+/** The model translations configured for one engine, as `[from, to]` pairs in
+ *  the order config.yaml states them. An engine with no map has none. */
+export function modelMapFor(engines: EnginesConfig | undefined, engine: string): [string, string][] {
+  const entry = engines?.[engine]
+  const map = typeof entry === "object" ? entry.fallbackModelMap : undefined
+  return Object.entries(map ?? {})
 }
 
 /** Engines the add control may offer: never the card's own engine, never one

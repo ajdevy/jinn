@@ -17,6 +17,9 @@ function openChatBeside() {
   fireEvent.click(within(actionsPill).getByRole('button', { name: 'More options' }))
   fireEvent.click(within(actionsPill).getByRole('button', { name: 'Open beside' }))
 }
+function seedWorkingSet(ids = sessionIds) {
+  localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({ version: 1, sessionIds: ids, focusedId: ids[0], focusHistory: ids }))
+}
 
 describe('the routed multi-pane surface', () => {
   const desktopWidth = 1440
@@ -30,19 +33,12 @@ describe('the routed multi-pane surface', () => {
     gateway.listeners.clear()
     apiMocks.sendMessage.mockClear()
     apiMocks.createSession.mockClear()
-    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
-      version: 1,
-      sessionIds,
-      focusedId: 'a',
-      focusHistory: sessionIds,
-    }))
+    seedWorkingSet()
   })
-
   afterEach(() => {
     pickerLayout?.release()
     pickerLayout = null
   })
-
   const installPickerLayout = () => {
     pickerLayout = installVirtualLayout(44, 360, {
       scroller: '[data-testid="session-picker-scroll"]',
@@ -198,19 +194,21 @@ describe('the routed multi-pane surface', () => {
   })
 
   it('uses one capped pane for the composer and restores the folded member on dismiss and commit', async () => {
+    sessionIds.splice(0, sessionIds.length, 'a', 'b', 'c', 'd', 'f', 'g')
+    seedWorkingSet()
     renderRoute()
-    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6))
 
     fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
 
     await waitFor(() => expect(pane('new')).toBeDefined())
-    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6)
     expect(document.querySelector('[data-chat-pane-session="b"]')).toBeNull()
     expect(JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}').sessionIds).toEqual(sessionIds)
 
     fireEvent.click(screen.getByRole('button', { name: 'Test browser back' }))
     await waitFor(() => expect(pane('a')).toBeDefined())
-    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6))
     expect(pane('b')).toBeDefined()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
@@ -222,7 +220,7 @@ describe('the routed multi-pane surface', () => {
 
     await waitFor(() => expect(apiMocks.createSession).toHaveBeenCalled())
     await waitFor(() => expect(pane('e').textContent).toContain('commit-composer'))
-    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4)
+    expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(6)
     expect(pane('b')).toBeDefined()
   })
 
@@ -252,11 +250,10 @@ describe('the routed multi-pane surface', () => {
       focusHistory: ['a', 'b'],
     }))
     renderRoute()
-
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
     expect(pane('a').textContent).toContain('transcript-a')
     const chipOrder = () => Array.from(document.querySelectorAll('[data-mobile-working-set-chip]')).map((node) => node.getAttribute('data-mobile-working-set-chip'))
-    expect(chipOrder()).toEqual(sessionIds)
+    await waitFor(() => expect(chipOrder()).toEqual(sessionIds))
 
     fireEvent.click(await screen.findByRole('button', { name: /Title d/ }))
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(1))
@@ -271,6 +268,7 @@ describe('the routed multi-pane surface', () => {
     renderRoute()
 
     await waitFor(() => expect(pane('a').textContent).toContain('transcript-a'))
+    await waitFor(() => expect(document.querySelectorAll('[data-mobile-working-set-chip]')).toHaveLength(sessionIds.length))
     const activeBefore = pane('a').textContent
     const chipsBefore = sessionIds.map((id) => document.querySelector(`[data-mobile-working-set-chip="${id}"]`))
 

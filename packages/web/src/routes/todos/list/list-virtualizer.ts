@@ -13,11 +13,15 @@ import type { TodoListGroup } from "./group-items"
  * as a 20-Todo one; virtualising per section would still mount every row inside
  * the section the reader is in.
  *
- * The container's top padding is deliberately NOT declared as `scrollMargin`:
- * it shifts the visible range by 20px, which the overscan band covers many times
- * over, and nothing here converts between the virtualizer's offsets and the
- * page's own coordinates. (The transcript's virtualizer skips it for the same
- * reason and does have that conversion.)
+ * The gap above the virtual block — the container's top padding — is declared as
+ * `scrollMargin`. Not for the visible range, which the overscan band covers many
+ * times over, but for the test the virtualizer applies when a row re-measures:
+ * it asks whether the row sits above the reader by comparing the row's own
+ * `start`, which counts from the top of the block, against the scroller's raw
+ * `scrollTop`. Undeclared, those are two coordinate systems off by exactly that
+ * gap, and every row in the top of the viewport reads as one above the reader
+ * and takes a scroll correction the reader watches happen. Rows are positioned
+ * at `start - scrollMargin`, so declaring it moves nothing.
  */
 
 /** Below this many Todos the list renders every row of it, as it always has. */
@@ -80,6 +84,8 @@ export function useTodoListVirtualizer(
   rows: TodoListVirtualRow[],
   keys: string[],
   getScrollElement: () => HTMLDivElement | null,
+  /** How far the virtual block starts below the scrollport's top. */
+  scrollMargin: number,
 ): TodoListVirtualizer {
   // Read through a ref: the key extractor's identity invalidates the whole
   // measurement pass, and a fresh closure per render would rebuild it every time
@@ -92,5 +98,6 @@ export function useTodoListVirtualizer(
     estimateSize: (index) => estimateTodoListRowSize(rows[index]),
     getItemKey: useCallback((index: number) => keysRef.current[index], []),
     overscan: OVERSCAN,
+    scrollMargin,
   })
 }

@@ -8,11 +8,6 @@
  * by a test instead of imported.
  */
 
-/** Whether a tool sits in every voice session's tool list, or is loaded once the
- *  conversation reaches its domain. The split is exported as data from
- *  `exposure.ts` so the transport consumes it rather than re-deriving it. */
-export type ToolExposure = "always" | "on-intent"
-
 export type ToolPropertyType = "string" | "number" | "integer" | "boolean"
 
 export interface ToolProperty {
@@ -42,7 +37,6 @@ export interface TalkTool {
   name: string
   description: string
   parameters: ToolParameters
-  exposure: ToolExposure
   /** Navigation tools must issue the route change before their first `await`,
    *  so the transport can act on partial intent instead of a finished sentence. */
   execute(args: ToolArgs): ToolResult | Promise<ToolResult>

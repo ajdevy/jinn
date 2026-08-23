@@ -27,7 +27,6 @@ export const NOTHING_SUPERSEDED: SupersededBy = new Map();
 export function stillWhereTheEventLeftIt(event: WorkflowTodoStatusEvent): boolean {
   return event.item.live?.status === event.toStatus;
 }
-
 /** Record WHY a candidate did not run. A Todo event that a filter refused, or
  *  that a newer event superseded, otherwise completes silently, which is
  *  indistinguishable from a broken trigger. A `label` refusal is provisional:
@@ -102,4 +101,3 @@ export function suppressAll(feed: WorkflowTodoEventFeed, event: WorkflowTodoStat
   feed.completeEvent(event.id, outcomes);
   return 0;
 }
-

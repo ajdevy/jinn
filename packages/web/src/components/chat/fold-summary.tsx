@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import { ChevronDown, Settings } from 'lucide-react'
+import { FOLD_MS } from './fold-motion'
 
 /**
  * The fold's ledger line — "Worked for 7m · 6 tools · 3 teammates" — and the
@@ -42,14 +43,12 @@ interface FoldSummaryLineProps {
   summary: FoldSummaryData
   /** The work is hidden — or on its way to being hidden. */
   closed: boolean
-  /** The region has come to rest folded, and the gear ticks round. */
-  landed: boolean
   /** The line is arriving rather than already there, and rises in. */
   arriving: boolean
   onToggle: () => void
 }
 
-export function FoldSummaryLine({ summary, closed, landed, arriving, onToggle }: FoldSummaryLineProps) {
+export function FoldSummaryLine({ summary, closed, arriving, onToggle }: FoldSummaryLineProps) {
   const words = foldSummaryWords(summary)
   return (
     <Fragment>
@@ -70,12 +69,7 @@ export function FoldSummaryLine({ summary, closed, landed, arriving, onToggle }:
           onClick={onToggle}
           className="-ml-1.5 flex min-h-8 w-full cursor-pointer items-center gap-[var(--space-2)] rounded-[8px] border-none bg-transparent py-[3px] pl-1.5 pr-2 text-left font-[inherit] text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-tertiary)] transition-colors duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)]"
         >
-          <Settings
-            size={13}
-            strokeWidth={2}
-            aria-hidden="true"
-            className={`shrink-0 text-[var(--text-quaternary)] transition-transform duration-[420ms] ease-[var(--ease-smooth)] ${landed ? 'rotate-90' : 'rotate-0'}`}
-          />
+          <Settings size={13} strokeWidth={2} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
           <span className="flex min-w-0 items-center gap-[7px]">
             {words.map((word, index) => (
               <Fragment key={index}>
@@ -86,11 +80,15 @@ export function FoldSummaryLine({ summary, closed, landed, arriving, onToggle }:
               </Fragment>
             ))}
           </span>
+          {/* The one moving part of the control, and it runs the region's own
+              timeline — same duration, same curve, so the chevron lands with
+              the work rather than before or after it. */}
           <ChevronDown
             size={12}
             strokeWidth={2.5}
             aria-hidden="true"
-            className={`ml-0.5 shrink-0 text-[var(--text-quaternary)] transition-transform duration-200 ease-[var(--ease-smooth)] ${closed ? 'rotate-0' : 'rotate-180'}`}
+            style={{ transitionDuration: `${FOLD_MS}ms` }}
+            className={`ml-0.5 shrink-0 text-[var(--text-quaternary)] transition-transform ease-[var(--ease-smooth)] ${closed ? 'rotate-0' : 'rotate-180'}`}
           />
         </button>
       </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { parseMedia, stripAttachedFilesBlock, type MediaAttachment, type Message } from '@/lib/conversations'
+import { copyText } from '@/platform'
 import { MessageMedia } from './message-media'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useMessageTts, stopMessageTts } from './use-message-tts'
@@ -11,6 +12,7 @@ import { parseAgentRelay, AgentRelay } from './agent-relay'
 import { DispatchRow } from './dispatch-row'
 import { BURST_WINDOW_MS, CallbackBurst, type BurstEntry } from './callback-burst'
 import { FoldRegion } from './fold-region'
+import { openTurnIds, turnIdByIndex } from './turn-ids'
 import type { FoldSummaryData } from './fold-summary'
 import type { CommsPeekData } from './thread-peek'
 import { TodoActivityBurst } from './todo-activity-burst'
@@ -32,12 +34,14 @@ import {
   VIRTUALIZE_THRESHOLD,
   type VirtualAnchor,
 } from './transcript-virtualizer'
+import { OlderPageRow } from './older-page-row'
+import { useVirtualBlockOffset } from './virtual-block-offset'
 import { captureVisibleAnchor, OLDER_LOAD_THRESHOLD_PX, type ScrollAnchor } from '@/lib/scroll-anchor'
 import { formatTimestamp, shouldShowTimestamp, TimestampDivider, validTimestamp } from './message-timestamps'
 
 export { formatMessage, isFilePath, parseFenceLang } from './message-markdown'
 export { TimestampDivider } from './message-timestamps'
-export { shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
+export { collapseState, shouldCollapse, USER_COLLAPSE_PX, USER_COLLAPSE_SLACK } from './collapsible-user-text'
 export { toolGlyphForName } from './tool-group'
 export { turnSpacerClass } from './turn-spacer'
 
@@ -472,7 +476,7 @@ export function buildFoldSummary(run: MessageItem[], messages: Message[], answer
 
 export type RenderGroup =
   | { kind: 'plain'; item: MessageItem }
-  | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number; animated: boolean }
+  | { kind: 'fold'; id: string; items: MessageItem[]; answered: boolean; liveCompletion: boolean; collapseRequested: boolean; summary: FoldSummaryData; answerIdx: number }
 
 /** A later ask exists, so this answered region is a candidate to file itself
  *  away. Whether it actually may is geometry the region owns — see
@@ -489,13 +493,7 @@ export function partitionForFold(
   liveTerminalDelegationIds: ReadonlySet<string>,
 ): RenderGroup[] {
   const answerIdx = finalAnswerIndices(messages)
-
-  const turnIdFor = (rawIndex: number): string => {
-    for (let j = rawIndex; j >= 0; j--) {
-      if (messages[j].role === 'user') return messages[j].id || `t${j}`
-    }
-    return 'head'
-  }
+  const turnIds = turnIdByIndex(messages)
 
   // A fold wraps the work leading up to each visible answer: tool calls,
   // interim prose, the triggering callbacks/relays, delegation and dispatch
@@ -510,7 +508,7 @@ export function partitionForFold(
     if (item.kind === 'message' && isSystemBanner(item.msg)) return false
     if (itemHasAssistantMedia(item)) return false
     if (itemHasActiveDelegation(item)) return false
-    if (incompleteTurnIds.has(turnIdFor(itemFirstRawIndex(item)))) return false
+    if (incompleteTurnIds.has(turnIds[itemFirstRawIndex(item)])) return false
     const answer = answerIdx[itemFirstRawIndex(item)]
     // No true final answer means no fold DOM at all: active evidence renders in
     // the ordinary stream until completion creates the completed-turn region.
@@ -569,20 +567,16 @@ export function partitionForFold(
       collapseRequested: hasLaterAsk(messages, answer),
       summary: buildFoldSummary(run, messages, answer),
       answerIdx: answer,
-      animated: true,
     })
   }
   // When an exempt row splits one turn into several regions they all answer at
-  // the same instant — per-region scroll anchoring would double-compensate the
-  // shared scroller. Only the region nearest the answer owns the settled
-  // duration and plays the anchored choreography; earlier siblings fold with
-  // the instant path.
+  // the same instant, so only the region nearest the answer states the settled
+  // duration; the earlier siblings drop it rather than repeat it.
   const seenAnswers = new Set<number>()
   for (let g = groups.length - 1; g >= 0; g--) {
     const group = groups[g]
     if (group.kind !== 'fold' || group.answerIdx === -1) continue
     if (seenAnswers.has(group.answerIdx)) {
-      group.animated = false
       group.summary = { ...group.summary, durationMs: null }
     }
     seenAnswers.add(group.answerIdx)
@@ -625,14 +619,13 @@ function MessageActions({ id, text, onRetry, retryDisabled }: { id: string; text
   const tts = useMessageTts(id, text)
   const speaking = tts.phase === 'playing'
   const loading = tts.phase === 'loading'
-
   function handleCopy() {
     if (!text) return
-    navigator.clipboard.writeText(text)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400) })
-      .catch(() => {})
+    void copyText(text).then((result) => {
+      if (result.status !== 'performed') return
+      setCopied(true); setTimeout(() => setCopied(false), 1400)
+    })
   }
-
   return (
     <div className={MESSAGE_ACTIONS_ROW}>
       <button onClick={handleCopy} aria-label={copied ? 'Copied' : 'Copy message'} title={copied ? 'Copied' : 'Copy'} className={ACTION_BTN}>
@@ -691,19 +684,23 @@ export interface RowMeta {
   prevRole: Message['role'] | null
   /** The user message a retry on this row would resend. */
   prevUserText: string
-  /** This row closes its engine segment: it is the answer the reader acts on. */
+  /** This row closes its engine segment of a FINISHED turn: it is the answer
+   *  the reader acts on. A turn still running — or interrupted with a half
+   *  written row in it — has no such row; its newest prose is still interim. */
   isFinalAnswer: boolean
 }
 
-export function buildRowMeta(messages: Message[]): RowMeta[] {
+export function buildRowMeta(messages: Message[], pendingTurnId: string | null): RowMeta[] {
   const answers = finalAnswerIndices(messages)
+  const turnIds = turnIdByIndex(messages)
+  const openTurns = openTurnIds(messages, turnIds, answers)
   let lastUserText = ''
   return messages.map((msg, i) => {
     const meta: RowMeta = {
       showTimestamp: shouldShowTimestamp(messages, i),
       prevRole: i > 0 ? messages[i - 1].role : null,
       prevUserText: lastUserText,
-      isFinalAnswer: answers[i] === i,
+      isFinalAnswer: answers[i] === i && turnIds[i] !== pendingTurnId && !openTurns.has(turnIds[i]),
     }
     if (msg.role === 'user' && msg.content.trim()) lastUserText = msg.content
     return meta
@@ -856,9 +853,10 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, showTimestamp
           {/* Media attachments */}
           {media.length > 0 && <MessageMedia media={media} isUser={false} />}
 
-          {/* Copy / read aloud / retry, once per turn: the answer the reader acts
-              on carries it, and the interim prose the fold puts away reserves no
-              band for one it never shows. */}
+          {/* Copy / read aloud / retry, once per COMPLETED turn: the answer the
+              reader acts on carries it, and the interim prose the fold puts
+              away reserves no band for one it never shows. A turn still
+              running has no answer yet, so none of its rows carries it. */}
           {textContent && isFinalAnswer && (
             <MessageActions
               id={msg.id || `idx-${i}`}
@@ -990,9 +988,10 @@ export function ChatMessages({
   const currentTurnId = latestTurnId(messages)
   const liveFinalPresent = effectiveLiveFinalResponseId === null
     || messages.some((message) => message.id === effectiveLiveFinalResponseId)
-  const incompleteTurnIds = (turnPending || !liveFinalPresent) && currentTurnId
-    ? new Set([currentTurnId])
-    : new Set<string>()
+  // The row facts key off the id, not the set: a fresh Set per render would
+  // rebuild them on every streamed token — the whole transcript, per token.
+  const pendingTurnId = turnPending || !liveFinalPresent ? currentTurnId : null
+  const incompleteTurnIds = pendingTurnId ? new Set([pendingTurnId]) : new Set<string>()
 
   // Memoize grouped messages to avoid re-running on streaming-only re-renders
   const groupedMessages = useMemo(() => groupMessages(messages), [messages])
@@ -1012,12 +1011,13 @@ export function ChatMessages({
   const virtualized = !footer && groupedMessages.length >= VIRTUALIZE_THRESHOLD
   const virtualizedRef = useRef(virtualized)
   virtualizedRef.current = virtualized
-  const virtualizer = useTranscriptVirtualizer(
-    renderGroups,
-    groupKeys,
-    virtualized,
-    useCallback(() => scrollContainerRef.current, []),
-  )
+  // The block's offset goes back in as `scrollMargin`: it is the only way the
+  // virtualizer's row offsets and the scroller's own `scrollTop` describe the
+  // same place, and a re-measured row is classified by comparing the two.
+  const getScrollElement = useCallback(() => scrollContainerRef.current, [])
+  const virtualBlockRef = useRef<HTMLDivElement>(null)
+  const virtualBlockOffset = useVirtualBlockOffset(virtualBlockRef, getScrollElement)
+  const virtualizer = useTranscriptVirtualizer(renderGroups, groupKeys, virtualized, getScrollElement, virtualBlockOffset)
   const expansionStore = useTranscriptExpansionStore()
 
   // The true bottom of a virtualised thread is only known once the last row has
@@ -1130,7 +1130,7 @@ export function ChatMessages({
   // Row-position facts, resolved once per commit instead of inside every row. A
   // memoised row that reads the whole message array re-renders on every append,
   // which on a long transcript is the whole transcript per message.
-  const rowMeta = useMemo(() => buildRowMeta(messages), [messages])
+  const rowMeta = useMemo(() => buildRowMeta(messages, pendingTurnId), [messages, pendingTurnId])
 
   // ONE renderer, used by both paths, so the windowed and plain transcripts
   // cannot drift apart.
@@ -1211,7 +1211,6 @@ export function ChatMessages({
         liveCompletion={group.liveCompletion}
         collapseRequested={group.collapseRequested}
         summary={group.summary}
-        animated={group.animated}
         windowed={virtualized}
       >
         {group.items.map(renderItem)}
@@ -1229,18 +1228,9 @@ export function ChatMessages({
       {messages.length === 0 && !loading && !hydrating && <TranscriptEmptyState>{emptyState}</TranscriptEmptyState>}
       <div ref={setScrollContainerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll h-full overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
         <div className={`mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] lg:pt-[88px] ${footer ? 'flex min-h-full flex-col justify-end pb-0' : 'pb-[var(--space-6)]'}`}>
-          {loadingOlderMessages && (
-            <div role="status" aria-label="Loading older messages" className="flex h-8 items-center justify-center">
-              <span className="size-3 rounded-full bg-[var(--fill-tertiary)] animate-[jinn-pulse_1.4s_infinite]" />
-            </div>
-          )}
-          {olderMessagesError && hasOlderMessages && (
-            <div className="flex h-8 items-center justify-center text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-              Older messages could not load
-            </div>
-          )}
+          {hasOlderMessages && <OlderPageRow loading={loadingOlderMessages} error={olderMessagesError} />}
           {virtualized ? (
-            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            <div ref={virtualBlockRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
               {virtualizer.getVirtualItems().map((row) => (
                 // `data-index` is what the virtualizer measures by, so the row's
                 // own `data-message-id` stays where scroll-anchor.ts looks for it.
@@ -1248,7 +1238,9 @@ export function ChatMessages({
                   key={row.key}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start}px)` }}
+                  // `row.start` counts from the scrollport's top now that
+                  // `scrollMargin` is declared, and the block is already there.
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${row.start - virtualBlockOffset}px)` }}
                 >
                   {renderGroup(renderGroups[row.index])}
                 </div>

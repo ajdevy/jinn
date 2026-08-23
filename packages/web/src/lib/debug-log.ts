@@ -2,6 +2,8 @@
 // `dlog()` calls and dumped via the "Share debug log" button in the mobile more
 // menu. Cap is small so a long session doesn't hog memory.
 
+import { copyText, getPlatform, share } from "@/platform";
+
 const MAX = 500;
 
 interface Entry {
@@ -35,23 +37,16 @@ export function clearDebugLog(): void {
 /** Share or copy the accumulated log. iOS Safari → native Share sheet; other → clipboard. */
 export async function shareDebugLog(): Promise<void> {
   const text = getDebugLog();
-  const ua = `\n\n--- UA: ${navigator.userAgent}\nViewport: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`;
+  const ua = `\n\n--- UA: ${getPlatform().runtime.userAgent}\nViewport: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`;
   const payload = text + ua;
-  // Prefer native share on supported browsers (mobile Safari, Android Chrome).
-  // share() may reject on non-secure-context or user-cancel; fall back to clipboard.
-  try {
-    if (typeof navigator.share === "function") {
-      await navigator.share({ title: "Jinn debug log", text: payload });
-      return;
-    }
-  } catch {
-    // user cancelled or share failed — fall through to clipboard
-  }
-  try {
-    await navigator.clipboard.writeText(payload);
+  const shared = await share({ title: "Jinn debug log", text: payload });
+  if (shared.status === "performed" || shared.status === "cancelled") return;
+
+  const copied = await copyText(payload);
+  if (copied.status === "performed") {
     alert(`Debug log copied to clipboard (${buf.length} entries)`);
-  } catch {
-    // Last resort: dump into a textarea and tell the user to copy manually
-    prompt("Copy this log:", payload.slice(0, 4000));
+    return;
   }
+  // Last resort: dump into a textarea and tell the user to copy manually.
+  prompt("Copy this log:", payload.slice(0, 4000));
 }

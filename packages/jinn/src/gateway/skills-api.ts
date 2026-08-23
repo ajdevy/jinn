@@ -57,11 +57,12 @@ function parseSkillDescription(content: string): string {
   return description;
 }
 
-// GET /api/skills
-function listSkills(res: ServerResponse): void {
-  if (!fs.existsSync(SKILLS_DIR)) return json(res, []);
+/** Every installed skill with its description. Shared with global search, which
+ *  needs the values rather than a written response. */
+export function listSkills(): { name: string; description: string }[] {
+  if (!fs.existsSync(SKILLS_DIR)) return [];
   const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
-  const skills = entries.filter((e) => e.isDirectory()).map((e) => {
+  return entries.filter((e) => e.isDirectory()).map((e) => {
     const skillMdPath = path.join(SKILLS_DIR, e.name, "SKILL.md");
     const st = fs.statSync(skillMdPath, { throwIfNoEntry: false });
     if (!st) {
@@ -74,7 +75,6 @@ function listSkills(res: ServerResponse): void {
     skillDescriptionCache.set(e.name, { mtimeMs: st.mtimeMs, description });
     return { name: e.name, description };
   });
-  return json(res, skills);
 }
 
 // GET /api/skills/:name
@@ -103,9 +103,9 @@ async function updateSkill(req: HttpRequest, res: ServerResponse, name: string):
 async function deleteSkill(res: ServerResponse, name: string): Promise<void> {
   const skillDir = path.join(SKILLS_DIR, name);
   if (!fs.existsSync(skillDir)) return notFound(res);
-  fs.rmSync(skillDir, { recursive: true, force: true });
   const { removeFromManifest } = await import("../cli/skills.js");
   removeFromManifest(name);
+  fs.rmSync(skillDir, { recursive: true, force: true });
   logger.info(`Skill removed via API: ${name}`);
   return json(res, { status: "removed", name });
 }
@@ -119,7 +119,7 @@ export async function handleSkillsApi(
 ): Promise<boolean> {
   const { method, pathname } = route;
   if (method === "GET" && pathname === "/api/skills") {
-    listSkills(res);
+    json(res, listSkills());
     return true;
   }
   const params = matchRoute("/api/skills/:name", pathname);

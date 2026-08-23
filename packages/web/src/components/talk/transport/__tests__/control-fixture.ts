@@ -12,7 +12,6 @@ export function browserControlFixture(): TalkControlManifest {
         required: [...(tool.parameters.required ?? [])],
       } as TalkControlManifest["operations"][number]["parameters"],
       target: "browser",
-      exposure: "always",
       intent: "test",
       mutability: "effect",
       operatorOnly: false,

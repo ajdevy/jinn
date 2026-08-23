@@ -17,7 +17,6 @@ import { writeFailed } from "./write-lane"
 const startWorkflowRun: TalkTool = {
   name: "talk_start_workflow_run",
   description: "Start a run of a workflow. Asks first: a run spends money and wakes agents as soon as it begins.",
-  exposure: "on-intent",
   parameters: params({ id: str("The workflow id.") }, ["id"]),
   execute: (args: ToolArgs): Promise<ToolResult> => {
     const id = String(args.id)
@@ -38,7 +37,6 @@ const startWorkflowRun: TalkTool = {
 const recordReading: TalkTool = {
   name: "talk_record_reading",
   description: "Record a measurement on an experiment. Asks first: readings cannot be edited or deleted.",
-  exposure: "on-intent",
   parameters: params(
     {
       id: str("The experiment id."),
@@ -75,7 +73,6 @@ const recordReading: TalkTool = {
 export const NAMED_SESSION_SEND_TOOL: TalkTool = {
   name: "talk_send_to_session",
   description: "Send a message into a chat session. Asks first: whoever is on it may act on the message straight away.",
-  exposure: "on-intent",
   parameters: params(
     { id: str("The session id."), message: str("What to send, in the operator's words.") },
     ["id", "message"],

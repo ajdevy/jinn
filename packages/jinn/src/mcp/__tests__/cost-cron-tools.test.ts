@@ -116,7 +116,7 @@ describe("cost + cron tools — unit", () => {
         return { status: 200, body: [{ id: "daily", name: "Daily", schedule: "0 8 * * *", enabled: true, prompt: "secret prompt", employee: "ops", lastRun: { status: "success" } }] };
       }
       if (url.pathname === "/api/cron/daily/runs") {
-        return { status: 200, body: [{ id: "run-1", timestamp: "2026-07-06T08:00:00.000Z", status: "success", result: "x".repeat(2500), prompt: "secret prompt" }] };
+        return { status: 200, body: [{ timestamp: "2026-07-06T08:00:00.000Z", status: "success", result: "x".repeat(2500), prompt: "secret prompt" }] };
       }
       return { status: 404, body: { error: "unexpected" } };
     });
@@ -125,7 +125,7 @@ describe("cost + cron tools — unit", () => {
     expect(listed.cronJobs[0]).toMatchObject({ id: "daily", name: "Daily", schedule: "0 8 * * *", enabled: true, employee: "ops" });
     const history = (await cronTool("get_cron_run_history").handler({ id: "daily", limit: 500 }, ctx)) as { runs: Array<Record<string, unknown>> };
     expect(new URL(calls.at(-1)!.url).searchParams.get("limit")).toBe("10");
-    expect(history.runs[0]).toEqual({ id: "run-1", timestamp: "2026-07-06T08:00:00.000Z", status: "success" });
+    expect(history.runs[0]).toEqual({ timestamp: "2026-07-06T08:00:00.000Z", status: "success" });
   });
 });
 
@@ -193,8 +193,6 @@ beforeAll(async () => {
     ], null, 2),
   );
   appendRunLog("daily-check", {
-    id: "run-secret",
-    jobId: "daily-check",
     timestamp: "2026-07-05T08:00:00.000Z",
     sessionKey: "cron:daily-check:2026-07-05T08:00:00.000Z",
     status: "success",
@@ -208,16 +206,11 @@ beforeAll(async () => {
     message: "message CANARY-REQA-CRON-RUN-PROMPT",
   });
   appendRunLog("allowed-key-check", {
-    id: "run-secret",
-    jobId: "allowed-key-check",
     timestamp: "not-a-timestamp CANARY-REQA-ALLOWED-TIMESTAMP",
-    startedAt: { secret: "CANARY-REQA-ALLOWED-TIMESTAMP" },
-    finishedAt: ["2026-07-06T09:00:00.000Z", "CANARY-REQA-ALLOWED-TIMESTAMP"],
     sessionKey: `cron:allowed-key-check:${"x".repeat(260)}CANARY-REQA-ALLOWED-SESSION:2026-07-06T09:00:00.000Z`,
     status: "success CANARY-REQA-ALLOWED-STATUS",
-    exitCode: { secret: "CANARY-REQA-ALLOWED-DURATION" },
-    durationMs: { value: 25, secret: "CANARY-REQA-ALLOWED-DURATION" },
-    duration: ["CANARY-REQA-ALLOWED-DURATION"],
+    // Array-wrapped object: both non-number shapes on the surviving numeric key.
+    durationMs: [{ value: 25, secret: "CANARY-REQA-ALLOWED-DURATION" }],
   });
   api = await import("../../gateway/api.js");
   registry = await import("../../sessions/registry.js");
@@ -261,8 +254,6 @@ describe("cost + cron tools — integration through real gateway routes", () => 
     const history = (await cronTool("get_cron_run_history").handler({ id: "daily-check" }, ctx())) as { runs: Array<Record<string, unknown>> };
     expect(history.runs).toHaveLength(1);
     expect(history.runs[0]).toEqual({
-      id: "run-secret",
-      jobId: "daily-check",
       timestamp: "2026-07-05T08:00:00.000Z",
       sessionKey: "cron:daily-check:2026-07-05T08:00:00.000Z",
       status: "success",
@@ -283,10 +274,10 @@ describe("cost + cron tools — integration through real gateway routes", () => 
   it("coerces allowed run-log keys before exposing them through MCP", async () => {
     const listed = (await cronTool("list_cron_jobs").handler({}, ctx())) as { cronJobs: Array<Record<string, unknown>> };
     const listedJob = listed.cronJobs.find((job) => job.id === "allowed-key-check");
-    expect(listedJob?.lastRun).toEqual({ id: "run-secret", jobId: "allowed-key-check" });
+    expect(listedJob?.lastRun).toEqual({});
 
     const history = (await cronTool("get_cron_run_history").handler({ id: "allowed-key-check" }, ctx())) as { runs: Array<Record<string, unknown>> };
-    expect(history.runs).toEqual([{ id: "run-secret", jobId: "allowed-key-check" }]);
+    expect(history.runs).toEqual([{}]);
 
     const serialized = JSON.stringify({ listedJob, history });
     expect(serialized).not.toContain("CANARY-REQA-ALLOWED-STATUS");

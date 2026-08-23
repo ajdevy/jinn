@@ -7,6 +7,9 @@ const engineAvailableMock = vi.fn<(...args: unknown[]) => boolean>();
 vi.mock("../../shared/models.js", () => ({
   engineAvailable: (...args: unknown[]) => engineAvailableMock(...args),
   effortLevelsForModel: vi.fn(() => ["low", "medium", "high"]),
+  // No engine here configures a fallbackModelMap, so the substitute-model
+  // resolver never gets as far as asking the registry what it serves.
+  getModelRegistry: vi.fn(() => ({})),
   // The chain walker's module reads both of these at load time.
   ENGINE_NAMES: ["claude", "codex", "antigravity", "grok", "pi", "hermes"],
   isKnownEngine: (name: string) => ["claude", "codex", "antigravity", "grok", "pi", "hermes"].includes(name),
@@ -122,6 +125,21 @@ describe("handleRateLimit — Codex fallback guard (#40)", () => {
     }
   });
 
+  it("tells the fallback hook which engine took over, while the session still names the limited one", async () => {
+    engineAvailableMock.mockReturnValue(true);
+    const opts = makeOpts(vi.fn(async () => ({ result: "from-codex" }) as EngineResult));
+    const seen: { engine: string; substitute: string }[] = [];
+
+    await handleRateLimit({
+      ...opts,
+      hooks: { onFallbackStart: ({ substitute }) => { seen.push({ engine: opts.session.engine, substitute }); } },
+    });
+
+    // The hook fires BEFORE the session is flipped to the substitute, which is
+    // what lets the announcement read the limited engine straight off it.
+    expect(seen).toEqual([{ engine: "claude", substitute: "codex" }]);
+  });
+
   it("never hands Claude's thread id to the fallback engine, and records Codex's typed", async () => {
     engineAvailableMock.mockReturnValue(true);
     const fallbackRun = vi.fn(async () => ({ result: "from-codex", sessionId: "codex-1" }) as EngineResult);
@@ -135,6 +153,9 @@ describe("handleRateLimit — Codex fallback guard (#40)", () => {
     expect(updateSessionForAttemptMock).toHaveBeenCalledWith("sess-1", "attempt-1", expect.objectContaining({
       engine: "codex",
       engineSessionId: null,
+      // Claude's model goes with Claude: nothing is mapped, so the substitute
+      // runs on its own default rather than on a pin it cannot serve (PLA-202).
+      model: null,
       engineSessions: { claude: { id: "claude-thread-1" } },
     }));
     // The post-run write records the fallback's own thread id, typed.

@@ -23,7 +23,6 @@ function browser(
     description,
     parameters,
     target: "browser",
-    exposure: "always",
     intent,
     mutability,
     operatorOnly: false,

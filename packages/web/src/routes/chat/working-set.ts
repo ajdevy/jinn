@@ -117,6 +117,30 @@ export function removeWorkingSetSession(
   return normalize(sessionIds, focusedId, focusHistory)
 }
 
+/** Swap a departing member for its replacement, in place. Delete and archive
+ * use this so the fallback session lands in the pane that is going away instead
+ * of displacing a surviving sibling: remove-then-navigate would advance focus to
+ * a neighbour, and the URL reconciliation would then replace THAT pane. */
+export function replaceWorkingSetSession(
+  state: ChatWorkingSet,
+  removedId: string,
+  rawReplacementId: string,
+): ChatWorkingSet {
+  const replacementId = rawReplacementId.trim()
+  if (!replacementId) return removeWorkingSetSession(state, removedId)
+  const index = state.sessionIds.indexOf(removedId)
+  if (index < 0) return state
+  const sessionIds = [...state.sessionIds]
+  // normalize() dedupes, so a replacement that is already a member simply keeps
+  // its own slot and the departing one disappears.
+  sessionIds[index] = replacementId
+  return normalize(
+    sessionIds,
+    replacementId,
+    [...state.focusHistory.filter((id) => id !== removedId), replacementId],
+  )
+}
+
 /** Replace the URL-owned pane without growing the working set. Ordinary
  * browser navigation uses this; explicit add actions use addWorkingSetSession. */
 export function replaceFocusedWorkingSetSession(

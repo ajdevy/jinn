@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { ANCHOR_WINDOW_MS, anchorScrollDuring, canAnchorFold, foldIsAboveViewport } from './fold-anchor'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react'
+import { ANCHOR_WINDOW_MS, anchorScrollDuring, foldIsAboveViewport } from './fold-anchor'
+import { FOLD_LANDING_PAD_MS, FOLD_MS, FOLD_TRANSITION } from './fold-motion'
 import { FoldSummaryLine, type FoldSummaryData } from './fold-summary'
 
 /**
@@ -10,18 +11,21 @@ import { FoldSummaryLine, type FoldSummaryData } from './fold-summary'
  * time. The final answer, system banners, and media-bearing messages stay outside.
  *
  * The premium detail: the fold happens ABOVE the answer the user is reading,
- * so a naive collapse would yank the answer up. Both directions are
- * scroll-anchored — each frame the scroll container compensates by the height
- * delta, so the answer stays pixel-fixed in the viewport while the evidence
- * folds away or comes back. `prefers-reduced-motion` swaps instantly with a
- * single compensation.
+ * so a naive collapse would yank the answer up. A toggle the reader asked for
+ * is scroll-anchored per frame, so the answer stays pixel-fixed in the viewport
+ * while the evidence folds away or comes back. The browser's own
+ * `overflow-anchor` does not stand in for this: measured on a mid-viewport
+ * strip it left the row 146px lower than it found it, and Safari implements
+ * none at all. `prefers-reduced-motion` swaps instantly with a single
+ * compensation.
  *
  * And a send is not a reason to move anything: the next ask only files away a
- * region that has already scrolled off the top, where the collapse costs the
- * reader no pixel at all. What is on screen stays as they left it.
+ * region that has already scrolled off the top and that the reader is not
+ * touching — and that one folds in a single commit, because nothing on screen
+ * is moving and an animation there buys a frame loop it can only lose.
+ * A decline is "not now", not "never": when the reader's attention leaves, the
+ * standing request is tried again.
  */
-
-const FOLD_MS = 420
 
 /** Held so an interrupted toggle can drop the frame it has not run yet. */
 type FrameRef = { current: number | undefined }
@@ -70,22 +74,16 @@ interface FoldRegionProps {
    *  order: the region declines it while any of it is still on screen. */
   collapseRequested?: boolean
   summary: FoldSummaryData
-  /** Whether this region plays the anchored live-fold choreography. False for
-   *  the earlier siblings of a banner/media-split turn: they answer at the same
-   *  instant, and two concurrent anchor loops would double-compensate the
-   *  shared scroller — so siblings fold with the instant path. */
-  animated?: boolean
   /** Windowed transcript: a folded region drops its evidence instead of mounting it — folded it is inert, aria-hidden and zero-height, so nothing can read it. */
   windowed?: boolean
   children: ReactNode
 }
 
-export function FoldRegion({ answered, liveCompletion = false, collapseRequested = false, summary, animated = true, windowed = false, children }: FoldRegionProps) {
+export function FoldRegion({ answered, liveCompletion = false, collapseRequested = false, summary, windowed = false, children }: FoldRegionProps) {
   // Historical turns rest folded; a live completion stays open until the reader
   // scrolls past it. `liveCompletion` distinguishes those cases on first mount.
   const startsAnswered = answered && !liveCompletion
   const [folded, setFolded] = useState(startsAnswered)
-  const [landed, setLanded] = useState(startsAnswered)
   // The ledger line does NOT arrive in the answer's own commit — mounting it
   // there would push the answer down at the stream→final swap and break the
   // structural-parity guarantee. It follows a commit later, compensated.
@@ -97,10 +95,14 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
   const [closing, setClosing] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const regionRef = useRef<HTMLDivElement | null>(null)
+  // The reader is on this region right now. A request to file it away is
+  // declined while that is true, the same way it is declined for a region still
+  // on screen. Attention LEAVING bumps `attention`, which re-runs the effect so
+  // a standing request gets its answer instead of dying on the one edge it had.
+  const hoveredRef = useRef(false)
+  const [attention, noteAttention] = useReducer((n: number) => n + 1, 0)
   const foldedRef = useRef(folded)
   foldedRef.current = folded
-  const animatedRef = useRef(animated)
-  animatedRef.current = animated
   const foldTimerRef = useRef<number | undefined>(undefined)
   const frameRef = useRef<number | undefined>(undefined)
   const anchorCancelRef = useRef<(() => void) | null>(null)
@@ -129,42 +131,27 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
     const scroller = wrap.closest('.chat-messages-scroll')
     if (!scroller) return
     if (!foldIsAboveViewport(wrap.getBoundingClientRect(), scroller.getBoundingClientRect())) return
+    if (hoveredRef.current || wrap.contains(document.activeElement)) return
 
     cancelPendingFrame(frameRef)
     window.clearTimeout(foldTimerRef.current)
     anchorCancelRef.current?.()
 
+    // One task, not a timeline. The region is entirely above the viewport, so
+    // there is no motion for the reader to see — and a frame loop here has to
+    // win a race against everything else that scrolls the transcript when a new
+    // ask lands, which it does not reliably do. So the height goes to zero on
+    // the DOM right now, the delta is read back from the shrunk layout, and the
+    // scroller is paid in the same task. `folded` follows to make it official;
+    // React commits before the frame, so nothing paints in between.
     const bottom0 = wrap.getBoundingClientRect().bottom
-    if (prefersReducedMotion() || !animatedRef.current || !canAnchorFold(scroller.scrollTop, region.offsetHeight)) {
-      setFolded(true)
-      setLanded(true)
-      compensateNextFrame(scroller, wrap, bottom0)
-      return
-    }
-
-    // `closing` for the same reason the manual collapse sets it: while the
-    // animation plays the region is still visually open, and without it a click
-    // mid-fold reads the region as open and aims at a collapse already running.
-    setLanding(true)
-    setClosing(true)
-    scheduleFrame(frameRef, () => {
-      region.style.height = `${region.offsetHeight}px`
-      region.style.overflow = 'hidden'
-      scheduleFrame(frameRef, () => {
-        region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
-        region.style.height = '0px'
-        region.style.opacity = '0'
-        anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS, { referenceBottom: bottom0 })
-        foldTimerRef.current = window.setTimeout(() => {
-          setFolded(true)
-          setLanded(true)
-          setLanding(false)
-          setClosing(false)
-          region.style.transition = ''
-        }, FOLD_MS + 10)
-      })
-    })
-  }, [collapseRequested])
+    region.style.height = '0px'
+    region.style.opacity = '0'
+    region.style.overflow = 'hidden'
+    const delta = wrap.getBoundingClientRect().bottom - bottom0
+    if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
+    setFolded(true)
+  }, [collapseRequested, attention])
 
   // A stale timer, frame or anchor loop must not outlive the component.
   useEffect(() => () => {
@@ -173,7 +160,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
     anchorCancelRef.current?.()
   }, [])
 
-  // Gear tick + inert bookkeeping happen via state; keep the region inert when folded.
+  // Inert bookkeeping happens via state; keep the region inert when folded.
   useLayoutEffect(() => {
     const region = regionRef.current
     if (!region) return
@@ -184,11 +171,11 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
     }
   }, [folded])
 
-  // Manual toggle: BOTH directions play the same 420ms height+opacity
-  // choreography, scroll-anchored on the wrap so the summary row under the
-  // pointer and the answer below stay pixel-fixed while the evidence grows or
-  // folds above them. Interruptible: a click mid-animation re-targets from the
-  // current height, and one click always reaches the opposite state.
+  // Manual toggle: BOTH directions play the same height+opacity timeline,
+  // scroll-anchored on the wrap so the summary row under the pointer and the
+  // answer below stay pixel-fixed while the evidence grows or folds above
+  // them. Interruptible: a click mid-animation re-targets from the current
+  // height, and one click always reaches the opposite state.
   const toggle = () => {
     const region = regionRef.current
     const wrap = wrapRef.current
@@ -225,7 +212,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
       setFolded(false)
       region.style.overflow = 'hidden'
       scheduleFrame(frameRef, () => {
-        region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
+        region.style.transition = FOLD_TRANSITION
         region.style.height = `${region.scrollHeight}px`
         region.style.opacity = '1'
         anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS)
@@ -236,7 +223,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
           region.style.height = 'auto'
           region.style.opacity = ''
           region.style.overflow = ''
-        }, FOLD_MS + 20)
+        }, FOLD_MS + FOLD_LANDING_PAD_MS)
       })
     } else {
       // Collapse — the folded state commits AFTER the animation lands; the
@@ -246,7 +233,7 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
       region.style.overflow = 'hidden'
       region.style.height = `${region.offsetHeight}px`
       scheduleFrame(frameRef, () => {
-        region.style.transition = `height ${FOLD_MS}ms var(--ease-smooth), opacity 260ms var(--ease-smooth)`
+        region.style.transition = FOLD_TRANSITION
         region.style.height = '0px'
         region.style.opacity = '0'
         anchorCancelRef.current = anchorScrollDuring(scroller, wrap, ANCHOR_WINDOW_MS)
@@ -254,19 +241,25 @@ export function FoldRegion({ answered, liveCompletion = false, collapseRequested
           setFolded(true)
           setClosing(false)
           region.style.transition = ''
-        }, FOLD_MS + 10)
+        }, FOLD_MS + FOLD_LANDING_PAD_MS)
       })
     }
   }
 
   return (
-    <div ref={wrapRef} data-fold data-folded={folded || undefined}>
+    <div
+      ref={wrapRef}
+      data-fold
+      data-folded={folded || undefined}
+      onMouseEnter={() => { hoveredRef.current = true }}
+      onMouseLeave={() => { hoveredRef.current = false; noteAttention() }}
+      onBlur={(event) => { if (!wrapRef.current?.contains(event.relatedTarget)) noteAttention() }}
+    >
       <div ref={regionRef} data-fold-region inert={folded || undefined} aria-hidden={folded || undefined}>{folded && windowed ? null : children}</div>
       {summaryVisible && (
         <FoldSummaryLine
           summary={summary}
           closed={folded || closing}
-          landed={landed}
           arriving={landing}
           onToggle={toggle}
         />

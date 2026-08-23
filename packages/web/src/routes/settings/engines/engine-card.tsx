@@ -11,9 +11,11 @@ const TONE_COLOR: Record<EngineHealthTone, string> = {
 /** One engine: what it is, whether it can serve a turn, and where its turns go
  *  when it cannot. A healthy engine states it quietly — six green sentences
  *  would drown the one card that is actually saying something. */
-export function EngineCard({ entry, chain, registryEngines, onChange }: {
+export function EngineCard({ entry, chain, modelMap, registryEngines, onChange }: {
   entry: EngineRegistryEntry
   chain: string[]
+  /** `[from, to]` model translations for turns that fall through this chain. */
+  modelMap: [string, string][]
   registryEngines: string[]
   onChange: (chain: string[]) => void
 }) {
@@ -42,6 +44,16 @@ export function EngineCard({ entry, chain, registryEngines, onChange }: {
         options={addOptionsFor(registryEngines, entry.name, chain)}
         onChange={onChange}
       />
+      {modelMap.length > 0 && (
+        <div className="mt-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+          Models carried onto the stand-in
+          <div className="mt-[2px] flex flex-col gap-[2px] text-[var(--text-secondary)]">
+            {modelMap.map(([from, to]) => (
+              <div key={from} data-model-map-pair={from}>{from} → {to}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -7,9 +7,9 @@ import {
   readChatSessionDrop,
 } from './chat-session-dnd'
 import { cellRectForIndex } from './grid-cells'
-import { gridPaneKeysForSessions, workingSetIndexForGridSlot } from './grid-drop-target'
+import { workingSetIndexForGridSlot } from './grid-drop-target'
 import { overflowForViewport } from './grid-layout'
-import { placementForPointer, type GridPlacement } from './grid-placement'
+import { deriveChatGridIds, placementForPointer, type GridPlacement } from './grid-placement'
 import { insertWorkingSetSession, type ChatWorkingSet } from './working-set'
 
 type DropHandlers = Pick<HTMLAttributes<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'onDragOver' | 'onDrop'>
@@ -65,12 +65,12 @@ export function simulateChatGridDrop(
     context.viewport.height,
     Number(Boolean(context.pickerPaneKey)),
   ).visible.sessionIds
-  const gridPaneKeys = gridPaneKeysForSessions(
-    visible,
-    sessionId,
-    sessionId,
-    context.pickerPaneKey,
-  )
+  const gridPaneKeys = deriveChatGridIds({
+    sessionIds: visible,
+    primaryPaneKey: sessionId,
+    primarySessionId: sessionId,
+    pickerPaneKey: context.pickerPaneKey,
+  })
   return {
     insertionIndex,
     nextWorkingSet,

@@ -10,7 +10,11 @@ import { useEmployeesByName } from '@/routes/todos/use-todos'
 import { whisperOf } from '@/routes/todos/task-page/whisper'
 import { formatRelativeTime } from '@/routes/todos/util'
 import { TodoProps } from './todo-peek-props'
-import { usePeekPickers, type PeekPickerKey, type PeekPickerRow } from './use-peek-pickers'
+import {
+  useTodoQuickPickers,
+  type TodoQuickPickerKey,
+  type TodoQuickPickerRow,
+} from '@/routes/todos/pickers/use-todo-quick-pickers'
 
 /* The Todo body of the peek inspector. Status and Assignee are editable from
  * here (ICI-743); everything else is a glance. The detail sits under the
@@ -110,7 +114,7 @@ function TodoPeekBody({ detail, byName, parentTitle, rowFor, refusal }: {
   detail: WorkItemDetailWire
   byName: Map<string, Employee>
   parentTitle: string | null
-  rowFor: (key: PeekPickerKey) => PeekPickerRow
+  rowFor: (key: TodoQuickPickerKey) => TodoQuickPickerRow
   refusal: string | null
 }) {
   const item = detail.workItem
@@ -153,10 +157,11 @@ export function TodoPeek({ id, sheet, onPickerOpenChange }: {
   const org = useOrg()
   const byName = useEmployeesByName(org.data?.employees)
   const parentTitle = useParentTitle(detail.data?.workItem.parentId)
-  const pickers = usePeekPickers({
+  const pickers = useTodoQuickPickers({
     detail: detail.data,
     employees: org.data?.employees ?? [],
-    sheet,
+    shell: sheet ? 'sheet' : 'popover',
+    prefix: 'peek',
     onOpenChange: onPickerOpenChange,
   })
 
@@ -176,7 +181,7 @@ export function TodoPeek({ id, sheet, onPickerOpenChange }: {
         byName={byName}
         parentTitle={parentTitle}
         rowFor={pickers.rowFor}
-        refusal={pickers.error}
+        refusal={pickers.refusal.message}
       />
       {pickers.pickerSheet}
       <PeekFooter id={id} />

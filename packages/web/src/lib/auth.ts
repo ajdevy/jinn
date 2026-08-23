@@ -1,3 +1,5 @@
+import { gatewayTransport } from "./gateway-transport"
+
 export interface AuthState {
   authRequired: boolean
   authenticated: boolean
@@ -23,11 +25,6 @@ export interface PairedDevice {
   userAgent?: string
   current?: boolean
 }
-
-const BASE =
-  typeof window !== "undefined" && window.location.origin !== "null"
-    ? window.location.origin
-    : "http://localhost:3000"
 
 const LOCAL_BOOTSTRAP_HASH_KEY = "jinn-bootstrap"
 const WORKSPACE_PAIRING_HASH_KEY = "jinn-pair"
@@ -58,15 +55,6 @@ export function takeWorkspacePairingCode(): string | undefined {
   return takeHashValue(WORKSPACE_PAIRING_HASH_KEY)
 }
 
-function urlFor(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path
-  return `${BASE}${path.startsWith("/") ? path : `/${path}`}`
-}
-
-function withCredentials(init: RequestInit = {}): RequestInit {
-  return { ...init, credentials: "include" }
-}
-
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `API error: ${res.status}`
@@ -84,8 +72,12 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 
 let knownInstance: string | null = null
 
+export function authUrl(path: string): string {
+  return gatewayTransport().httpUrl(path)
+}
+
 export async function getAuthState(): Promise<AuthState> {
-  const res = await fetch(urlFor("/api/auth/state"), withCredentials({ method: "GET" }))
+  const res = await gatewayTransport().request("/api/auth/state", { method: "GET" })
   const state = await jsonOrThrow<AuthState>(res)
   knownInstance = state.instance?.trim() || null
   return state
@@ -101,61 +93,72 @@ export function lastKnownInstance(): string | null {
 export async function bootstrapLocalAuth(): Promise<boolean> {
   const grant = takeLocalBootstrapGrant()
   if (!grant) return false
-  const res = await fetch(urlFor("/api/auth/bootstrap"), withCredentials({
+  const res = await gatewayTransport().request("/api/auth/bootstrap", {
     method: "POST",
     headers: { "X-Jinn-Bootstrap-Grant": grant },
-  }))
+  })
   await jsonOrThrow(res)
   return true
 }
 
 export async function pairBrowser(secret: string, mode: "code" | "token" = "code"): Promise<void> {
-  const res = await fetch(
-    urlFor("/api/auth/pair"),
-    withCredentials({
+  const res = await gatewayTransport().request(
+    "/api/auth/pair",
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(mode === "token" ? { token: secret } : { code: secret }),
-    }),
+    },
   )
   await jsonOrThrow(res)
 }
 
 export async function createPairingCode(): Promise<PairingCode> {
-  const res = await fetch(
-    urlFor("/api/auth/pairing-codes"),
-    withCredentials({
+  const res = await gatewayTransport().request(
+    "/api/auth/pairing-codes",
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    }),
+    },
   )
   return jsonOrThrow<PairingCode>(res)
 }
 
 export async function listPairedDevices(): Promise<PairedDevice[]> {
-  const res = await fetch(urlFor("/api/auth/devices"), withCredentials({ method: "GET" }))
+  const res = await gatewayTransport().request("/api/auth/devices", { method: "GET" })
   const body = await jsonOrThrow<{ devices: PairedDevice[] }>(res)
   return body.devices
 }
 
 export async function unpairDevice(deviceId: string): Promise<void> {
-  const res = await fetch(
-    urlFor(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
-    withCredentials({ method: "DELETE" }),
+  const res = await gatewayTransport().request(
+    `/api/auth/devices/${encodeURIComponent(deviceId)}`,
+    { method: "DELETE" },
   )
   await jsonOrThrow(res)
 }
 
 export async function logoutBrowser(): Promise<void> {
-  const res = await fetch(urlFor("/api/auth/logout"), withCredentials({ method: "POST", body: "{}" }))
+  const res = await gatewayTransport().request("/api/auth/logout", { method: "POST", body: "{}" })
   await jsonOrThrow(res)
 }
 
+function assertGatewayProfile(profileId: string): void {
+  if (gatewayTransport().profile.id !== profileId) {
+    throw new DOMException("The gateway changed during authentication", "AbortError")
+  }
+}
+
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const url = urlFor(input)
-  const first = await fetch(url, withCredentials(init))
+  const transport = gatewayTransport()
+  const profileId = transport.profile.id
+  const first = await transport.request(input, init)
   if (first.status !== 401) return first
+
+  // A native profile switch can happen between the original 401 and the local
+  // bootstrap flow. Never continue A's authentication attempt against B.
+  assertGatewayProfile(profileId)
 
   let state: AuthState
   try {
@@ -170,5 +173,6 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
   } catch {
     return first
   }
-  return fetch(url, withCredentials(init))
+  assertGatewayProfile(profileId)
+  return transport.request(input, init)
 }

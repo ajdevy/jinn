@@ -82,7 +82,7 @@ describe('ChatSidebar shortcut hints', () => {
 
   it('surfaces a New chat (compose) control on the list header', () => {
     render(withQueryClient(<ChatSidebar {...defaultProps} />))
-    expect(screen.getByRole('button', { name: 'New chat' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New chat' }).className).not.toContain('lg:hidden')
   })
 
   it('fires onNewChat when the list compose control is tapped', () => {
@@ -166,20 +166,5 @@ describe('ChatHeaderPills shortcut hints', () => {
     const mobileActions = workingSet.nextElementSibling as HTMLElement
     fireEvent.click(within(mobileActions).getByRole('button', { name: 'New chat' }))
     expect(onNew).toHaveBeenCalledTimes(1)
-  })
-})
-
-// --- Persistent bottom hint ---
-
-describe('Persistent shortcut hint', () => {
-  it('ShortcutHint component renders "? for shortcuts" text', async () => {
-    // Import the persistent hint component
-    const { ShortcutHint } = await import('../shortcut-hint')
-    render(<ShortcutHint onClick={vi.fn()} />)
-    const hint = screen.getByText(/\?/i)
-    expect(hint).toBeTruthy()
-    // Should contain "shortcuts" text nearby
-    const container = screen.getByText(/shortcuts/i)
-    expect(container).toBeTruthy()
   })
 })

@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { authFetch, createPairingCode, getAuthState, listPairedDevices, logoutBrowser, pairBrowser, takeWorkspacePairingCode, unpairDevice } from "../auth"
+import { createBrowserGatewayTransport, installGatewayTransport } from "../gateway-transport"
+
+const GATEWAY_ORIGIN = "https://qa-a.example:7779"
+let restoreTransport: (() => void) | null = null
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -11,8 +15,19 @@ function jsonResponse(status: number, body: unknown) {
 describe("web auth helpers", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn())
+    restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+      origin: GATEWAY_ORIGIN,
+      request: (input, init) => fetch(input, init),
+      navigate: vi.fn(),
+    }))
     localStorage.clear()
     window.history.replaceState(null, "", "/")
+  })
+
+  afterEach(() => {
+    restoreTransport?.()
+    restoreTransport = null
+    vi.unstubAllGlobals()
   })
 
   it("uses a one-time UI launch grant to bootstrap local auth before retrying", async () => {
@@ -34,10 +49,10 @@ describe("web auth helpers", () => {
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([
-      "http://localhost:3000/api/sessions",
-      "http://localhost:3000/api/auth/state",
-      "http://localhost:3000/api/auth/bootstrap",
-      "http://localhost:3000/api/sessions",
+      `${GATEWAY_ORIGIN}/api/sessions`,
+      `${GATEWAY_ORIGIN}/api/auth/state`,
+      `${GATEWAY_ORIGIN}/api/auth/bootstrap`,
+      `${GATEWAY_ORIGIN}/api/sessions`,
     ])
     for (const [, init] of fetchMock.mock.calls) {
       expect((init as RequestInit | undefined)?.credentials).toBe("include")
@@ -109,12 +124,12 @@ describe("web auth helpers", () => {
     await expect(logoutBrowser()).resolves.toBeUndefined()
 
     expect(fetchMock.mock.calls.map((c) => [String(c[0]), (c[1] as RequestInit | undefined)?.method])).toEqual([
-      ["http://localhost:3000/api/auth/state", "GET"],
-      ["http://localhost:3000/api/auth/pair", "POST"],
-      ["http://localhost:3000/api/auth/pairing-codes", "POST"],
-      ["http://localhost:3000/api/auth/devices", "GET"],
-      ["http://localhost:3000/api/auth/devices/device-1", "DELETE"],
-      ["http://localhost:3000/api/auth/logout", "POST"],
+      [`${GATEWAY_ORIGIN}/api/auth/state`, "GET"],
+      [`${GATEWAY_ORIGIN}/api/auth/pair`, "POST"],
+      [`${GATEWAY_ORIGIN}/api/auth/pairing-codes`, "POST"],
+      [`${GATEWAY_ORIGIN}/api/auth/devices`, "GET"],
+      [`${GATEWAY_ORIGIN}/api/auth/devices/device-1`, "DELETE"],
+      [`${GATEWAY_ORIGIN}/api/auth/logout`, "POST"],
     ])
   })
 })

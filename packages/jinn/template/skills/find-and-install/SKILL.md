@@ -47,19 +47,18 @@ The {{portalName}} file watcher will detect the new directory and create the app
 
 ### Step 3: Update the skills manifest
 
-Read `$JINN_HOME/skills.json`, add the new skill entry, and write it back.
+Read `$JINN_HOME/skills.json`, append the new skill entry, and write it back.
 
-The manifest format:
+The manifest is a flat array of entries:
 
 ```json
-{
-  "installed": {
-    "<name>": {
-      "source": "<owner/repo@skill>",
-      "installedAt": "<ISO 8601 timestamp>"
-    }
+[
+  {
+    "name": "<name>",
+    "source": "<owner/repo@skill>",
+    "installedAt": "<ISO 8601 timestamp>"
   }
-}
+]
 ```
 
 ### Step 4: Apply the skill immediately

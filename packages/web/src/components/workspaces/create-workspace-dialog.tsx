@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { LoaderCircle } from "lucide-react"
 import { api, type CreateWorkspaceResult } from "@/lib/api"
+import { gatewayTransport } from "@/lib/gateway-transport"
 import {
   Dialog,
   DialogContent,
@@ -21,7 +22,7 @@ export function CreateWorkspaceDialog({
   open,
   onOpenChange,
   create = api.createWorkspace,
-  navigate = (url) => window.location.assign(url),
+  navigate = (url) => gatewayTransport().navigate(url),
 }: CreateWorkspaceDialogProps) {
   const [name, setName] = useState("")
   const [pending, setPending] = useState(false)

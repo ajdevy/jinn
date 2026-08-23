@@ -63,7 +63,7 @@ describe("the board filter row (mock geometry — stage-A review F1)", () => {
     expect(screen.getByTestId("filter-chip-label").textContent).toContain("Label")
     expect(screen.getByTestId("filter-chip-due").textContent).toContain("Due")
     expect(screen.getByTestId("filter-chip-more")).toBeTruthy()
-    expect(screen.getByRole("searchbox", { name: "Search todos" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Search todos" })).toBeTruthy()
     // The heavy legacy affordance is gone in board mode.
     expect(screen.queryByRole("button", { name: "Filter todos" })).toBeNull()
   })
@@ -137,7 +137,7 @@ describe("Todo progressive filters", () => {
       />,
     )
 
-    expect(screen.getByRole("searchbox", { name: "Search todos" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Search todos" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Filter todos" })).toBeTruthy()
     expect(screen.queryByTestId("filter-person")).toBeNull()
     expect(screen.queryByTestId("filter-source")).toBeNull()
@@ -256,7 +256,7 @@ describe("Todo progressive filters", () => {
       <FilterBar filters={{ status: "open" }} onChange={vi.fn()} employees={[]} departments={[]} byName={new Map()} />,
     )
 
-    const search = screen.getByRole("searchbox", { name: "Search todos" })
+    const search = screen.getByRole("button", { name: "Search todos" })
     search.focus()
     expect(document.activeElement).toBe(search)
 
@@ -294,7 +294,6 @@ describe("Todo progressive filters", () => {
       <FilterBar
         filters={{ status: "open", q: "roadmap" }}
         onChange={vi.fn()}
-        onSearchChange={vi.fn()}
         employees={[]}
         departments={[]}
         byName={new Map()}
@@ -305,36 +304,4 @@ describe("Todo progressive filters", () => {
     expect(screen.queryByLabelText("Active filters")).toBeNull()
   })
 
-  it("cancels a stale search debounce when history or filters change", () => {
-    vi.useFakeTimers()
-    setMobile(false)
-    const onSearchChange = vi.fn()
-    const { rerender } = render(
-      <FilterBar
-        filters={{ status: "blocked", department: "platform" }}
-        onChange={vi.fn()}
-        onSearchChange={onSearchChange}
-        employees={[]}
-        departments={["platform"]}
-        byName={new Map()}
-      />,
-    )
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search todos" }), { target: { value: "stale" } })
-    rerender(
-      <FilterBar
-        filters={{ status: "open" }}
-        onChange={vi.fn()}
-        onSearchChange={onSearchChange}
-        employees={[]}
-        departments={["platform"]}
-        byName={new Map()}
-      />,
-    )
-    act(() => vi.advanceTimersByTime(300))
-
-    expect(onSearchChange).not.toHaveBeenCalled()
-    expect(screen.getByRole<HTMLInputElement>("searchbox", { name: "Search todos" }).value).toBe("")
-    vi.useRealTimers()
-  })
 })

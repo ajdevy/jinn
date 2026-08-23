@@ -23,6 +23,7 @@
  * the streaming, ordering, and fallback logic is unit-testable without a DOM.
  */
 import { stripMarkdown } from "@/lib/strip-markdown"
+import { authFetch } from "@/lib/auth"
 import { TalkAudioPlayer } from "@/components/chat/audio-player"
 import type { TtsStart, TtsStartCallbacks } from "./tts-controller"
 
@@ -182,7 +183,7 @@ let availabilityPromise: Promise<boolean> | null = null
 /** GET /api/tts once and cache the answer for the page lifetime. */
 function checkAvailable(): Promise<boolean> {
   if (!availabilityPromise) {
-    availabilityPromise = fetch("/api/tts")
+    availabilityPromise = authFetch("/api/tts")
       .then((r) => (r.ok ? (r.json() as Promise<{ available?: boolean }>) : { available: false }))
       .then((d) => !!d.available)
       .catch(() => false)
@@ -191,7 +192,7 @@ function checkAvailable(): Promise<boolean> {
 }
 
 async function openStream(text: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
-  const r = await fetch("/api/tts", {
+  const r = await authFetch("/api/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),

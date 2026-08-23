@@ -387,13 +387,6 @@ export default function TodoBoardPage() {
     },
     [setSearchParams],
   )
-  const setSearch = useCallback(
-    (q: string | undefined) => {
-      setSearchParams(filtersToSearchParams({ ...filters, q }), { replace: true })
-    },
-    [filters, setSearchParams],
-  )
-
   // Opening a card carries the board context so the task page's crumb knows
   // its way back (the board name is the back affordance).
   const onOpen = useCallback(
@@ -603,7 +596,6 @@ export default function TodoBoardPage() {
               <FilterBar
                 filters={filters}
                 onChange={setFilters}
-                onSearchChange={setSearch}
                 employees={org.data?.employees ?? []}
                 departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
                 byName={byName}

@@ -14,7 +14,9 @@ const DESKTOP_PANE_FLOOR = 4
 const MAX_DESKTOP_PANES = 12
 const GRID_HORIZONTAL_CHROME = 376
 const GRID_VERTICAL_CHROME = 120
-const MIN_PANE_WIDTH = 480
+// Three 340px columns fit beside the 376px desktop chrome at 1440px, which is
+// what lets the acceptance viewport retain six panes instead of folding at four.
+const MIN_PANE_WIDTH = 340
 const MIN_PANE_HEIGHT = 340
 const IDEAL_PANE_ASPECT = 1.25
 

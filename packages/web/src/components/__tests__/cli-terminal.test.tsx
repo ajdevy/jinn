@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createBrowserGatewayTransport, installGatewayTransport } from "../../lib/gateway-transport";
 
 const xtermState = vi.hoisted(() => ({
   instances: [] as Array<{
@@ -81,6 +82,7 @@ class FakeWebSocket {
 
 const live = () => FakeWebSocket.instances;
 const terminal = () => xtermState.instances[0]!;
+let restoreTransport: (() => void) | null = null;
 
 describe("CliTerminal recovery protocol", () => {
   beforeEach(() => {
@@ -92,6 +94,11 @@ describe("CliTerminal recovery protocol", () => {
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    restoreTransport = installGatewayTransport(createBrowserGatewayTransport({
+      origin: "https://qa-a.example:7779",
+      request: vi.fn(),
+      navigate: vi.fn(),
+    }));
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: () => ({
@@ -114,6 +121,8 @@ describe("CliTerminal recovery protocol", () => {
   });
 
   afterEach(() => {
+    restoreTransport?.();
+    restoreTransport = null;
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -121,6 +130,7 @@ describe("CliTerminal recovery protocol", () => {
 
   it("keeps restoring visible for clear/cursor-only deltas and hides it only after snapshot + ready", () => {
     render(<CliTerminal sessionId="session-1" />);
+    expect(live()[0]?.url).toBe("wss://qa-a.example:7779/ws/pty/session-1");
     act(() => live()[0]!.open());
     expect(screen.getByText(/Restoring terminal/i)).toBeTruthy();
 

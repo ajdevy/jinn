@@ -81,7 +81,7 @@ export class TalkSessionRepository implements TalkSessionStore {
         .run(session.id, session.browserInstanceId, session.credentialGeneration, session.sessionId,
           session.state, session.model, session.brief, session.openedAt, session.lastSeenAt,
           session.truncatedTurns, session.tokenExpiresAt, JSON.stringify(session.exposedTools),
-          JSON.stringify(session.expandedIntents));
+          "[]");
 
       this.replaceChildren(session);
     })();
@@ -134,7 +134,6 @@ export class TalkSessionRepository implements TalkSessionStore {
       truncatedTurns: Number(row.truncated_turns),
       tokenExpiresAt: Number(row.token_expires_at),
       exposedTools: parseArray<string>(row.exposed_tools_json),
-      expandedIntents: parseArray<string>(row.expanded_intents_json),
       actions: actions.map(actionFromRow),
       interruptions: interruptions.map(interruptionFromRow),
       visualReceiptKeys: keys.map(({ receipt_key }) => receipt_key),

@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode } from 'react'
+import { Component, Suspense, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { ClientProviders } from './routes/client-providers'
@@ -7,12 +7,18 @@ import { registerTalkNavigator } from './components/talk/tools/router-handle'
 import { registerHostNavigator } from './plugins/sdk/host-bridge'
 import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
-import { startKeyboardInset } from './lib/native/keyboard-inset'
+import { startKeyboardInset } from './platform'
 import { RouteLoading } from './components/route-loading'
 import { TodosIndexRedirect, todosIndexLoader } from './routes/todos/board/todos-index-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
+import type { NativeGatewayProfiles, NativeGatewayProfilesSnapshot } from './lib/native-gateway-profiles'
+import { nativeBridge } from './platform/native-bridge'
 import './routes/globals.css'
+
+let profiles: NativeGatewayProfiles | undefined
+let initialNativeOrigin: string | undefined
+let PairingScreen: ComponentType<Record<string, never>> | undefined
 
 const ChatPage = lazyRoute(() => import('./routes/chat/page'), 'chat')
 const CronPage = lazyRoute(() => import('./routes/cron/page'), 'cron')
@@ -92,8 +98,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 
 function AppShell() {
+  const generation = useSyncExternalStore(
+    profiles?.subscribe ?? (() => () => {}),
+    () => profiles?.snapshot().generation ?? 0,
+    () => 0,
+  )
   return (
-    <ClientProviders>
+    <ClientProviders key={`gateway:${generation}`}>
       <Suspense fallback={<RouteLoading />}>
         <Outlet />
       </Suspense>
@@ -185,7 +196,26 @@ registerTalkNavigator((path) => router.navigate(path))
 // the voice surface, a plugin has no latency clock to time against the landing.
 registerHostNavigator((path) => void router.navigate(path))
 
+/**
+ * Whether the native window has to show its own gateway surface instead of the
+ * app. A remembered gateway that stopped answering counts: the app behind it can
+ * only reach a dead origin, and the browser's pairing screen it would fall
+ * through to belongs to a gateway that replied. A failed SWITCH does not count:
+ * the working gateway stays active there and the switcher reports it in place.
+ */
+function nativeGatewayBlocked(snapshot: NativeGatewayProfilesSnapshot | undefined, origin: string | undefined): boolean {
+  if (!origin) return true
+  return snapshot ? !snapshot.activeReachable : false
+}
+
 function App() {
+  const snapshot = useSyncExternalStore(
+    profiles?.subscribe ?? (() => () => {}),
+    () => profiles?.snapshot(),
+    () => undefined,
+  )
+  const nativeOrigin = snapshot?.profiles.find((profile) => profile.id === snapshot.activeId)?.origin ?? initialNativeOrigin
+  if (nativeBridge() && PairingScreen && nativeGatewayBlocked(snapshot, nativeOrigin)) return <PairingScreen />
   return (
     <AppErrorBoundary>
       <RouterProvider router={router} />
@@ -198,7 +228,7 @@ function App() {
  * instead of on a network round trip. Production only: in `vite dev` a worker
  * would sit in front of the gateway proxy and serve yesterday's bundle.
  */
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && !nativeBridge() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
       console.error('[service-worker] registration failed', error)
@@ -211,4 +241,21 @@ startKeyboardInset()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element #root not found')
-createRoot(rootEl).render(<App />)
+
+async function mount(): Promise<void> {
+  if (nativeBridge()) {
+    const [bootstrap, pairing] = await Promise.all([
+      import('./lib/native-gateway-bootstrap'),
+      import('./components/auth/native-pairing-screen'),
+    ])
+    initialNativeOrigin = bootstrap.installSavedNativeGateway()
+    profiles = bootstrap.nativeGatewayProfiles()
+    PairingScreen = pairing.NativePairingScreen
+    // Synchronous up to its first await, so the first paint is already the
+    // connecting state rather than a router mounted on an origin nobody proved.
+    void profiles?.verifyActive()
+  }
+  createRoot(rootEl!).render(<App />)
+}
+
+void mount()

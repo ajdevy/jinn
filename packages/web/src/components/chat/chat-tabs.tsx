@@ -4,6 +4,7 @@ import { ChevronLeft, SquarePen } from 'lucide-react'
 import { type ChatTab } from '@/hooks/use-chat-tabs'
 // Frosted pill primitives now live in the shared cross-page pill system.
 import { PILL_CLASS, PillButton } from '@/components/pill-nav'
+import { useTitleArrival } from './title-arrival'
 
 export interface ChatHeaderPillsProps {
   /** Conversation title — slim inline title on desktop, centered on the mobile
@@ -27,6 +28,8 @@ export interface ChatHeaderPillsProps {
   moreMenu?: ReactNode
   /** Mobile Variant C: four fixed working-set chips replace the title/compose track. */
   mobileWorkingSet?: ReactNode
+  /** Hide the desktop-only title and actions when every grid pane owns chrome. */
+  hideDesktop?: boolean
 
   /** Retained for callers; the in-header tab switcher UI was removed. */
   tabs?: ChatTab[]
@@ -38,10 +41,58 @@ export interface ChatHeaderPillsProps {
 // Split a leading "#NNNN - " id prefix off a session title so the desktop title
 // can render the id quietly (--text-tertiary) ahead of the name. Titles without
 // the prefix (e.g. employee chats) fall through unchanged.
-function splitTitleId(title?: string): { id?: string; rest: string } {
+export function splitTitleId(title?: string): { id?: string; rest: string } {
   if (!title) return { rest: "" }
   const m = title.match(/^(#\d+)\s*[-–—]\s*(.+)$/)
   return m ? { id: m[1], rest: m[2] } : { rest: title }
+}
+
+// The desktop half of the thread chrome: the slim inline title and the right
+// actions pill. Its own component because at 2+ panes the whole half stands
+// down (per-pane title bars own that job) — one `hideDesktop` decision at the
+// call site instead of a guard on each block.
+function DesktopThreadChrome({ title, backTo, onNew, moreMenu }: Pick<ChatHeaderPillsProps, 'title' | 'backTo' | 'onNew' | 'moreMenu'>) {
+  return (
+    <>
+    {/* DESKTOP — slim inline thread title (top-left, plain text, no pill).
+        Understated by design: 15px subheadline, semibold, single line, ellipsis.
+        h-10 + top-4 puts its vertical center on the same y as the right actions
+        pill and the ribbon's logo/toggle slot — one clean horizontal row. A
+        drill-in prepends the quiet back chip (skills/cron detail idiom). */}
+    <div data-chat-desktop-title className="pointer-events-none absolute left-6 top-4 z-10 hidden h-10 max-w-[42vw] items-center gap-2.5 lg:flex xl:max-w-[48vw]">
+      {backTo && (
+        <button
+          type="button"
+          onClick={backTo.onClick}
+          aria-label={`Back to ${backTo.label}`}
+          className="pointer-events-auto inline-flex max-w-[160px] shrink-0 items-center gap-1 text-[length:var(--text-footnote)] font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+        >
+          <ChevronLeft size={13} strokeWidth={2.4} aria-hidden className="shrink-0" />
+          <span className="truncate">{backTo.label}</span>
+        </button>
+      )}
+      {title && (() => {
+        const { id, rest } = splitTitleId(title)
+        return (
+          <span className="truncate text-[length:var(--text-subheadline)] font-[var(--weight-medium)] tracking-[-0.01em] text-[var(--text-primary)]">
+            {id && <span className="font-[var(--weight-medium)] text-[var(--text-tertiary)]">{id} </span>}
+            {rest}
+          </span>
+        )
+      })()}
+    </div>
+
+    {/* DESKTOP — right actions pill: compose · more. */}
+    <div data-chat-desktop-actions className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block">
+      <div className={PILL_CLASS}>
+        <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
+          <SquarePen size={18} />
+        </PillButton>
+        {moreMenu}
+      </div>
+    </div>
+    </>
+  )
 }
 
 // The chat thread chrome. The old left toggle pill is gone — the sidebar toggle
@@ -56,7 +107,14 @@ export function ChatHeaderPills({
   onNew,
   moreMenu,
   mobileWorkingSet,
+  hideDesktop,
 }: ChatHeaderPillsProps) {
+  // Only the centred nav-bar title animates its change: it swaps whole
+  // conversations under a fixed-height bar. The desktop title is left as it was,
+  // and neither animates while the chips or the chat list stand in its place.
+  const navTitle = title || 'Untitled'
+  const showingNavTitle = !hideOnMobile && !mobileWorkingSet
+  const titleEntering = useTitleArrival(navTitle, showingNavTitle)
   // Mobile nav bar: both side tracks are locked to the wider cluster, which is
   // what puts the middle track on the header's centre line. Callback refs keep
   // the observer attached across the back control's two shapes.
@@ -79,43 +137,7 @@ export function ChatHeaderPills({
 
   return (
     <>
-      {/* DESKTOP — slim inline thread title (top-left, plain text, no pill).
-          Understated by design: 15px subheadline, semibold, single line, ellipsis.
-          h-10 + top-4 puts its vertical center on the same y as the right actions
-          pill and the ribbon's logo/toggle slot — one clean horizontal row. A
-          drill-in prepends the quiet back chip (skills/cron detail idiom). */}
-      <div className="pointer-events-none absolute left-6 top-4 z-10 hidden h-10 max-w-[42vw] items-center gap-2.5 lg:flex xl:max-w-[48vw]">
-        {backTo && (
-          <button
-            type="button"
-            onClick={backTo.onClick}
-            aria-label={`Back to ${backTo.label}`}
-            className="pointer-events-auto inline-flex max-w-[160px] shrink-0 items-center gap-1 text-[length:var(--text-footnote)] font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
-          >
-            <ChevronLeft size={13} strokeWidth={2.4} aria-hidden className="shrink-0" />
-            <span className="truncate">{backTo.label}</span>
-          </button>
-        )}
-        {title && (() => {
-          const { id, rest } = splitTitleId(title)
-          return (
-            <span className="truncate text-[length:var(--text-subheadline)] font-[var(--weight-medium)] tracking-[-0.01em] text-[var(--text-primary)]">
-              {id && <span className="font-[var(--weight-medium)] text-[var(--text-tertiary)]">{id} </span>}
-              {rest}
-            </span>
-          )
-        })()}
-      </div>
-
-      {/* DESKTOP — right actions pill: compose · more. */}
-      <div className="pointer-events-none absolute right-4 top-4 z-10 hidden lg:block">
-        <div className={PILL_CLASS}>
-          <PillButton onClick={onNew} title="New chat (N)" ariaLabel="New chat">
-            <SquarePen size={18} />
-          </PillButton>
-          {moreMenu}
-        </div>
-      </div>
+      {!hideDesktop && <DesktopThreadChrome title={title} backTo={backTo} onNew={onNew} moreMenu={moreMenu} />}
 
       {/* MOBILE — thread nav bar: back · centered title · compose · more. Hidden
           over the list (the tab bar + list header own that screen). No hairline
@@ -125,6 +147,7 @@ export function ChatHeaderPills({
           re-rasterising over the scrolling thread. */}
       {!hideOnMobile && (
         <div
+          data-chat-mobile-header
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
           style={{ paddingTop: 'max(var(--safe-top), 0px)' }}
         >
@@ -165,8 +188,11 @@ export function ChatHeaderPills({
               </button>
             )}
             {mobileWorkingSet ?? (
-              <span className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]">
-                {title}
+              <span
+                data-title-enter={titleEntering || undefined}
+                className="pointer-events-none min-w-0 truncate text-center text-body font-[var(--weight-semibold)] text-[var(--text-primary)]"
+              >
+                {navTitle}
               </span>
             )}
             <div ref={setActions} className="flex shrink-0 items-center justify-self-end">

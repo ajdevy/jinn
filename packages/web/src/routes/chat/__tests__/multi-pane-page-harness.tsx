@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
 import ChatPageWrapper from '../page'
 import { CHAT_SESSION_DND_MIME } from '../chat-session-dnd'
@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
     title: `Title ${id}`,
     status: 'idle',
     engine: 'claude',
+    engineSessionId: `engine-${id}`,
     messages: [{ id: `${id}-m1`, role: 'assistant', content: `transcript-${id}`, timestamp: 1 }],
   })),
   getSessionMessages: vi.fn(async () => ({ messages: [], hasOlder: false })),
@@ -28,13 +29,24 @@ const apiMocks = vi.hoisted(() => ({
     .filter((id) => `Title ${id}`.toLowerCase().includes(query.toLowerCase()))
     .map((id) => ({ id, title: `Title ${id}`, status: 'idle' }))),
   getOrg: vi.fn(async () => ({ employees: [] })),
-  getEngines: vi.fn(async () => ({ engines: {} })),
+  getEngines: vi.fn(async () => ({
+    engines: {
+      claude: { name: 'claude', available: true, defaultModel: 'opus', models: [], supportsPty: true },
+    },
+  })),
   getFeatures: vi.fn(async () => ({ notesEnabled: false, staleChat: { enabled: false, tokenThreshold: 300000, staleAfterMinutes: 60 } })),
   getSkills: vi.fn(async () => []),
   getSessionQueue: vi.fn(async () => []),
   createSession: vi.fn(async () => ({ id: 'e' })),
   sendMessage: vi.fn(async () => ({})),
   updateSession: vi.fn(async () => ({})),
+  deleteSession: vi.fn(async () => ({})),
+  duplicateSession: vi.fn(async (id: string) => ({ id: `${id}-copy`, title: `Copy of ${id}` })),
+  archiveSession: vi.fn(async () => ({})),
+  unarchiveSession: vi.fn(async () => ({})),
+  stopSession: vi.fn(async () => ({})),
+  pinChat: vi.fn(async () => ({})),
+  unpinChat: vi.fn(async () => ({})),
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -59,14 +71,46 @@ vi.mock('@/components/page-layout', () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-vi.mock('@/components/chat/chat-sidebar', () => ({
-  ChatSidebar: ({ onNewChat }: { onNewChat: () => void }) => (
-    <div data-testid="chat-sidebar">
-      <button type="button" onClick={onNewChat}>Start empty chat</button>
-    </div>
-  ),
-  pickDeleteFallbackId: () => null,
-}))
+/** The sidebar reduced to what the route reacts to: the loaded session list it
+ *  primes the newest chat from, the computed order the pane suites navigate by,
+ *  the rows the operator taps, and the two ways into the composer. Rows and the
+ *  roster contact hang off the mobile instance only, so the desktop suites keep
+ *  the surface they were written against. */
+vi.mock('@/components/chat/chat-sidebar', async () => {
+  const { useEffect, useRef } = await import('react')
+  return {
+    ChatSidebar: ({ variant, onNewChat, onSelect, onSessionsLoaded, onOrderComputed, onContactEmployee }: {
+      variant?: string
+      onNewChat: () => void
+      onSelect: (id: string) => void
+      onSessionsLoaded?: (sessions: { id: string }[]) => void
+      onOrderComputed?: (order: unknown) => void
+      onContactEmployee?: (name: string) => void
+    }) => {
+      const announced = useRef(false)
+      useEffect(() => {
+        if (variant !== 'mobile' || announced.current) return
+        announced.current = true
+        onSessionsLoaded?.(sessionIds.map((id) => ({ id })))
+      })
+      useEffect(() => {
+        onOrderComputed?.({ sessionIds, employeeNames: [], employeeSessionMap: {} })
+      }, [onOrderComputed])
+      return (
+        <div data-testid="chat-sidebar">
+          <button type="button" onClick={onNewChat}>Start empty chat</button>
+          {variant === 'mobile' && sessionIds.map((id) => (
+            <button key={id} type="button" data-testid={`list-row-${id}`} onClick={() => onSelect(id)} />
+          ))}
+          {variant === 'mobile' && (
+            <button type="button" data-testid="contact-employee" onClick={() => onContactEmployee?.('alpha')} />
+          )}
+        </div>
+      )
+    },
+    pickDeleteFallbackId: () => null,
+  }
+})
 
 vi.mock('@/hooks/use-chat-tabs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/use-chat-tabs')>()
@@ -113,14 +157,18 @@ export function emit(event: string, payload: unknown) {
 
 function BackProbe() {
   const navigate = useNavigate()
-  return <button type="button" onClick={() => navigate(-1)}>Test browser back</button>
+  const location = useLocation()
+  return <><output data-testid="route-location">{location.pathname}{location.search}</output><button type="button" onClick={() => navigate(-1)}>Test browser back</button></>
 }
 
-export function renderRoute(initialEntry = '/?session=a'): { unmount: () => void } {
+type RouteEntry = string | { pathname: string; search?: string; state?: unknown }
+
+export function renderRoute(initialEntry: RouteEntry | RouteEntry[] = '/?session=a'): { unmount: () => void } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const initialEntries = Array.isArray(initialEntry) ? initialEntry : [initialEntry]
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter initialEntries={initialEntries} initialIndex={initialEntries.length - 1}>
         <BackProbe />
         <Routes><Route path="/" element={<ChatPageWrapper />} /></Routes>
       </MemoryRouter>

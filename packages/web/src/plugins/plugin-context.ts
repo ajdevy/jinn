@@ -11,6 +11,7 @@
 import { contributions } from '@/contrib/registry'
 import type { Contribution, ContributionSource } from '@/contrib/types'
 import { authFetch } from '@/lib/auth'
+import { gatewayTransport } from '@/lib/gateway-transport'
 import type { KVStore } from '@/lib/view-mode'
 
 /** Namespaced JSON persistence. Keys live under `jinn.plugin.<id>.`, so one
@@ -104,9 +105,8 @@ export function pluginBackendPath(pluginId: string, suffix: string): string {
  * Exported so a test can read the URL a context builds rather than infer it.
  */
 export function pluginEventsUrl(pluginId: string, since?: number): string {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const query = since === undefined ? '' : `?since=${encodeURIComponent(String(since))}`
-  return `${protocol}//${location.host}/api/plugins/${pluginId}/events${query}`
+  return gatewayTransport().socketUrl(`/api/plugins/${pluginId}/events${query}`)
 }
 
 function subscribeToPluginEvents(
@@ -114,7 +114,8 @@ function subscribeToPluginEvents(
   handler: PluginEventHandler,
   options?: PluginEventsOptions,
 ): () => void {
-  const socket = new WebSocket(pluginEventsUrl(pluginId, options?.since))
+  const query = options?.since === undefined ? '' : `?since=${encodeURIComponent(String(options.since))}`
+  const socket = gatewayTransport().openSocket(`/api/plugins/${pluginId}/events${query}`)
 
   socket.addEventListener('message', (frame: MessageEvent) => {
     let page: PluginEventFrame

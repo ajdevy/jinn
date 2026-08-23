@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../../page'
 
-/* The Engines section as the operator drives it: chains are edited into the
+/* The Engine Fallbacks section as the operator drives it: chains are edited into the
  * page's config state and land on the wire through the page's own Save Config
  * button, so every assertion here is about what `api.updateConfig` receives. */
 
@@ -87,7 +87,13 @@ beforeEach(() => {
   fetchTalkCapability.mockResolvedValue({ configured: true, provider: 'openai', providers: ['openai'] })
 })
 
-describe('Engines section', () => {
+describe('Engine Fallbacks section', () => {
+  it('is titled for what it configures — the chain a limited engine falls through to', async () => {
+    await renderSettings()
+
+    expect(screen.getByText('Engine Fallbacks')).toBeTruthy()
+  })
+
   it('lists every engine with its installed state, default model and health', async () => {
     await renderSettings()
     const localTime = new Date(EXHAUSTED_UNTIL).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -137,6 +143,30 @@ describe('Engines section', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Move Grok earlier in the Claude chain' }))
     expect(chainRows('claude')).toEqual(['grok', 'codex'])
     expect((await save()).engines.claude.fallback).toEqual(['grok', 'codex'])
+  })
+
+  it('shows the model map read-only, on the engine that falls through rather than the stand-in', async () => {
+    apiMocks.getConfig.mockResolvedValue({
+      engines: {
+        claude: { fallback: ['codex'] },
+        codex: { fallback: ['claude'], fallbackModelMap: { 'gpt-5.6-luna': 'haiku' } },
+      },
+    })
+    await renderSettings()
+    const codexCard = document.querySelector('[data-engine-card="codex"]') as HTMLElement
+
+    expect(within(codexCard).getByText('Models carried onto the stand-in')).toBeTruthy()
+    expect(within(codexCard).getByText('gpt-5.6-luna → haiku')).toBeTruthy()
+    // Editing stays in config.yaml — the section offers no control over the map.
+    expect(within(codexCard).queryByRole('textbox')).toBeNull()
+    expect(document.querySelector('[data-engine-card="claude"] [data-model-map-pair]')).toBeNull()
+  })
+
+  it('renders nothing extra for an engine with no model map', async () => {
+    await renderSettings()
+
+    expect(document.querySelectorAll('[data-model-map-pair]').length).toBe(0)
+    expect(screen.queryByText('Models carried onto the stand-in')).toBeNull()
   })
 
   it('surfaces a failed save and leaves the edited chain on screen', async () => {

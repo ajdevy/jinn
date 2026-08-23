@@ -5,6 +5,13 @@ import "@xterm/xterm/css/xterm.css";
 import { usePageVisibility } from "../hooks/use-page-visibility";
 import { dlog } from "../lib/debug-log";
 import { nextReconnectDelay } from "../lib/ws-backoff";
+import {
+  GATEWAY_SOCKET_CLOSED,
+  GATEWAY_SOCKET_CLOSING,
+  GATEWAY_SOCKET_OPEN,
+  gatewayTransport,
+  type GatewaySocketConnection,
+} from "../lib/gateway-transport";
 
 /**
  * Theme-aware xterm color palettes. The app exposes exactly two visual themes
@@ -87,18 +94,6 @@ function resolveXtermFont(): string {
   return v || '"IBM Plex Mono", monospace';
 }
 
-function getPtyWsUrl(sessionId: string): string {
-  const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL;
-  if (gatewayUrl) {
-    return `${gatewayUrl.replace(/^http/, "ws")}/ws/pty/${sessionId}`;
-  }
-  if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/ws/pty/${sessionId}`;
-  }
-  return `ws://127.0.0.1:7777/ws/pty/${sessionId}`;
-}
-
 /**
  * Live xterm.js view onto a session's interactive `claude` PTY, served over /ws/pty/:sessionId.
  *
@@ -124,7 +119,7 @@ type TerminalRecoveryState =
 
 export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(function CliTerminal({ sessionId }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<GatewaySocketConnection | null>(null);
   // Lets the visibility effect (a separate effect) recover a dead socket without
   // leaking the per-session connect closure out of the main effect.
   const reconnectRef = useRef<(() => void) | null>(null);
@@ -134,7 +129,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
 
   const restartTerminal = () => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== GATEWAY_SOCKET_OPEN) return;
     setTerminalState({ status: "restoring" });
     ws.send(JSON.stringify({ type: "restart" }));
   };
@@ -142,7 +137,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
   useImperativeHandle(ref, () => ({
     sendKey(data: string) {
       const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!ws || ws.readyState !== GATEWAY_SOCKET_OPEN) return;
       ws.send(JSON.stringify({ type: "key", data }));
     },
   }), []);
@@ -175,8 +170,6 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
     // would lock xterm to ~0 cols and the backend PTY would render claude's
     // TUI at that bogus width. scheduleFit() below (run in rAF + on first
     // ResizeObserver tick) fits at real dimensions and emits the resize then.
-
-    const wsUrl = getPtyWsUrl(sessionId);
 
     // iOS Safari renders certain monochrome TUI glyphs (⏺ U+23FA, ⏵ U+23F5, etc.)
     // as colour emoji when the font lacks a text glyph. Appending U+FE0E (text
@@ -245,7 +238,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
 
     const connect = (isReconnect: boolean) => {
       if (closed) return;
-      const ws = new WebSocket(wsUrl);
+      const ws = gatewayTransport().openSocket(`/ws/pty/${encodeURIComponent(sessionId)}`);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
@@ -298,10 +291,10 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
     const reconnectNow = () => {
       if (closed) return;
       const cur = wsRef.current;
-      if (cur && cur.readyState === WebSocket.OPEN) return;
+      if (cur && cur.readyState === GATEWAY_SOCKET_OPEN) return;
       if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       attempt = 0;
-      if (cur && cur.readyState !== WebSocket.CLOSED) {
+      if (cur && cur.readyState !== GATEWAY_SOCKET_CLOSED) {
         // Detach so the stale socket's onclose can't schedule a duplicate reconnect.
         cur.onclose = null;
         cur.onerror = null;
@@ -336,7 +329,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
         fitCount++;
         dlog("xterm", `fit#${fitCount} wrapper=${rect.width.toFixed(0)}x${rect.height.toFixed(0)} cols=${term.cols} rows=${term.rows}`);
         const ws = wsRef.current;
-        if (term.cols > 0 && term.rows > 0 && ws && ws.readyState === WebSocket.OPEN) {
+        if (term.cols > 0 && term.rows > 0 && ws && ws.readyState === GATEWAY_SOCKET_OPEN) {
           ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
           dlog("xterm", `ws.send resize cols=${term.cols} rows=${term.rows}`);
         }
@@ -432,7 +425,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
         ws.onerror = null;
         // Explicit viewing:false before close so the backend decrements promptly
         // (close handler also decrements as a safety net, but this is cleaner).
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === GATEWAY_SOCKET_OPEN) {
           try { ws.send(JSON.stringify({ type: "viewing", viewing: false })); } catch { /* ignore */ }
         }
         ws.close();
@@ -456,15 +449,15 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
       // Only force a reconnect for a socket that has actually failed
       // (CLOSING/CLOSED). A CONNECTING socket — e.g. the initial one on mount —
       // is mid-handshake and must be left alone; its onopen will report viewing.
-      if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+      if (!ws || ws.readyState === GATEWAY_SOCKET_CLOSING || ws.readyState === GATEWAY_SOCKET_CLOSED) {
         reconnectRef.current?.();
         return;
       }
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === GATEWAY_SOCKET_OPEN) {
         try { ws.send(JSON.stringify({ type: "viewing", viewing: true })); } catch { /* ignore */ }
         window.dispatchEvent(new Event("resize"));
       }
-    } else if (ws && ws.readyState === WebSocket.OPEN) {
+    } else if (ws && ws.readyState === GATEWAY_SOCKET_OPEN) {
       try { ws.send(JSON.stringify({ type: "viewing", viewing: false })); } catch { /* ignore */ }
     }
   }, [visible]);

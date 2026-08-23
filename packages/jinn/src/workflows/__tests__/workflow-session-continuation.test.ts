@@ -122,6 +122,9 @@ async function runBothPhases(authored: WorkflowDefinition): Promise<string> {
   await vi.waitFor(() => expect(engine.calls).toHaveLength(1));
   engine.resolve({ sessionId: "native-round-1", result: "Done.\n```jinn-output\n{}\n```", durationMs: 1 });
   await vi.waitFor(() => expect(engine.calls).toHaveLength(2));
+  await vi.waitFor(() => expect(
+    repository.getRun(authored.id, started.id)?.attempts.some((attempt) => attempt.nodeId === "second"),
+  ).toBe(true));
   return started.id;
 }
 

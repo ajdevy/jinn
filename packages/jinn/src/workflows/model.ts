@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { nodeFallbackSchema } from './engine-chain.js';
-import { FORBIDDEN_PATH_SEGMENTS, jsonValueSchema, normalizedSchema } from './json-schema.js';
+import { jsonValueSchema, normalizedSchema, pathSegmentSchema } from './json-schema.js';
 import type { JsonValue } from './json-schema.js';
 import { triggerConfigSchema } from './trigger-config-schema.js';
 
@@ -27,10 +27,6 @@ export const nodeIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/, 'Invalid
 const promptSchema = z.string().refine((value) => utf8Bytes(value) <= MAX_PROMPT_BYTES, 'Prompt must be at most 32 KiB');
 const edgeIdSchema = z.string().min(1).max(128);
 const portSchema = z.string().min(1);
-const pathSegmentSchema = z.string()
-  .max(256)
-  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/, 'Invalid path segment')
-  .refine((segment) => !FORBIDDEN_PATH_SEGMENTS.has(segment), 'Unsafe path segment');
 
 const bindingPathSchema = z.string().min(1).max(256).superRefine((path, context) => {
   const segments = path.split('.');
@@ -92,7 +88,7 @@ const employeeNodeSchema = z.strictObject({
     /** Continue the engine session of a completed attempt of `nodeId` instead of dispatching cold; naming this node itself continues its own previous run for the same Todo. Its `prompt` replaces the one above whenever a continuation is found, so it carries the delta rather than the whole brief. */
     continueFrom: z.strictObject({ nodeId: nodeIdSchema, prompt: promptSchema }).optional(),
     engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(), fallback: nodeFallbackSchema.optional(),
-    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
+    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(), mutex: z.string().min(1).max(60).optional(), // one live node at a time per mutex key, held only while a node run carrying it is live (node-mutex.ts)
   }),
 });
 const conditionPredicateSchema = z.strictObject({
@@ -192,11 +188,13 @@ const waitNodeSchema = z.strictObject({
   name: z.string().min(1).max(80),
   config: waitConfigSchema,
 });
+/** What a success End demands of the work it authorizes before a bound Todo may close: the output field the named node has to have reported the landed commit in, and optionally the node field naming the checkout that commit must be on `main` in. Reaching an End is not evidence that anything landed; this is. */
+const landingRequirementSchema = z.strictObject({ nodeId: nodeIdSchema, field: pathSegmentSchema, commitIn: z.strictObject({ nodeId: nodeIdSchema, field: pathSegmentSchema }).optional() });
 const endNodeSchema = z.strictObject({
   id: nodeIdSchema,
   type: z.literal('end'),
   name: z.string().min(1).max(80),
-  config: z.strictObject({ result: z.enum(['success', 'failure']), message: z.string().optional(), output: bindingSchema.optional() }),
+  config: z.strictObject({ result: z.enum(['success', 'failure']), message: z.string().optional(), output: bindingSchema.optional(), requires: landingRequirementSchema.optional() }),
 });
 const rawWorkflowNodeSchema = z.discriminatedUnion('type', [
   triggerNodeSchema,

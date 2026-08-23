@@ -51,7 +51,6 @@ const openTodos: TalkTool = {
   name: "open_todos",
   description:
     'Open the Todo board, optionally scoped and filtered. Use board "home" for anything the operator describes as theirs — "todos I started", "my requests", "what I am following".',
-  exposure: "always",
   parameters: params({
     board: BOARD,
     status: STATUS,
@@ -65,13 +64,11 @@ const openTodos: TalkTool = {
   execute: (args: ToolArgs) => go(todosPath(args)),
 }
 
-// `resolve_and_open` takes every input this accepts and adds the rest, so it
-// holds the always-on slot and this stays reachable for a caller that already
-// knows it is a Todo.
+// `resolve_and_open` accepts everything this does and more; this stays for a
+// caller that already knows it is a Todo.
 const openTodo: TalkTool = {
   name: "open_todo",
   description: 'Open one Todo\'s page. The id may be spoken with its prefix ("ABC-59") or as a bare number ("59").',
-  exposure: "on-intent",
   parameters: params({ id: str("The Todo id.") }, ["id"]),
   execute: (args: ToolArgs) => {
     const resolved = resolveTodoId(args.id, companyTodoPrefix())
@@ -83,7 +80,6 @@ const openTodo: TalkTool = {
 const openWorkflows: TalkTool = {
   name: "open_workflows",
   description: "Open the Workflow list, or one workflow by id. Ask for the runs lens to see its run history instead of its editor.",
-  exposure: "on-intent",
   parameters: params({
     id: str("The workflow id, which is a slug such as \"nightly-digest\"."),
     lens: str("Which lens to open the workflow in.", ["editor", "runs"]),
@@ -94,7 +90,6 @@ const openWorkflows: TalkTool = {
 const openExperiments: TalkTool = {
   name: "open_experiments",
   description: "Open the Experiments list, or one experiment by id.",
-  exposure: "on-intent",
   parameters: params({ id: str("The experiment id.") }),
   execute: (args: ToolArgs) => go(experimentPath(args)),
 }
@@ -102,7 +97,6 @@ const openExperiments: TalkTool = {
 const openChats: TalkTool = {
   name: "open_chats",
   description: "Open chat, or one session by id.",
-  exposure: "always",
   parameters: params({ sessionId: str("The session id to select.") }),
   execute: (args: ToolArgs) => go(chatPath(args)),
 }
@@ -110,7 +104,6 @@ const openChats: TalkTool = {
 const openOrg: TalkTool = {
   name: "open_org",
   description: "Open the org chart, optionally selecting one employee.",
-  exposure: "on-intent",
   parameters: params({ employee: str("The employee name to select, such as \"a-lead\".") }),
   execute: (args: ToolArgs) => go(orgPath(args)),
 }
@@ -118,7 +111,6 @@ const openOrg: TalkTool = {
 const openCron: TalkTool = {
   name: "open_cron",
   description: "Open the scheduled jobs, one job by id, the week view, or the jobs filtered by whether they are enabled.",
-  exposure: "on-intent",
   parameters: params({
     id: str("The cron job id."),
     lens: str("Which lens to open.", ["jobs", "week"]),

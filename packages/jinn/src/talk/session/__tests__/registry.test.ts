@@ -19,7 +19,6 @@ describe("TalkSessionRegistry lifecycle", () => {
     const session = openOne(registry);
     expect(session.state).toBe("live");
     expect(session.exposedTools).toEqual(allTools().map((tool) => tool.name));
-    expect(session.expandedIntents).toEqual([]);
   });
 
   it("survives repeated reads without being bound to anything", () => {
@@ -103,7 +102,7 @@ describe("TalkSessionRegistry reaper", () => {
   });
 });
 
-describe("TalkSessionRegistry turns and tools", () => {
+describe("TalkSessionRegistry turns", () => {
   it("truncates oldest-first, counts what it dropped, and keeps the newest turn", () => {
     const registry = new TalkSessionRegistry(clockAt().now);
     const session = openOne(registry);
@@ -128,24 +127,11 @@ describe("TalkSessionRegistry turns and tools", () => {
     expect(result.handoffSuggested).toBe(true);
   });
 
-  it("does not progressively add tools after the universal manifest is exposed", () => {
-    const registry = new TalkSessionRegistry(clockAt().now);
-    const session = openOne(registry);
-
-    const first = registry.exposeTools(session.id, ["todos"]);
-    expect(first).toEqual([]);
-
-    const second = registry.exposeTools(session.id, ["todos"]);
-    expect(second).toEqual([]);
-    expect(registry.get(session.id)!.exposedTools).toEqual(allTools().map((tool) => tool.name));
-  });
-
-  it("refuses turns and tool expansion on a closed session", () => {
+  it("refuses turns on a closed session", () => {
     const registry = new TalkSessionRegistry(clockAt().now);
     const session = openOne(registry);
     registry.close(session.id);
     expect(() => registry.appendTurn(session.id, "hello")).toThrow(TalkSessionError);
-    expect(() => registry.exposeTools(session.id, ["todos"])).toThrow(TalkSessionError);
   });
 });
 

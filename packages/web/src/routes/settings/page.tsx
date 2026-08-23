@@ -5,10 +5,9 @@ import { PageLayout } from "@/components/page-layout"
 import { useSettings } from "@/routes/settings-provider"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
+import { authFetch } from "@/lib/auth"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { useOnboarding } from "@/hooks/use-onboarding"
-import { RemoteAccessPanel } from "@/components/auth/remote-access-panel"
-import { useAuth } from "@/routes/auth-provider"
 import { cn } from "@/lib/utils"
 import { resolveTodoIdPrefix } from "@/lib/todo-id"
 import {
@@ -25,6 +24,8 @@ import type { EnginesConfig } from "./engines/chain-model"
 import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
+import { PairingSection } from "./pairing-section"
+import { ShortcutsSection } from "./shortcuts-section"
 import {
   CONTROL_CLASS,
   FieldRow,
@@ -156,7 +157,6 @@ export default function SettingsPage() {
     setTalkOrb,
     resetAll,
   } = useSettings()
-  const auth = useAuth()
 
   // Local branding inputs
   const [companyNameValue, setCompanyNameValue] = useState(settings.companyName ?? "")
@@ -259,18 +259,17 @@ export default function SettingsPage() {
   // Poll for WhatsApp QR code when WhatsApp connector is configured
   useEffect(() => {
     if (!config.connectors?.whatsapp) return
-
     let cancelled = false
 
     async function checkQr() {
       try {
-        const statusRes = await fetch("/api/status")
+        const statusRes = await authFetch("/api/status")
         const status = await statusRes.json()
         const connStatus = status?.connectors?.whatsapp?.status
         if (!cancelled) setWaStatus(connStatus ?? "unknown")
 
         if (connStatus === "qr_pending") {
-          const qrRes = await fetch("/api/connectors/whatsapp/qr")
+          const qrRes = await authFetch("/api/connectors/whatsapp/qr")
           const data = await qrRes.json()
           if (!cancelled) setWaQr(data.qr)
         } else {
@@ -613,16 +612,9 @@ export default function SettingsPage() {
             </div>
           </Section>
 
-          {/* -- Pairing -- */}
-          <Section title="Pairing">
-            <RemoteAccessPanel
-              authState={auth.authState}
-              devices={auth.devices}
-              onCreatePairingCode={auth.createPairingCode}
-              onLogout={auth.logout}
-              onUnpairDevice={auth.unpairDevice}
-            />
-          </Section>
+          <PairingSection />
+
+          <ShortcutsSection />
 
           {/* Gateway config feedback */}
           {feedback && (
@@ -916,7 +908,7 @@ export default function SettingsPage() {
                 </FieldRow>
               </Section>
 
-              {/* -- Section 4b: Engines — health and fallback chains -- */}
+              {/* -- Section 4b: Engine Fallbacks — health and fallback chains -- */}
               <EnginesSection
                 engines={config.engines}
                 sessions={config.sessions}

@@ -208,7 +208,7 @@ function seedTalk(runtime, database, refs) {
     openedAt: FIXTURE_CLOCK, lastSeenAt: FIXTURE_CLOCK + 20_000,
     turns: [{ at: FIXTURE_CLOCK + 10_000, text: "Remember the twelve local topics and return to the first after cooling.", estimatedTokens: 24 }],
     truncatedTurns: 0, tokenExpiresAt: Math.floor(FIXTURE_CLOCK / 1_000) + 3_600,
-    exposedTools: runtime.tools.alwaysOnTools().map(({ name }) => name), expandedIntents: [], actions: [], visualReceiptKeys: [] })
+    exposedTools: runtime.tools.allTools().map(({ name }) => name), actions: [], visualReceiptKeys: [] })
   const topics = new runtime.topics.TalkTopicRepository(database)
   topics.replaceSession(TALK_SESSION_ID, fixtureTopics(refs))
   topics.saveNavigation({ talkSessionId: TALK_SESSION_ID, currentTopicId: "talk-topic-01-blocked-release",

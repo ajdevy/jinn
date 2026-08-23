@@ -6,22 +6,18 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { JinnConfig, Connector, Engine, Session, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
+import type { JinnConfig, Connector, Engine, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
 import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
   getModelRegistry,
   invalidateModelRegistry,
   type EngineName, type PtyViewEngineName,
-  refreshAntigravityModels,
-  refreshClaudeModels,
-  refreshCodexModels,
-  refreshGrokModels,
-  refreshHermesModels,
-  refreshPiModels,
 } from "../shared/models.js";
 import { configureLogger, logger } from "../shared/logger.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
-import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, listAllSessionIds, RESTART_ACK_META_KEY } from "../sessions/registry.js";
+import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, getSession, getMessages, getSessionSpend, listAllSessionIds } from "../sessions/registry.js";
+import { getPackageVersion } from "../shared/version.js";
+import { interruptRunningSessionsForShutdown, resumeRestartInterruptedSessions } from "../sessions/restart-resume.js";
 import { initDb } from "../shared/db.js";
 import { SessionManager, type RouteOptions } from "../sessions/manager.js";
 import { recoverSessionDeliveryStateOnStartup } from "../sessions/callbacks.js";
@@ -36,6 +32,7 @@ import { GrokInteractiveEngine } from "../engines/grok-interactive.js";
 import { HermesAcpEngine } from "../engines/hermes-acp.js";
 import { HermesInteractiveEngine } from "../engines/hermes-interactive.js";
 import type { PtyViewEngine } from "../engines/pty-view-engine.js";
+import { startBackgroundRefreshes } from "./background-refresh.js";
 import { HookRegistry } from "./hook-registry.js";
 import { writeGatewayInfo, readGatewayInfo, updateGatewayPtyPids, startupGatewayPids, gatewayBaseUrl } from "./gateway-info.js";
 import { authenticateGatewayRequest, authRequiredForRequest, ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure, verifyGatewayAuth } from "./auth.js";
@@ -72,33 +69,6 @@ import { WorkflowSessionExecutor } from "../workflows/session-executor.js";
 import { WorkflowService } from "../workflows/service.js";
 import { createTalkProactiveGatewayEmit } from "./talk-proactive-events.js";
 
-function hasRestartAcknowledgement(session: Session): boolean {
-  const meta = session.transportMeta;
-  return Boolean(meta && typeof meta === "object" && !Array.isArray(meta) && typeof meta[RESTART_ACK_META_KEY] === "string");
-}
-
-/** Preserve running conversational Sessions for resume. Exported as a shutdown test seam. */
-export function interruptRunningSessionsForShutdown(): void {
-  for (const session of listSessions({ status: "running" })) {
-    if (hasRestartAcknowledgement(session)) {
-      updateSession(session.id, {
-        status: "idle",
-        attemptOutcome: "interrupted",
-        lastActivity: new Date().toISOString(),
-        lastError: null,
-      });
-      logger.info(`Left restart-requesting session ${session.id} idle during gateway shutdown`);
-      continue;
-    }
-    updateSession(session.id, {
-      status: "interrupted",
-      attemptOutcome: "interrupted",
-      lastActivity: new Date().toISOString(),
-      lastError: "Interrupted: gateway shutting down gracefully",
-    });
-    logger.info(`Marked session ${session.id} as interrupted for resume`);
-  }
-}
 import { startWsHeartbeat, trackHeartbeat } from "./ws-heartbeat.js";
 import { ensureFilesDir, cleanupOldUploads } from "./files.js";
 import { initStt } from "../stt/stt.js";
@@ -156,15 +126,6 @@ export function isAllowedCorsOrigin(origin: string | undefined, requestHost?: st
   if (reqHostname && reqHostname === host) return true;
   return false;
 }
-
-/**
- * How often to re-run dynamic engine model discovery while the gateway is up.
- * Discovery otherwise only runs on boot, on config reload, and as a post-failure
- * fallback — so a gateway with multi-day uptime keeps serving a stale catalog and
- * never sees a model published after it booted. Six hours is cheap (a handful of
- * short-lived CLI spawns plus one Anthropic catalog GET) and bounds that staleness.
- */
-export const MODEL_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 type RuntimeActivityInfo = {
   activeStreams: number;
@@ -805,28 +766,7 @@ export async function startGateway(
     onChange: ({ workflowId, runId }) => emit("company:changed", { entity: "workflow-run", workflowId, runId }),
     onDefinitionChange: ({ workflowId, revision }) => emit("company:changed", { entity: "workflow-definition", id: workflowId, revision }) });
 
-  // Discover dynamic engine models in the background. Fire-and-forget: the
-  // registry serves known/synthesized fallbacks until the snapshots land, then
-  // the web UI invalidates its model registry cache via engines:updated.
-  const refreshDynamicModels = (cfg: JinnConfig): void => {
-    void Promise.all([
-      refreshClaudeModels(cfg),
-      refreshCodexModels(cfg),
-      refreshAntigravityModels(cfg),
-      refreshPiModels(cfg),
-      refreshGrokModels(cfg),
-      refreshHermesModels(cfg),
-    ])
-      .finally(() => emit("engines:updated", {}));
-  };
-  refreshDynamicModels(currentConfig);
-  // Re-discover periodically so a long-lived gateway picks up models published
-  // after boot. Reads `currentConfig` at fire time (not the boot snapshot) so a
-  // config reload between ticks is respected. unref'd: never holds the process open.
-  const modelRefreshTimer = setInterval(() => {
-    refreshDynamicModels(currentConfig);
-  }, MODEL_REFRESH_INTERVAL_MS);
-  modelRefreshTimer.unref?.();
+  const backgroundRefreshes = startBackgroundRefreshes(() => currentConfig, emit);
 
   // Synchronously re-scan org/ into the in-memory registry. Shared by the API
   // employee-update handler (immediate refresh, no watcher lag) and the chokidar
@@ -929,7 +869,7 @@ export async function startGateway(
       sessionManager.setConfig(currentConfig);
       applyLateralHopConfig(currentConfig);
       invalidateModelRegistry(); // rebuild the model/capability registry from the new config
-      refreshDynamicModels(currentConfig); // re-discover dynamic models (engine bins/auth may have changed)
+      backgroundRefreshes.refreshModels(); // engine bins/auth may have changed
       // GRS-017e: re-arm (or disarm) the jinn-attachment smoke gate for the new
       // config, so the operator's one-line `mcp.gateway.enabled: true` flip in
       // config.yaml gets its authed smoke check without a gateway restart.
@@ -1242,6 +1182,13 @@ export async function startGateway(
     logger.warn(`Surfaced ${callbackRecovery.orphanedRecovered} orphaned delegation completion claim(s) after restart`);
   }
 
+  // Every session the previous process was mid-turn on is still sitting on a
+  // half-finished turn. Nudge each one to carry on. Last of the recovery steps
+  // on purpose: after the queue replay so a session already re-dispatched there
+  // is not resumed twice, and after the delivery sweep above so the fresh claims
+  // keep the stagger they were planned with instead of being flushed at once.
+  resumeRestartInterruptedSessions(getPackageVersion());
+
   // Prevent macOS from sleeping while the gateway is running
   let caffeinate: ChildProcess | null = null;
   if (process.platform === "darwin") {
@@ -1263,7 +1210,7 @@ export async function startGateway(
 
     // Stop the periodic sweeps before we start marking sessions interrupted below — a mid-shutdown sweep must not race the teardown.
     stopStatusReconciler(); stopWorkItemReconciler(); stopAvailabilityResumes(); stopHeartbeatScheduler();
-    clearInterval(modelRefreshTimer);
+    backgroundRefreshes.stop();
     workflowService.dispose(); workflowDatabase.close();
 
     // Stop caffeinate

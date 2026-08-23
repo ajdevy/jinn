@@ -267,7 +267,7 @@ describe("the instance read verbs", () => {
 
   it("summarises run history the way the route does, dropping what it does not allow", async () => {
     expect(await host.createPluginHost("mailbox").cron.runs("digest")).toEqual([
-      { id: "run-9", jobId: "digest", status: "success", durationMs: 1200 },
+      { status: "success", durationMs: 1200 },
     ]);
   });
 

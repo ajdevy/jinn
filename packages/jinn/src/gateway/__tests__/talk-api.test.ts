@@ -215,7 +215,7 @@ describe("park and resume", () => {
   });
 });
 
-describe("progressive tool exposure", () => {
+describe("the minted tool catalog", () => {
   it("mints the opening credential with the authoritative universal set", async () => {
     const body = await open();
     const expected = buildTalkControlManifest().operations.map((operation) => operation.name);
@@ -224,36 +224,13 @@ describe("progressive tool exposure", () => {
     expect(sent.session.tools.map((tool) => tool.name)).toEqual(expected);
   });
 
-  it("does not add a duplicate catalog for a known intent", async () => {
-    const opened = await open();
-    const id = opened.id as string;
-    const before = opened.toolTokens as number;
-
-    const first = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
-    expect(first.status).toBe(200);
-    expect(first.body.tools).toEqual([]);
-    expect(first.body.toolTokens).toBe(before);
-
-    const second = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
-    expect(second.body.tools).toEqual([]);
-    expect(second.body.toolTokens).toBe(first.body.toolTokens);
-  });
-
   it("re-mints against the same universal manifest", async () => {
     const id = (await open()).id as string;
-    await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["todos"] });
     await call(config, "POST", `/api/talk/sessions/${id}/token`);
 
     const sent = minting.calls.at(-1)!.body as { session: { tools: Array<{ name: string }> } };
     expect(sent.session.tools.map((tool) => tool.name))
       .toEqual(buildTalkControlManifest().operations.map((operation) => operation.name));
-  });
-
-  it("rejects an unknown intent with 400 naming the ones it knows", async () => {
-    const id = (await open()).id as string;
-    const res = await call(config, "POST", `/api/talk/sessions/${id}/tools`, { intents: ["telepathy"] });
-    expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/todos/);
   });
 });
 

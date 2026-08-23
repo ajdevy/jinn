@@ -12,6 +12,11 @@ import { vi } from 'vitest'
  * row's rect is derived from the `translateY` the virtualizer itself wrote, so
  * what a test reads back is the list's own arithmetic and not a second model of it.
  *
+ * The virtual block does not have to start at the scrollport's top: a header
+ * padding or a row rendered above it push everything down by `blockOffset`,
+ * which is the coordinate gap a list has to declare as `scrollMargin`. It reads
+ * live, so a test can mount something above the block and watch what moves.
+ *
  * Install it BEFORE rendering: the first measurement happens on mount.
  */
 
@@ -42,6 +47,9 @@ export interface VirtualLayout {
   release: () => void
 }
 
+/** How far below the scrollport's top the virtual block starts. */
+export type BlockOffset = () => number
+
 /** The one scroll position the spies and the scroller both read and write. */
 interface ScrollState {
   top: number
@@ -57,12 +65,19 @@ function rowStart(host: HTMLElement): number {
   return Number(/translateY\((-?[\d.]+)px\)/.exec(host.style.transform)?.[1] ?? 0)
 }
 
+/** The spacer the rows are absolutely positioned inside — the one element whose
+ *  children are the rows themselves. */
+function isBlock(el: HTMLElement): boolean {
+  return el.firstElementChild?.hasAttribute('data-index') === true
+}
+
 /** Teach jsdom the one geometry this harness models. Returns the undo. */
 function installMeasurementSpies(
   rowHeight: RowHeight,
   viewportHeight: number,
   targets: VirtualLayoutTargets,
   state: ScrollState,
+  blockOffset: BlockOffset,
 ): () => void {
   const isScroller = (el: HTMLElement) => el.matches(targets.scroller)
   const heightOf = typeof rowHeight === 'function' ? rowHeight : () => rowHeight
@@ -74,20 +89,28 @@ function installMeasurementSpies(
   const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
       if (isScroller(this)) return domRect(0, viewportHeight)
+      const blockTop = blockOffset() - state.top
+      if (isBlock(this)) return domRect(blockTop, parseFloat(this.style.height) || 0)
       const host = this.closest<HTMLElement>('[data-index]')
-      return host ? domRect(rowStart(host) - state.top, heightOf(host)) : domRect(0, 0)
+      return host ? domRect(blockTop + rowStart(host), heightOf(host)) : domRect(0, 0)
     })
   return () => { heightSpy.mockRestore(); rectSpy.mockRestore() }
 }
 
 /** Give one scroller the scroll position jsdom keeps at a constant zero. */
-function bindScroller(node: HTMLDivElement, viewportHeight: number, state: ScrollState): void {
+function bindScroller(
+  node: HTMLDivElement,
+  viewportHeight: number,
+  state: ScrollState,
+  blockOffset: BlockOffset,
+): void {
   Object.defineProperty(node, 'clientHeight', { configurable: true, get: () => viewportHeight })
   // The spacer the virtualizer sizes IS the scrollable content, so reading its
-  // height back is what a browser would report for the scroller.
+  // height back — plus whatever sits above it — is what a browser would report
+  // for the scroller.
   state.contentHeight = () => {
     const spacer = node.querySelector<HTMLElement>('[data-index]')?.parentElement
-    return spacer ? parseFloat(spacer.style.height) || 0 : 0
+    return spacer ? blockOffset() + (parseFloat(spacer.style.height) || 0) : 0
   }
   Object.defineProperty(node, 'scrollHeight', { configurable: true, get: () => state.contentHeight() })
   // Browsers clamp; without it a scroll past the end would stay past the end.
@@ -132,9 +155,10 @@ export function installVirtualLayout(
   rowHeight: RowHeight,
   viewportHeight: number,
   targets: VirtualLayoutTargets,
+  blockOffset: BlockOffset = () => 0,
 ): VirtualLayout {
   const state: ScrollState = { top: 0, contentHeight: () => 0 }
-  const release = installMeasurementSpies(rowHeight, viewportHeight, targets, state)
+  const release = installMeasurementSpies(rowHeight, viewportHeight, targets, state, blockOffset)
 
   // The scroller only exists once the list has rendered, so it is bound lazily.
   let bound: HTMLDivElement | null = null
@@ -142,7 +166,7 @@ export function installVirtualLayout(
     const node = document.querySelector(targets.scroller) as HTMLDivElement
     if (node !== bound) {
       bound = node
-      bindScroller(node, viewportHeight, state)
+      bindScroller(node, viewportHeight, state, blockOffset)
     }
     return node
   }

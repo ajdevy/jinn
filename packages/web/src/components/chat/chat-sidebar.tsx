@@ -1569,16 +1569,16 @@ export function ChatSidebar({
 
             <div className="flex-1" />
 
-            {/* GRS-022 — new-chat (compose) on the mobile chat LIST. Desktop
-                reaches compose from the thread header pill / ribbon, but on
-                mobile the list view has no header pill, so surface the SAME
-                compose action here (top-right, HIG). Mobile only.
+            {/* GRS-022 — new-chat (compose) in the chat LIST header. It remains
+                available on desktop when a multi-pane grid retires the thread
+                header pill, and owns the same action on the mobile list.
+                This is one shared action across both responsive surfaces.
                 GRS-023b — sits BEFORE search (order swapped per operator). */}
             <button
               onClick={onNewChat}
               title="New chat"
               aria-label="New chat"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-foreground lg:hidden"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-foreground"
             >
               <SquarePen className="size-[18px]" />
             </button>
@@ -1647,7 +1647,7 @@ export function ChatSidebar({
           className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
           style={{ background: "linear-gradient(to bottom, var(--sidebar-bg), transparent)" }}
         />
-        <div ref={scrollContainerRef} data-chat-list-scroll onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
+        <div ref={scrollContainerRef} data-chat-list-scroll data-scrollable onScroll={handleListScroll} className="h-full overflow-y-auto pb-[calc(49px+var(--safe-bottom))] lg:pb-0">
         {loading ? (
           <div className="px-4 py-8 text-center text-caption1 text-[var(--text-quaternary)]">
             Loading chats…

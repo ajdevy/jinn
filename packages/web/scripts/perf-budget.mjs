@@ -8,6 +8,12 @@ const assetsDir = path.join(packageRoot, "out", "assets")
 const budgets = JSON.parse(await readFile(path.join(packageRoot, "perf-budgets.json"), "utf8"))
 const assetNames = await readdir(assetsDir)
 const failures = []
+const forbiddenNativeDependencyMarkers = [
+  ["@tauri", "-apps/"].join(""),
+  ["@capac", "itor/"].join(""),
+  ["window", ".Capacitor"].join(""),
+  ["capac", "itor://"].join(""),
+]
 
 function matchAsset(pattern) {
   const [prefix, suffix] = pattern.split("*")
@@ -38,6 +44,18 @@ for (const [name, budget] of Object.entries(budgets.chunks)) {
     }
   }
 }
+
+let scannedJavaScriptAssets = 0
+for (const assetName of assetNames.filter((name) => name.endsWith(".js"))) {
+  const source = await readFile(path.join(assetsDir, assetName), "utf8")
+  scannedJavaScriptAssets += 1
+  for (const marker of forbiddenNativeDependencyMarkers) {
+    if (source.includes(marker)) {
+      failures.push(`${assetName}: production web bundle contains native dependency marker "${marker}"`)
+    }
+  }
+}
+console.log(`${"web boundary".padEnd(14)} ${String(scannedJavaScriptAssets).padStart(7)} JS assets scanned`)
 
 const indexHtml = await readFile(path.join(packageRoot, "out", "index.html"), "utf8")
 const initialAssetNames = [...indexHtml.matchAll(/(?:src|href)="\/assets\/([^"]+\.js)"/g)]

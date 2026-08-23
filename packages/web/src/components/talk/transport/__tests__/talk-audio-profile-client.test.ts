@@ -17,7 +17,6 @@ const MANIFEST = {
       additionalProperties: false,
     },
     target: "gateway",
-    exposure: "always",
     intent: "todos",
     mutability: "read",
     operatorOnly: false,

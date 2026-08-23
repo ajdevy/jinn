@@ -540,7 +540,7 @@ describe("work-item tools — integration against the real API + store", () => {
     )) as { workItem: { id: string; approvalState: null } };
     expect(created.workItem.approvalState).toBeNull();
 
-    const found = (await tool("search_work_items").handler({ text: "%_\\", status: "backlog" }, ctx)) as {
+    const found = (await tool("search_work_items").handler({ text: "Literal %_\\", status: "backlog" }, ctx)) as {
       workItems: Array<{ id: string }>;
     };
     expect(found.workItems.map((w) => w.id)).toContain(created.workItem.id);

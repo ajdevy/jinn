@@ -24,7 +24,6 @@ const operation = {
     additionalProperties: false as const,
   },
   target: "gateway" as const,
-  exposure: "always" as const,
   intent: "todos",
   mutability: "write" as const,
   operatorOnly: true,

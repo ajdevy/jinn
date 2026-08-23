@@ -1,7 +1,0 @@
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "What the shell's own windows may call. The page `main` loads is the gateway's, served from a remote origin, and no `remote` entry appears here on purpose: a capability without one exposes no Tauri IPC to a remote page at all, so the gateway UI cannot reach the window-state or deep-link plugins even though the shell uses both. Everything the shell does natively, it does from Rust. `probe` is the shell's own local page and needs IPC to hand its reading back.",
-  "windows": ["main", "probe"],
-  "permissions": ["core:default"]
-}

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Check } from 'lucide-react'
+import { ChatCopyToast } from '@/components/chat/chat-copy-toast'
 import { ChatHeaderPills } from '@/components/chat/chat-tabs'
 
 export function ChatPageHeader({
@@ -11,6 +11,7 @@ export function ChatPageHeader({
   moreMenu,
   mobileWorkingSet,
   copiedField,
+  hideDesktop,
 }: {
   hideOnMobile: boolean
   title: string
@@ -20,15 +21,12 @@ export function ChatPageHeader({
   moreMenu: ReactNode
   mobileWorkingSet?: ReactNode
   copiedField: string | null
+  hideDesktop?: boolean
 }) {
   return (
     <>
-      <ChatHeaderPills {...{ hideOnMobile, title, backTo, onBack, onNew, moreMenu, mobileWorkingSet }} />
-      {copiedField && (
-        <div className="absolute right-4 top-[58px] z-10 flex items-center gap-1 rounded-full bg-[var(--material-thick)] px-2.5 py-1 text-caption1 font-medium text-[var(--accent)] shadow-[var(--shadow-overlay)]">
-          <Check className="size-3" /> Copied!
-        </div>
-      )}
+      <ChatHeaderPills {...{ hideOnMobile, hideDesktop, title, backTo, onBack, onNew, moreMenu, mobileWorkingSet }} />
+      {copiedField && <ChatCopyToast placement="page" />}
     </>
   )
 }

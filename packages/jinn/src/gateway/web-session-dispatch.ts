@@ -155,8 +155,8 @@ async function runWebSession(
 
   let employee: import("../shared/types.js").Employee | undefined;
   if (currentSession.employee) {
-    const { findEmployee, scanOrg } = await import("./org.js");
-    employee = findEmployee(currentSession.employee, scanOrg(context.getConfig()));
+    const { scanOrg } = await import("./org.js");
+    employee = scanOrg(context.getConfig()).get(currentSession.employee);
   }
 
   await runTurn({

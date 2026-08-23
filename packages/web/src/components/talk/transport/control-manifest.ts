@@ -10,7 +10,6 @@ export interface TalkControlOperation {
     additionalProperties: false
   }
   target: TalkControlTarget
-  exposure: "always" | "on-intent"
   intent: string
   mutability: "read" | "write" | "effect"
   operatorOnly: boolean
@@ -43,7 +42,6 @@ function isOperation(value: unknown): value is TalkControlOperation {
     typeof operation.name === "string",
     typeof operation.description === "string",
     ["gateway", "browser"].includes(operation.target ?? ""),
-    ["always", "on-intent"].includes(operation.exposure ?? ""),
     typeof operation.intent === "string",
     ["read", "write", "effect"].includes(operation.mutability ?? ""),
     typeof operation.operatorOnly === "boolean",

@@ -1,4 +1,4 @@
-import { authFetch } from "@/lib/auth"
+import { authFetch, authUrl } from "@/lib/auth"
 import type { TodoStopCauseWire } from "@/lib/parked"
 // Type-only, and it has to stay that way: `workflows/model.ts` value-imports
 // `node:util/types` and the web build carries no Node polyfills.
@@ -200,7 +200,7 @@ async function responseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, code, currentVersion, remedy)
 }
 
-async function get<T>(path: string, init?: RequestInit): Promise<T> {
+export async function get<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) throw await responseError(res);
   return res.json();
@@ -1089,7 +1089,7 @@ export const api = {
     del<{ removed: boolean }>(`/api/work-items/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`),
   /** Integrity-checked download path (cookie-authenticated, usable as img src). */
   workItemAttachmentUrl: (id: string, attachmentId: string): string =>
-    `/api/work-items/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+    authUrl(`/api/work-items/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`),
   /** Todos v2 slice 3: relations (blocks is cycle-checked server-side). */
   addWorkItemRelation: (id: string, kind: WorkItemRelationKindWire, dstId: string) =>
     post<{ relation: unknown }>(`/api/work-items/${encodeURIComponent(id)}/relations`, { kind, dstId }),

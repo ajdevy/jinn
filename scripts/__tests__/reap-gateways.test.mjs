@@ -7,7 +7,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 
 import { classifyGateway, parsePsDump, planProcessReap } from "../reap/gateways.mjs"
-import { buildContext } from "../reap/protected.mjs"
+import { buildContext, mapPidsToHomes } from "../reap/protected.mjs"
 
 const REAP = fileURLToPath(new URL("../reap-sandboxes.mjs", import.meta.url))
 
@@ -194,6 +194,16 @@ function contextFromRegistry(fixture, overrides = {}) {
     pruningWorktrees: [],
   })
 }
+
+test("a stale duplicate PID claim cannot replace the authoritative registered home", (t) => {
+  const registered = fs.mkdtempSync(path.join(TEMP, "reap-registered-"))
+  const stale = fs.mkdtempSync(path.join(TEMP, "jinn-sandbox-stale-"))
+  t.after(() => fs.rmSync(registered, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(stale, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(registered, "gateway.json"), JSON.stringify({ pid: 9201, ptyPids: [] }))
+  fs.writeFileSync(path.join(stale, "gateway.json"), JSON.stringify({ pid: 9201, ptyPids: [] }))
+  assert.deepEqual(mapPidsToHomes([registered, stale]), { 9201: registered })
+})
 
 test("a schema-v2 registry protects the instances it lists", (t) => {
   const fixture = registryFixture(t, (instance) => ({ schemaVersion: 2, instances: [instance] }))
