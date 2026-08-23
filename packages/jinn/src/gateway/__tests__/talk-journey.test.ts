@@ -210,6 +210,60 @@ describe("PLA-224 journey", () => {
     expect(sent.body.evidence).toMatchObject({ sessionId: chat.id });
   });
 
+  it("steps 3 and 4: a dictated Todo exists on the board, then goes where it is told", async () => {
+    const context = testContext();
+    const orb = await pressTheOrb(context);
+    const workItems = await import("../../work-items/store.js");
+    const create = {
+      providerCallId: "create-1",
+      tool: "talk_create_todo",
+      arguments: JSON.stringify({ title: "check the sandbox replay" }),
+    };
+
+    const created = await call(context, "POST", orb.route, create);
+    expect(created.body).toMatchObject({ ok: true, operation: "talk_create_todo", verified: true, replayed: false });
+    const todo = (created.body.data as { todo: { id: string; title: string; status: string } }).todo;
+
+    // The board is what says it exists, not the adapter's word for it — and the
+    // id comes back, which is what the agent speaks.
+    expect(workItems.getWorkItem(todo.id)).toMatchObject({ title: "check the sandbox replay", status: "backlog" });
+    expect(created.body.evidence).toMatchObject({ id: todo.id, title: "check the sandbox replay" });
+
+    // One dictation is one Todo, however many times the provider replays it.
+    expect((await call(context, "POST", orb.route, create)).body).toMatchObject({ ok: true, replayed: true });
+    expect(workItems.listWorkItems({}).filter((item) => item.title === "check the sandbox replay")).toHaveLength(1);
+
+    const assigned = await call(context, "POST", orb.route, {
+      providerCallId: "assign-1",
+      tool: "talk_assign_todo",
+      arguments: JSON.stringify({ id: todo.id, assignee: "a-worker" }),
+    });
+    expect(assigned.body).toMatchObject({ ok: true, verified: true, evidence: { assignee: "a-worker" } });
+
+    const moved = await call(context, "POST", orb.route, {
+      providerCallId: "status-1",
+      tool: "talk_set_todo_status",
+      arguments: JSON.stringify({ id: todo.id, status: "executing" }),
+    });
+    expect(moved.body).toMatchObject({
+      ok: true,
+      operation: "talk_set_todo_status",
+      verified: true,
+      evidence: { id: todo.id, status: "executing" },
+    });
+    expect(workItems.getWorkItem(todo.id)).toMatchObject({ assignee: "a-worker", status: "executing" });
+
+    // Cancelling is the one move the ledger cannot take back, so it is not on
+    // the voice surface at all — refused before anything runs.
+    const cancel = await call(context, "POST", orb.route, {
+      providerCallId: "cancel-1",
+      tool: "talk_set_todo_status",
+      arguments: JSON.stringify({ id: todo.id, status: "cancelled" }),
+    });
+    expect(cancel.body).toMatchObject({ ok: false, code: "invalid-arguments" });
+    expect(workItems.getWorkItem(todo.id)).toMatchObject({ status: "executing" });
+  });
+
   it("step 5a: an id that does not exist is refused in the words the operator needs", async () => {
     const context = testContext();
     const { route } = await pressTheOrb(context);
