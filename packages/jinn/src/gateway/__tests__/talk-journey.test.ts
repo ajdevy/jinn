@@ -1,0 +1,176 @@
+/**
+ * PLA-224's acceptance journey, in test form.
+ *
+ * The five steps come verbatim from the session where the voice agent proved
+ * decorative: it narrated instead of reading, drafted instead of sending, and
+ * reported a Todo it had never attempted. Each step here is the same act driven
+ * through the real control route, so the live replay has something to fail
+ * against rather than a first attempt.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import type { ServerResponse } from "node:http";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { ApiContext, } from "../api.js";
+import type { Engine, JinnConfig } from "../../shared/types.js";
+
+const home = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-talk-journey-"));
+process.env.JINN_HOME = home;
+fs.mkdirSync(path.join(home, "org", "platform"), { recursive: true });
+fs.writeFileSync(path.join(home, "org", "platform", "a-worker.yaml"), [
+  "name: a-worker",
+  "displayName: A Worker",
+  "department: platform",
+  "rank: senior",
+  "engine: test-engine",
+  "model: test-model",
+  "persona: Complete bounded platform work.",
+  "",
+].join("\n"));
+
+let handleApiRequest: typeof import("../api.js").handleApiRequest;
+let sessions: typeof import("../../sessions/registry.js");
+
+beforeAll(async () => {
+  ({ handleApiRequest } = await import("../api.js"));
+  sessions = await import("../../sessions/registry.js");
+  (await import("../../shared/db.js")).initDb();
+});
+
+afterAll(async () => {
+  vi.unstubAllGlobals();
+  (await import("../../shared/db.js")).__closeDbForTest();
+  try {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch { /* the temp home is best-effort */ }
+});
+
+function request(method: string, url: string, body?: unknown) {
+  const req = body === undefined ? Readable.from([]) : Readable.from([Buffer.from(JSON.stringify(body))]);
+  Object.assign(req, {
+    method,
+    url,
+    headers: { host: "localhost", "content-type": "application/json", authorization: "Bearer test-token" },
+  });
+  return req as unknown as Parameters<typeof handleApiRequest>[0];
+}
+
+function response() {
+  let status = 200;
+  const chunks: Buffer[] = [];
+  const res = {
+    setHeader: vi.fn(),
+    writeHead(code: number) { status = code; return this; },
+    write(chunk?: string | Buffer) { if (chunk) chunks.push(Buffer.from(chunk)); return true; },
+    end(chunk?: string | Buffer) { if (chunk) chunks.push(Buffer.from(chunk)); },
+  } as unknown as ServerResponse;
+  return {
+    res,
+    read: () => ({
+      status,
+      body: chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown> : {},
+    }),
+  };
+}
+
+function testContext(): ApiContext {
+  const config = {
+    gateway: {},
+    engines: { default: "test-engine" },
+    realtime: { provider: "openai", apiKey: "test-realtime-key", model: "test-realtime-model" },
+  } as unknown as JinnConfig;
+  const engine: Engine = { name: "test-engine", run: async () => ({ sessionId: "native-1", result: "Done." }) };
+  return {
+    gatewayAuthToken: "test-token",
+    getConfig: () => config,
+    connectors: new Map(),
+    startTime: Date.now(),
+    emit: vi.fn(),
+    sessionManager: {
+      getEngine: (name: string) => name === engine.name ? engine : undefined,
+      getEngines: () => new Map([[engine.name, engine]]),
+      getQueue: () => ({
+        enqueue: vi.fn(async () => undefined),
+        getPendingCount: () => 0,
+        getTransportState: (_key: string, status: string) => status,
+      }),
+    },
+  } as unknown as ApiContext;
+}
+
+async function call(context: ApiContext, method: string, url: string, body?: unknown) {
+  const capture = response();
+  await handleApiRequest(request(method, url, body), capture.res, context);
+  return capture.read();
+}
+
+/** The orb, pressed: one live talk session with its credential identity. */
+async function pressTheOrb(context: ApiContext) {
+  vi.stubGlobal("fetch", async () => ({
+    ok: true,
+    json: async () => ({ value: "test-ephemeral-token", expires_at: Math.floor(Date.now() / 1000) + 600 }),
+  }));
+  const opened = await call(context, "POST", "/api/talk/sessions");
+  expect(opened.status).toBe(201);
+  return {
+    route: `/api/talk/sessions/${String(opened.body.id)}/control`,
+    browserInstanceId: String(opened.body.browserInstanceId),
+    credentialGeneration: Number(opened.body.credentialGeneration),
+  };
+}
+
+/** A seeded chat with a real title and real last messages, as the sandbox has. */
+function seededChat() {
+  const chat = sessions.createSession({
+    engine: "test-engine",
+    source: "web",
+    sourceRef: `web:${Date.now()}:${Math.random()}`,
+    title: "Platform standup",
+    employee: "a-worker",
+  });
+  sessions.insertMessage(chat.id, "user", "Should the ring stay?");
+  sessions.insertMessage(chat.id, "assistant", "The ring keeps the state legible.");
+  return chat;
+}
+
+describe("PLA-224 journey", () => {
+  it("step 1: 'what are we looking at?' reads the focused chat instead of narrating it", async () => {
+    const context = testContext();
+    const { route } = await pressTheOrb(context);
+    const chat = seededChat();
+
+    // The id is what the page context now hands the model (S2). Before it did,
+    // this call was uncallable and the model answered from imagination.
+    const answered = await call(context, "POST", route, {
+      providerCallId: "look-1",
+      tool: "read_session",
+      arguments: JSON.stringify({ id: chat.id }),
+    });
+
+    expect(answered.body).toMatchObject({ ok: true, operation: "read_session", verified: true });
+    const data = answered.body.data as { title: string; employee: string; messages: Array<{ role: string; content: string }> };
+    expect(data.title).toBe("Platform standup");
+    expect(data.employee).toBe("a-worker");
+    expect(data.messages.map((message) => message.content)).toEqual([
+      "Should the ring stay?",
+      "The ring keeps the state legible.",
+    ]);
+    // The re-read is authoritative, not the adapter's own word for it.
+    expect(answered.body.evidence).toMatchObject({ sessionId: chat.id, messages: 2 });
+  });
+
+  it("step 5a: an id that does not exist is refused in the words the operator needs", async () => {
+    const context = testContext();
+    const { route } = await pressTheOrb(context);
+
+    const answered = await call(context, "POST", route, {
+      providerCallId: "missing-1",
+      tool: "read_todo",
+      arguments: JSON.stringify({ id: "ZZZ-999" }),
+    });
+
+    expect(answered.body).toEqual({ ok: false, code: "execution-failed", error: "Todo ZZZ-999 not found" });
+  });
+});
