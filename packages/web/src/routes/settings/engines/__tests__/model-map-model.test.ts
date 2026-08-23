@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addMapPair,
   allModelMapProblems,
+  configSaveBlocker,
   firstSubstitute,
   mapConfigValue,
   mapPairProblem,
@@ -89,6 +90,28 @@ describe('what blocks a save', () => {
       .toBe('engines.claude.fallbackModelMap["claude-opus-5"] must be a nonempty model id (got string)')
   })
 
+  it('refuses a key carrying a control character, naming the key and not the engine', () => {
+    // A whole `agy models` line pasted into the source box. The tab is what makes it
+    // unspellable, and the operator has to be told that — the row is otherwise a
+    // perfectly ordinary-looking pin, and reading it as a stand-in that does not
+    // serve the target is the misdiagnosis this sentence exists to prevent.
+    const pasted = 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)'
+
+    expect(mapPairProblem(ctx('codex'), [[pasted, 'gpt-5.6-sol']], 0)).toBe(
+      'engines.claude.fallbackModelMap has a key that is not a model id '
+      + '(got "gemini-3.7-flash-high\\tGemini 3.7 Flash (High)")',
+    )
+  })
+
+  it('refuses a target carrying one, rather than reporting it as a model the stand-in does not serve', () => {
+    const pasted = 'gpt-5.6-sol\tGPT-5.6 Sol'
+
+    expect(mapPairProblem(ctx('codex'), [['claude-opus-5', pasted]], 0)).toBe(
+      'engines.claude.fallbackModelMap["claude-opus-5"] must be a model id with no control characters '
+      + '(got "gpt-5.6-sol\\tGPT-5.6 Sol")',
+    )
+  })
+
   it('refuses a second row claiming a source the first already has, which the save would collapse', () => {
     const dupes: ModelMapPair[] = [['claude-opus-5', 'gpt-5.6-sol'], ['claude-opus-5', 'gpt-5.6-luna']]
 
@@ -131,5 +154,29 @@ describe('mapProblems', () => {
     expect(mapProblems(ctx('codex'), pairs)).toEqual([
       'engines.claude.fallbackModelMap["claude-sonnet-5"] maps to "nope", which engine "codex" does not serve',
     ])
+  })
+})
+
+describe('configSaveBlocker', () => {
+  const registry = {
+    claude: { name: 'claude', models: [{ id: 'claude-opus-5' }] },
+    codex: { name: 'codex', models: [{ id: 'gpt-5.6-sol' }] },
+  }
+
+  it('lets a sound config through', () => {
+    const engines = { claude: { fallback: ['codex'], fallbackModelMap: { 'claude-opus-5': 'gpt-5.6-sol' } } }
+
+    expect(configSaveBlocker(engines, registry)).toBeNull()
+  })
+
+  it('refuses the whole save while a row carries a control character, so the PUT never leaves', () => {
+    const engines = {
+      claude: { fallback: ['codex'], fallbackModelMap: { 'gpt-5.6-sol\tGPT-5.6 Sol': 'gpt-5.6-sol' } },
+    }
+
+    expect(configSaveBlocker(engines, registry)).toBe(
+      'Cannot save: engines.claude.fallbackModelMap has a key that is not a model id '
+      + '(got "gpt-5.6-sol\\tGPT-5.6 Sol")',
+    )
   })
 })
