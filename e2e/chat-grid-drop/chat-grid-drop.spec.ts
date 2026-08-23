@@ -253,3 +253,30 @@ test('Open beside follows the view toggle and opens the picker in both themes', 
     await context.close()
   }
 })
+
+test('the pane title-bar menu reads the same as the header in both themes', async ({ browser }) => {
+  // The header menu above is the single-pane home of this action; the pane title bar is the
+  // multi-pane one. Checking only the header is how the two came to disagree: PLA-180 gave the
+  // pane its own copy under a different name, in a different slot, and nothing compared them.
+  for (const theme of ['light', 'dark'] as const) {
+    const { context, page } = await openGridPage(browser, { theme })
+    const ids = await seededSessionIds(page)
+    await setWorkingSet(page, ids.slice(0, 2))
+
+    const pane = page.locator(`[data-chat-grid-pane]:has([data-chat-pane-session="${ids[1]}"])`)
+    await pane.hover()
+    await pane.locator('[data-chat-pane-menu-trigger]').click()
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Open beside' })).toBeVisible()
+
+    const order = await menu.evaluate((element) => (
+      Array.from(element.querySelectorAll('[role="menuitem"], button'))
+        .map((item) => item.textContent?.trim() ?? '')
+    ))
+    expect(order.indexOf('Open beside')).toBe(order.indexOf('CLI') + 1)
+    expect(order.indexOf('Open beside')).toBeLessThan(order.indexOf('Rename'))
+    await page.screenshot({ path: artifactPath(`pla-174-${theme}-pane-menu-1440.png`) })
+    await context.close()
+  }
+})
