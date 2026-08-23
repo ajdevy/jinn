@@ -2,7 +2,6 @@ import type { JsonObject } from "../../shared/types.js";
 import type { CallerIdentity } from "../../gateway/session-comm-guards.js";
 
 export type TalkControlTarget = "gateway" | "browser";
-export type TalkControlExposure = "always" | "on-intent";
 export type TalkControlMutability = "read" | "write" | "effect";
 
 export interface TalkControlParameters extends JsonObject {
@@ -17,7 +16,6 @@ export interface TalkControlOperation {
   description: string;
   parameters: TalkControlParameters;
   target: TalkControlTarget;
-  exposure: TalkControlExposure;
   intent: string;
   mutability: TalkControlMutability;
   operatorOnly: boolean;

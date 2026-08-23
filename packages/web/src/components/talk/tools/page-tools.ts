@@ -61,7 +61,6 @@ const clickByText: TalkTool = {
   name: "click_by_text",
   description:
     "Click something on the page by the words on it — a button, a link, a tab. Asks the operator first, and refuses when the words fit more than one thing.",
-  exposure: "on-intent",
   parameters: params({ text: str("The words on the thing to click, as the page shows them.") }, ["text"]),
   execute: (args: ToolArgs): Promise<ToolResult> => {
     const text = String(args.text)
@@ -112,7 +111,6 @@ const typeInto: TalkTool = {
   name: "type_into",
   description:
     "Type into a field on the page, found by its label or placeholder. Replaces what is in it. Asks the operator first, and never types into a password field.",
-  exposure: "on-intent",
   parameters: params(
     {
       field: str("What the field is called on screen — its label, its placeholder, or the words in it."),
@@ -140,7 +138,6 @@ const findElementByText: TalkTool = {
   name: "find_element_by_text",
   description:
     "Check whether something is on the page and whether it can be clicked, by the words on it. Asks the operator first, like every generic page action.",
-  exposure: "on-intent",
   parameters: params({ text: str("The words to look for, as the page shows them.") }, ["text"]),
   execute: (args: ToolArgs): Promise<ToolResult> => {
     const text = String(args.text)
@@ -158,7 +155,6 @@ const scrollTo: TalkTool = {
   name: "scroll_to",
   description:
     "Scroll something into view and mark it, by the words on it, so the operator can see which one is meant. Asks first, like every generic page action.",
-  exposure: "on-intent",
   parameters: params({ text: str("The words on the thing to scroll to, as the page shows them.") }, ["text"]),
   execute: (args: ToolArgs): Promise<ToolResult> => {
     const text = String(args.text)

@@ -22,7 +22,7 @@ import { buildStandingBrief } from "../talk/session/brief.js";
 import { UNPINNED_MODEL } from "../talk/session/pricing.js";
 import { TALK_SESSION_TTL_MS, TalkSessionError, TalkSessionRegistry } from "../talk/session/registry.js";
 import { TalkSessionRepository, TalkToolReceiptRepository } from "../talk/session/repository.js";
-import { alwaysOnTools, toolsByName } from "../talk/session/tools.js";
+import { allTools, toolsByName } from "../talk/session/tools.js";
 import type { TalkSession } from "../talk/session/types.js";
 import { json, type ParsedRoute } from "./route-helpers.js";
 import { handleTalkControl } from "./talk-control-api.js";
@@ -32,7 +32,7 @@ import { handleTalkTtsApi } from "./talk-tts-api.js";
 import { handleTalkTranscript } from "./talk-transcript-api.js";
 import { handleTalkTopicContext } from "./talk-topic-api.js";
 import { mintTalkToken } from "./talk-token-api.js";
-import { expandTools, handOff, recordAction, recordTurn } from "./talk-turn-api.js";
+import { handOff, recordAction, recordTurn } from "./talk-turn-api.js";
 import type { ApiContext } from "./api.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
 import { handleTalkProactiveApi } from "./talk-proactive-api.js";
@@ -103,7 +103,7 @@ async function openRoute(req: IncomingMessage, res: ServerResponse, options: Tal
   const requested = await readTalkOpenRequest(req, res);
   if (!requested) return true;
   const config = options.getConfig();
-  const tools = alwaysOnTools();
+  const tools = allTools();
   const token = await mintTalkToken(res, config, tools, undefined, requested.noiseReduction);
   if (!token) return true; // mint already answered with 503 or 502
   // The row exists so spend reuses the session ledger. `talk` is already a
@@ -126,8 +126,8 @@ async function openRoute(req: IncomingMessage, res: ServerResponse, options: Tal
   return true;
 }
 
-/** Re-mint for an expiring credential or a resume, scoped to whatever the
- *  session has been granted so far rather than to the always-on set. */
+/** Re-mint for an expiring credential or a resume, against the same universal
+ *  catalog the session opened with. */
 async function reissueToken(
   res: ServerResponse,
   config: JinnConfig,
@@ -218,9 +218,6 @@ async function sessionAction(
       return rotateSessionCredential(req, res, id, options, false);
     case "heartbeat":
       send(res, 200, talkSessionStatus(talkSessions.heartbeat(id), controlManifest));
-      return true;
-    case "tools":
-      await expandTools(req, res, talkSessions.heartbeat(id), talkSessions);
       return true;
     case "actions":
       await recordAction(req, res, talkSessions.heartbeat(id), talkSessions);

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS talk_sessions (
   truncated_turns INTEGER NOT NULL CHECK (truncated_turns >= 0),
   token_expires_at INTEGER NOT NULL,
   exposed_tools_json TEXT NOT NULL CHECK (json_valid(exposed_tools_json)),
-  expanded_intents_json TEXT NOT NULL CHECK (json_valid(expanded_intents_json))
+  expanded_intents_json TEXT NOT NULL CHECK (json_valid(expanded_intents_json)) -- readerless, always '[]': IF NOT EXISTS cannot retro-relax NOT NULL in the shared registry.db
 );
 
 CREATE TABLE IF NOT EXISTS talk_session_turns (

@@ -33,7 +33,6 @@ const MANIFEST = {
     description: "Read one Todo.",
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
     target: "gateway",
-    exposure: "always",
     intent: "todos",
     mutability: "read",
     operatorOnly: false,

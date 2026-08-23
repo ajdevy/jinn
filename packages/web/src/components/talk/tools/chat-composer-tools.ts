@@ -40,28 +40,24 @@ export const CHAT_COMPOSER_TOOLS: readonly TalkTool[] = [
   {
     name: "talk_draft_reply",
     description: "Fill the empty composer in the chat currently on screen. This only drafts; it never sends.",
-    exposure: "always",
     parameters: params({ message }, ["message"]),
     execute: (args) => textCommand("draft", args),
   },
   {
     name: "talk_replace_draft",
     description: "Replace the existing visible chat draft. This only edits; it never sends.",
-    exposure: "always",
     parameters: params({ message }, ["message"]),
     execute: (args) => textCommand("replace", args),
   },
   {
     name: "talk_send_draft",
     description: "Send exactly the text currently visible in the selected chat composer, once and without another confirmation.",
-    exposure: "always",
     parameters: params({}),
     execute: () => run({ type: "send" }),
   },
   {
     name: "talk_draft_and_send",
     description: "Atomically draft and send one reply in the chat currently on screen. Use for an explicit 'draft and send' request.",
-    exposure: "always",
     parameters: params({ message }, ["message"]),
     execute: (args) => textCommand("draft-and-send", args),
   },

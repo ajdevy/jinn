@@ -144,7 +144,6 @@ const resolveAndOpen: TalkTool = {
   name: "resolve_and_open",
   description:
     'Open whatever the operator just named — a Todo, a chat session, a workflow, or an experiment. Takes an id ("ABC-59"), a bare number ("59", meaning the namespace on screen), or their own words ("the talk orb one"). Asks which they meant when the words fit several things.',
-  exposure: "always",
   parameters: params(
     { what: str("Exactly what the operator called it: the id, the bare number, or their own description.") },
     ["what"],
