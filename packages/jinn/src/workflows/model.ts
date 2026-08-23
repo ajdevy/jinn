@@ -88,7 +88,7 @@ const employeeNodeSchema = z.strictObject({
     /** Continue the engine session of a completed attempt of `nodeId` instead of dispatching cold; naming this node itself continues its own previous run for the same Todo. Its `prompt` replaces the one above whenever a continuation is found, so it carries the delta rather than the whole brief. */
     continueFrom: z.strictObject({ nodeId: nodeIdSchema, prompt: promptSchema }).optional(),
     engine: stringBindingSchema.optional(), model: stringBindingSchema.optional(), effort: effortBindingSchema.optional(), fallback: nodeFallbackSchema.optional(),
-    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(),
+    output: workflowOutputSchema.optional(), retry: workflowRetrySchema.optional(), timeoutMinutes: finiteNumberSchema.int().min(1).max(1440).optional(), mutex: z.string().min(1).max(60).optional(), // one live node at a time per mutex key, held only while a node run carrying it is live (node-mutex.ts)
   }),
 });
 const conditionPredicateSchema = z.strictObject({

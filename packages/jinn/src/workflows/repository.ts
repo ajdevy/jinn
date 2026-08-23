@@ -10,12 +10,11 @@ import {
 } from './model.js';
 import { readContinuationAttempt, type ContinuationAttemptQuery } from './repository-continuation.js';
 import { RunMutation } from './repository-run-transaction.js';
+import { readMutexNodeRuns, type WorkflowMutexNodeRun } from './repository-mutex.js';
 import {
   equivalentRun, insertRun, listRunSummaries, readAttempt, readAttemptByRetryKey, readAttemptBySession,
   readAttempts, readDueReminders, readDueWaits, readNextDueReminder, readNextDueTimeout, readNextDueWait, readRecoverableRuns,
-  readRun, readRunByIdempotency, readRunsByCaller,
-  readWorkflowCallByIdempotency, readRunDetail,
-  type NormalizedRunListQuery,
+  readRun, readRunByIdempotency, readRunsByCaller, readWorkflowCallByIdempotency, readRunDetail, type NormalizedRunListQuery,
 } from './repository-runs.js';
 import {
   WorkflowRepositoryError, assertExactKeys, canonicalStamp, decodeCursor, encodeCursor, isThenable, newRunId,
@@ -369,6 +368,7 @@ export class WorkflowRepository {
       parseBoundedString(key as unknown as JsonValue, 'Workflow retry idempotency key', 128)!);
   }
   listRecoverableRuns(): WorkflowRunRecord[] { return readRecoverableRuns(this.db); }
+  listMutexNodeRuns(): WorkflowMutexNodeRun[] { return readMutexNodeRuns(this.db); }
   listDueWaits(now: string, limit: number): WorkflowNodeRunRecord[] {
     const stamp = canonicalStamp(now); const parsedLimit = parseLimit(limit as unknown as JsonValue, 'Workflow due wait');
     return readDueWaits(this.db, stamp, parsedLimit);
