@@ -91,38 +91,47 @@ function KeyField({
 }
 
 /** The lines under the fields: how to write a key, and what is still missing. */
-function Guidance({
+/** Sits directly under the API key row, because it is about the key: where it
+ *  may live, and the way back if replacing it was a misclick. */
+function KeyGuidance({
   replacing,
   stored,
-  note,
-  talkOrbOn,
   onKeepCurrent,
 }: {
   replacing: boolean
   stored: boolean
-  note: string | null
-  talkOrbOn: boolean
   onKeepCurrent: () => void
 }) {
   return (
-    <>
-      <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        Paste the key, or name an environment variable to read it from and keep it
-        out of the config file.
-        {replacing && !stored && (
-          <>
-            {" "}
-            <button
-              type="button"
-              onClick={onKeepCurrent}
-              className="cursor-pointer border-none bg-transparent p-0 text-[length:var(--text-caption1)] text-[var(--system-blue)]"
-            >
-              Keep the current key
-            </button>
-          </>
-        )}
-      </div>
+    <div className="mb-[var(--space-3)] text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+      Paste the key, or name an environment variable to read it from and keep it
+      out of the config file.
+      {replacing && !stored && (
+        <>
+          {" "}
+          <button
+            type="button"
+            onClick={onKeepCurrent}
+            className="cursor-pointer border-none bg-transparent p-0 text-[length:var(--text-caption1)] text-[var(--system-blue)]"
+          >
+            Keep the current key
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
 
+/** What is true of the section as a whole, so it stays at the end. */
+function Guidance({
+  note,
+  talkOrbOn,
+}: {
+  note: string | null
+  talkOrbOn: boolean
+}) {
+  return (
+    <>
       {note && (
         <div className="mt-[var(--space-3)] text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
           {note}
@@ -271,17 +280,12 @@ export function VoiceSection(props: VoiceSectionProps) {
       <FieldRow label="API key">
         <KeyField stored={stored} apiKey={apiKey} onReplace={replace} onChange={onChange} />
       </FieldRow>
+      <KeyGuidance replacing={replacing} stored={stored} onKeepCurrent={keepCurrent} />
 
       <SessionFields {...props} />
       <OrbTasteFields />
 
-      <Guidance
-        replacing={replacing}
-        stored={stored}
-        note={readiness(capability, provider, apiKey)}
-        talkOrbOn={talkOrbOn}
-        onKeepCurrent={keepCurrent}
-      />
+      <Guidance note={readiness(capability, provider, apiKey)} talkOrbOn={talkOrbOn} />
     </Section>
   )
 }
