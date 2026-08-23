@@ -10,6 +10,9 @@ import {
 } from '../chain-model'
 
 describe('classifyEngineHealth', () => {
+  const NOW = Date.parse('2026-08-19T10:00:00.000Z')
+  const isoIn = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString()
+
   it('reads an absent record as healthy', () => {
     expect(classifyEngineHealth(undefined)).toEqual({ tone: 'healthy', label: 'Healthy' })
   })
@@ -18,13 +21,25 @@ describe('classifyEngineHealth', () => {
     expect(classifyEngineHealth({ state: 'ok' })).toEqual({ tone: 'healthy', label: 'Healthy' })
   })
 
-  it('reads exhausted with a reopening as exhausted until that local time', () => {
-    const until = '2026-08-19T17:30:00.000Z'
-    const localTime = new Date(until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    expect(classifyEngineHealth({ state: 'exhausted', until })).toEqual({
+  it('reads a reopening days out as the wait, never as a bare time of day', () => {
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(6 * 24 * 60) }, NOW)).toEqual({
       tone: 'exhausted',
-      label: `Out of allowance until ${localTime}`,
+      label: 'Out of allowance, back in 6d',
     })
+  })
+
+  it('names the window that binds when the record carries one', () => {
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(6 * 24 * 60), window: '7d' }, NOW).label)
+      .toBe('Weekly limit, back in 6d')
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(90), window: '5h' }, NOW).label)
+      .toBe('5-hour limit, back in 2h')
+  })
+
+  it('reads a reopening within the hour in minutes, and one past a week as a date', () => {
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(45) }, NOW).label)
+      .toBe('Out of allowance, back in 45m')
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(30 * 24 * 60) }, NOW).label)
+      .toBe(`Out of allowance, back on ${new Date(NOW + 30 * 24 * 60 * 60_000).toLocaleDateString()}`)
   })
 
   it('reads exhausted without a reopening as exhausted with no time', () => {
@@ -34,8 +49,9 @@ describe('classifyEngineHealth', () => {
     })
   })
 
-  it('drops a reopening that is not a date rather than rendering Invalid Date', () => {
+  it('drops a reopening that is not a date, or one already passed, rather than rendering it', () => {
     expect(classifyEngineHealth({ state: 'exhausted', until: 'soon' }).label).toBe('Out of allowance')
+    expect(classifyEngineHealth({ state: 'exhausted', until: isoIn(-10) }, NOW).label).toBe('Out of allowance')
   })
 
   it('reads degraded as degraded', () => {

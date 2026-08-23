@@ -32,6 +32,7 @@ import type {
   NotesListResponse,
   UpdateNoteInput,
 } from "@/routes/notes/types"
+import { createConfigApi } from "@/lib/api-config"
 import { createExperimentsApi } from "@/lib/api-experiments"
 import { createWorkflowLifecycleApi } from "@/lib/api-workflow-lifecycle"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
@@ -65,6 +66,8 @@ export interface QueueItem {
   status: 'pending' | 'running' | 'cancelled' | 'completed';
   position: number;
   createdAt: string;
+  /** The transcript row this item will run, when the enqueuing path had one. */
+  messageId: string | null;
 }
 
 export interface InstanceMigration {
@@ -200,7 +203,7 @@ async function responseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, code, currentVersion, remedy)
 }
 
-async function get<T>(path: string, init?: RequestInit): Promise<T> {
+export async function get<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) throw await responseError(res);
   return res.json();
@@ -844,11 +847,9 @@ export const api = {
     get<{ name: string; content: string }>(`/api/skills/${encodeURIComponent(name)}`),
   updateSkill: (name: string, content: string) =>
     put<{ status: string }>(`/api/skills/${encodeURIComponent(name)}`, { content }),
-  getConfig: () => get<Record<string, unknown>>("/api/config"),
+  ...createConfigApi({ responseError }),
   reloadConnectors: () =>
     post<{ started: string[]; stopped: string[]; errors: string[] }>("/api/connectors/reload", {}),
-  updateConfig: (data: Record<string, unknown>) =>
-    put<Record<string, unknown>>("/api/config", data),
   getLogs: (n?: number) =>
     get<{ lines: string[] }>(`/api/logs${n ? `?n=${n}` : ""}`),
   getOnboarding: () =>
@@ -883,16 +884,13 @@ export const api = {
   },
   sttUpdateConfig: (languages: string[]) =>
     put<{ status: string; languages: string[] }>("/api/stt/config", { languages }),
-  getSessionQueue: (id: string) =>
-    get<QueueItem[]>(`/api/sessions/${id}/queue`),
-  cancelQueueItem: (sessionId: string, itemId: string) =>
-    del<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}`),
-  clearSessionQueue: (sessionId: string) =>
-    del<{ status: string; cancelled: number }>(`/api/sessions/${sessionId}/queue`),
-  pauseSessionQueue: (sessionId: string) =>
-    post<{ status: string }>(`/api/sessions/${sessionId}/queue/pause`, {}),
-  resumeSessionQueue: (sessionId: string) =>
-    post<{ status: string }>(`/api/sessions/${sessionId}/queue/resume`, {}),
+  getSessionQueue: (id: string) => get<QueueItem[]>(`/api/sessions/${id}/queue`),
+  cancelQueueItem: (sessionId: string, itemId: string) => del<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}`),
+  editQueueItem: (sessionId: string, itemId: string, prompt: string) => patch<{ status: string; item: QueueItem }>(`/api/sessions/${sessionId}/queue/${itemId}`, { prompt }),
+  sendQueueItemNow: (sessionId: string, itemId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}/send-now`, {}),
+  clearSessionQueue: (sessionId: string) => del<{ status: string; cancelled: number }>(`/api/sessions/${sessionId}/queue`),
+  pauseSessionQueue: (sessionId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/pause`, {}),
+  resumeSessionQueue: (sessionId: string) => post<{ status: string }>(`/api/sessions/${sessionId}/queue/resume`, {}),
   getSessionTranscript: (id: string) =>
     get<TranscriptEntry[]>(`/api/sessions/${id}/transcript`),
 
@@ -989,7 +987,6 @@ export const api = {
     /** Todos v2 slice 6: quick-adds carry the board scope / parent. */
     parentId?: string
     department?: string
-    assignee?: string
     priority?: number
     dueAt?: string
     acceptance?: string

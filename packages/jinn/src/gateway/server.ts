@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { JinnConfig, Connector, Engine, Session, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
+import type { JinnConfig, Connector, Engine, SlackConnectorConfig, TelegramConnectorConfig, WhatsAppConnectorConfig } from "../shared/types.js";
 import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import {
   getModelRegistry,
@@ -15,7 +15,9 @@ import {
 } from "../shared/models.js";
 import { configureLogger, logger } from "../shared/logger.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
-import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, updateSession, getSession, getMessages, getSessionSpend, listAllSessionIds, RESTART_ACK_META_KEY } from "../sessions/registry.js";
+import { scheduleFtsBackfill, recoverStaleSessions, recoverStaleWorkflowAttemptSessions, recoverStaleQueueItems, clearAllPartialMessages, consumeRestartAcknowledgements, getInterruptedSessions, listSessions, getSession, getMessages, getSessionSpend, listAllSessionIds } from "../sessions/registry.js";
+import { getPackageVersion } from "../shared/version.js";
+import { interruptRunningSessionsForShutdown, resumeRestartInterruptedSessions } from "../sessions/restart-resume.js";
 import { initDb } from "../shared/db.js";
 import { SessionManager, type RouteOptions } from "../sessions/manager.js";
 import { recoverSessionDeliveryStateOnStartup } from "../sessions/callbacks.js";
@@ -67,33 +69,6 @@ import { WorkflowSessionExecutor } from "../workflows/session-executor.js";
 import { WorkflowService } from "../workflows/service.js";
 import { createTalkProactiveGatewayEmit } from "./talk-proactive-events.js";
 
-function hasRestartAcknowledgement(session: Session): boolean {
-  const meta = session.transportMeta;
-  return Boolean(meta && typeof meta === "object" && !Array.isArray(meta) && typeof meta[RESTART_ACK_META_KEY] === "string");
-}
-
-/** Preserve running conversational Sessions for resume. Exported as a shutdown test seam. */
-export function interruptRunningSessionsForShutdown(): void {
-  for (const session of listSessions({ status: "running" })) {
-    if (hasRestartAcknowledgement(session)) {
-      updateSession(session.id, {
-        status: "idle",
-        attemptOutcome: "interrupted",
-        lastActivity: new Date().toISOString(),
-        lastError: null,
-      });
-      logger.info(`Left restart-requesting session ${session.id} idle during gateway shutdown`);
-      continue;
-    }
-    updateSession(session.id, {
-      status: "interrupted",
-      attemptOutcome: "interrupted",
-      lastActivity: new Date().toISOString(),
-      lastError: "Interrupted: gateway shutting down gracefully",
-    });
-    logger.info(`Marked session ${session.id} as interrupted for resume`);
-  }
-}
 import { startWsHeartbeat, trackHeartbeat } from "./ws-heartbeat.js";
 import { ensureFilesDir, cleanupOldUploads } from "./files.js";
 import { initStt } from "../stt/stt.js";
@@ -108,7 +83,7 @@ import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
 import { startScheduler, stopScheduler } from "../cron/scheduler.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry, refreshOrg } from "./org-registry.js";
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -698,7 +673,7 @@ export async function startGateway(
   };
 
   // Build employee registry
-  let employeeRegistry = scanOrg();
+  let employeeRegistry = orgRegistry(config);
   logger.info(`Loaded ${employeeRegistry.size} employee(s) from org directory`);
   const sessionManager = new SessionManager(config, engines, bootId, (id) => employeeRegistry.get(id));
 
@@ -797,7 +772,7 @@ export async function startGateway(
   // employee-update handler (immediate refresh, no watcher lag) and the chokidar
   // onOrgChange watcher.
   const reloadOrg = () => {
-    employeeRegistry = scanOrg();
+    employeeRegistry = refreshOrg(currentConfig).registry;
     logger.info(`Org directory changed, reloaded ${employeeRegistry.size} employee(s)`);
     // GRS-017e-fix (finding 1): an employee YAML gaining/losing `jinnMcp: true`
     // changes whether the jinn-attachment smoke gate must be armed — re-arm on
@@ -1206,6 +1181,13 @@ export async function startGateway(
   if (callbackRecovery.orphanedRecovered > 0) {
     logger.warn(`Surfaced ${callbackRecovery.orphanedRecovered} orphaned delegation completion claim(s) after restart`);
   }
+
+  // Every session the previous process was mid-turn on is still sitting on a
+  // half-finished turn. Nudge each one to carry on. Last of the recovery steps
+  // on purpose: after the queue replay so a session already re-dispatched there
+  // is not resumed twice, and after the delivery sweep above so the fresh claims
+  // keep the stagger they were planned with instead of being flushed at once.
+  resumeRestartInterruptedSessions(getPackageVersion());
 
   // Prevent macOS from sleeping while the gateway is running
   let caffeinate: ChildProcess | null = null;

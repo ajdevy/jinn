@@ -29,9 +29,9 @@ async function getOrg(res: ServerResponse, context: ApiContext): Promise<void> {
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
 
-  const { scanOrg } = await import("./org.js");
+  const { orgRegistry } = await import("./org-registry.js");
   const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-  const hierarchy = resolveOrgHierarchy(scanOrg(context.getConfig()));
+  const hierarchy = resolveOrgHierarchy(orgRegistry(context.getConfig()));
 
   json(res, {
     departments,
@@ -45,14 +45,14 @@ async function getOrg(res: ServerResponse, context: ApiContext): Promise<void> {
 }
 
 async function getEmployee(res: ServerResponse, name: string, context: ApiContext): Promise<void> {
-  const { scanOrg } = await import("./org.js");
+  const { orgRegistry } = await import("./org-registry.js");
   const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-  const orgRegistry = scanOrg(context.getConfig());
-  const emp = orgRegistry.get(name);
+  const roster = orgRegistry(context.getConfig());
+  const emp = roster.get(name);
   if (!emp) return notFound(res);
 
   // An employee the hierarchy never placed still reports its own edges.
-  const node = resolveOrgHierarchy(orgRegistry).nodes[name];
+  const node = resolveOrgHierarchy(roster).nodes[name];
   json(res, {
     ...emp,
     ...(node
@@ -77,8 +77,9 @@ async function patchEmployee(
   const body = _parsed.body;
   if (!isJsonObject(body)) return badRequest(res, "update body must be a JSON object");
 
-  const { scanOrg, updateEmployeeYaml, validateEmployeeUpdate } = await import("./org.js");
-  const current = scanOrg(context.getConfig()).get(name);
+  const { updateEmployeeYaml, validateEmployeeUpdate } = await import("./org.js");
+  const { orgRegistry, refreshOrg } = await import("./org-registry.js");
+  const current = orgRegistry(context.getConfig()).get(name);
   if (!current) return notFound(res);
 
   const result = validateEmployeeUpdate(context.getConfig(), current, body);
@@ -91,7 +92,10 @@ async function patchEmployee(
   // immediate session spawn sees the new persona/model — don't wait for the watcher.
   context.reloadOrg?.();
 
-  const updated = scanOrg(context.getConfig()).get(name);
+  // The write announces itself to the read owner rather than trusting the
+  // optional reloadOrg hook to have done it — otherwise the response echoes the
+  // pre-write cache back to whoever just made the change.
+  const updated = refreshOrg(context.getConfig()).registry.get(name);
   json(res, { status: "ok", employee: updated ?? null });
 }
 

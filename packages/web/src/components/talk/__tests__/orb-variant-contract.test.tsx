@@ -4,7 +4,15 @@ import { OrbCanvas } from "../orb-canvas"
 import * as motion from "../orb-motion"
 
 const VARIANTS = ["mist", "coin", "ring", "pulse"] as const
-const STATES = ["idle", "listening", "thinking", "speaking", "interrupted", "error"] as const
+const STATES = [
+  "idle",
+  "listening",
+  "user_speaking",
+  "thinking",
+  "assistant_speaking",
+  "interrupted",
+  "error",
+] as const
 
 type Variant = (typeof VARIANTS)[number]
 
@@ -32,7 +40,7 @@ function fakeContext() {
 function renderStill(variant: Variant): string {
   const ctx = fakeContext()
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx) as never
-  const props = { state: "speaking", variant, levelRef: { current: 1 }, size: 64 }
+  const props = { state: "assistant_speaking", variant, energyRef: { current: { input: 0, output: 1 } }, size: 64 }
   render(<OrbCanvas {...(props as Parameters<typeof OrbCanvas>[0])} />)
   return ctx.trace.join("|")
 }
@@ -62,7 +70,7 @@ describe("the calm Talk orb catalog", () => {
     expect(catalog).toEqual(VARIANTS)
   })
 
-  it("publishes the complete six-state preview vocabulary", () => {
+  it("publishes the complete preview vocabulary, both speakers named", () => {
     expect(motion.ORB_STATES).toEqual(STATES)
   })
 

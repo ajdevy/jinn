@@ -1,6 +1,6 @@
 import { useCallback, useEffect, type RefObject } from "react"
 import { createPortal } from "react-dom"
-import type { OrbState, OrbVariant } from "./orb-motion"
+import type { OrbEnergy, OrbIntensity, OrbState, OrbVariant } from "./orb-motion"
 import { SituationSheet } from "./situation-sheet"
 import { bindTalkActionLog } from "./talk-action-log"
 import { TalkOrb } from "./talk-orb"
@@ -9,7 +9,8 @@ import { answerSituation, dismissSituation, useSituation } from "./talk-situatio
 interface TalkSurfaceProps {
   state?: OrbState
   variant?: OrbVariant
-  levelRef?: RefObject<number>
+  intensity?: OrbIntensity
+  energyRef?: RefObject<OrbEnergy>
   /** The durable Talk session that owns any browser-side action receipts. */
   sessionId?: string | null
   /** Whether the realtime provider and microphone are attached. */
@@ -26,7 +27,8 @@ interface TalkSurfaceProps {
 export function TalkSurface({
   state = "idle",
   variant = "mist",
-  levelRef,
+  intensity = "standard",
+  energyRef,
   sessionId = null,
   active = false,
   label,
@@ -44,7 +46,7 @@ export function TalkSurface({
   return createPortal(
     <>
       <SituationSheet situation={situation} onAnswer={answer} onDismiss={dismissSituation} />
-      <TalkOrb variant={variant} state={state} levelRef={levelRef} active={active} label={label} onToggle={onToggle} />
+      <TalkOrb variant={variant} state={state} intensity={intensity} energyRef={energyRef} active={active} label={label} onToggle={onToggle} />
     </>,
     document.body,
   )

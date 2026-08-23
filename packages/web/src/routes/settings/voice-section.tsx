@@ -1,11 +1,18 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
+import type { OrbIntensity } from "@/components/talk/orb-motion"
 import type { OrbVariant } from "@/components/talk/orb-motion"
 import type { TalkCapability } from "@/lib/talk-capability"
-import type { TalkMicrophone } from "@/lib/settings"
 import { useSettings } from "@/routes/settings-provider"
 import { FieldRow, Section, SettingsInput, SettingsSelect } from "./shared"
+import {
+  ModelField,
+  NoiseReductionField,
+  TurnDetectionField,
+  VoiceField,
+  type TurnDetection,
+} from "./voice-realtime-fields"
 
 /**
  * The `realtime` block, as a settings section.
@@ -24,6 +31,10 @@ const REDACTED = "***"
 interface VoiceSectionProps {
   provider: string
   apiKey: string
+  model: string
+  voice: string
+  turnDetection: TurnDetection
+  noiseReduction: string
   /** Null while the probe is in flight: the section claims nothing about
    *  readiness until it knows. */
   capability: TalkCapability | null
@@ -80,38 +91,47 @@ function KeyField({
 }
 
 /** The lines under the fields: how to write a key, and what is still missing. */
-function Guidance({
+/** Sits directly under the API key row, because it is about the key: where it
+ *  may live, and the way back if replacing it was a misclick. */
+function KeyGuidance({
   replacing,
   stored,
-  note,
-  talkOrbOn,
   onKeepCurrent,
 }: {
   replacing: boolean
   stored: boolean
-  note: string | null
-  talkOrbOn: boolean
   onKeepCurrent: () => void
 }) {
   return (
-    <>
-      <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        Paste the key, or name an environment variable to read it from and keep it
-        out of the config file.
-        {replacing && !stored && (
-          <>
-            {" "}
-            <button
-              type="button"
-              onClick={onKeepCurrent}
-              className="cursor-pointer border-none bg-transparent p-0 text-[length:var(--text-caption1)] text-[var(--system-blue)]"
-            >
-              Keep the current key
-            </button>
-          </>
-        )}
-      </div>
+    <div className="mb-[var(--space-3)] text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+      Paste the key, or name an environment variable to read it from and keep it
+      out of the config file.
+      {replacing && !stored && (
+        <>
+          {" "}
+          <button
+            type="button"
+            onClick={onKeepCurrent}
+            className="cursor-pointer border-none bg-transparent p-0 text-[length:var(--text-caption1)] text-[var(--system-blue)]"
+          >
+            Keep the current key
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
 
+/** What is true of the section as a whole, so it stays at the end. */
+function Guidance({
+  note,
+  talkOrbOn,
+}: {
+  note: string | null
+  talkOrbOn: boolean
+}) {
+  return (
+    <>
       {note && (
         <div className="mt-[var(--space-3)] text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
           {note}
@@ -147,22 +167,23 @@ function ProviderField({
   )
 }
 
-function MicrophoneField({
-  microphone,
-  onMicrophoneChange,
+function OrbMotionField({
+  intensity,
+  onChange,
 }: {
-  microphone: TalkMicrophone
-  onMicrophoneChange: (microphone: TalkMicrophone) => void
+  intensity: OrbIntensity
+  onChange: (intensity: OrbIntensity) => void
 }) {
   return (
-    <FieldRow label="Microphone">
+    <FieldRow label="Orb motion">
       <SettingsSelect
-        ariaLabel="Talk microphone"
-        value={microphone}
-        onChange={(value) => onMicrophoneChange(value as TalkMicrophone)}
+        ariaLabel="Talk orb motion"
+        value={intensity}
+        onChange={(value) => onChange(value as OrbIntensity)}
         options={[
-          { value: "far_field", label: "Laptop or room mic" },
-          { value: "near_field", label: "Headset or close mic" },
+          { value: "calm", label: "Calm" },
+          { value: "standard", label: "Standard" },
+          { value: "lively", label: "Lively" },
         ]}
       />
     </FieldRow>
@@ -191,19 +212,51 @@ function OrbStyleField({
   )
 }
 
-export function VoiceSection({
-  provider,
-  apiKey,
+/** The three `realtime` fields that shape a session once the provider and key
+ *  are settled. Grouped so the section reads as key, then session, then taste. */
+function SessionFields({
+  voice,
+  turnDetection,
+  noiseReduction,
   capability,
   onChange,
-  talkOrbOn,
-}: VoiceSectionProps) {
+}: {
+  voice: string
+  turnDetection: TurnDetection
+  noiseReduction: string
+  capability: TalkCapability | null
+  onChange: (path: string[], value: unknown) => void
+}) {
+  return (
+    <>
+      <VoiceField voice={voice} capability={capability} onChange={onChange} />
+      <TurnDetectionField turnDetection={turnDetection} onChange={onChange} />
+      <NoiseReductionField noiseReduction={noiseReduction} onChange={onChange} />
+    </>
+  )
+}
+
+/**
+ * The knobs that are taste rather than configuration: they live in this
+ * browser's settings, not in config.yaml, so they read their own store instead
+ * of being threaded through the section's props.
+ */
+function OrbTasteFields() {
+  const { settings, setTalkOrbVariant, setTalkOrbIntensity } = useSettings()
+  return (
+    <>
+      <OrbMotionField intensity={settings.talkOrbIntensity} onChange={setTalkOrbIntensity} />
+      <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
+    </>
+  )
+}
+
+export function VoiceSection(props: VoiceSectionProps) {
+  const { provider, apiKey, model, capability, onChange, talkOrbOn } = props
   // Replacing is a decision the operator makes here, not something the config
   // can be read for: an emptied field and a gateway with no key look the same.
   const [replacing, setReplacing] = useState(false)
   const stored = apiKey === REDACTED
-  const note = readiness(capability, provider, apiKey)
-  const { settings, setTalkMicrophone, setTalkOrbVariant } = useSettings()
 
   function replace() {
     setReplacing(true)
@@ -222,22 +275,17 @@ export function VoiceSection({
       </div>
 
       <ProviderField provider={provider} capability={capability} onChange={onChange} />
+      <ModelField model={model} onChange={onChange} />
 
       <FieldRow label="API key">
         <KeyField stored={stored} apiKey={apiKey} onReplace={replace} onChange={onChange} />
       </FieldRow>
+      <KeyGuidance replacing={replacing} stored={stored} onKeepCurrent={keepCurrent} />
 
-      <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
+      <SessionFields {...props} />
+      <OrbTasteFields />
 
-      <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
-
-      <Guidance
-        replacing={replacing}
-        stored={stored}
-        note={note}
-        talkOrbOn={talkOrbOn}
-        onKeepCurrent={keepCurrent}
-      />
+      <Guidance note={readiness(capability, provider, apiKey)} talkOrbOn={talkOrbOn} />
     </Section>
   )
 }

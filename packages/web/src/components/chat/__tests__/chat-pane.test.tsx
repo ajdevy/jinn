@@ -101,9 +101,6 @@ vi.mock('@/components/chat/chat-employee-picker', () => ({
   ChatEmployeePicker: () => <div data-testid="employee-picker" />,
 }))
 
-vi.mock('@/components/chat/queue-panel', () => ({
-  QueuePanel: () => null,
-}))
 
 vi.mock('@/components/chat/background-activity-status', () => ({
   BackgroundActivityStatus: ({ delegatedActivity, employeeDisplayNames }: {
@@ -157,6 +154,47 @@ describe('ChatPane', () => {
     expect(composerActive).toBe(false)
     fireEvent.focusIn(screen.getByTestId('chat-input'))
     expect(onFocus).toHaveBeenCalledOnce()
+  })
+
+  it('renders pane-owned chrome only in a multi-pane layout', () => {
+    const onFocus = vi.fn()
+    const onClose = vi.fn()
+    liveSessionState = {
+      ...liveSessionDefaults,
+      loading: true,
+      session: { id: 's1', title: '#9 - Focus work', employee: 'platform-lead', status: 'running' },
+    }
+    const { rerender } = renderPane({
+      multiPane: true,
+      paneTitle: 'Warm title',
+      paneEmployee: 'fallback-employee',
+      onFocus,
+      onClose,
+    })
+
+    expect(screen.getByTestId('chat-pane-title-bar')).toBeTruthy()
+    expect(screen.getByText('Focus work')).toBeTruthy()
+    expect(screen.getByTestId('chat-pane-status-dot').getAttribute('style')).toContain('var(--system-blue)')
+    const close = screen.getByRole('button', { name: 'Close #9 - Focus work' })
+    fireEvent.focusIn(close)
+    fireEvent.click(close)
+    expect(onFocus).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledOnce()
+
+    rerender(
+      <ChatPane
+        sessionId="s1"
+        isActive
+        onFocus={() => {}}
+        subscribe={() => () => {}}
+        events={[]}
+        multiPane={false}
+        paneTitle="Warm title"
+        paneEmployee="fallback-employee"
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('chat-pane-title-bar')).toBeNull()
   })
 
   it('lets session drags bubble to the grid while retaining file drops', () => {

@@ -13,10 +13,9 @@ import {
   api,
   type DepartmentSummaryWire,
   type Employee,
-  type WorkItemDetailWire,
-  type WorkItemLabelWire,
 } from "@/lib/api"
 import { operatorSafeTodoError, priorityLabel } from "@/lib/todos"
+import { createDetail } from "./new-todo-preview"
 import { TodoDialog } from "./todo-dialog"
 import {
   AssigneePickerContent,
@@ -43,57 +42,6 @@ function useIsCreateMobile(): boolean {
     return () => query.removeEventListener("change", onChange)
   }, [])
   return mobile
-}
-
-function createDetail({
-  title,
-  department,
-  assignee,
-  priority,
-  dueAt,
-  labels,
-}: {
-  title: string
-  department: string | null
-  assignee: string | null
-  priority: number
-  dueAt: string | null
-  labels: WorkItemLabelWire[]
-}): WorkItemDetailWire {
-  const now = new Date().toISOString()
-  return {
-    workItem: {
-      id: "NEW-0",
-      version: 1,
-      title,
-      body: null,
-      status: "backlog",
-      department,
-      assignee,
-      priority,
-      rank: null,
-      source: "human",
-      sourceRef: null,
-      acceptance: null,
-      verifyPolicy: null,
-      rounds: 0,
-      budgetUsd: null,
-      approvalState: null,
-      approvalRequest: null,
-      approvalRef: null,
-      approvalTarget: null,
-      approvalEscalatedAt: null,
-      approvalDecidedBy: null,
-      approvalDecidedAt: null,
-      dueAt,
-      createdAt: now,
-      updatedAt: now,
-      closedAt: null,
-    },
-    labels,
-    spendUsd: 0,
-    events: [],
-  }
 }
 
 function PropertyChip({
@@ -141,6 +89,8 @@ export function NewTodoDialog({
   onClose: () => void
   onCreated: () => void
   defaults?: {
+    /** Seeds the title, so a create started from the palette keeps its words. */
+    title?: string
     department?: string
     askAssignee?: boolean
     employees?: Employee[]
@@ -149,7 +99,7 @@ export function NewTodoDialog({
 }) {
   const titleRef = useRef<HTMLInputElement>(null)
   const mobile = useIsCreateMobile()
-  const [title, setTitle] = useState("")
+  const [title, setTitle] = useState(defaults?.title ?? "")
   const [body, setBody] = useState("")
   const [acceptance, setAcceptance] = useState("")
   const [parentId, setParentId] = useState("")

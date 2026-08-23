@@ -88,6 +88,19 @@ describe("migrateQueueItemsSchema", () => {
     expect(legacy).toEqual({ prompt: "an already queued prompt", dedupe_key: null });
   });
 
+  it("adds a nullable message_id to a legacy table, leaving its rows readable", () => {
+    const db = legacyQueueDb();
+
+    migrateQueueItemsSchema(db);
+
+    const columns = db.prepare("PRAGMA table_info(queue_items)").all() as Array<{ name: string; notnull: number }>;
+    expect(columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "message_id", notnull: 0 }),
+    ]));
+    expect(db.prepare("SELECT prompt, message_id FROM queue_items WHERE id = 'legacy-1'").get())
+      .toEqual({ prompt: "an already queued prompt", message_id: null });
+  });
+
   it("is a no-op the second time it runs on the same DB", () => {
     const db = legacyQueueDb();
     migrateQueueItemsSchema(db);

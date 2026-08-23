@@ -65,7 +65,6 @@ import {
   cancelQueueItem,
   markRunningQueueItemsCompletedForSession,
   getQueueItems,
-  cancelAllPendingQueueItems,
   listAllPendingQueueItems,
   getSessionDelivery,
   getSessionDeliveryByQueueItemId,
@@ -87,6 +86,14 @@ export {
 import { forkEngineSession } from "../sessions/fork.js";
 import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
+import { deepMerge, sanitizeConfigForApi } from "./config-payload.js";
+export { isSensitiveConfigKey, sanitizeConfigForApi } from "./config-payload.js";
+import {
+  CONFIG_CONFLICT_BODY,
+  CONFIG_REVISION_HEADER,
+  currentConfigRevision,
+  isStaleConfigRevision,
+} from "./config-revision.js";
 import {
   CONFIG_PATH,
   ORG_DIR,
@@ -109,7 +116,7 @@ import {
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
+import { supersedeRunningTurn } from "../sessions/turn/superseded.js";
 import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
 import { spawnSession } from "./spawn-session.js";
 export { deliverConnectorReply } from "./connector-reply.js";
@@ -122,6 +129,7 @@ import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type Pendin
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
+import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
@@ -233,7 +241,7 @@ import {
 } from "../work-items/approvals.js";
 import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
 import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry } from "./org-registry.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
 import {
@@ -615,76 +623,6 @@ function noteStoreFailureResponse(
     error: result.detail,
     ...(result.currentRevision ? { currentRevision: result.currentRevision } : {}),
   }, status);
-}
-
-const REDACTED_SECRET = "***";
-
-export function isSensitiveConfigKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return (
-    normalized.includes("token") ||
-    normalized.includes("secret") ||
-    normalized.includes("apikey") ||
-    normalized.includes("privatekey") ||
-    normalized.includes("password") ||
-    normalized === "authorization"
-  );
-}
-
-/**
- * Replace any secret-bearing fields with the "***" sentinel before sending
- * config to the UI.
- * deepMerge round-trips the sentinel back to the original value on PUT.
- */
-export function sanitizeConfigForApi<T>(value: T, key = ""): T {
-  const isNumericTokenThreshold = key === "tokenThreshold" && typeof value === "number";
-  if (isSensitiveConfigKey(key) && !isNumericTokenThreshold && value !== undefined && value !== null && value !== "") {
-    return REDACTED_SECRET as T;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeConfigForApi(item)) as T;
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
-      out[childKey] = sanitizeConfigForApi(childValue, childKey);
-    }
-    return out as T;
-  }
-  return value;
-}
-
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    const sv = source[key];
-    const tv = target[key];
-    // A sanitized secret keeps the stored value; an explicit null clears the field.
-    if (isSensitiveConfigKey(key) && sv === REDACTED_SECRET) continue;
-    if (sv === null) delete result[key];
-    else if (Array.isArray(sv)) {
-      // For arrays (e.g. instances), preserve secrets from matching items
-      if (Array.isArray(tv)) {
-        result[key] = sv.map((item: unknown) => {
-          if (item && typeof item === "object" && !Array.isArray(item)) {
-            const srcItem = item as Record<string, unknown>;
-            const matchTarget = (tv as unknown[]).find(
-              (t) => t && typeof t === "object" && (t as Record<string, unknown>).id === srcItem.id
-            ) as Record<string, unknown> | undefined;
-            if (matchTarget) return deepMerge(matchTarget, srcItem);
-          }
-          return item;
-        });
-      } else {
-        result[key] = sv;
-      }
-    } else if (sv && typeof sv === "object" && !Array.isArray(sv) && tv && typeof tv === "object" && !Array.isArray(tv)) {
-      result[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
-    } else {
-      result[key] = sv;
-    }
-  }
-  return result;
 }
 
 function sessionHasRuntimeActivity(session: Session, context: ApiContext): boolean {
@@ -1162,6 +1100,8 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
+  if (method === "PATCH" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item edit";
+  if (method === "POST" && matchRoute("/api/sessions/:id/queue/:itemId/send-now", pathname)) return "session queue item send now";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue", pathname)) return "session queue clear";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/pause", pathname)) return "session queue pause";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/resume", pathname)) return "session queue resume";
@@ -1193,7 +1133,7 @@ function requireCallbackRecoveryAuthority(req: HttpRequest, res: ServerResponse,
   if (identity.kind === "operator") return true;
   if (identity.kind === "session") {
     const session = getSession(identity.callerId);
-    const employee = session?.employee ? scanOrg().get(session.employee) : undefined;
+    const employee = session?.employee ? orgRegistry(context.getConfig()).get(session.employee) : undefined;
     if (employee?.rank === "manager" || employee?.rank === "executive") return true;
   }
   json(res, { error: "Callback recovery diagnostics require operator or manager authority" }, 403);
@@ -1400,26 +1340,6 @@ function serializeSessionList(sessions: readonly Session[], context: ApiContext)
 function serializeSessionResponse(session: Session, context: ApiContext): Session {
   const delegatedActivityIndex = buildSessionDelegatedActivityIndex(listSessions(), context);
   return serializeSession(session, context, delegatedActivityIndex);
-}
-
-function withTransportMeta(session: Session, updates: JsonObject): JsonObject {
-  const base =
-    session.transportMeta && typeof session.transportMeta === "object" && !Array.isArray(session.transportMeta)
-      ? session.transportMeta
-      : {};
-  return { ...base, ...updates };
-}
-
-function supersedeRunningTurn(session: Session): void {
-  updateSession(session.id, {
-    transportMeta: withTransportMeta(session, {
-      [SUPERSEDED_TURN_META_KEY]: new Date().toISOString(),
-    }),
-    ...(session.workflowProvenance?.kind === "phase" ? {
-      attemptInterruptionCause: "user-message",
-      attemptInterruptionTurn: (session.attemptTurn ?? 0) + 1,
-    } : {}),
-  });
 }
 
 function isSessionLiveRunning(session: Session, context: ApiContext): boolean {
@@ -2481,65 +2401,7 @@ export async function handleApiRequest(
       }
     }
 
-    // DELETE /api/sessions/:id/queue/:itemId — cancel specific item
-    const queueItemParams = matchRoute("/api/sessions/:id/queue/:itemId", pathname);
-    if (method === "DELETE" && queueItemParams) {
-      const session = getSession(queueItemParams.id);
-      if (!session) return notFound(res);
-      const cancelled = cancelQueueItem(queueItemParams.itemId);
-      if (!cancelled) {
-        res.writeHead(409, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Item not found or already running" }));
-        return;
-      }
-      context.emit("queue:updated", { sessionId: queueItemParams.id, sessionKey: session.sessionKey });
-      return json(res, { status: "cancelled", itemId: queueItemParams.itemId });
-    }
-
-    // GET /api/sessions/:id/queue
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "GET" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const items = getQueueItems(session.sessionKey || session.sourceRef || session.id);
-      return json(res, items);
-    }
-
-    // DELETE /api/sessions/:id/queue — clear all pending
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "DELETE" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      // Cancel only operator-visible rows. SessionQueue checks each durable row
-      // before execution, so no coarse in-memory cancellation is needed here;
-      // setting one would also discard protected internal callback rows.
-      const cancelled = cancelAllPendingQueueItems(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, depth: 0 });
-      return json(res, { status: "cleared", cancelled });
-    }
-
-    // POST /api/sessions/:id/queue/pause
-    params = matchRoute("/api/sessions/:id/queue/pause", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().pauseQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: true });
-      return json(res, { status: "paused", sessionId: params.id });
-    }
-
-    // POST /api/sessions/:id/queue/resume
-    params = matchRoute("/api/sessions/:id/queue/resume", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().resumeQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: false });
-      return json(res, { status: "resumed", sessionId: params.id });
-    }
+    if (await handleSessionQueueRoute(method, pathname, req, res, context)) return;
 
     // POST /api/sessions/bulk-delete
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
@@ -2661,6 +2523,7 @@ export async function handleApiRequest(
       if (body.provenance !== undefined) {
         return badRequest(res, "provenance cannot be supplied on public Todo creation — the server assigns source provenance: public creation uses source=human or source=session, while cron and delegation create their own records; source=workflow is historical audit provenance and is not currently minted");
       }
+      if (body.assignee !== undefined) return badRequest(res, "assignee cannot be supplied at Todo creation — create first, then grant ownership through the assign flow (assign_work_item / POST /api/work-items/:id/assign), which is its own action: it validates the roster, derives the department, moves backlog→assigned, and notifies the assignee");
       const title = typeof body.title === "string" ? stripControlChars(body.title).trim() : "";
       if (!title) return badRequest(res, "title is required");
       const verifyPolicy = validateVerifyPolicy(body.verifyPolicy);
@@ -2707,7 +2570,6 @@ export async function handleApiRequest(
         title: title.slice(0, 200),
         body: typeof body.body === "string" ? body.body : null,
         acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
-        assignee: typeof body.assignee === "string" && body.assignee.trim() ? body.assignee.trim() : null,
         // The department key is included only when the request carries one, so a
         // sub-task with no department inherits the parent's at the store layer.
         ...(body.department !== undefined
@@ -2859,7 +2721,7 @@ export async function handleApiRequest(
         if (typeof body.assignee === "string") {
           const assignee = body.assignee.trim();
           if (!assignee) return todoEditValidationError(res, "assignee must be a non-empty string or null");
-          if (!scanOrg().has(assignee)) {
+          if (!orgRegistry(context.getConfig()).has(assignee)) {
             return todoEditValidationError(res, "Unknown employee for Todo assignee. Check the organization directory.", "todo_invalid_assignee");
           }
           patch.assignee = assignee;
@@ -3099,8 +2961,7 @@ export async function handleApiRequest(
         ? (body.assignee as string).trim()
         : "";
       if (!assignee) return badRequest(res, "assignee is required");
-      const { scanOrg } = await import("./org.js");
-      const roster = scanOrg();
+      const roster = orgRegistry(context.getConfig());
       const employee = roster.get(assignee);
       if (!employee) {
         const near = nearestEmployee(assignee, [...roster.keys()]);
@@ -3215,7 +3076,7 @@ export async function handleApiRequest(
       if (!claim) return;
 
       const config = context.getConfig();
-      const dispatcher = scanOrg(config).get(TODO_DISPATCHER_NAME);
+      const dispatcher = orgRegistry(config).get(TODO_DISPATCHER_NAME);
       if (!dispatcher?.system) {
         claim.release();
         return serverError(res, "the built-in Todo Dispatcher is unavailable");
@@ -3758,9 +3619,8 @@ export async function handleApiRequest(
         const employee = caller.session.employee;
         let manager = false;
         if (employee) {
-          const { scanOrg } = await import("./org.js");
           const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-          const node = resolveOrgHierarchy(scanOrg()).nodes[employee];
+          const node = resolveOrgHierarchy(orgRegistry(context.getConfig())).nodes[employee];
           manager = (node?.directReports.length ?? 0) > 0;
         }
         if (!manager) {
@@ -3822,7 +3682,7 @@ export async function handleApiRequest(
         : authorizeWorkItemOwnerManagerOrRoot(caller, item, "request approval on");
       if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       if (target) {
-        const roster = scanOrg();
+        const roster = orgRegistry(context.getConfig());
         const root = resolveRootApprovalTarget();
         if (!roster.has(target) && root?.name !== target) {
           return badRequest(res, `approval target "${target}" is not an org employee or the configured root approval target`);
@@ -4082,11 +3942,11 @@ export async function handleApiRequest(
         }
       }
       const config = context.getConfig();
-      let orgRegistry: Map<string, Employee> | undefined;
+      let roster: Map<string, Employee> | undefined;
       let delegateEmployee: Employee | undefined;
       if (employeeName) {
-        orgRegistry = scanOrg(config);
-        delegateEmployee = orgRegistry.get(employeeName);
+        roster = orgRegistry(config);
+        delegateEmployee = roster.get(employeeName);
         if (!delegateEmployee) {
           return badRequest(res, `unknown employee "${employeeName}" — GET /api/org lists valid employees`);
         }
@@ -4338,9 +4198,9 @@ export async function handleApiRequest(
         queueItemId: delegationQueueItemId,
         attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
       });
-      if (employeeName && orgRegistry) {
+      if (employeeName && roster) {
         surfaceManagerVisibility({
-          roster: orgRegistry,
+          roster,
           employee: employeeName,
           delegatorSession,
           childSession: session,
@@ -4812,33 +4672,31 @@ export async function handleApiRequest(
 
       const attachmentPaths = resolveAttachmentPaths(body.attachments);
 
-      // Internal notification-role messages are already durably queued above;
-      // only real user messages create a visible queue-panel item here.
-      if (!isNotification) {
-        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-        context.emit("queue:updated", { sessionId: session.id, sessionKey });
-      }
-
       // Speech-derived operator messages carry a hidden context note to the engine
       // only. Everything persisted/queued/emitted above uses the clean `prompt`;
       // notifications (callbacks, relays) never qualify, and interactive dispatch
       // (ptyEngine truthy) suppresses the note so the visible PTY paste stays the
       // operator's exact text. Recomputed per request → exactly one note, never
       // persisted, never rendered, never duplicated on retry/reload/reconnect.
-      const { engine: enginePrompt } = resolveMessageAudiences(
-        prompt,
-        speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine }),
-      );
+      const speechDerived = speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine });
+      const { engine: enginePrompt } = resolveMessageAudiences(prompt, speechDerived);
+
+      // Internal notification-role messages are already durably queued above;
+      // only real user messages create a visible queue-panel item here. The row
+      // carries the whole payload so "send this one now" can move all of it.
+      if (!isNotification) {
+        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId, dispatch: { attachments: attachmentPaths, speechDerived } });
+        context.emit("queue:updated", { sessionId: session.id, sessionKey });
+      }
+
       dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",
         sessionId: session.id,
-        ...(callbackDelivery ? {
-          callbackDeliveryId: callbackDelivery.id,
-          messageId: incomingMessageId,
-          queueItemId,
-        } : {}),
+        messageId: incomingMessageId,
+        queueItemId,
+        ...(callbackDelivery ? { callbackDeliveryId: callbackDelivery.id } : {}),
       });
     }
 
@@ -4903,6 +4761,9 @@ export async function handleApiRequest(
     // GET /api/config
     if (method === "GET" && pathname === "/api/config") {
       const config = context.getConfig();
+      // The revision comes off the FILE, not off this in-memory config: the file is
+      // what a PUT deep-merges into, so the file is what a conflict is about.
+      res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
       return json(res, sanitizeConfigForApi(config));
     }
 
@@ -4919,6 +4780,12 @@ export async function handleApiRequest(
       const unknownKeys = Object.keys(body).filter((k) => !CONFIG_TOP_LEVEL_KEYS.includes(k));
       if (unknownKeys.length > 0) {
         return badRequest(res, `Unknown config keys: ${unknownKeys.join(", ")}`);
+      }
+      // Before the merge and before the write: a caller holding a revision older than
+      // the file is about to overwrite an edit it never saw. A caller that sends no
+      // revision is untouched — see isStaleConfigRevision for why that is deliberate.
+      if (isStaleConfigRevision(req.headers, currentConfigRevision())) {
+        return json(res, { ...CONFIG_CONFLICT_BODY }, 409);
       }
       // GET /api/config serves the EFFECTIVE binding, so the Settings page echoes
       // JINN_HOST/JINN_PORT back with every unrelated edit; saveConfigAtomic drops those.
@@ -4956,6 +4823,7 @@ export async function handleApiRequest(
       context.reloadConfig?.(); // refresh in-memory config now (don't wait on the watcher)
       invalidateModelRegistry(); // models/engines may have changed — rebuild on next read
       logger.info("Config updated via API");
+      res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
       return json(res, { status: "ok" });
     }
 

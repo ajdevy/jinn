@@ -1,6 +1,8 @@
 import type { EngineRegistryEntry } from "@/lib/api"
 import { ChainEditor } from "./chain-editor"
 import { addOptionsFor, classifyEngineHealth, engineLabel, type EngineHealthTone } from "./chain-model"
+import { ModelMapEditor } from "./model-map-editor"
+import type { ModelMapPair, ServedModels } from "./model-map-model"
 
 const TONE_COLOR: Record<EngineHealthTone, string> = {
   healthy: "var(--system-green)",
@@ -11,13 +13,18 @@ const TONE_COLOR: Record<EngineHealthTone, string> = {
 /** One engine: what it is, whether it can serve a turn, and where its turns go
  *  when it cannot. A healthy engine states it quietly — six green sentences
  *  would drown the one card that is actually saying something. */
-export function EngineCard({ entry, chain, modelMap, registryEngines, onChange }: {
+export function EngineCard({ entry, chain, modelMap, registryEngines, served, defaultModels, onChange, onMapChange }: {
   entry: EngineRegistryEntry
   chain: string[]
   /** `[from, to]` model translations for turns that fall through this chain. */
-  modelMap: [string, string][]
+  modelMap: ModelMapPair[]
   registryEngines: string[]
+  /** Model ids per engine, so the map editor can constrain a target to what the
+   *  stand-in actually serves rather than to anything that looks like an id. */
+  served: ServedModels
+  defaultModels: Record<string, string>
   onChange: (chain: string[]) => void
+  onMapChange: (pairs: ModelMapPair[]) => void
 }) {
   const health = classifyEngineHealth(entry.health)
 
@@ -44,16 +51,14 @@ export function EngineCard({ entry, chain, modelMap, registryEngines, onChange }
         options={addOptionsFor(registryEngines, entry.name, chain)}
         onChange={onChange}
       />
-      {modelMap.length > 0 && (
-        <div className="mt-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-          Models carried onto the stand-in
-          <div className="mt-[2px] flex flex-col gap-[2px] text-[var(--text-secondary)]">
-            {modelMap.map(([from, to]) => (
-              <div key={from} data-model-map-pair={from}>{from} → {to}</div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ModelMapEditor
+        engine={entry.name}
+        chain={chain}
+        pairs={modelMap}
+        served={served}
+        defaultModels={defaultModels}
+        onChange={onMapChange}
+      />
     </div>
   )
 }

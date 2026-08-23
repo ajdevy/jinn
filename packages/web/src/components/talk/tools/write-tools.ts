@@ -28,7 +28,6 @@ const STATUSES: readonly WorkItemStatusWire[] = [
 const commentTodo: TalkTool = {
   name: "talk_comment_todo",
   description: "Leave a comment on a Todo. Reversible for a short window afterwards.",
-  exposure: "on-intent",
   parameters: params(
     { id: str("The full Todo id, such as \"ABC-59\"."), body: str("The comment to leave, in the operator's words.") },
     ["id", "body"],
@@ -53,7 +52,6 @@ const commentTodo: TalkTool = {
 const createTodo: TalkTool = {
   name: "talk_create_todo",
   description: "Create a Todo. It starts in the backlog with nobody assigned.",
-  exposure: "on-intent",
   parameters: params(
     {
       title: str("The Todo's title — one line, what the work is."),
@@ -99,7 +97,6 @@ async function moveTodoOneWay(id: string, status: WorkItemStatusWire, note: stri
 const setTodoStatus: TalkTool = {
   name: "talk_set_todo_status",
   description: "Move a Todo to another status. Moves the board cannot take back — cancelling, closing, starting work — ask first; the rest are reversible for a short window.",
-  exposure: "on-intent",
   parameters: params(
     {
       id: str("The full Todo id."),
@@ -162,7 +159,6 @@ const setTodoStatus: TalkTool = {
 const assignTodo: TalkTool = {
   name: "talk_assign_todo",
   description: "Assign a Todo to an employee. Reversible for a short window afterwards.",
-  exposure: "on-intent",
   parameters: params(
     { id: str("The full Todo id."), assignee: str("The employee's name, such as \"a-lead\".") },
     ["id", "assignee"],
@@ -208,7 +204,6 @@ const assignTodo: TalkTool = {
 const labelTodo: TalkTool = {
   name: "talk_label_todo",
   description: "Replace a Todo's labels with the ones given. Only existing labels can be applied.",
-  exposure: "on-intent",
   parameters: params(
     { id: str("The full Todo id."), labels: str("The full set of label names, comma-separated. Empty clears them.") },
     ["id", "labels"],
@@ -237,7 +232,6 @@ const labelTodo: TalkTool = {
 const undoLastWrite: TalkTool = {
   name: UNDO_TOOL,
   description: "Reverse the last speak-and-go write, while its window is still open. Every such write names this tool as its undo.",
-  exposure: "on-intent",
   parameters: params({}),
   execute: async (): Promise<ToolResult> => {
     // A reversal that ran logs itself from the offer's own callback, whichever

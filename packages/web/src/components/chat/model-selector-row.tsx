@@ -492,8 +492,8 @@ export function ModelSelectorRow({ mode, value, onChange, pendingNote, errorNote
           <span aria-hidden className="shrink-0 text-[var(--accent)] text-[11px] leading-none">✦</span>
           <span className="truncate font-[var(--weight-semibold)] tracking-[-0.2px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">{modelLabel}</span>
           {effort && (
-            // Effort is the first thing to drop on a narrow composer.
-            <span className="hidden shrink-0 text-[var(--text-tertiary)] sm:inline">· {effortLabelOf(effort)}</span>
+            // First thing to drop on a narrow composer — measured against the composer container, so a narrow PANE drops it too, not just a narrow viewport.
+            <span className="shrink-0 text-[var(--text-tertiary)] @max-[340px]/composer:hidden">· {effortLabelOf(effort)}</span>
           )}
           <span aria-hidden className="shrink-0 text-[8px] leading-none text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]">▾</span>
         </button>

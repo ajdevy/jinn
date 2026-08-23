@@ -25,11 +25,11 @@ const fetchTalkCapability = vi.hoisted(() => vi.fn())
 
 const settingsMock = vi.hoisted(() => ({
   talkOrb: true,
-  talkMicrophone: 'far_field' as 'far_field' | 'near_field',
   talkOrbVariant: 'mist',
+  talkOrbIntensity: 'standard',
 }))
-const setTalkMicrophone = vi.hoisted(() => vi.fn())
 const setTalkOrbVariant = vi.hoisted(() => vi.fn())
+const setTalkOrbIntensity = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
 vi.mock('@/components/talk/orb-canvas', () => ({
@@ -50,8 +50,8 @@ vi.mock('@/routes/settings-provider', () => ({
     setPortalEmoji: vi.fn(),
     setLanguage: vi.fn(),
     setTalkOrb: vi.fn(),
-    setTalkMicrophone,
     setTalkOrbVariant,
+    setTalkOrbIntensity,
     resetAll: vi.fn(),
   }),
 }))
@@ -80,28 +80,88 @@ function save() {
 
 beforeEach(() => {
   settingsMock.talkOrb = true
-  settingsMock.talkMicrophone = 'far_field'
-  setTalkMicrophone.mockReset()
   setTalkOrbVariant.mockReset()
-  apiMocks.getConfig.mockResolvedValue({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } })
-  apiMocks.updateConfig.mockResolvedValue({})
+  setTalkOrbIntensity.mockReset()
+  apiMocks.getConfig.mockResolvedValue({ config: { realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }, revision: 'rev-1' })
+  apiMocks.updateConfig.mockResolvedValue({ revision: 'rev-1' })
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
   apiMocks.sttStatus.mockResolvedValue({ available: false, model: null, downloading: false, progress: 0, languages: ['en'] })
   apiMocks.sttUpdateConfig.mockResolvedValue({})
   apiMocks.sttDownload.mockResolvedValue({})
-  fetchTalkCapability.mockResolvedValue({ configured: true, provider: 'openai', providers: ['openai'] })
+  fetchTalkCapability.mockResolvedValue({
+    configured: true,
+    provider: 'openai',
+    providers: ['openai'],
+    voices: ['alloy', 'cedar', 'marin'],
+  })
 })
 
 describe('the Voice section', () => {
-  it('persists a close-mic profile independently of gateway secrets', async () => {
+  /**
+   * Every field of `RealtimeConfig` reaches config.yaml, and the key is the one
+   * that does not travel as a value. `semantic_vad` is written as a mapping
+   * because that is the only form the provider's union accepts.
+   */
+  it('round-trips every realtime field, and never writes the sentinel as a key', async () => {
+    renderSettings()
+    await screen.findByText('Stored')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Realtime model' }), {
+      target: { value: 'gpt-realtime' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Realtime voice' }), {
+      target: { value: 'marin' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Realtime turn detection' }), {
+      target: { value: 'semantic_vad' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Realtime noise reduction' }), {
+      target: { value: 'near_field' },
+    })
+    save()
+
+    await waitFor(() =>
+      expect(apiMocks.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          realtime: {
+            provider: 'openai',
+            apiKey: STORED_KEY_SENTINEL,
+            model: 'gpt-realtime',
+            voice: 'marin',
+            turnDetection: { type: 'semantic_vad' },
+            noiseReduction: 'near_field',
+          },
+        }),
+        'rev-1',
+      ),
+    )
+  })
+
+  it('offers the provider voices the gateway reports, and nothing invented', async () => {
     renderSettings()
 
-    const microphone = await screen.findByRole('combobox', { name: 'Talk microphone' })
-    expect((microphone as HTMLSelectElement).value).toBe('far_field')
-    fireEvent.change(microphone, { target: { value: 'near_field' } })
+    const voice = await screen.findByRole('combobox', { name: 'Realtime voice' })
+    const offered = Array.from(voice.querySelectorAll('option')).map((option) => option.textContent)
+    expect(offered).toEqual(['Provider default', 'alloy', 'cedar', 'marin'])
+  })
 
-    expect(setTalkMicrophone).toHaveBeenCalledWith('near_field')
-    expect(apiMocks.updateConfig).not.toHaveBeenCalled()
+  it('falls back to a free field when the provider offers no voices', async () => {
+    fetchTalkCapability.mockResolvedValue({ configured: true, provider: 'gemini', providers: ['openai'], voices: [] })
+    renderSettings()
+
+    expect(await screen.findByRole('textbox', { name: 'Realtime voice' })).not.toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Realtime voice' })).toBeNull()
+  })
+
+  it('reads a mapping turn detection back as its own name', async () => {
+    apiMocks.getConfig.mockResolvedValue({
+      config: { realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL, turnDetection: { type: 'semantic_vad' } } },
+      revision: 'rev-1',
+    })
+    renderSettings()
+
+    const turn = await screen.findByRole('combobox', { name: 'Realtime turn detection' })
+    expect((turn as HTMLSelectElement).value).toBe('semantic_vad')
   })
 
   it('offers the providers the gateway reports, and nothing invented', async () => {
@@ -130,6 +190,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })
@@ -147,6 +208,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: null, apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })
@@ -162,6 +224,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: '${OPENAI_API_KEY}' } }),
+        'rev-1',
       ),
     )
 
@@ -171,6 +234,7 @@ describe('the Voice section', () => {
     await waitFor(() =>
       expect(apiMocks.updateConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({ realtime: { provider: 'openai', apiKey: STORED_KEY_SENTINEL } }),
+        'rev-1',
       ),
     )
   })
@@ -189,7 +253,7 @@ describe('the Talk Orb row', () => {
   })
 
   it('says voice is not set up when the orb is on and the gateway cannot open one', async () => {
-    fetchTalkCapability.mockResolvedValue({ configured: false, provider: null, providers: ['openai'] })
+    fetchTalkCapability.mockResolvedValue({ configured: false, provider: null, providers: ['openai'], voices: [] })
     renderSettings()
 
     expect(await screen.findByText(NOT_SET_UP)).not.toBeNull()
@@ -204,7 +268,7 @@ describe('the Talk Orb row', () => {
 
   it('says nothing when the orb itself is switched off', async () => {
     settingsMock.talkOrb = false
-    fetchTalkCapability.mockResolvedValue({ configured: false, provider: null, providers: ['openai'] })
+    fetchTalkCapability.mockResolvedValue({ configured: false, provider: null, providers: ['openai'], voices: [] })
     renderSettings()
 
     await screen.findByRole('combobox', { name: 'Voice provider' })

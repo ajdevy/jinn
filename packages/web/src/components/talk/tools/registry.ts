@@ -20,8 +20,8 @@ import { VISUAL_CAPTURE_TOOL } from "./visual-tools"
  * `executeToolCall` is the seam: the realtime transport hands it a provider's
  * `tool_call` event verbatim. It answers with a value in every case, including
  * every kind of bad input — a throw would take a live voice session down with
- * it. Writes are never resident: every one of them is `on-intent`, so a session
- * that has not talked about changing anything is not carrying the vocabulary to.
+ * it. Writes are resident like everything else — the gateway mints the whole
+ * catalog when the session opens; `operatorOnly` and voice approval contain them.
  */
 
 export const TALK_TOOLS: readonly TalkTool[] = [

@@ -71,7 +71,6 @@ export const FOCUS_ELEMENT_TOOL: TalkTool = {
   name: "focus_element",
   description:
     "Scroll to something on the current page and highlight it, so the operator can see which one is meant. Use after navigating.",
-  exposure: "always",
   parameters: params({ target: str("The name the app gives the element, such as a Todo id.") }, ["target"]),
   execute: (args: ToolArgs) => focusElement(String(args.target)),
 }

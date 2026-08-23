@@ -37,6 +37,60 @@ describe("normalizeClaudeEngineConfig", () => {
 });
 
 describe("validateConfigShape", () => {
+  const withRealtime = (realtime: unknown) => validateConfigShape({
+    engines: { claude: { bin: "claude", model: "opus" } },
+    realtime,
+  });
+
+  /**
+   * A bad `realtime` value does not fail until a voice session is opened, and
+   * opening one is a billed call. It is caught here instead, in the same words
+   * as every other config mistake.
+   */
+  it("accepts the realtime block the provider union actually allows", () => {
+    expect(withRealtime({
+      provider: "openai",
+      model: "gpt-realtime",
+      apiKey: "${OPENAI_API_KEY}",
+      voice: "marin",
+      turnDetection: { type: "semantic_vad" },
+      noiseReduction: "near_field",
+    })).toEqual([]);
+    expect(withRealtime({ turnDetection: "server_vad" })).toEqual([]);
+    expect(withRealtime({ turnDetection: "none" })).toEqual([]);
+    expect(withRealtime(undefined)).toEqual([]);
+  });
+
+  it("refuses a turn detection nobody implements, and says what is allowed", () => {
+    const problems = withRealtime({ turnDetection: "sideways" });
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("realtime.turnDetection must be");
+    expect(problems[0]).toContain("server_vad");
+    expect(problems[0]).toContain('"sideways"');
+  });
+
+  // `semantic_vad` carries an eagerness, so it is only valid as a mapping. An
+  // operator hand-editing the file will reach for the bare name first.
+  it("refuses bare semantic_vad, which is the mapping form's easiest mistake", () => {
+    expect(withRealtime({ turnDetection: "semantic_vad" })).toHaveLength(1);
+    expect(withRealtime({ turnDetection: { type: "sideways" } })[0])
+      .toContain("realtime.turnDetection.type must be one of");
+  });
+
+  it("refuses a noise reduction outside the two the provider filters on", () => {
+    const problems = withRealtime({ noiseReduction: "studio" });
+
+    expect(problems).toEqual([
+      'realtime.noiseReduction must be one of: near_field, far_field (got "studio")',
+    ]);
+  });
+
+  it("refuses a non-string where the block holds names", () => {
+    expect(withRealtime({ provider: 7 })).toEqual(["realtime.provider must be a string (got number)"]);
+    expect(withRealtime([])).toEqual(["realtime must be a mapping"]);
+  });
+
   it("accepts a minimal valid config", () => {
     expect(validateConfigShape({ engines: { claude: { bin: "claude", model: "opus" } } })).toEqual([]);
   });
@@ -76,6 +130,13 @@ describe("validateConfigShape", () => {
     expect(problems.some((p) => p.includes("gateway.notesEnabled"))).toBe(true);
   });
 
+  it("accepts a boolean gateway.resumeInterruptedSessions flag and rejects other values", () => {
+    expect(validateConfigShape({ gateway: { resumeInterruptedSessions: false }, engines: { claude: {} } })).toEqual([]);
+    expect(validateConfigShape({ gateway: {}, engines: { claude: {} } })).toEqual([]);
+    const problems = validateConfigShape({ gateway: { resumeInterruptedSessions: "no" }, engines: { claude: {} } });
+    expect(problems.some((p) => p.includes("gateway.resumeInterruptedSessions"))).toBe(true);
+  });
+
   it("rejects missing engines / engines.claude", () => {
     expect(validateConfigShape({})[0]).toContain("engines");
     const problems = validateConfigShape({ engines: { default: "codex" } });
@@ -106,7 +167,7 @@ describe("saveConfigAtomic", () => {
   it("writes valid YAML to config.yaml and leaves no tmp file behind", async () => {
     const { saveConfigAtomic } = await import("../config.js");
     const configPath = path.join(tmpHome, "config.yaml");
-    const cfg = { gateway: { port: 7777 }, talk: { engine: "claude", note: "x".repeat(200) } };
+    const cfg = { gateway: { port: 7999 }, talk: { engine: "claude", note: "x".repeat(200) } };
 
     saveConfigAtomic(cfg, { lineWidth: -1 });
 

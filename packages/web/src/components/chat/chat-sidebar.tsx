@@ -64,7 +64,7 @@ import {
   SessionRowMenu,
   workflowRunPath,
 } from "@/components/chat/session-row-menu"
-import { writeChatSessionDrag } from "@/routes/chat/chat-session-dnd"
+import { chatSessionDragProps } from "@/routes/chat/chat-session-dnd"
 import type { ChatSidebarProps } from "@/components/chat/chat-sidebar-types"
 
 export type { SidebarOrder } from "@/components/chat/chat-sidebar-types"
@@ -280,7 +280,7 @@ const SessionRow = React.memo(function SessionRow({
         <RowTag
           draggable={!isRenaming}
           data-chat-session-row={session.id}
-          onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
+          {...chatSessionDragProps(session.id)}
           {...(!isRenaming && { onClick: () => {
             onSelect(session.id)
             onEmployeeSessionsAvailable?.(parentSessions ?? [session])
@@ -474,7 +474,7 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           <button
             draggable
             data-chat-session-row={session.id}
-            onDragStart={(event) => writeChatSessionDrag(event.dataTransfer, session.id)}
+            {...chatSessionDragProps(session.id)}
             onClick={() => {
               onSelect(session.id)
               onEmployeeSessionsAvailable?.([session])
@@ -1569,16 +1569,16 @@ export function ChatSidebar({
 
             <div className="flex-1" />
 
-            {/* GRS-022 — new-chat (compose) on the mobile chat LIST. Desktop
-                reaches compose from the thread header pill / ribbon, but on
-                mobile the list view has no header pill, so surface the SAME
-                compose action here (top-right, HIG). Mobile only.
+            {/* GRS-022 — new-chat (compose) in the chat LIST header. It remains
+                available on desktop when a multi-pane grid retires the thread
+                header pill, and owns the same action on the mobile list.
+                This is one shared action across both responsive surfaces.
                 GRS-023b — sits BEFORE search (order swapped per operator). */}
             <button
               onClick={onNewChat}
               title="New chat"
               aria-label="New chat"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-foreground lg:hidden"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-foreground"
             >
               <SquarePen className="size-[18px]" />
             </button>

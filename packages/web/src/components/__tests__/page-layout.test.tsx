@@ -12,8 +12,13 @@ vi.mock("@/lib/api", () => ({
 }))
 
 vi.mock("../global-search", () => ({
-  GlobalSearch: ({ initialOpen }: { initialOpen?: boolean }) => (
-    <div data-testid="global-search" data-initial-open={String(Boolean(initialOpen))} />
+  GlobalSearch: ({ initialOpen, initialScope, initialQuery }: { initialOpen?: boolean; initialScope?: string; initialQuery?: string }) => (
+    <div
+      data-testid="global-search"
+      data-initial-open={String(Boolean(initialOpen))}
+      data-initial-scope={initialScope ?? ""}
+      data-initial-query={initialQuery ?? ""}
+    />
   ),
 }))
 
@@ -27,19 +32,24 @@ vi.mock("../onboarding-wizard", () => ({
   ),
 }))
 
+import { useSearchOverlay } from "../search-overlay-context"
 import { PageLayout } from "../page-layout"
 
-function renderLayout() {
+function renderLayout(children: React.ReactNode = <div>Page content</div>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
-      <PageLayout chromeless>
-        <div>Page content</div>
-      </PageLayout>
+      <PageLayout chromeless>{children}</PageLayout>
     </QueryClientProvider>,
   )
+}
+
+/** Stands in for the Todos filter row: a page asking for a scoped palette. */
+function ScopedSearchOpener() {
+  const { openSearch } = useSearchOverlay()
+  return <button onClick={() => openSearch({ scope: "todo", query: "r" })}>open scoped search</button>
 }
 
 beforeEach(() => {
@@ -70,6 +80,18 @@ describe("PageLayout deferred shell widgets", () => {
 
     const search = await screen.findByTestId("global-search")
     expect(search.getAttribute("data-initial-open")).toBe("true")
+  })
+
+  it("mounts the palette opened, scoped and seeded when a page asks for it", async () => {
+    localStorage.setItem("jinn-onboarded", "true")
+    renderLayout(<ScopedSearchOpener />)
+
+    fireEvent.click(screen.getByRole("button", { name: "open scoped search" }))
+
+    const search = await screen.findByTestId("global-search")
+    expect(search.getAttribute("data-initial-open")).toBe("true")
+    expect(search.getAttribute("data-initial-scope")).toBe("todo")
+    expect(search.getAttribute("data-initial-query")).toBe("r")
   })
 
   it("mounts the live stream widget after the page finishes loading", async () => {

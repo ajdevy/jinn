@@ -30,11 +30,11 @@ export interface SkillManifestEntry {
 
 export function readManifest(): SkillManifestEntry[] {
   if (!fs.existsSync(SKILLS_JSON)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(SKILLS_JSON, "utf-8"));
-  } catch {
-    return [];
-  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(fs.readFileSync(SKILLS_JSON, "utf-8")); } catch { return []; }
+  if (Array.isArray(parsed)) return parsed;
+  console.warn(`${YELLOW}Ignoring ${SKILLS_JSON}: expected an array of skill entries.${RESET}`);
+  return [];
 }
 
 export function writeManifest(entries: SkillManifestEntry[]): void {
@@ -236,8 +236,8 @@ export function skillsRemove(name: string): void {
     return;
   }
 
-  fs.rmSync(skillDir, { recursive: true, force: true });
   removeFromManifest(name);
+  fs.rmSync(skillDir, { recursive: true, force: true });
   console.log(`${GREEN}Skill "${name}" removed.${RESET}`);
 }
 

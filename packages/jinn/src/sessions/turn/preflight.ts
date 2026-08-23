@@ -4,12 +4,12 @@ import { resolveEffort } from "../../shared/effort.js";
 import { logger } from "../../shared/logger.js";
 import { effortLevelsForModel, engineAvailable, engineUnavailableMessage, isKnownEngine } from "../../shared/models.js";
 import { getClaudeExpectedResetAt, isLikelyNearClaudeUsageLimit } from "../../shared/usageAwareness.js";
-import type { OrgHierarchy, ResolvedMcpConfig, Session } from "../../shared/types.js";
+import type { ResolvedMcpConfig, Session } from "../../shared/types.js";
 import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "../context.js";
 import { resolveEngineRunMcp } from "../engine-run-mcp.js";
 import { getEngineSessionRef, getMessages } from "../registry.js";
 import { formatResumeTime } from "./text.js";
-import type { TurnInput, TurnPlan, TurnPreflight, TurnSurface } from "./types.js";
+import type { TurnHierarchy, TurnInput, TurnPlan, TurnPreflight, TurnSurface } from "./types.js";
 
 /** How many prior messages a synthesized engine-switch transcript carries. */
 const SYNC_TRANSCRIPT_MESSAGES = 20;
@@ -19,17 +19,20 @@ const HEAVY_EFFORTS = new Set(["high", "xhigh", "max"]);
 
 type EngineConfig = { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
 
-/** Org hierarchy for the system prompt; on scan failure the turn runs without roster context. */
+/** Org hierarchy for the system prompt, or the reason this turn has none. */
 export async function resolveTurnHierarchy(
   config: TurnInput["config"],
-): Promise<OrgHierarchy | undefined> {
+): Promise<TurnHierarchy> {
   try {
-    const { scanOrg } = await import("../../gateway/org.js");
+    const { readOrg } = await import("../../gateway/org-registry.js");
     const { resolveOrgHierarchy } = await import("../../gateway/org-hierarchy.js");
-    return resolveOrgHierarchy(scanOrg(config));
+    const { registry, error } = readOrg(config);
+    if (error) return { unavailable: error };
+    return { hierarchy: resolveOrgHierarchy(registry) };
   } catch (err) {
-    logger.warn(`Org hierarchy scan failed — turn will run without roster context: ${err instanceof Error ? err.message : String(err)}`);
-    return undefined;
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn(`Org hierarchy resolution failed — the turn will report it: ${reason}`);
+    return { unavailable: reason };
   }
 }
 
@@ -88,7 +91,8 @@ function contextOptionsFor(
     sessionId: input.session.id,
     effortLevel,
     channelName: input.channelName,
-    hierarchy: input.hierarchy,
+    hierarchy: input.roster?.hierarchy,
+    rosterUnavailable: input.roster?.unavailable,
     // The diet keys off the built-in jinn server specifically — custom MCP
     // servers don't carry the company tools.
     jinnMcpAttached: Boolean(resolvedMcp?.mcpServers?.["jinn"]),

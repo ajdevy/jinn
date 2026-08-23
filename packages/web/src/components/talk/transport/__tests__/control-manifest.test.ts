@@ -7,7 +7,6 @@ const operation: TalkControlManifest["operations"][number] = {
   description: "Open one Todo.",
   parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
   target: "browser",
-  exposure: "always",
   intent: "todos",
   mutability: "effect",
   operatorOnly: false,

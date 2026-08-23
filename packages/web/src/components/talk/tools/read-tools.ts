@@ -49,7 +49,6 @@ function failed(subject: string, error: unknown): ToolResult {
 const readTodo: TalkTool = {
   name: "read_todo",
   description: "Read one Todo: its status, assignee, labels, body, and most recent comments.",
-  exposure: "always",
   parameters: params(
     { id: str("The full Todo id, such as \"ABC-59\"."), comments: { type: "boolean", description: "Include the recent comments. Defaults to true." } },
     ["id"],
@@ -69,7 +68,6 @@ const readTodo: TalkTool = {
 const readSession: TalkTool = {
   name: "read_session",
   description: "Read one chat session: who is on it, whether it is running, and the last few messages.",
-  exposure: "on-intent",
   parameters: params({ id: str("The session id.") }, ["id"]),
   execute: async (args: ToolArgs): Promise<ToolResult> => {
     const id = String(args.id)
@@ -87,7 +85,6 @@ const readSession: TalkTool = {
 const readWorkflowRuns: TalkTool = {
   name: "read_workflow_runs",
   description: "Read a workflow's recent runs: status, what triggered each, and where a live or failed one stopped.",
-  exposure: "on-intent",
   parameters: params(
     { id: str("The workflow id."), limit: { type: "integer", description: "How many runs, newest first. Defaults to 5." } },
     ["id"],
@@ -107,7 +104,6 @@ const readWorkflowRuns: TalkTool = {
 const readExperiment: TalkTool = {
   name: "read_experiment",
   description: "Read one experiment: its hypothesis, baseline, metrics, recent readings, and verdict if it has concluded.",
-  exposure: "on-intent",
   parameters: params({ id: str("The experiment id.") }, ["id"]),
   execute: async (args: ToolArgs): Promise<ToolResult> => {
     const id = String(args.id)

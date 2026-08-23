@@ -57,7 +57,6 @@ const decideApproval: TalkTool = {
   name: "talk_decide_approval",
   description:
     "Approve or send back a Todo's pending approval. Asks first: whatever was waiting on the gate moves as soon as it is decided, and there is no way to take a decision back.",
-  exposure: "on-intent",
   parameters: params(
     {
       id: str("The full Todo id, such as \"ABC-59\"."),
@@ -107,7 +106,6 @@ const decideWorkflowApproval: TalkTool = {
   name: "talk_decide_workflow_approval",
   description:
     "Approve or reject the node a workflow run is waiting on. Asks first: an approved gate lets the run carry on immediately, and what it then does cannot be undone.",
-  exposure: "on-intent",
   parameters: params(
     {
       id: str("The workflow id."),
@@ -210,7 +208,6 @@ const unblockTodo: TalkTool = {
   name: "talk_unblock_todo",
   description:
     "Move a blocked Todo back into the flow, with the reason it is no longer blocked. Asks first: unblocking releases the work to whoever picks it up, and no undo reaches them.",
-  exposure: "on-intent",
   parameters: params(
     {
       id: str("The full Todo id."),

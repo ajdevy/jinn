@@ -47,6 +47,9 @@ export interface JinnConfig {
     authDisabled?: boolean;
     /** Explicit escape hatch for unauthenticated 0.0.0.0/LAN/Tailscale binds. */
     insecureAllowUnauthenticatedNetwork?: boolean;
+    /** Nudge sessions this gateway's own restart interrupted to continue on the
+     *  next boot. Default true; false leaves them interrupted for the operator. */
+    resumeInterruptedSessions?: boolean;
     /** Opt-in: when set, POST /api/sessions reads the forwarded SSO identity
      *  from this request header (set by an auth proxy such as oauth2-proxy,
      *  Traefik forward-auth, or IAP) and persists it on the session. Accepts a

@@ -440,8 +440,8 @@ describe("first Workflow vertical", () => {
     const started = await service.startManual({ workflowId: authored.id, input: { topic: "interrupt" } });
     const sessionId = await liveAttemptSession(authored.id, started.id);
 
-    expect(await postSessionMessage(sessionId, "Please also verify the release notes."))
-      .toEqual({ status: 200, body: { status: "queued", sessionId } });
+    const queued = { status: "queued", sessionId, messageId: expect.any(String), queueItemId: expect.any(String) };
+    expect(await postSessionMessage(sessionId, "Please also verify the release notes.")).toEqual({ status: 200, body: queued });
     expect(engine.kills).toEqual([{
       sessionId,
       reason: "Interrupted: new message received",

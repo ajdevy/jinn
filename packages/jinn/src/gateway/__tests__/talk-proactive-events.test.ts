@@ -15,7 +15,7 @@ function seed(database: Database.Database, anchor: { kind: string; id: string })
   const session: TalkSession = {
     id: "talk-1", browserInstanceId: "browser-1", credentialGeneration: 1, sessionId: "chat-ledger-1",
     state: "live", model: "realtime", brief: "brief", openedAt: NOW, lastSeenAt: NOW, turns: [],
-    truncatedTurns: 0, tokenExpiresAt: NOW + 60_000, exposedTools: [], expandedIntents: [], actions: [], visualReceiptKeys: [],
+    truncatedTurns: 0, tokenExpiresAt: NOW + 60_000, exposedTools: [], actions: [], visualReceiptKeys: [],
   };
   new TalkSessionRepository(database).save(session);
   const topic: TalkTopic = {

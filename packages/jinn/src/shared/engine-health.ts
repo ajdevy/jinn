@@ -20,8 +20,15 @@ export type EngineHealthState = "ok" | "exhausted" | "degraded";
 
 export interface EngineHealth {
   state: EngineHealthState;
-  /** ISO. When the engine said it can serve again; the record is spent past it. */
+  /** ISO. The reopening the engine itself stated, verbatim: what every display
+   *  surface shows, and the moment the record is spent. */
   until?: string;
+  /** ISO. When a dispatcher may offer the engine a probing turn again, on an
+   *  `exhausted` record. Internal — a shorter belief than `until`, never a
+   *  shorter claim, so it is deliberately not displayed anywhere. */
+  recheckAt?: string;
+  /** The binding quota window as telemetry names it (`5h`, `7d`), when it does. */
+  window?: string;
   reason?: string;
   observedAt?: string;
 }
@@ -31,9 +38,10 @@ export type EngineHealthReading = Record<string, EngineHealth>;
 
 const STATE_PATH = path.join(JINN_HOME, "tmp", "engine-health.json");
 
-/** A stated reopening further out than this is a misparse rather than a quota
- *  window, so clamping turns "retires the engine" into "pauses it for a while". */
-const MAX_EXHAUSTION_MS = 12 * 60 * 60_000;
+/** How long a stated reopening is taken on trust before the engine is offered a
+ *  probing turn regardless. A weekly window is real and is displayed as stated;
+ *  a misparse that reads as one still self-corrects inside this. */
+const REPROBE_INTERVAL_MS = 12 * 60 * 60_000;
 
 /** How long a failure that stated no reopening stays on the record. It says the
  *  provider just refused a turn, which is worth a brief preference away and is
@@ -93,34 +101,70 @@ export function readEngineHealth(now: Date = new Date()): EngineHealthReading {
   return live;
 }
 
-/** The one question a dispatcher asks. `degraded` is deliberately not an answer
- *  to it: an engine that named no reopening is a preference, never a reason to
- *  hold a turn back. */
-export function isEngineExhausted(health: EngineHealthReading, engine: string): boolean {
-  return health[engine]?.state === "exhausted";
+/** The one question a dispatcher asks, and the only reader of `recheckAt`: past
+ *  the re-probe the engine is offered a turn again even though the record still
+ *  reads — and still displays — as out until its stated reset.
+ *
+ *  `degraded` is deliberately not an answer to it: an engine that named no
+ *  reopening is a preference, never a reason to hold a turn back. A record from
+ *  before re-probes existed carries no `recheckAt` and blocks until `until`,
+ *  which is what it meant when it was written. */
+export function isEngineExhausted(health: EngineHealthReading, engine: string, now: Date = new Date()): boolean {
+  const record = health[engine];
+  if (record?.state !== "exhausted") return false;
+  if (record.recheckAt === undefined) return true;
+  const recheckAt = Date.parse(record.recheckAt);
+  return Number.isFinite(recheckAt) && recheckAt > now.getTime();
+}
+
+/** The record still inside the window it stated, if there is one. What a failed
+ *  re-probe is allowed to keep, rather than replace with a vaguer claim. */
+function liveRecord(store: EngineHealthReading, engine: string, now: Date): EngineHealth | undefined {
+  const record = store[engine];
+  return record && !isSpent(record, now) ? record : undefined;
+}
+
+/** When the engine may be probed again: its stated reopening when that is
+ *  nearer, otherwise the re-probe interval. */
+function recheckFrom(statedMs: number | undefined, now: Date): string {
+  const reprobeAt = now.getTime() + REPROBE_INTERVAL_MS;
+  return new Date(statedMs === undefined ? reprobeAt : Math.min(statedMs, reprobeAt)).toISOString();
 }
 
 /**
  * Note that an engine could not serve a turn, given whatever it said about when
  * it can again.
  *
- * A stated reopening is `exhausted` until then, the one reading a dispatcher
- * skips on. Silence is `degraded`, because a failure that named no end says
- * nothing about when to stop believing it.
+ * A stated reopening is stored verbatim and is `exhausted` until then. Silence
+ * is `degraded`, because a failure that named no end says nothing about when to
+ * stop believing it — but silence from an engine already out until a stated
+ * reset is a failed re-probe, and that replaces neither the state nor the
+ * reopening it already stated. A re-probe only ever moves the next re-probe.
  */
 export function recordEngineUnavailable(
   engine: string,
   reason: string,
   resetsAtSeconds?: number,
   now: Date = new Date(),
+  window?: string,
 ): void {
   const stated = resetsAtSeconds !== undefined && Number.isFinite(resetsAtSeconds)
     ? resetsAtSeconds * 1000
     : undefined;
-  const window: EngineHealth = stated === undefined
-    ? { state: "degraded", until: new Date(now.getTime() + DEGRADED_WINDOW_MS).toISOString() }
-    : { state: "exhausted", until: new Date(Math.min(stated, now.getTime() + MAX_EXHAUSTION_MS)).toISOString() };
-  writeStore({ ...readStore(), [engine]: { ...window, reason, observedAt: now.toISOString() } });
+  const store = readStore();
+  const observed = { reason, observedAt: now.toISOString(), ...(window === undefined ? {} : { window }) };
+  const live = stated === undefined ? liveRecord(store, engine, now) : undefined;
+
+  let record: EngineHealth;
+  if (stated !== undefined) {
+    record = { state: "exhausted", until: new Date(stated).toISOString(), recheckAt: recheckFrom(stated, now) };
+  } else if (live?.state === "exhausted") {
+    const statedOnRecord = live.until === undefined ? undefined : Date.parse(live.until);
+    record = { ...live, recheckAt: recheckFrom(statedOnRecord, now) };
+  } else {
+    record = { state: "degraded", until: new Date(now.getTime() + DEGRADED_WINDOW_MS).toISOString() };
+  }
+  writeStore({ ...store, [engine]: { ...record, ...observed } });
 }
 
 /**
@@ -133,13 +177,16 @@ export function recordExhaustedWindows(
   windows: readonly EngineLimitWindow[] | undefined,
   now: Date = new Date(),
 ): void {
+  let binding: EngineLimitWindow | undefined;
   let reopensAt = 0;
   for (const window of windows ?? []) {
     if ((window.usedPercent ?? 0) < 100) continue;
     const resetsAt = window.resetsAt ?? 0;
-    if (resetsAt * 1000 > now.getTime()) reopensAt = Math.max(reopensAt, resetsAt);
+    if (resetsAt * 1000 <= now.getTime() || resetsAt <= reopensAt) continue;
+    reopensAt = resetsAt;
+    binding = window;
   }
-  if (reopensAt > 0) recordEngineUnavailable(engine, "quota window spent", reopensAt, now);
+  if (binding) recordEngineUnavailable(engine, "quota window spent", binding.resetsAt, now, binding.name);
 }
 
 /**

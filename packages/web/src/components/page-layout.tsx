@@ -7,6 +7,7 @@ import { useCoarsePointer } from "./edge-back/use-edge-back-gesture"
 import { cn } from "@/lib/utils"
 import { useOnboarding } from "@/hooks/use-onboarding"
 import { runAfterLoad, useLoadDeferredMount } from "@/hooks/use-idle-mount"
+import { SearchOverlayProvider, useSearchOverlay } from "./search-overlay-context"
 
 const loadGlobalSearch = () => import("./global-search")
 const loadLiveStreamWidget = () => import("./live-stream-widget")
@@ -21,8 +22,9 @@ function isCommandPaletteShortcut(e: KeyboardEvent): boolean {
 }
 
 function DeferredGlobalSearch() {
-  const [mounted, setMounted] = useState(false)
-  const [initialOpen, setInitialOpen] = useState(false)
+  const { request } = useSearchOverlay()
+  const [shortcutOpen, setShortcutOpen] = useState(false)
+  const mounted = shortcutOpen || request !== null
 
   // Warm the Cmd-K chunk, but only well after load so the fetch stays out of
   // the first-paint / pre-interaction waterfall. A key press before this fires
@@ -36,8 +38,7 @@ function DeferredGlobalSearch() {
     function handleKeyDown(e: KeyboardEvent) {
       if (!isCommandPaletteShortcut(e)) return
       e.preventDefault()
-      setInitialOpen(true)
-      setMounted(true)
+      setShortcutOpen(true)
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
@@ -45,9 +46,17 @@ function DeferredGlobalSearch() {
 
   if (!mounted) return null
 
+  // Every openSearch call remounts the palette so it re-enters with the scope
+  // and seed it asked for. Once open the palette owns its own state — Cmd-K
+  // included — so there is nothing to carry across requests.
   return (
     <Suspense fallback={null}>
-      <GlobalSearch initialOpen={initialOpen} />
+      <GlobalSearch
+        key={request?.id ?? "shortcut"}
+        initialOpen
+        initialScope={request?.scope}
+        initialQuery={request?.query}
+      />
     </Suspense>
   )
 }
@@ -137,37 +146,39 @@ export function PageLayout({ children, headerActions: _headerActions, chromeless
   const content = useRef<HTMLDivElement>(null)
   const coarsePointer = useCoarsePointer()
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
-      <DeferredGlobalSearch />
-      {/* Global desktop nav rail (hidden < lg from inside NavRibbon). Sibling of
-          <main> so its per-icon label pills can escape rightward over content. */}
-      {!chromeless && <NavRibbon />}
-      <main className="relative flex flex-1 flex-col overflow-hidden">
-        {/* Before the live view in DOM order, which is what puts the previous
-            view underneath it while the drag is running. */}
-        {coarsePointer && <EdgeBackLayer contentRef={content} />}
-        <div
-          ref={content}
-          className={cn(
-            "flex-1 overflow-hidden",
-            // Notch clearance only (mobile) — no global top chrome to clear now
-            // that the hamburger pill is gone; pages own their inline headers.
-            !chromeless && "pt-[var(--safe-top)] lg:pt-0",
-          )}
-        >
-          {children}
-        </div>
-        {/* The persistent status affordances (workspace, theme), hosted as the
-            statusbar.right contribution area. Lowest thing in the column, so it
-            carries the mobile tab bar's clearance — the bar below is `fixed`,
-            and a flow sibling without it would render underneath. */}
-        {!chromeless && !hideMobileTabBar && <StatusBar />}
-        {/* Persistent mobile nav — same curated tab bar across every standard
-            page so nav never disappears (Chat draws its own on the list screen). */}
-        {!chromeless && !hideMobileTabBar && <MobileTabBar />}
-      </main>
-      <DeferredLiveStreamWidget />
-      <DeferredOnboardingWizard />
-    </div>
+    <SearchOverlayProvider>
+      <div className="flex h-dvh overflow-hidden bg-background">
+        <DeferredGlobalSearch />
+        {/* Global desktop nav rail (hidden < lg from inside NavRibbon). Sibling of
+            <main> so its per-icon label pills can escape rightward over content. */}
+        {!chromeless && <NavRibbon />}
+        <main className="relative flex flex-1 flex-col overflow-hidden">
+          {/* Before the live view in DOM order, which is what puts the previous
+              view underneath it while the drag is running. */}
+          {coarsePointer && <EdgeBackLayer contentRef={content} />}
+          <div
+            ref={content}
+            className={cn(
+              "flex-1 overflow-hidden",
+              // Notch clearance only (mobile) — no global top chrome to clear now
+              // that the hamburger pill is gone; pages own their inline headers.
+              !chromeless && "pt-[var(--safe-top)] lg:pt-0",
+            )}
+          >
+            {children}
+          </div>
+          {/* The persistent status affordances (workspace, theme), hosted as the
+              statusbar.right contribution area. Lowest thing in the column, so it
+              carries the mobile tab bar's clearance — the bar below is `fixed`,
+              and a flow sibling without it would render underneath. */}
+          {!chromeless && !hideMobileTabBar && <StatusBar />}
+          {/* Persistent mobile nav — same curated tab bar across every standard
+              page so nav never disappears (Chat draws its own on the list screen). */}
+          {!chromeless && !hideMobileTabBar && <MobileTabBar />}
+        </main>
+        <DeferredLiveStreamWidget />
+        <DeferredOnboardingWizard />
+      </div>
+    </SearchOverlayProvider>
   )
 }

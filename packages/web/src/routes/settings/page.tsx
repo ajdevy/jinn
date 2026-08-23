@@ -16,16 +16,18 @@ import {
   resetEngineModelOverrides,
   showModelOverride,
 } from "@/lib/model-config"
-import { ThemePicker, TextSizePicker } from "./appearance-pickers"
+import { ACCENT_PRESETS, ThemePicker, TextSizePicker } from "./appearance-pickers"
 import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
+import { ConfigConflictNotice } from "./config-conflict-notice"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
-import type { EnginesConfig } from "./engines/chain-model"
-import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
+import type { Config } from "./config-shape"
+import { configSaveBlocker } from "./engines/model-map-model"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
 import { PairingSection } from "./pairing-section"
 import { ShortcutsSection } from "./shortcuts-section"
+import { useVoiceCapability } from "./use-voice-capability"
 import {
   CONTROL_CLASS,
   FieldRow,
@@ -35,110 +37,7 @@ import {
   ToggleSwitch,
 } from "./shared"
 
-// ---------------------------------------------------------------------------
-// Accent color presets
-// ---------------------------------------------------------------------------
 
-const ACCENT_PRESETS = [
-  { label: "Red", value: "#EF4444" },
-  { label: "Orange", value: "#F97316" },
-  { label: "Amber", value: "#F59E0B" },
-  { label: "Yellow", value: "#EAB308" },
-  { label: "Lime", value: "#84CC16" },
-  { label: "Green", value: "#22C55E" },
-  { label: "Emerald", value: "#10B981" },
-  { label: "Cyan", value: "#06B6D4" },
-  { label: "Blue", value: "#3B82F6" },
-  { label: "Indigo", value: "#6366F1" },
-  { label: "Violet", value: "#8B5CF6" },
-  { label: "Pink", value: "#EC4899" },
-]
-
-// ---------------------------------------------------------------------------
-// Config type (gateway API)
-// ---------------------------------------------------------------------------
-
-interface Config {
-  gateway?: { port?: number; host?: string }
-  engines?: EnginesConfig
-  sessions?: {
-    interruptOnNewMessage?: boolean
-    rateLimitStrategy?: "wait" | "fallback" | null
-    fallbackEngine?: string | null
-    staleChat?: {
-      enabled?: boolean
-      tokenThreshold?: number
-      staleAfterMinutes?: number
-    }
-  }
-  connectors?: {
-    slack?: {
-      appToken?: string
-      botToken?: string
-      shareSessionInChannel?: boolean
-      allowFrom?: string | string[]
-      ignoreOldMessagesOnBoot?: boolean
-    }
-    discord?: {
-      botToken?: string
-      allowFrom?: string | string[]
-      guildId?: string
-      channelId?: string
-    }
-    telegram?: {
-      botToken?: string
-      allowFrom?: number[]
-      ignoreOldMessagesOnBoot?: boolean
-    }
-    whatsapp?: {
-      authDir?: string
-      allowFrom?: string[]
-    }
-    web?: Record<string, never>
-    instances?: Array<{
-      id: string
-      type: "discord" | "slack" | "whatsapp" | "telegram"
-      employee?: string
-      botToken?: string
-      allowFrom?: string | string[]
-      guildId?: string
-      channelId?: string
-      appToken?: string
-      authDir?: string
-      ignoreOldMessagesOnBoot?: boolean
-      [key: string]: unknown
-    }>
-  }
-  logging?: {
-    level?: string
-    stdout?: boolean
-    file?: boolean
-  }
-  models?: Record<string, {
-    default?: string
-    effortMechanism?: string
-    hidden?: string[]
-    models: Array<{
-      id: string
-      label?: string
-      supportsEffort?: boolean
-      effortLevels?: string[]
-      contextWindow?: number
-    }>
-  }>
-  cron?: {
-    defaultDelivery?: { connector?: string; channel?: string }
-  }
-  /** `apiKey` arrives redacted; see voice-section.tsx for what that means here. */
-  realtime?: { provider?: string; apiKey?: string }
-  portal?: {
-    companyName?: string
-    companyPrefix?: string
-    portalName?: string
-    operatorName?: string
-  }
-  [key: string]: unknown
-}
 
 // ---------------------------------------------------------------------------
 // Main settings page
@@ -192,7 +91,11 @@ export default function SettingsPage() {
   const [configLoading, setConfigLoading] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [voiceCapability, setVoiceCapability] = useState<TalkCapability | null>(null)
+  /** Which config.yaml this page is editing. Sent back on save so a hand edit
+   *  made since the load is refused rather than silently overwritten. */
+  const [configRevision, setConfigRevision] = useState("")
+  const [conflict, setConflict] = useState<{ message: string; remedy?: string } | null>(null)
+  const { voiceCapability, reloadVoiceCapability } = useVoiceCapability()
   const [feedback, setFeedback] = useState<{
     type: "success" | "error"
     message: string
@@ -235,25 +138,20 @@ export default function SettingsPage() {
     setConfigLoading(true)
     api
       .getConfig()
-      .then((data) => {
-        setConfig(data as Config)
-        setCompanyPrefixValue((data as Config).portal?.companyPrefix ?? "")
+      .then(({ config: loaded, revision }) => {
+        setConfig(loaded as Config)
+        setConfigRevision(revision)
+        // Reloading is the way out of a conflict, so it is also what clears it.
+        setConflict(null)
+        setCompanyPrefixValue((loaded as Config).portal?.companyPrefix ?? "")
         setConfigError(null)
       })
       .catch((err) => setConfigError(err.message))
       .finally(() => setConfigLoading(false))
   }
 
-  // Whether voice would actually open. The config block alone cannot answer it:
-  // a key held as ${ENV_VAR} only resolves where the gateway runs. Re-read after
-  // a save so the Talk Orb note clears the moment it stops being true.
-  function loadVoiceCapability() {
-    fetchTalkCapability().then(setVoiceCapability).catch(() => {})
-  }
-
   useEffect(() => {
     loadConfig()
-    loadVoiceCapability()
   }, [])
 
   // Poll for WhatsApp QR code when WhatsApp connector is configured
@@ -328,20 +226,31 @@ export default function SettingsPage() {
   }
 
   function handleSave() {
+    const blocker = configSaveBlocker(config.engines, modelRegistry?.engines)
+    if (blocker) {
+      setConflict(null)
+      setFeedback({ type: "error", message: blocker })
+      return
+    }
     setSaving(true)
     setFeedback(null)
+    setConflict(null)
     api
-      .updateConfig(config)
-      .then(() => {
-        loadVoiceCapability()
+      .updateConfig(config, configRevision || undefined)
+      .then((result) => {
+        setConfigRevision(result?.revision ?? "")
+        reloadVoiceCapability()
         setFeedback({ type: "success", message: "Settings saved successfully" })
       })
-      .catch((err) =>
-        setFeedback({
-          type: "error",
-          message: `Failed to save: ${err.message}`,
-        })
-      )
+      .catch((err) => {
+        // A conflict is not a failed save, it is a save that has not happened yet:
+        // it gets its own notice with the way out, and deliberately no retry.
+        if (err?.code === "CONFIG_CONFLICT") {
+          setConflict({ message: err.message, remedy: err.remedy })
+          return
+        }
+        setFeedback({ type: "error", message: `Failed to save: ${err.message}` })
+      })
       .finally(() => setSaving(false))
   }
 
@@ -615,6 +524,14 @@ export default function SettingsPage() {
           <PairingSection />
 
           <ShortcutsSection />
+
+          {conflict && (
+            <ConfigConflictNotice
+              message={conflict.message}
+              remedy={conflict.remedy}
+              onReload={() => loadConfig()}
+            />
+          )}
 
           {/* Gateway config feedback */}
           {feedback && (
@@ -1486,6 +1403,10 @@ export default function SettingsPage() {
               <VoiceSection
                 provider={config.realtime?.provider ?? ""}
                 apiKey={config.realtime?.apiKey ?? ""}
+                model={config.realtime?.model ?? ""}
+                voice={config.realtime?.voice ?? ""}
+                turnDetection={config.realtime?.turnDetection}
+                noiseReduction={config.realtime?.noiseReduction ?? ""}
                 capability={voiceCapability}
                 onChange={updateConfig}
                 talkOrbOn={settings.talkOrb}

@@ -59,7 +59,6 @@ vi.mock('@/components/chat/chat-messages', () => ({
 }))
 
 vi.mock('@/components/chat/chat-employee-picker', () => ({ ChatEmployeePicker: () => null }))
-vi.mock('@/components/chat/queue-panel', () => ({ QueuePanel: () => null }))
 vi.mock('@/components/chat/background-activity-status', () => ({ BackgroundActivityStatus: () => null }))
 vi.mock('@/components/chat/cli-keybar', () => ({ CliKeybar: () => null }))
 

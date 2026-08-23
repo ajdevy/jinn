@@ -8,6 +8,7 @@ import {
   loadPersistedWorkingSet,
   persistWorkingSet,
   replaceFocusedWorkingSetSession,
+  replaceWorkingSetSession,
   removeWorkingSetSession,
   reorderWorkingSetSession,
   restoreWorkingSet,
@@ -135,6 +136,20 @@ describe('chat working set', () => {
       focusedId: 'live-a',
       focusHistory: ['live-b', 'live-a'],
     })
+  })
+
+  it('replaces a departing member in its own slot, never a sibling', () => {
+    const state = createWorkingSet(['a', 'b', 'c'], 'c')
+
+    const swapped = replaceWorkingSetSession(state, 'c', 'd')
+
+    expect(swapped.sessionIds).toEqual(['a', 'b', 'd'])
+    expect(swapped.focusedId).toBe('d')
+    // A replacement that is already a member keeps its own slot; the departing
+    // one just disappears, so delete never leaves a duplicate behind.
+    expect(replaceWorkingSetSession(state, 'c', 'a').sessionIds).toEqual(['a', 'b'])
+    expect(replaceWorkingSetSession(state, 'c', '').sessionIds).toEqual(['a', 'b'])
+    expect(replaceWorkingSetSession(state, 'gone', 'd')).toBe(state)
   })
 
   it('persists through the browser storage boundary', () => {

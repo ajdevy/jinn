@@ -82,7 +82,7 @@ describe('ChatSidebar shortcut hints', () => {
 
   it('surfaces a New chat (compose) control on the list header', () => {
     render(withQueryClient(<ChatSidebar {...defaultProps} />))
-    expect(screen.getByRole('button', { name: 'New chat' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New chat' }).className).not.toContain('lg:hidden')
   })
 
   it('fires onNewChat when the list compose control is tapped', () => {

@@ -30,7 +30,6 @@ export const ESCAPE_HATCH_TOOL: TalkTool = {
   name: "jinn_action",
   description:
     "Describe an action that no other tool covers. It asks the operator before doing anything, and can only record the request against a Todo.",
-  exposure: "on-intent",
   parameters: params(
     {
       intent: str("What the operator asked for, in their own words."),

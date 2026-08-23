@@ -1,5 +1,5 @@
 import type { ApiContext } from "../../gateway/api.js";
-import { scanOrg } from "../../gateway/org.js";
+import { orgRegistry } from "../../gateway/org-registry.js";
 import {
   getMessages,
   getSession,
@@ -87,7 +87,7 @@ function delegateTodo(host: TalkControlHost, args: Record<string, unknown>, call
   const employeeName = requiredText(args, "employee");
   const item = getWorkItem(id);
   if (!item) throw new Error(`Todo ${id} not found`);
-  const employee = scanOrg(host.context.getConfig()).get(employeeName);
+  const employee = orgRegistry(host.context.getConfig()).get(employeeName);
   if (!employee) throw new Error(`Employee ${employeeName} not found`);
   const prompt = typeof args.task === "string" && args.task.trim()
     ? args.task.trim()
@@ -154,7 +154,7 @@ const commentTodo: DomainHandler = (_host, args, call) => {
 const assignTodo: DomainHandler = (host, args) => {
   const id = requiredText(args, "id");
   const employeeName = requiredText(args, "assignee");
-  const employee = scanOrg(host.context.getConfig()).get(employeeName);
+  const employee = orgRegistry(host.context.getConfig()).get(employeeName);
   if (!employee) throw new Error(`Employee ${employeeName} not found`);
   const item = assignWorkItem(id, employee.name, employee.department ?? null, "operator", "talk");
   if (!item) throw new Error(`Todo ${id} not found`);

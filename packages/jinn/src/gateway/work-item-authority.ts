@@ -1,6 +1,6 @@
 import { resolveApprovalRouteTarget, resolveRootApprovalTarget } from "./approval-authority.js";
 import { isOrgAncestor, resolveOrgHierarchy } from "./org-hierarchy.js";
-import { scanOrg } from "./org.js";
+import { orgRegistry } from "./org-registry.js";
 import type { WorkItemCaller } from "./work-item-arming.js";
 import { isPortalAgentSession, listSessionsByWorkItem } from "../sessions/registry.js";
 import type { Employee, Session } from "../shared/types.js";
@@ -48,7 +48,7 @@ export function authorizeWorkItemOwnerManagerOrRoot(
   if (!employeeName) {
     return { ok: false, status: 403, error: `session ${caller.callerId} has no employee identity and cannot ${action} Todo ${item.id}` };
   }
-  const roster = scanOrg();
+  const roster = orgRegistry();
   const employee = roster.get(employeeName);
   if (!employee) {
     return { ok: false, status: 403, error: `employee "${employeeName}" is not in the org roster and cannot ${action} Todo ${item.id}` };

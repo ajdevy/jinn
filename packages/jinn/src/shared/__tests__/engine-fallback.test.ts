@@ -231,6 +231,13 @@ describe("resolveSubstituteModel", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toContain("engines.codex.fallbackModelMap");
     expect(warn.mock.calls[0][0]).toContain("gpt-5.6-luna");
+    // Spelled out because the Settings model-map editor refuses the same entry in
+    // the same words, off the shared `fallback-map-wire` module. `packages/web`'s
+    // fallback-map-wire.test.ts hard-codes this sentence too; drift reddens one of them.
+    expect(warn.mock.calls[0][0]).toBe(
+      'engines.codex.fallbackModelMap["gpt-5.6-luna"] maps to "gpt-5.6-luna", ' +
+        'which engine "claude" does not serve — running claude on its own default model instead.',
+    );
     warn.mockRestore();
   });
 

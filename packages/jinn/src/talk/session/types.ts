@@ -93,8 +93,6 @@ export interface TalkSession {
   tokenExpiresAt: number;
   /** Tool names already in the provider's session, always-on set included. */
   exposedTools: string[];
-  /** Intents already expanded, so asking twice adds nothing a second time. */
-  expandedIntents: string[];
   /** Every write this session attempted, oldest first. */
   actions: TalkActionRecord[];
   /** Bounded, content-free interruption decisions, oldest first. */

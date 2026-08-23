@@ -1,4 +1,4 @@
-import { scanOrg } from "../gateway/org.js";
+import { orgRegistry } from "../gateway/org-registry.js";
 import type { JinnConfig } from "../shared/types.js";
 import { listLabels } from "../work-items/labels.js";
 import { WORK_ITEM_STATUS_VALUES } from "../work-items/store.js";
@@ -11,7 +11,7 @@ import type { SearchVocabulary } from "./query-grammar.js";
  * it is why a plain word can only ever become a facet that actually exists.
  */
 export function buildSearchVocabulary(config?: JinnConfig): SearchVocabulary {
-  const employees = [...scanOrg(config).values()];
+  const employees = [...orgRegistry(config).values()];
   return {
     statuses: WORK_ITEM_STATUS_VALUES,
     assignees: employees.map((employee) => employee.name),

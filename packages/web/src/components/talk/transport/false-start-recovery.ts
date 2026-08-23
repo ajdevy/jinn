@@ -238,7 +238,7 @@ export function handleInterruptionFrame(
   driver: InterruptionDriverState,
   frame: RealtimeFrame,
   settleProactive: () => void,
-  show: (state: "listening" | "thinking" | "interrupted") => void,
+  show: (state: "listening" | "user_speaking" | "interrupted") => void,
   continueResponse: () => void,
 ): boolean {
   if (handleOutputFrame(driver, frame, continueResponse)) return true
@@ -246,12 +246,16 @@ export function handleInterruptionFrame(
     case "speech_started":
       const interrupted = startInterruption(driver, frame)
       settleProactive()
-      show(interrupted ? "interrupted" : "listening")
+      // Talking over the assistant is an interruption; talking into a quiet
+      // session is just the operator speaking, and the orb rides their voice.
+      show(interrupted ? "interrupted" : "user_speaking")
       return true
     case "speech_stopped":
       driver.recovery.speechStopped(frame)
       if (driver.recovery.takeContinuation()) continueResponse()
-      show("thinking")
+      // Back to the resting live state. Whether a response follows is the
+      // provider's call, and `response.created` is what says so.
+      show("listening")
       return true
     case "transcript_failed":
       driver.recovery.transcriptionFailed(frame.itemId)

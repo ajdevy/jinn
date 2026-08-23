@@ -19,7 +19,7 @@ function transfer(type: string, value: string): DataTransfer {
 
 function fireDragAt(
   target: HTMLElement,
-  kind: 'dragOver' | 'drop',
+  kind: 'dragEnter' | 'dragLeave' | 'dragOver' | 'drop',
   point: { x: number; y: number },
   dataTransfer: DataTransfer,
 ): void {
@@ -41,7 +41,14 @@ function AddHarness({ initial, onAction }: {
     onAction?.(sessionId)
     setState((current) => insertWorkingSetSession(current, sessionId, index, 4))
   }, [onAction])
-  const drop = useChatSessionDrop(insert)
+  const drop = useChatSessionDrop(insert, {
+    workingSet: state,
+    cap: 4,
+    primaryPaneKey: 'a',
+    committedSessionId: 'a',
+    pickerPaneKey: null,
+    viewport: { width: 1440, height: 900 },
+  })
   return (
     <div data-testid="drop-surface" {...drop.handlers}>
       <div data-testid="chat-grid">
@@ -91,13 +98,26 @@ describe('chat grid add paths', () => {
   })
 
   it('rejects composer and foreign drops without moving or reordering transcript rows', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'drop-surface' || this.dataset.testid === 'chat-grid') {
+        return new DOMRect(0, 0, 200, 100)
+      }
+      return this.dataset.chatGridPane === 'a'
+        ? new DOMRect(0, 0, 100, 100)
+        : new DOMRect(100, 0, 100, 100)
+    })
     const action = vi.fn()
     render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} onAction={action} />)
     const composer = screen.getByTestId('composer')
     const transcript = screen.getByTestId('transcript-a')
     const rows = [...transcript.children]
+    const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'c')
+    fireDragAt(transcript, 'dragOver', { x: 10, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+    fireDragAt(composer, 'dragEnter', { x: 100, y: 90 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
     const blockedOver = createEvent.dragOver(composer, { bubbles: true, cancelable: true })
-    Object.defineProperty(blockedOver, 'dataTransfer', { value: transfer(CHAT_SESSION_DND_MIME, 'c') })
+    Object.defineProperty(blockedOver, 'dataTransfer', { value: dataTransfer })
     fireEvent(composer, blockedOver)
     expect(blockedOver.defaultPrevented).toBe(false)
     fireEvent.drop(composer, { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
@@ -118,8 +138,60 @@ describe('chat grid add paths', () => {
     fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, transfer(CHAT_SESSION_DND_MIME, 'c'))
     const overlay = screen.getByTestId('chat-grid-drop-zone')
     expect(overlay.className).toContain('pointer-events-none')
-    expect(overlay.className).toContain('ease-[var(--ease-smooth)]')
+    expect(overlay.className).not.toContain('transition')
     fireEvent.dragLeave(surface, { dataTransfer: transfer(CHAT_SESSION_DND_MIME, 'c') })
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
+  })
+
+  it('clears the preview after balanced internal transitions and a final grid leave', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'drop-surface' || this.dataset.testid === 'chat-grid') {
+        return new DOMRect(0, 0, 200, 100)
+      }
+      return this.dataset.chatGridPane === 'a'
+        ? new DOMRect(0, 0, 100, 100)
+        : new DOMRect(100, 0, 100, 100)
+    })
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
+    const surface = screen.getByTestId('drop-surface')
+    const paneA = screen.getByTestId('transcript-a')
+    const paneB = screen.getByTestId('transcript-b')
+    const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'c')
+
+    fireDragAt(surface, 'dragEnter', { x: 10, y: 50 }, dataTransfer)
+    fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, dataTransfer)
+    fireDragAt(surface, 'dragLeave', { x: 10, y: 50 }, dataTransfer)
+    fireDragAt(paneA, 'dragEnter', { x: 10, y: 50 }, dataTransfer)
+    fireDragAt(paneA, 'dragOver', { x: 10, y: 50 }, dataTransfer)
+    fireDragAt(paneA, 'dragLeave', { x: 110, y: 50 }, dataTransfer)
+    fireDragAt(paneB, 'dragEnter', { x: 110, y: 50 }, dataTransfer)
+    fireDragAt(paneB, 'dragOver', { x: 110, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+
+    fireDragAt(paneB, 'dragLeave', { x: -40, y: 50 }, dataTransfer)
+
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
+  })
+
+  it('clears an active preview on escape and an aborted window dragend', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'chat-grid') return new DOMRect(0, 0, 200, 100)
+      return this.dataset.chatGridPane === 'a'
+        ? new DOMRect(0, 0, 100, 100)
+        : new DOMRect(100, 0, 100, 100)
+    })
+    render(<AddHarness initial={createWorkingSet(['a', 'b'], 'a')} />)
+    const surface = screen.getByTestId('drop-surface')
+    const dataTransfer = transfer(CHAT_SESSION_DND_MIME, 'c')
+
+    fireDragAt(surface, 'dragOver', { x: 10, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
+
+    fireDragAt(surface, 'dragOver', { x: 110, y: 50 }, dataTransfer)
+    expect(screen.queryByTestId('chat-grid-drop-zone')).not.toBeNull()
+    fireEvent.dragEnd(window)
     expect(screen.queryByTestId('chat-grid-drop-zone')).toBeNull()
   })
 

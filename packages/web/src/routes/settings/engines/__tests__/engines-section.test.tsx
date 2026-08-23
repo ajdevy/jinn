@@ -45,7 +45,8 @@ vi.mock('@/routes/auth-provider', () => ({
   useAuth: () => ({ authState: {}, devices: [], createPairingCode: vi.fn(), logout: vi.fn(), unpairDevice: vi.fn() }),
 }))
 
-const EXHAUSTED_UNTIL = '2026-08-19T17:30:00.000Z'
+/** Six days out: the case a bare clock time used to render as this afternoon. */
+const EXHAUSTED_UNTIL = new Date(Date.now() + 6 * 24 * 60 * 60_000).toISOString()
 
 function engine(name: string, available: boolean, defaultModel: string, health?: unknown) {
   return { name, available, defaultModel, effortMechanism: 'none', models: [], ...(health ? { health } : {}) }
@@ -73,12 +74,12 @@ beforeEach(() => {
   registry.current = {
     default: 'claude',
     engines: {
-      claude: engine('claude', true, 'opus', { state: 'exhausted', until: EXHAUSTED_UNTIL }),
+      claude: engine('claude', true, 'opus', { state: 'exhausted', until: EXHAUSTED_UNTIL, window: '7d' }),
       codex: engine('codex', true, 'gpt-5.6-sol'),
       grok: engine('grok', false, 'grok-build', { state: 'degraded' }),
     },
   }
-  apiMocks.getConfig.mockResolvedValue({ engines: { claude: { fallback: ['codex'] } } })
+  apiMocks.getConfig.mockResolvedValue({ config: { engines: { claude: { fallback: ['codex'] } } }, revision: 'rev-1' })
   apiMocks.updateConfig.mockResolvedValue({})
   apiMocks.getOrg.mockResolvedValue({ employees: [] })
   apiMocks.sttStatus.mockResolvedValue({ available: false, model: null, downloading: false, progress: 0, languages: ['en'] })
@@ -96,13 +97,12 @@ describe('Engine Fallbacks section', () => {
 
   it('lists every engine with its installed state, default model and health', async () => {
     await renderSettings()
-    const localTime = new Date(EXHAUSTED_UNTIL).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
     expect(screen.getByText('Installed · opus')).toBeTruthy()
     expect(screen.getByText('Installed · gpt-5.6-sol')).toBeTruthy()
     // Uninstalled engines are listed too, not hidden.
     expect(screen.getByText('Not installed · grok-build')).toBeTruthy()
-    expect(screen.getByText(`Out of allowance until ${localTime}`)).toBeTruthy()
+    expect(screen.getByText('Weekly limit, back in 6d')).toBeTruthy()
     expect(screen.getByText('Degraded')).toBeTruthy()
     expect(screen.getByText('Healthy')).toBeTruthy()
   })
@@ -137,7 +137,7 @@ describe('Engine Fallbacks section', () => {
   })
 
   it('reorders with the move controls a keyboard can reach', async () => {
-    apiMocks.getConfig.mockResolvedValue({ engines: { claude: { fallback: ['codex', 'grok'] } } })
+    apiMocks.getConfig.mockResolvedValue({ config: { engines: { claude: { fallback: ['codex', 'grok'] } } }, revision: 'rev-1' })
     await renderSettings()
 
     fireEvent.click(screen.getByRole('button', { name: 'Move Grok earlier in the Claude chain' }))
@@ -145,28 +145,31 @@ describe('Engine Fallbacks section', () => {
     expect((await save()).engines.claude.fallback).toEqual(['grok', 'codex'])
   })
 
-  it('shows the model map read-only, on the engine that falls through rather than the stand-in', async () => {
-    apiMocks.getConfig.mockResolvedValue({
+  it('shows the map on the engine that falls through rather than on the stand-in', async () => {
+    apiMocks.getConfig.mockResolvedValue({ config: {
       engines: {
         claude: { fallback: ['codex'] },
         codex: { fallback: ['claude'], fallbackModelMap: { 'gpt-5.6-luna': 'haiku' } },
       },
-    })
+    }, revision: 'rev-1' })
     await renderSettings()
     const codexCard = document.querySelector('[data-engine-card="codex"]') as HTMLElement
 
     expect(within(codexCard).getByText('Models carried onto the stand-in')).toBeTruthy()
-    expect(within(codexCard).getByText('gpt-5.6-luna → haiku')).toBeTruthy()
-    // Editing stays in config.yaml — the section offers no control over the map.
+    expect(codexCard.querySelector('[data-model-map-pair="gpt-5.6-luna"]')).toBeTruthy()
+    // The add form is progressive: nothing to type into until it is opened.
     expect(within(codexCard).queryByRole('textbox')).toBeNull()
     expect(document.querySelector('[data-engine-card="claude"] [data-model-map-pair]')).toBeNull()
   })
 
-  it('renders nothing extra for an engine with no model map', async () => {
+  it('states the floor rule for an engine with no mappings, rather than nothing at all', async () => {
     await renderSettings()
 
     expect(document.querySelectorAll('[data-model-map-pair]').length).toBe(0)
-    expect(screen.queryByText('Models carried onto the stand-in')).toBeNull()
+    // An empty map is the common case; what happens to an unmapped model is
+    // exactly what an operator cannot infer from an empty list.
+    expect(document.querySelector('[data-engine-card="claude"] [data-model-map-floor]')?.textContent)
+      .toContain("Codex's own default")
   })
 
   it('surfaces a failed save and leaves the edited chain on screen', async () => {
@@ -186,10 +189,10 @@ describe('legacy fallback mapping', () => {
   beforeEach(() => {
     // What GET /api/config serves for a legacy config: the mapped chain in the
     // current spelling, with the deprecated pair still on the document.
-    apiMocks.getConfig.mockResolvedValue({
+    apiMocks.getConfig.mockResolvedValue({ config: {
       engines: { claude: { fallback: ['codex'] } },
       sessions: { rateLimitStrategy: 'fallback', fallbackEngine: 'codex' },
-    })
+    }, revision: 'rev-1' })
   })
 
   it('shows the mapping read-only, and migrating writes the chain and nulls both legacy keys', async () => {

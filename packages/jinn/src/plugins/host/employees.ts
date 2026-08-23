@@ -1,4 +1,4 @@
-import { scanOrg } from "../../gateway/org.js";
+import { orgRegistry } from "../../gateway/org-registry.js";
 import type { Employee } from "../../shared/types.js";
 import { assertVerbAllowed } from "./permissions.js";
 
@@ -10,7 +10,7 @@ export function employeeVerbs(pluginId: string): PluginHostEmployees {
   return {
     list() {
       assertVerbAllowed(pluginId, "employees.list");
-      return [...scanOrg().values()];
+      return [...orgRegistry().values()];
     },
   };
 }

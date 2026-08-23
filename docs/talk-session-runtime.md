@@ -39,7 +39,7 @@ JSON blob:
 
 | State | Purpose |
 | --- | --- |
-| `talk_sessions` and child turn/action tables | browser binding, credential generation, live/parked/closed lifecycle, tool exposure, public turn telemetry |
+| `talk_sessions` and child turn/action tables | browser binding, credential generation, live/parked/closed lifecycle, public turn telemetry |
 | normal `sessions` and `messages` rows | searchable user/assistant transcripts and compact tool evidence rendered by the ordinary chat UI |
 | `talk_tool_receipts` | exact provider-call fingerprint and verified result for restart-safe replay |
 | approval evidence/challenge/audit tables | final provider transcript identity, one-time challenge scope, decision outcome, durable audit |
@@ -170,7 +170,6 @@ All session writes require operator authentication.
 | `POST .../:id/turn` | persist one assistant turn, visual receipts, usage delta, and normal assistant message |
 | `POST .../:id/context` | persist one bounded semantic observation and refresh topic memory |
 | `POST .../:id/control` | execute one manifest gateway operation and return a verified durable receipt |
-| `POST .../:id/tools` | compatibility expansion of declared intent tools without duplicates |
 | `POST .../:id/actions` | append attempted-write audit, including refusals |
 | `POST .../:id/handoff` | create a normal child session through the existing dispatch path |
 | `DELETE /api/talk/sessions/:id` | close the runtime while retaining normal chat history |
