@@ -13,6 +13,8 @@ export interface TalkCapability {
   provider: string | null
   /** The provider names this gateway implements. */
   providers: string[]
+  /** The configured provider's voices. Empty until a known provider is set. */
+  voices: string[]
 }
 
 /** Asks, and opens nothing. The answer never carries the provider key. */
@@ -24,5 +26,6 @@ export async function fetchTalkCapability(): Promise<TalkCapability> {
     configured: probed.configured === true,
     provider: probed.provider ?? null,
     providers: Array.isArray(probed.providers) ? probed.providers : [],
+    voices: Array.isArray(probed.voices) ? probed.voices : [],
   }
 }
