@@ -19,6 +19,7 @@ const getWorkItem = vi.fn()
 const getWorkItemTree = vi.fn()
 const setWorkItemStatus = vi.fn()
 const updateWorkItem = vi.fn()
+const assignWorkItem = vi.fn()
 const setWorkItemLabels = vi.fn()
 const listLabels = vi.fn()
 
@@ -31,6 +32,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       getWorkItemTree: (...args: unknown[]) => getWorkItemTree(...args),
       setWorkItemStatus: (...args: unknown[]) => setWorkItemStatus(...args),
       updateWorkItem: (...args: unknown[]) => updateWorkItem(...args),
+      assignWorkItem: (...args: unknown[]) => assignWorkItem(...args),
       setWorkItemLabels: (...args: unknown[]) => setWorkItemLabels(...args),
       listLabels: (...args: unknown[]) => listLabels(...args),
       listWorkItemSessions: vi.fn().mockResolvedValue([]),
@@ -194,17 +196,13 @@ describe("the other pickers", () => {
     const picker = await screen.findByTestId("picker-priority")
     expect(picker.style.top).toBe("-43px")
     fireEvent.click(screen.getByTestId("priority-option-3"))
-    await waitFor(() =>
-      expect(updateWorkItem).toHaveBeenCalledWith("PLA-12", expect.objectContaining({
-        patch: { priority: 3 },
-        expectedVersion: 3,
-      })),
-    )
+    await waitFor(() => expect(updateWorkItem).toHaveBeenCalledWith("PLA-12", expect.objectContaining({ patch: { priority: 3 }, expectedVersion: 3 })))
   })
 
-  it("assignee search filters the roster; Unassign commits null", async () => {
+  it("assignee search filters the roster; naming someone ASSIGNS, Unassign commits null through the pen", async () => {
     const item = full("PLA-12", { assignee: "mason" })
     getWorkItem.mockResolvedValue(detailOf(item))
+    assignWorkItem.mockResolvedValue({ workItem: { ...item, assignee: "scout", version: 4 } })
     updateWorkItem.mockResolvedValue({ workItem: { ...item, assignee: null, version: 4 }, replayed: false })
     renderTask()
     fireEvent.click(await screen.findByTestId("rail-assignee"))
@@ -214,13 +212,15 @@ describe("the other pickers", () => {
     expect(screen.queryByTestId("assignee-option-mason")).toBeNull()
     expect(screen.getByTestId("assignee-option-scout")).toBeTruthy()
 
-    fireEvent.click(screen.getByTestId("assignee-option-unassign"))
-    await waitFor(() =>
-      expect(updateWorkItem).toHaveBeenCalledWith("PLA-12", expect.objectContaining({
-        patch: { assignee: null },
-        expectedVersion: 3,
-      })),
-    )
+    // Granting ownership is the assign lane's: roster check, backlog→assigned, notify.
+    fireEvent.click(screen.getByTestId("assignee-option-scout"))
+    await waitFor(() => expect(assignWorkItem).toHaveBeenCalledWith("PLA-12", "scout"))
+    expect(updateWorkItem).not.toHaveBeenCalled()
+
+    // Only "nobody" goes through the pen: /assign cannot express it.
+    fireEvent.click(await screen.findByTestId("rail-assignee"))
+    fireEvent.click(await screen.findByTestId("assignee-option-unassign"))
+    await waitFor(() => expect(updateWorkItem).toHaveBeenCalledWith("PLA-12", expect.objectContaining({ patch: { assignee: null }, expectedVersion: 3 })))
   })
 
   it("labels multi-select PUTs the replaced set", async () => {

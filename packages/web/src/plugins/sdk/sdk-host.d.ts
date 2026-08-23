@@ -63,7 +63,6 @@ export interface HostTodoFilter {
 export interface HostTodoDraft {
   title: string
   body?: string
-  assignee?: string
   department?: string
   parentId?: string
   /** 0 (highest) to 3 (lowest); the gateway defaults to 2. */
