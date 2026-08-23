@@ -21,7 +21,7 @@ import { WorkflowRunner, type WorkflowRunnerOptions, type WorkflowTodoApprovalMi
 import type { WorkflowSessionExecutor } from "./session-executor.js";
 import { WorkflowTriggerService, type FireWorkflowEventInput } from "./trigger-service.js";
 import {
-  scheduleTriggerIssues,
+  endRequirementIssues, scheduleTriggerIssues,
   todoCommentWaitTriggerIssues,
   todoTriggerFilterIssues,
   validateExecutableWorkflow,
@@ -95,7 +95,7 @@ export type WorkflowTranscript = Array<{ id: string; role: string; content: stri
 export interface WorkflowTodoCommentFeed {
   firstOperatorCommentAfter(todoId: string, after: string, until: string): { id: string; body: string; createdAt: string; attachments: ReadonlyArray<{ id: string; mime: string }> } | undefined;
 }
-export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback"> {
+export interface WorkflowServiceOptions extends Pick<WorkflowRunnerOptions, "activeEngineSessions" | "engineFallback" | "landingEvidence"> {
   repository: WorkflowRepository;
   executor: WorkflowSessionExecutor;
   employees: () => ReadonlyMap<string, Employee>;
@@ -221,7 +221,7 @@ export class WorkflowService {
       ...scheduleTriggerIssues(definition),
       ...todoCommentWaitTriggerIssues(definition),
       ...todoTriggerFilterIssues(definition),
-      ...workflowCallSaveIssues(definition),
+      ...workflowCallSaveIssues(definition), ...endRequirementIssues(definition),
     ];
     if (issues.length > 0) throw new WorkflowServiceError("invalid-definition", "Workflow definition is invalid.", issues);
     const value = this.options.repository.saveDefinition(definition, expectedRevision); this.definitionChanged(value); return value;

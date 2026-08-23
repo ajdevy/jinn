@@ -24,6 +24,7 @@ import { openRestartReplacement, restartExhaustedFailure, restartsOn } from "./r
 import { fanoutOutput, parseWorkflowOutput, validateSubmittedFields, WorkflowOutputError } from "./output.js";
 import { fanoutConcurrencyRecord } from "./capacity.js";
 import { predicatesHold } from "./predicates.js";
+import { completeBoundTodo, landingShortfall, reachedSuccessEnd, type WorkflowLandingVerifier } from "./run-closure.js";
 import { callChildren, childTerminal, fanoutInput, fanoutPlan, iterationSettings, iterationStep, validateFanoutChildren,
   type FanoutPlan, type IterationStep } from "./workflow-call.js";
 import { addMinutes, hasWorkflowOutputBlock, remindDueAttempts, REMINDER_RUNGS_MINUTES } from "./reminder-ladder.js";
@@ -73,6 +74,10 @@ export interface WorkflowRunnerOptions extends Pick<DispatchResolutionDeps, "eng
   /** Lets the run's bound Todo redirect the next attempt to another engine or
    *  model. Absent = the node's own configuration decides. */
   todoDispatch?: WorkflowTodoDispatchOverride;
+  /** Proves that a commit a success End demanded really reached `main`, in the
+   *  checkout the run itself named. Absent = git in that checkout, which is the
+   *  answer everywhere but a test. */
+  landingEvidence?: WorkflowLandingVerifier;
   /** Engine sessions across the whole gateway that already hold the machine,
    *  read fresh whenever a fan-out asks for room. Absent = no system ceiling:
    *  the authored concurrency stands, bounded only by its schema maximum. */
@@ -549,32 +554,25 @@ export class WorkflowRunner {
     }
   }
 
-  private finish(run: WorkflowRunDetail): boolean {
+  private async finish(run: WorkflowRunDetail): Promise<boolean> {
     const active = run.nodeRuns.some((node) => node.activated && !terminalNode(node));
-    const successfulEnd = run.definition.nodes.some((node) => node.type === "end" && node.config.result === "success"
-      && nodeRun(run, node.id).status === "completed");
-    if (active || !successfulEnd || run.status !== "running") return false;
+    if (active || !reachedSuccessEnd(run) || run.status !== "running") return false;
     const endedAt = this.now();
-    this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus("completed", { endedAt }));
-    const approvedGate = run.approvals.find((approval) => {
-      const authored = run.definition.nodes.find((node) => node.id === approval.nodeId);
-      const runtime = run.nodeRuns.find((node) => node.nodeId === approval.nodeId);
-      return authored?.type === "approval" && authored.config.operatorOnly === true
-        && runtime?.status === "completed" && approval.status === "approved"
-        && approval.decidedBy !== undefined && approval.decidedAt !== undefined;
-    });
-    const todoId = run.trigger.todoId;
-    if (todoId && approvedGate?.decidedBy && approvedGate.decidedAt && this.options.todoLifecycle) {
-      try {
-        this.options.todoLifecycle.complete({
-          todoId, workflowId: run.workflowId, runId: run.id, nodeId: approvedGate.nodeId,
-          approvedBy: approvedGate.decidedBy, approvedAt: approvedGate.decidedAt,
-        });
-      } catch (error) {
-        logger.warn(`Workflow run ${run.id} could not complete Todo ${todoId}: `
-          + `${error instanceof Error ? error.message : String(error)}`);
-      }
+    // Arriving at a success End is not the same as having landed. An End that
+    // declared what its landing had to produce settles the run FAILED when that
+    // cannot be shown, so the bound Todo reads blocked with the reason rather
+    // than done over work that never left its branch.
+    const shortfall = await landingShortfall(run, this.options.landingEvidence);
+    if (shortfall) {
+      const error: WorkflowError = { code: "workflow-landing-unverified", message: shortfall.reason,
+        retryable: false, nodeId: shortfall.nodeId };
+      this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus("failed", { endedAt, error }));
+      this.reflectFailure(run, shortfall.nodeId, error);
+      this.changed(run);
+      return true;
     }
+    this.options.repository.mutateRun(run.id, run.revision, (tx) => tx.setRunStatus("completed", { endedAt }));
+    completeBoundTodo(this.options.todoLifecycle, run);
     this.changed(run);
     return true;
   }
@@ -600,7 +598,7 @@ export class WorkflowRunner {
       if (run.cancelRequestedAt) return run;
       const action = this.nextAction(run);
       if (!action) {
-        if (this.finish(run)) continue;
+        if (await this.finish(run)) continue;
         return this.detail(workflowId, runId);
       }
       if (action.kind === "dispatch") await this.dispatch(run, action.node, action.config);

@@ -16,6 +16,13 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 const INVALID_INPUT = Symbol('invalid-workflow-input');
 
+/** One dot-separated step of a binding path, an output field name, or an input
+ *  key: an identifier that is safe to look up on a plain object. */
+export const pathSegmentSchema = z.string()
+  .max(256)
+  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/, 'Invalid path segment')
+  .refine((segment) => !FORBIDDEN_PATH_SEGMENTS.has(segment), 'Unsafe path segment');
+
 type OwnDescriptors = ReturnType<typeof Object.getOwnPropertyDescriptors>;
 
 /** The array's own length, but only for an array whose keys are exactly the
