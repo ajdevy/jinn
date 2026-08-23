@@ -25,9 +25,9 @@ const GATEWAY_OPERATIONS: readonly TalkControlOperation[] = [
     employee: string("The employee slug."),
     task: string("The full delegation brief."),
   }, ["id", "employee"]), "delegation", { mutability: "write", verification: "todo-session-link-reread" }),
-  gateway("read_session", "Read one chat session and its recent messages.", params({ id: string("The session id.") }, ["id"]), "sessions", { mutability: "read", verification: "session-reread" }),
-  gateway("talk_send_to_session", "Send a message into a chat session. It is delivered to whoever is on that session, who may act on it straight away.", params({
-    id: string("The session id."),
+  gateway("read_session", "Read one chat session and its recent messages from the authoritative store. Use this before answering about a chat's state or history, including the one on screen, whose id is on the 'Selected session id' line of the page context.", params({ id: string("The session id.") }, ["id"]), "sessions", { mutability: "read", verification: "session-reread" }),
+  gateway("talk_send_to_session", "Send a message into a chat session, named or not currently visible. Use this whenever the operator asks to message the chat they are looking at: the page context names its id on the 'Selected session id' line.", params({
+    id: string("The session id, copied from the 'Selected session id' line of the page context when the operator means the chat on screen."),
     message: string("The operator message."),
   }, ["id", "message"]), "sessions", { mutability: "write", verification: "session-message-reread" }),
   gateway("talk_start_workflow_run", "Start one enabled manual Workflow run.", params({ id: string("The workflow id."), input: string("Optional JSON object input.") }, ["id"]), "workflows", { mutability: "write", verification: "workflow-run-reread" }),

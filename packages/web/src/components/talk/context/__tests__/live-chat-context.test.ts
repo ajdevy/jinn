@@ -162,7 +162,7 @@ describe("bounded live chat context", () => {
     // the screen but cannot name the session to `read_session`, so asked what it
     // is looking at it narrates — the hallucination PLA-224 was raised for.
     expect(rendered).toContain(`Selected session id: ${SESSION_ID}`)
-    expect(rendered).toContain("a handle to use, not something to say")
+    expect(rendered).toContain("a handle to use, never something to say")
     expect(rendered).not.toContain("unsettled raw token tail")
     expect(context.meaningfulText).not.toContain("unsettled raw token tail")
     expect(rendered).toContain("titles, people, topics, and relative time")

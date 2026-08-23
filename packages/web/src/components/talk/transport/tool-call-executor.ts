@@ -95,9 +95,12 @@ async function executeGatewayTool(
   if (BOUND_EVIDENCE_OPERATIONS.has(call.name) && !hasBoundIdentity) {
     return { ok: false, code: "credential-missing", error: "The active Talk credential identity is missing." }
   }
-  if (options.operatorTranscript) await options.operatorTranscript.persisted
   let body: TalkControlResult
   try {
+    // Persisting the operator's utterance is part of reaching the gateway, so
+    // it is inside the guard: with the gateway down it fails first, and left
+    // outside it surfaced as a bare "Failed to fetch" with no subject.
+    if (options.operatorTranscript) await options.operatorTranscript.persisted
     body = await postTalkControlCall(options.sessionId, gatewayCall(call, options))
   } catch (failure) {
     return { ok: false, code: "transport-failed", error: transportReason(failure) }
