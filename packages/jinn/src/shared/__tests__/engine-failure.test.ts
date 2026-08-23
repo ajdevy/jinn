@@ -54,6 +54,13 @@ const GOLDENS: readonly [string, EngineFailureClass[]][] = [
   ["Invalid session ID provided", ["terminal"]],
   ["error_during_execution", ["terminal"]],
   ["Some error after work", ["terminal"]],
+
+  // workflows/__tests__/retry-boundary.test.ts — a model id our own config or our own
+  // discovery got wrong, refused before the engine ran anything.
+  ["invalid model selection", ["invalid-model"]],
+  ['unknown model "gpt-5.6-sol" for engine "codex" (known: opus)', ["invalid-model"]],
+  ["model not found", ["invalid-model"]],
+  ["model_not_found", ["invalid-model"]],
 ];
 
 describe("classifyEngineFailureText", () => {

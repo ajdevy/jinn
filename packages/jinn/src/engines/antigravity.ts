@@ -5,7 +5,7 @@ import { logger } from "../shared/logger.js";
 import { JINN_HOME } from "../shared/paths.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
-import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
+import { PtyLifecycleManager, processExitInterruption, type PtyExit, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped } from "./pty-stream.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
 import type { PtyControlEvent, PtyViewEngine, PtyIdleSpawnOpts, PtySnapshotSubscription } from "./pty-view-engine.js";
@@ -359,8 +359,8 @@ export class AntigravityEngine implements InterruptibleEngine, PtyViewEngine {
       mcpAttached: mcpConfig.attached,
     });
     onSpawn(proc);
-    return this.wireProcToStream(jinnSessionId, proc, () => {
-      this.active.get(jinnSessionId)?.interrupt("Interrupted: agy process exited");
+    return this.wireProcToStream(jinnSessionId, proc, (exit) => {
+      this.active.get(jinnSessionId)?.interrupt(processExitInterruption("agy", exit));
     });
   }
 
@@ -444,7 +444,7 @@ export class AntigravityEngine implements InterruptibleEngine, PtyViewEngine {
 
   // --- PTY stream plumbing (shared PtyStreamManager, mirrors InteractiveClaudeEngine) ---
 
-  private wireProcToStream(jinnSessionId: string, proc: pty.IPty, onExitExtra?: () => void): PtyHandle {
+  private wireProcToStream(jinnSessionId: string, proc: pty.IPty, onExitExtra?: (exit: PtyExit) => void): PtyHandle {
     const handle = createPtyHandle(proc);
     this.streams.attach(jinnSessionId, proc);
     proc.onExit((event) => {
@@ -461,7 +461,7 @@ export class AntigravityEngine implements InterruptibleEngine, PtyViewEngine {
       // to it — after a kill->respawn race the active entry holds the NEW turn's proc and
       // this old proc must not poison it.
       const e = this.active.get(jinnSessionId);
-      if (e && e.boundProc === proc) onExitExtra?.();
+      if (e && e.boundProc === proc) onExitExtra?.(event ?? {});
     });
     return handle;
   }

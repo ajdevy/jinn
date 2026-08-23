@@ -16,4 +16,21 @@ Claude Sonnet 4.6 (Thinking)
       { id: "Claude Sonnet 4.6 (Thinking)", label: "Claude Sonnet 4.6 Thinking", supportsEffort: false, effortLevels: [] },
     ]);
   });
+
+  // A newer `agy models` prints `id<TAB>label`. Before the split, the whole line
+  // became the id, and that composite reached `--model` as an unspellable string.
+  it("takes the id from the first tab-separated field and the label from the second", () => {
+    const parsed = parseAntigravityModels("gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n");
+
+    expect(parsed.defaultModel).toBe("gemini-3.7-flash-high");
+    expect(parsed.models).toEqual([
+      { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)", supportsEffort: false, effortLevels: [] },
+    ]);
+  });
+
+  it("drops a line whose id still carries a control character rather than shipping it", () => {
+    const parsed = parseAntigravityModels("gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n\u0007bell-id\tBell\n");
+
+    expect(parsed.models.map((model) => model.id)).toEqual(["gemini-3.7-flash-high"]);
+  });
 });
