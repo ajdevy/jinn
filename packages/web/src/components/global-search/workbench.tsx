@@ -18,11 +18,13 @@ const COMPOSER = "w-full resize-none rounded-[var(--radius-md)] bg-[var(--fill-t
 const SEND = "min-h-[34px] rounded-[var(--radius-md)] bg-[var(--accent-fill)] px-3.5 text-[12.5px] font-medium text-[var(--accent)] disabled:opacity-40"
 const QUIET = "mt-4 text-[13px] text-[var(--text-tertiary)]"
 
-function Field({ field, label, value, workbench }: {
+export function WorkbenchField({ field, label, value, workbench, primary = false }: {
   field: TodoQuickPickerKey
   label: string
   value: ReactNode
   workbench: TodoWorkbench
+  /** The control this surface's ⏎ hands the field over to. */
+  primary?: boolean
 }) {
   const row = workbench.rowFor(field)
   return (
@@ -30,6 +32,7 @@ function Field({ field, label, value, workbench }: {
       <button
         type="button"
         data-testid={`${WORKBENCH_PREFIX}-row-${field}`}
+        {...(primary ? { "data-command-primary": "" } : {})}
         aria-haspopup="menu"
         aria-expanded={row.open}
         onClick={row.onOpen}
@@ -90,13 +93,13 @@ export function Workbench({ workbench }: { workbench: TodoWorkbench }) {
   return (
     <div className="mt-4" data-search-workbench="" data-testid="search-workbench">
       <div className="flex flex-wrap items-start gap-2">
-        <Field
+        <WorkbenchField
           field="status"
           label="Status"
           value={status ? <><StatusCircle status={status} size={14} />{STATUS_LABEL[status]}</> : "—"}
           workbench={workbench}
         />
-        <Field
+        <WorkbenchField
           field="assignee"
           label="Owner"
           value={workbench.assignee ?? <span className="text-[var(--text-tertiary)]">Unassigned</span>}
