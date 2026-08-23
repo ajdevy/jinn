@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, JinnConfig, JsonObject, Session } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
@@ -4856,100 +4856,6 @@ export async function handleApiRequest(
       } catch (err) {
         return json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
       }
-    }
-
-    // POST /api/connectors/discord/incoming — receive proxied Discord messages from a primary instance
-    if (method === "POST" && pathname === "/api/connectors/discord/incoming") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-      if (!("deliverMessage" in connector)) {
-        return json(res, { error: "Discord connector is not in remote mode" }, 400);
-      }
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      // Download attachments from Discord CDN URLs to local temp
-      const { downloadAttachment } = await import("../connectors/discord/format.js");
-      const attachments = await Promise.all(
-        (body.attachments || []).map(async (att: { name: string; url: string; mimeType: string }) => {
-          if (att.url) {
-            try {
-              const localPath = await downloadAttachment(att.url, TMP_DIR, att.name);
-              return { name: att.name, url: att.url, mimeType: att.mimeType, localPath };
-            } catch {
-              return { name: att.name, url: att.url, mimeType: att.mimeType };
-            }
-          }
-          return att;
-        }),
-      );
-
-      const incomingMsg: IncomingMessage = {
-        connector: "discord",
-        source: "discord",
-        sessionKey: body.sessionKey,
-        channel: body.channel,
-        thread: body.thread,
-        user: body.user,
-        userId: body.userId,
-        text: body.text,
-        messageId: body.messageId,
-        attachments,
-        replyContext: body.replyContext || {},
-        transportMeta: body.transportMeta,
-        raw: body,
-      };
-
-      (connector as any).deliverMessage(incomingMsg);
-      return json(res, { status: "delivered" });
-    }
-
-    // POST /api/connectors/discord/proxy — proxy connector operations from remote instances
-    if (method === "POST" && pathname === "/api/connectors/discord/proxy") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      const action = body.action as string;
-      const target = body.target as Target | undefined;
-      let messageId: string | undefined;
-
-      switch (action) {
-        case "sendMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.sendMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "replyMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.replyMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "editMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          await connector.editMessage(target, redactText(String(body.text)));
-          break;
-        case "addReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.addReaction(target, body.emoji);
-          break;
-        case "removeReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.removeReaction(target, body.emoji);
-          break;
-        case "setTypingStatus":
-          if (connector.setTypingStatus) {
-            await connector.setTypingStatus(body.channelId ?? "", body.threadTs, body.status ?? "");
-          }
-          break;
-        default:
-          return badRequest(res, `Unknown proxy action: ${action}`);
-      }
-
-      return json(res, { status: "ok", messageId });
     }
 
     // POST /api/connectors/:name/send — send via the connector with that instance id

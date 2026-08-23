@@ -370,31 +370,6 @@ describe("/api/files/read containment — real route", () => {
     expect(JSON.stringify(res.body)).not.toContain("CANARY-PATH-ATTACH-SECRET");
   });
 
-  it("rejects capability-bound file transfers before resolving local filesystem paths", async () => {
-    const secret = path.join(tmpHome, "secrets", "api-keys.json");
-    fs.mkdirSync(path.dirname(secret), { recursive: true });
-    fs.writeFileSync(secret, "CANARY-FILE-TRANSFER-SECRET");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: "remote-file" }),
-    } as Response);
-    const transferCtx = {
-      ...ctx,
-      getConfig: () => ({
-        gateway: {},
-        engines: { default: "codex" },
-        sessions: {},
-        remotes: { remote: { url: "https://remote.example.test", token: "remote-token" } },
-      }),
-    } as any;
-
-    const res = await postJson("/api/files/transfer", { destination: "remote", file: secret }, toolHeaders(), transferCtx);
-
-    expect(res.status).toBe(403);
-    expect(JSON.stringify(res.body)).toMatch(/operator/i);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
   it("rejects loopback URL uploads before the server fetches them", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,

@@ -88,7 +88,6 @@
       ]
     },
     "packages/jinn/src/connectors/discord/index.ts": {
-      "lines": 351,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -305,10 +304,10 @@
       "lines": 485
     },
     "packages/jinn/src/gateway/__tests__/file-read.test.ts": {
-      "lines": 549
+      "lines": 524
     },
     "packages/jinn/src/gateway/__tests__/instance-migration-api.test.ts": {
-      "lines": 394
+      "lines": 367
     },
     "packages/jinn/src/gateway/__tests__/lifecycle-stop.test.ts": {
       "lines": 525
@@ -344,7 +343,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5432,
+      "lines": 5338,
       "exempt": [
         "complexity",
         "max-depth",
@@ -382,7 +381,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1553,
+      "lines": 1386,
       "exempt": [
         "complexity",
         "max-depth",
@@ -442,7 +441,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1313,
+      "lines": 1305,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -847,7 +846,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 837
+      "lines": 833
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
