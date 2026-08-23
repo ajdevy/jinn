@@ -13,10 +13,10 @@ import {
 import { todoProvenanceSnapshot, TransitionError, type TransitionResult } from './transitions.js';
 
 /**
- * The assignment write. It moves status as a side effect (backlog→assigned), so
- * it borrows `transitions.ts`'s audit shape and its live listener rather than
- * inventing a second one — but WHO owns a Todo is a different question from
- * where it sits in its lifecycle, and only this path answers it.
+ * Assignment: granting ownership with work-start semantics. It moves status as a
+ * side effect (backlog→assigned), so it borrows `transitions.ts`'s audit shape
+ * and its live listener rather than inventing a second one. The ownership fields
+ * on their own stay separately restorable by the operator pen, without those semantics.
  */
 
 interface Assignment {
@@ -50,10 +50,10 @@ function assignmentEvent(
   };
 }
 
-/** Assign a Todo to an employee. Roster validation lives at the route layer; this
- * is the only assignment path, so backlog→assigned emits the same committed
- * status event and live todo-status listener notification as any other
- * lifecycle move. */
+/** Assign a Todo to an employee. Sole owner of assignment: the assign route and delegation are
+ * its only callers and carry the roster check, so backlog→assigned emits the same committed status
+ * event and live todo-status listener notification as any lifecycle move. The operator pen instead
+ * restores or clears the ownership fields, version-fenced, with no status move and no notification. */
 export function assignWorkItem(
   id: string,
   assignee: string,

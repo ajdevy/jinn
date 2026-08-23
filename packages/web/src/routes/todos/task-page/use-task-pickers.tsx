@@ -68,17 +68,11 @@ export function useTaskPickers({
   const [openPicker, setOpenPicker] = useState<PickerKey | null>(null)
   const id = detail?.workItem.id
 
-  const close = useCallback(() => {
-    setOpenPicker((current) => {
-      if (current) {
-        // Esc/commit returns focus to the anchor row (§7.3 keyboard contract).
-        queueMicrotask(() => {
-          document.querySelector<HTMLElement>(`[data-testid="rail-${current}"]`)?.focus()
-        })
-      }
-      return null
-    })
-  }, [])
+  const close = useCallback(() => setOpenPicker((current) => {
+    // Esc/commit returns focus to the anchor row (§7.3 keyboard contract).
+    if (current) queueMicrotask(() => document.querySelector<HTMLElement>(`[data-testid="rail-${current}"]`)?.focus())
+    return null
+  }), [])
 
   // ── Commit lanes ──────────────────────────────────────────────────────────
 
@@ -126,14 +120,20 @@ export function useTaskPickers({
     [id, detail, qc, announce],
   )
 
+  /** Granting ownership is the assign lane's alone — roster check, backlog→assigned,
+   *  live notify; the pen is the one lane that can clear it. Peek ships the same split. */
+  const commitAssignee = useCallback((assignee: string | null) => {
+    if (!id || assignee === null) return patchField({ assignee })
+    qc.setQueryData<WorkItemDetailWire>(["work-item", id], (current) => (current ? { ...current, workItem: { ...current.workItem, assignee } } : current))
+    api.assignWorkItem(id, assignee)
+      .catch((error) => announce(operatorSafeTodoError(error, "Couldn't assign this Todo")))
+      .finally(() => void invalidateTodoCaches(qc, id))
+  }, [id, qc, announce, patchField])
+
   const labelsMutation = useMutation({
     mutationFn: ({ labels }: { labels: string[] }) => api.setWorkItemLabels(id!, labels),
-    onError: (error) => {
-      announce(operatorSafeTodoError(error, "Couldn't update the labels"))
-    },
-    onSettled: () => {
-      if (id) void invalidateTodoCaches(qc, id)
-    },
+    onError: (error) => announce(operatorSafeTodoError(error, "Couldn't update the labels")),
+    onSettled: () => { if (id) void invalidateTodoCaches(qc, id) },
   })
   const commitLabels = useCallback(
     (labelIds: string[]) => {
@@ -175,7 +175,7 @@ export function useTaskPickers({
         case "priority":
           return <PriorityPickerContent {...shared} commit={(priority) => patchField({ priority })} />
         case "assignee":
-          return <AssigneePickerContent {...shared} employees={employees} commit={(assignee) => patchField({ assignee })} />
+          return <AssigneePickerContent {...shared} employees={employees} commit={commitAssignee} />
         case "labels":
           return <LabelsPickerContent {...shared} commit={commitLabels} />
         case "due":
@@ -186,7 +186,7 @@ export function useTaskPickers({
           return <VerifyPickerContent {...shared} commit={commitVerify} />
       }
     },
-    [detail, close, openChildren, openDescendants, escalatedDescendants, transitionTo, patchField, employees, departments, commitLabels, commitVerify],
+    [detail, close, openChildren, openDescendants, escalatedDescendants, transitionTo, patchField, commitAssignee, employees, departments, commitLabels, commitVerify],
   )
 
   /** The superimposed row index (law 1): the current value's option row sits

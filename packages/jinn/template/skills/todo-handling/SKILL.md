@@ -35,7 +35,6 @@ Only independently assignable or independently reviewable deliverables become ch
 {
   "title": "Verify release artifacts",
   "parentId": "ACM-42",
-  "assignee": "a-reviewer",
   "acceptance": "Checks pass and evidence is attached."
 }
 ```
@@ -51,7 +50,6 @@ Create a Todo only for durable work that needs an owner or review trail:
   "title": "Verify release candidate",
   "body": "Run the release checks and attach the evidence.",
   "acceptance": "Typecheck, tests, lint, and build pass with command output.",
-  "assignee": "a-reviewer",
   "department": "engineering",
   "verifyPolicy": {
     "mode": "verify",
@@ -63,7 +61,7 @@ Create a Todo only for durable work that needs an owner or review trail:
 
 1. Search for an existing item covering the same outcome.
 2. Call `create_work_item` with a concise title, enough context to act, and testable acceptance criteria.
-3. Use `assign_work_item` when assignment was not supplied or must change. Verify the employee with `get_employee` or `find_employees` first.
+3. Call `assign_work_item` next: creation never carries an assignee, so assignment is always its own second call. Verify the employee with `get_employee` or `find_employees` first.
 4. Use `delegate_task` instead when the assignee should start immediately; it can use an existing `workItemId` or create and link a new Todo atomically.
 
 Do not invent provenance or attach approval fields during creation. Each owning company surface records its own source provenance.

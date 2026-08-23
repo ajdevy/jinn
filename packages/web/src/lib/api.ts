@@ -987,7 +987,6 @@ export const api = {
     /** Todos v2 slice 6: quick-adds carry the board scope / parent. */
     parentId?: string
     department?: string
-    assignee?: string
     priority?: number
     dueAt?: string
     acceptance?: string

@@ -2523,6 +2523,7 @@ export async function handleApiRequest(
       if (body.provenance !== undefined) {
         return badRequest(res, "provenance cannot be supplied on public Todo creation — the server assigns source provenance: public creation uses source=human or source=session, while cron and delegation create their own records; source=workflow is historical audit provenance and is not currently minted");
       }
+      if (body.assignee !== undefined) return badRequest(res, "assignee cannot be supplied at Todo creation — create first, then grant ownership through the assign flow (assign_work_item / POST /api/work-items/:id/assign), which is its own action: it validates the roster, derives the department, moves backlog→assigned, and notifies the assignee");
       const title = typeof body.title === "string" ? stripControlChars(body.title).trim() : "";
       if (!title) return badRequest(res, "title is required");
       const verifyPolicy = validateVerifyPolicy(body.verifyPolicy);
@@ -2569,7 +2570,6 @@ export async function handleApiRequest(
         title: title.slice(0, 200),
         body: typeof body.body === "string" ? body.body : null,
         acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
-        assignee: typeof body.assignee === "string" && body.assignee.trim() ? body.assignee.trim() : null,
         // The department key is included only when the request carries one, so a
         // sub-task with no department inherits the parent's at the store layer.
         ...(body.department !== undefined

@@ -57,17 +57,15 @@ function boundMcpContext(sessionId: string): JinnMcpContext {
 /** A Todo assigned to and created by `platform-worker`, so one session is both. */
 async function workerTodo(sessionId: string, verifyPolicy?: Record<string, unknown>) {
   const created = makeRes();
-  await api.handleApiRequest(
-    makeReq("POST", "/api/work-items", {
-      title: "Deliver a Note",
-      assignee: "platform-worker",
-      ...(verifyPolicy ? { verifyPolicy } : {}),
-    }, toolHeaders(sessionId)),
-    created.res,
-    ctx,
-  );
+  const body = { title: "Deliver a Note", ...(verifyPolicy ? { verifyPolicy } : {}) };
+  await api.handleApiRequest(makeReq("POST", "/api/work-items", body, toolHeaders(sessionId)), created.res, ctx);
   expect(created.status).toBe(201);
-  return created.body.workItem as { id: string; version: number };
+  // Assignment is its own action now, so the route refuses `assignee` at create.
+  // This suite is about the assignee/creator lane rather than about assignment,
+  // so seed it at the store: that bumps `version` and leaves `status` alone.
+  const seeded = store.updateWorkItem(created.body.workItem.id as string, { assignee: "platform-worker" });
+  expect(seeded).toBeDefined();
+  return { id: seeded!.id, version: seeded!.version };
 }
 
 async function patchPolicy(sessionId: string, item: { id: string; version: number }, verifyPolicy: unknown, headers = toolHeaders(sessionId)) {

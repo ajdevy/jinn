@@ -222,7 +222,6 @@ export function buildWorkItemTools(): JinnMcpTool[] {
         title: { type: "string" },
         body: { type: "string" },
         acceptance: { type: "string" },
-        assignee: { type: "string" },
         department: { type: "string" },
         verifyPolicy: { type: "object" },
         parentId: TODO_ID_SCHEMA,
@@ -238,7 +237,7 @@ export function buildWorkItemTools(): JinnMcpTool[] {
       rejectApprovalFields(args, "create_work_item");
       rejectProvenance(args);
       const body: Record<string, unknown> = { title: requireString(args, "title") };
-      for (const key of ["body", "acceptance", "assignee", "department"] as const) {
+      for (const key of ["body", "acceptance", "department"] as const) {
         const v = optionalString(args, key, key === "body" || key === "acceptance" ? WORK_ITEM_BODY_CHAR_CAP : FILTER_CHAR_CAP);
         if (v !== undefined) body[key] = v;
       }
