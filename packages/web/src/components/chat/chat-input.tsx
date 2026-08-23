@@ -815,8 +815,8 @@ export function ChatInput({
           onChange={handleFileAttach}
         />
 
-        {/* Toolbar: [+ attach] · [model chip] · spacer · [terminal keys] · [mic] · [send] */}
-        <div className="flex items-center gap-[var(--space-2)]">
+        {/* Toolbar: [+ attach] · [model chip] · spacer · [terminal keys] · [mic] · [send]. A container, so the chip degrades against THIS composer's width — a pane in a 3-column grid is narrow while the viewport is not. */}
+        <div className="@container/composer flex items-center gap-[var(--space-2)]">
           {/* Attach */}
           <button
             aria-label="Attach file"
@@ -830,12 +830,12 @@ export function ChatInput({
             </svg>
           </button>
 
-          {/* Model chip — the restyled selector trigger. Wrapped so clicks on
-              the trigger (and its inline popover) don't re-trigger card focus,
-              while the trigger's own behavior is preserved. */}
+          {/* Model chip — wrapped so clicks on the trigger (and its inline popover)
+              don't re-trigger card focus. The cap bounds a long model label instead
+              of letting an unshrinkable chip push Send outside a narrow pane. */}
           {selectorSlot && (
             <div
-              className="flex shrink-0 items-center overflow-hidden"
+              className="flex max-w-[55%] shrink-0 items-center overflow-hidden"
               onPointerDown={(e) => e.stopPropagation()}
             >
               {selectorSlot}

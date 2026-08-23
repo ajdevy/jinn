@@ -8,6 +8,7 @@ import {
   persistWorkingSet,
   removeWorkingSetSession,
   replaceFocusedWorkingSetSession,
+  replaceWorkingSetSession,
   type ChatWorkingSet,
 } from './working-set'
 import { capForViewport } from './grid-layout'
@@ -15,6 +16,15 @@ import { capForViewport } from './grid-layout'
 function viewportCap(): number {
   if (typeof window === 'undefined') return 4
   return capForViewport(window.innerWidth, window.innerHeight)
+}
+
+/** A replacement id swaps the departing pane in place; without one the pane is
+ * simply dropped. Delete/archive pass their fallback so the sidebar pick lands in
+ * the deleted slot instead of evicting a sibling once the URL commits. */
+function withoutPane(state: ChatWorkingSet, sessionId: string, replacementId?: string | null): ChatWorkingSet {
+  return replacementId
+    ? replaceWorkingSetSession(state, sessionId, replacementId)
+    : removeWorkingSetSession(state, sessionId)
 }
 
 export function useChatWorkingSet(
@@ -58,8 +68,8 @@ export function useChatWorkingSet(
   const insert = useCallback((sessionId: string, index: number) => {
     setState((current) => insertWorkingSetSession(current, sessionId, index, viewportCap()))
   }, [])
-  const remove = useCallback((sessionId: string) => {
-    setState((current) => removeWorkingSetSession(current, sessionId))
+  const remove = useCallback((sessionId: string, replacementId?: string | null) => {
+    setState((current) => withoutPane(current, sessionId, replacementId))
   }, [])
 
   return { state, add, insert, focus, remove }

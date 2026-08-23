@@ -28,6 +28,8 @@ interface MultiChatGridProps {
     viewMode: ViewMode
     focusTrigger: number
     delegatedActivity: DelegatedActivity | null | undefined
+    /** Closes a sessionless composer pane, which owns no working-set member. */
+    onClose?: () => void
   }
   viewport: { width: number; height: number; mobile?: boolean }
   metaById: Record<string, SessionMeta>
@@ -110,6 +112,9 @@ function removeGridPane(owner: MultiChatGridProps, gridId: string): void {
   }
   const sessionId = sessionForGridId(owner, gridId)
   if (sessionId) owner.onRemove(sessionId)
+  // The composer pane has no session to remove: closing it hands the route back
+  // to a live pane, which is what stops the grid reserving a composer slot.
+  else if (gridId === owner.primary.paneKey) owner.primary.onClose?.()
 }
 
 function paneChrome(owner: MultiChatGridProps, sessionId: string | null): Pick<PaneProps, 'sessionActions' | 'paneBackTo' | 'copyNotice'> {

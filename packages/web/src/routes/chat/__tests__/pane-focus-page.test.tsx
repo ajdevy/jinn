@@ -58,6 +58,32 @@ describe('desktop pane focus', () => {
     await waitFor(() => expect(pane('b').getAttribute('data-chat-pane-active')).toBe('true'))
   })
 
+  it('gives the deleted slot to the fallback instead of a surviving sibling', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // The working set is a SUBSET of the sidebar order, so the post-delete
+    // fallback ('b') is a chat that was never in the grid — the PLA-180 repro.
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      sessionIds: ['a', 'c', 'd'],
+      focusedId: 'a',
+      focusHistory: ['c', 'd', 'a'],
+    }))
+    renderRoute()
+    await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(3))
+
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    fireEvent.keyDown(window, { key: 'Backspace' })
+    await waitFor(() => expect(apiMocks.deleteSession).toHaveBeenCalledWith('a'))
+    await waitFor(() => expect(document.querySelector('[data-chat-pane-session="b"]')).not.toBeNull())
+
+    expect(document.querySelector('[data-chat-pane-session="a"]')).toBeNull()
+    expect(document.querySelector('[data-chat-pane-session="c"]')).not.toBeNull()
+    expect(document.querySelector('[data-chat-pane-session="d"]')).not.toBeNull()
+    const persisted = JSON.parse(localStorage.getItem(WORKING_SET_STORAGE_KEY) ?? '{}')
+    expect(persisted.sessionIds).toEqual(['b', 'c', 'd'])
+    expect(persisted.focusedId).toBe('b')
+  })
+
   it('surfaces a pane duplicate instead of completing silently', async () => {
     renderRoute()
     await waitFor(() => expect(document.querySelectorAll('[data-chat-pane-session]')).toHaveLength(4))

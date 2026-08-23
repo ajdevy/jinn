@@ -19,7 +19,8 @@ interface LifecycleOptions {
   tabs: Tabs
   navigate: NavigateFunction
   selectSession: SelectSession
-  removePane: (sessionId: string) => void
+  /** Drops the pane; a replacement id takes the departing pane's slot. */
+  removePane: (sessionId: string, replacementId?: string | null) => void
   setMenuOpen: Dispatch<SetStateAction<boolean>>
 }
 
@@ -32,7 +33,10 @@ function useDeleteAction({ selectedIdRef, pendingNavRef, removePane, setMenuOpen
     if (wasActive) pendingNavRef.current = fallback
     try { await mutation.mutateAsync(id) } catch { /* it may already be gone */ }
     clearIntermediateMessages(id)
-    removePane(id)
+    // Hand the fallback to the working set with the removal: dropping the pane
+    // first advances focus to a sibling, and the fallback navigation would then
+    // replace THAT pane instead of the one being deleted.
+    removePane(id, fallback)
     closeTab(id)
     setMenuOpen(false)
     if (wasActive && fallback) selectSession(fallback, { replace: true, navigateMobile: false })
@@ -55,7 +59,7 @@ function useArchiveAction({ selectedIdRef, pendingNavRef, removePane, setMenuOpe
       if (wasActive) pendingNavRef.current = undefined
       return
     }
-    removePane(id)
+    removePane(id, fallback)
     closeTab(id)
     setMenuOpen(false)
     if (wasActive && fallback) selectSession(fallback, { replace: true, navigateMobile: false })

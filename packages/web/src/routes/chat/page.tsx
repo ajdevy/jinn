@@ -803,7 +803,7 @@ function ChatPage() {
   })
   const onMobileList = mobileView === 'sidebar'
   const pickerPane = gridPicker.bind(gridAdd.addPane, workingSet.add, handleSessionCreated)
-  const desktopMultiPane = !viewport.mobile && deriveChatGridIds({ sessionIds: mountedSessionIds, primaryPaneKey: paneKey, primarySessionId: committedId, pickerPaneKey: pickerPane?.paneKey }).length > 1
+  const desktopMultiPane = chatTabs.activeTab?.kind !== 'file' && !awaitingOpen && !viewport.mobile && deriveChatGridIds({ sessionIds: mountedSessionIds, primaryPaneKey: paneKey, primarySessionId: committedId, pickerPaneKey: pickerPane?.paneKey }).length > 1
   return (
     <FileOpenContext.Provider value={openFile}>
     <PeekProvider>
@@ -846,8 +846,7 @@ function ChatPage() {
         <div className="chat-pills-layout relative min-w-0 flex-1 flex-col overflow-hidden bg-background flex">
           {/* Single-pane content scrolls beneath the theme-aware header cloud. */}
           {!desktopMultiPane && <div
-            aria-hidden
-            data-chat-top-scrim
+            aria-hidden data-chat-top-scrim
             className={cn(
               "pointer-events-none absolute inset-x-0 top-0 z-[5] h-[88px]",
               onMobileList && "hidden lg:block",
@@ -915,6 +914,7 @@ function ChatPage() {
                   pendingUserMessage: pendingMessage,
                   initialEmployee: committedId ? undefined : pendingEmployee,
                   onSessionCreated: handleSessionCreated,
+                  onClose: () => { if (workingSet.state.focusedId) handleFocusPane(workingSet.state.focusedId) },
                   viewMode: effectiveViewMode,
                   focusTrigger: paneState.focusTriggerFor(committedId),
                   delegatedActivity: focusedDelegatedActivity,
