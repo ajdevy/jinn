@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
+import type { OrbIntensity } from "@/components/talk/orb-motion"
 import type { OrbVariant } from "@/components/talk/orb-motion"
 import type { TalkCapability } from "@/lib/talk-capability"
 import type { TalkMicrophone } from "@/lib/settings"
@@ -169,6 +170,29 @@ function MicrophoneField({
   )
 }
 
+function OrbMotionField({
+  intensity,
+  onChange,
+}: {
+  intensity: OrbIntensity
+  onChange: (intensity: OrbIntensity) => void
+}) {
+  return (
+    <FieldRow label="Orb motion">
+      <SettingsSelect
+        ariaLabel="Talk orb motion"
+        value={intensity}
+        onChange={(value) => onChange(value as OrbIntensity)}
+        options={[
+          { value: "calm", label: "Calm" },
+          { value: "standard", label: "Standard" },
+          { value: "lively", label: "Lively" },
+        ]}
+      />
+    </FieldRow>
+  )
+}
+
 function OrbStyleField({
   variant,
   onChange,
@@ -191,6 +215,22 @@ function OrbStyleField({
   )
 }
 
+/**
+ * The knobs that are taste rather than configuration: they live in this
+ * browser's settings, not in config.yaml, so they read their own store instead
+ * of being threaded through the section's props.
+ */
+function OrbTasteFields() {
+  const { settings, setTalkMicrophone, setTalkOrbVariant, setTalkOrbIntensity } = useSettings()
+  return (
+    <>
+      <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
+      <OrbMotionField intensity={settings.talkOrbIntensity} onChange={setTalkOrbIntensity} />
+      <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
+    </>
+  )
+}
+
 export function VoiceSection({
   provider,
   apiKey,
@@ -203,7 +243,6 @@ export function VoiceSection({
   const [replacing, setReplacing] = useState(false)
   const stored = apiKey === REDACTED
   const note = readiness(capability, provider, apiKey)
-  const { settings, setTalkMicrophone, setTalkOrbVariant } = useSettings()
 
   function replace() {
     setReplacing(true)
@@ -227,9 +266,7 @@ export function VoiceSection({
         <KeyField stored={stored} apiKey={apiKey} onReplace={replace} onChange={onChange} />
       </FieldRow>
 
-      <MicrophoneField microphone={settings.talkMicrophone} onMicrophoneChange={setTalkMicrophone} />
-
-      <OrbStyleField variant={settings.talkOrbVariant} onChange={setTalkOrbVariant} />
+      <OrbTasteFields />
 
       <Guidance
         replacing={replacing}

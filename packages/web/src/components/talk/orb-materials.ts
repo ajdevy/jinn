@@ -59,7 +59,7 @@ export interface OrbPrimitive {
  * is worse than a slightly smaller one. The margin also gives the bloomed rim
  * somewhere to go.
  */
-export const SPHERE = 0.38
+export const SPHERE = 0.36
 
 /** The light is fixed at upper-left. Every layer agrees on it, which is what
  *  stops the orb reading as a flat disc with a gradient on it. */
@@ -122,7 +122,7 @@ export function specular(energy: SceneEnergy, brightness: number, radius: number
     y: 0.5 + LIGHT_Y * radius * 0.82 * energy.flatten,
     rx: radius * 0.3 * energy.scale,
     ry: radius * 0.22 * energy.scale,
-    alpha: Math.min(1, 0.5 * brightness),
+    alpha: Math.min(0.62, 0.4 * brightness),
     tone: "warm",
     feather: 0.24,
     add: true,
@@ -136,7 +136,7 @@ export function core(energy: SceneEnergy, tone: OrbTone, radius: number, brightn
     y: 0.5 + LIGHT_Y * radius * 0.22,
     rx: radius * 0.42 * energy.scale,
     ry: radius * 0.42 * energy.scale * energy.flatten,
-    alpha: Math.min(1, 0.62 * brightness),
+    alpha: Math.min(0.72, 0.48 * brightness),
     tone,
     feather,
     add: true,

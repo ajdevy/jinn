@@ -81,6 +81,24 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
     expect(raf).not.toHaveBeenCalled()
   })
 
+  it("paints each state in its own geometry, not one frozen shape for all", () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
+    stubReducedMotion(true)
+
+    const traces: string[] = []
+    for (const state of ["idle", "listening", "user_speaking", "thinking", "assistant_speaking", "error"] as const) {
+      ctx = fakeContext()
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx) as never
+      const view = render(<OrbCanvas state={state} energyRef={energyRef} size={64} />)
+      // Exactly one frame per state — still, but in that state's own shape.
+      expect(paints(), state).toBe(1)
+      traces.push(ctx.ellipse.mock.calls.map((c) => c.join(",")).join("|"))
+      view.unmount()
+    }
+
+    expect(new Set(traces).size).toBe(traces.length)
+  })
+
   it("still paints the layered material, so the orb reads as parked, not broken", () => {
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
     stubReducedMotion(true)

@@ -50,6 +50,33 @@ export interface OrbEnergy {
 
 export const SILENT_ENERGY: OrbEnergy = { input: 0, output: 0 }
 
+/**
+ * How much the orb is allowed to move, as taste rather than as accessibility.
+ *
+ * Separate from `prefers-reduced-motion`, which is not a preference to be
+ * blended: that one still paints exactly one frame per state. This scales drift
+ * speed and how far audio may push the sphere, for an operator who wants the
+ * control quieter (or livelier) than the default without turning it off.
+ */
+export const ORB_INTENSITIES = ["calm", "standard", "lively"] as const
+
+export type OrbIntensity = (typeof ORB_INTENSITIES)[number]
+
+export function isOrbIntensity(value: unknown): value is OrbIntensity {
+  return typeof value === "string" && ORB_INTENSITIES.includes(value as OrbIntensity)
+}
+
+const INTENSITY_GAIN: Record<OrbIntensity, number> = {
+  calm: 0.55,
+  standard: 1,
+  lively: 1.45,
+}
+
+/** The multiplier an intensity applies to drift and to audio response. */
+export function intensityGain(intensity: OrbIntensity = "standard"): number {
+  return INTENSITY_GAIN[intensity] ?? 1
+}
+
 export interface OrbParams {
   /** Lobe radius, as a fraction of the sphere radius. */
   radius: number
@@ -70,62 +97,74 @@ export interface OrbParams {
  * — size, softness, brightness, direction — are pairwise distinct on purpose.
  */
 const BASE: Record<OrbState, OrbParams> = {
+  /** A resting ember: small, dim, lobes drawn in and barely moving. */
   idle: {
-    radius: 0.46,
+    radius: 0.44,
     softness: 0.052,
-    brightness: 0.72,
+    brightness: 0.7,
     rotationSign: 1,
-    orbit: 0.24,
+    orbit: 0.22,
     periods: [9, 13, 17],
   },
+  /** Open and receptive — the widest lobe spread of any state, so listening
+   *  reads as the orb holding itself open rather than as a brighter idle. */
   listening: {
     radius: 0.54,
-    softness: 0.068,
-    brightness: 0.92,
+    softness: 0.07,
+    brightness: 0.9,
     rotationSign: 1,
-    orbit: 0.34,
+    orbit: 0.4,
     periods: [5, 7, 9],
   },
+  /** The operator has the floor: large, warm, and gathered — the lobes pull in
+   *  and the sphere carries their voice.
+   *  Direction stays forward; counter-rotation is thinking's one signature, and
+   *  two states sharing it would cost the viewer that axis. */
   user_speaking: {
-    // Direction stays forward: counter-rotation is thinking's one signature, and
-    // two states sharing it would cost the viewer the axis.
-    radius: 0.58,
+    radius: 0.62,
     softness: 0.058,
     brightness: 1,
     rotationSign: 1,
-    orbit: 0.28,
+    orbit: 0.26,
     periods: [3.6, 4.8, 6.2],
   },
+  /** Turned inward: the smallest orbit but the softest edge, counter-rotating.
+   *  Diffuse where interrupted is hard, which is what keeps the two small,
+   *  dim states apart. */
   thinking: {
-    radius: 0.36,
+    radius: 0.34,
     softness: 0.088,
-    brightness: 0.6,
+    brightness: 0.58,
     rotationSign: -1,
-    orbit: 0.18,
+    orbit: 0.16,
     periods: [3.2, 4.4, 5.6],
   },
+  /** The assistant has the floor: the largest sphere, one coherent glow rather
+   *  than three lobes, and the crispest edge. */
   assistant_speaking: {
-    radius: 0.64,
+    radius: 0.68,
     softness: 0.04,
-    brightness: 1.1,
+    brightness: 1.12,
     rotationSign: 1,
-    orbit: 0.12,
+    orbit: 0.1,
     periods: [2.4, 3.4, 4.4],
   },
+  /** A held breath: small, hard-edged, flattened, and stopped. */
   interrupted: {
-    radius: 0.31,
+    radius: 0.3,
     softness: 0.024,
-    brightness: 0.48,
+    brightness: 0.52,
     rotationSign: 1,
-    orbit: 0.08,
+    orbit: 0.06,
     periods: [11, 14, 19],
   },
+  /** Scattered and fast, in the alert tone — the only state that changes hue. */
   error: {
-    radius: 0.42,
+    radius: 0.46,
     softness: 0.03,
-    brightness: 0.5,
+    brightness: 0.62,
     rotationSign: 1,
-    orbit: 0.38,
+    orbit: 0.44,
     periods: [0.9, 1.1, 1.3],
   },
 }

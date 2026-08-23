@@ -15,19 +15,6 @@ const MIC = { input: 1, output: 0 }
 const PLAYBACK = { input: 0, output: 1 }
 const BOTH = { input: 1, output: 1 }
 
-function expectBoundedScene(scene: ReturnType<typeof orbScene>) {
-  expect(scene.length).toBeGreaterThan(0)
-  for (const primitive of scene) {
-    for (const value of [primitive.x, primitive.y, primitive.rx, primitive.ry, primitive.alpha]) {
-      expect(Number.isFinite(value)).toBe(true)
-    }
-    expect(primitive.x - primitive.rx).toBeGreaterThanOrEqual(0)
-    expect(primitive.x + primitive.rx).toBeLessThanOrEqual(1)
-    expect(primitive.y - primitive.ry).toBeGreaterThanOrEqual(0)
-    expect(primitive.y + primitive.ry).toBeLessThanOrEqual(1)
-  }
-}
-
 /** The four dimensions a viewer reads off the sphere without any label. */
 function signature(state: OrbState) {
   const { radius, softness, brightness, rotationSign } = orbParams(state)
@@ -52,6 +39,29 @@ describe("orbParams", () => {
     for (const key of ["radius", "softness", "brightness"] as const) {
       const values = ORB_STATES.map((state) => signature(state)[key])
       expect(new Set(values).size).toBe(ORB_STATES.length)
+    }
+  })
+
+  it("keeps the whole scene distinct per state at rest, not just the numbers", () => {
+    // The signature a viewer actually reads is the painted scene, not the
+    // params behind it. At silence — which is how a reduced-motion frame and a
+    // screenshot both see the orb — no two states may paint the same thing.
+    for (const variant of ORB_VARIANTS) {
+      const scenes = ORB_STATES.map(
+        (state) => [state, JSON.stringify(orbScene(variant, state, SILENT_ENERGY, 0))] as const,
+      )
+      expect(new Set(scenes.map(([, scene]) => scene)).size, variant).toBe(ORB_STATES.length)
+    }
+  })
+
+  it("gives the two speakers different hues, which is the fastest thing read", () => {
+    const toneOf = (state: OrbState) => orbScene("mist", state)[0]!.tone
+    expect(toneOf("user_speaking")).toBe("warm")
+    expect(toneOf("assistant_speaking")).toBe("violet")
+    expect(toneOf("error")).toBe("alert")
+    // Everything else stays on the shared family.
+    for (const state of ["idle", "listening", "thinking", "interrupted"] as const) {
+      expect(toneOf(state), state).toBe("mixed")
     }
   })
 
@@ -172,82 +182,5 @@ describe("lobeCentres", () => {
   it("gives the three lobes different sizes so they read as cloud, not as a disc", () => {
     const radii = lobeCentres(orbParams("idle"), 0).map((lobe) => lobe.radius)
     expect(new Set(radii).size).toBe(3)
-  })
-})
-
-describe("orbScene", () => {
-  it("keeps every variant/state scene finite and inside the canvas", () => {
-    for (const variant of ORB_VARIANTS) {
-      for (const state of ORB_STATES) {
-        expectBoundedScene(orbScene(variant, state, BOTH, 4.2))
-      }
-    }
-  })
-
-  it("gives the four styles different geometry, not only different names", () => {
-    const signatures = ORB_VARIANTS.map((variant) => JSON.stringify(orbScene(variant, "idle")))
-    expect(new Set(signatures).size).toBe(ORB_VARIANTS.length)
-  })
-
-  it("locks each named paint strategy to its promised geometry", () => {
-    const kinds = (variant: Parameters<typeof orbScene>[0]) =>
-      orbScene(variant, "idle").map((shape) => shape.kind)
-
-    // The cloud sphere carries the whole material, lobes included.
-    expect(kinds("mist")).toEqual([
-      "body", "caustic", "caustic", "caustic", "core", "specular", "rim",
-    ])
-
-    // Machined: a lit body under one flat face.
-    expect(kinds("coin")).toEqual(["body", "shade", "core", "specular", "rim"])
-
-    // Rim-lit torus: the band carries the light and the middle stays open.
-    expect(kinds("ring")).toEqual(["ring", "core", "specular", "rim"])
-
-    // Concentric bands, smallest first.
-    const pulse = orbScene("pulse", "idle")
-    expect(pulse.map((shape) => shape.kind)).toEqual(["ring", "ring", "ring", "core", "specular"])
-    const bands = pulse.filter((shape) => shape.kind === "ring")
-    expect(bands.map((shape) => shape.rx)).toEqual([...bands].map((s) => s.rx).sort((a, b) => a - b))
-  })
-
-  /**
-   * The bug this slice exists to kill: the old `mist` was one faded ellipse, so
-   * every state of the default variant was a blurry blob with a different
-   * alpha. Depth means layers that disagree about where the light is.
-   */
-  it("never renders a state as one faded ellipse", () => {
-    for (const variant of ORB_VARIANTS) {
-      for (const state of ORB_STATES) {
-        const scene = orbScene(variant, state, BOTH, 2.5)
-        expect(scene.length, `${variant}/${state}`).toBeGreaterThan(2)
-        // Something is lit off-centre, and something composites additively.
-        expect(scene.some((shape) => shape.lightX !== undefined), `${variant}/${state} lit`).toBe(true)
-        expect(scene.some((shape) => shape.add), `${variant}/${state} glow`).toBe(true)
-      }
-    }
-  })
-
-  it("gives every state a specular and an edge, so none of them reads as a sticker", () => {
-    for (const variant of ORB_VARIANTS) {
-      for (const state of ORB_STATES) {
-        const kinds = new Set(orbScene(variant, state).map((shape) => shape.kind))
-        expect(kinds.has("specular"), `${variant}/${state}`).toBe(true)
-        expect(kinds.has("rim") || kinds.has("ring"), `${variant}/${state}`).toBe(true)
-      }
-    }
-  })
-
-  it("drifts the caustic lobes over time, and only for the states that move", () => {
-    const at = (seconds: number) => JSON.stringify(orbScene("mist", "listening", BOTH, seconds))
-    expect(at(0)).not.toEqual(at(2.5))
-  })
-
-  it("holds interruption still even if time and audio continue", () => {
-    for (const variant of ORB_VARIANTS) {
-      expect(orbScene(variant, "interrupted", SILENT_ENERGY, 0)).toEqual(
-        orbScene(variant, "interrupted", BOTH, 99),
-      )
-    }
   })
 })

@@ -7,12 +7,14 @@
  */
 import {
   energyGain,
+  intensityGain,
   isDriven,
   lobeCentres,
   orbParams,
   stateEnergy,
   SILENT_ENERGY,
   type OrbEnergy,
+  type OrbIntensity,
   type OrbState,
   type OrbVariant,
 } from "./orb-motion"
@@ -26,6 +28,7 @@ import {
   rim,
   specular,
   type OrbPrimitive,
+  type OrbTone,
   type SceneEnergy,
   type SceneInput,
 } from "./orb-materials"
@@ -33,13 +36,32 @@ import {
 export type { OrbPrimitive, OrbPrimitiveKind, OrbTone } from "./orb-materials"
 
 const STATE_ENERGY: Record<OrbState, SceneEnergy> = {
-  idle: { scale: 0.9, alpha: 0.74, flatten: 1 },
+  idle: { scale: 0.86, alpha: 0.72, flatten: 1 },
   listening: { scale: 1, alpha: 0.94, flatten: 1.04 },
-  user_speaking: { scale: 1.04, alpha: 0.97, flatten: 1.06 },
-  thinking: { scale: 0.84, alpha: 0.68, flatten: 0.92 },
-  assistant_speaking: { scale: 1.08, alpha: 1, flatten: 1 },
-  interrupted: { scale: 0.78, alpha: 0.72, flatten: 0.72 },
-  error: { scale: 0.82, alpha: 0.82, flatten: 0.84 },
+  user_speaking: { scale: 1.08, alpha: 0.97, flatten: 1.06 },
+  thinking: { scale: 0.8, alpha: 0.66, flatten: 0.92 },
+  assistant_speaking: { scale: 1.12, alpha: 1, flatten: 1 },
+  interrupted: { scale: 0.74, alpha: 0.78, flatten: 0.72 },
+  error: { scale: 0.88, alpha: 0.86, flatten: 0.84 },
+}
+
+/**
+ * Who the orb is currently being.
+ *
+ * Hue is the fastest thing a viewer reads, and the pair that most needs telling
+ * apart is the two speakers — so the operator's turn is warm and the
+ * assistant's is violet. They are never the primary state at the same moment,
+ * so the two never compete. Everything else stays on the shared mixed tone;
+ * only `error` leaves the family.
+ */
+const STATE_TONE: Record<OrbState, OrbTone> = {
+  idle: "mixed",
+  listening: "mixed",
+  user_speaking: "warm",
+  thinking: "mixed",
+  assistant_speaking: "violet",
+  interrupted: "mixed",
+  error: "alert",
 }
 
 function sceneEnergy(state: OrbState, energy: OrbEnergy): SceneEnergy {
@@ -151,17 +173,27 @@ export function orbScene(
   state: OrbState,
   energy: OrbEnergy = SILENT_ENERGY,
   seconds = 0,
+  intensity: OrbIntensity = "standard",
 ): readonly OrbPrimitive[] {
   // Interruption is a held breath: time stops, and so does the audio it would
   // otherwise ride.
   const frozen = state === "interrupted"
-  const params = orbParams(state, frozen ? SILENT_ENERGY : energy)
+  const gain = intensityGain(intensity)
+  const heard = frozen ? SILENT_ENERGY : scaleEnergy(energy, gain)
+  const params = orbParams(state, heard)
   return SCENE_BUILDERS[variant]({
     state,
-    energy: sceneEnergy(state, frozen ? SILENT_ENERGY : energy),
-    lobes: lobeCentres(params, frozen ? 0 : seconds),
+    energy: sceneEnergy(state, heard),
+    lobes: lobeCentres(params, frozen ? 0 : seconds * gain),
     feather: featherOf(params.softness),
     brightness: params.brightness,
-    tone: state === "error" ? "alert" : "mixed",
+    tone: STATE_TONE[state],
   })
+}
+
+/** Taste scales how far audio may push the sphere, never which channel it
+ *  reads: a quieter orb is still the same orb answering the same voice. */
+function scaleEnergy(energy: OrbEnergy, gain: number): OrbEnergy {
+  if (gain === 1) return energy
+  return { input: energy.input * gain, output: energy.output * gain }
 }

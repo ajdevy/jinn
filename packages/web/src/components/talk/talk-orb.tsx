@@ -8,7 +8,7 @@ import {
 } from "react"
 import { cn } from "@/lib/utils"
 import { OrbCanvas } from "./orb-canvas"
-import { SILENT_ENERGY, type OrbEnergy, type OrbState, type OrbVariant } from "./orb-motion"
+import { SILENT_ENERGY, type OrbEnergy, type OrbIntensity, type OrbState, type OrbVariant } from "./orb-motion"
 import { nearestCorner, readPark, writePark, type ParkCorner, type Point } from "./orb-park"
 import { dockPath } from "./situation-choreography"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
@@ -125,6 +125,8 @@ interface TalkOrbProps {
   /** What the orb is doing. Motion is the only channel — the orb carries no text. */
   state?: OrbState
   variant?: OrbVariant
+  /** How much the orb is allowed to move. Operator taste. */
+  intensity?: OrbIntensity
   /** Live per-channel amplitude driving the lobes. Absent until something is
    *  talking. */
   energyRef?: RefObject<OrbEnergy>
@@ -217,7 +219,7 @@ function sphereStyle(drag: Point | null, flight: Flight | null, reduce: boolean)
  * hand every tap meant for the sphere to the scrim and the orb would go dead for
  * exactly as long as a decision is on screen.
  */
-export function TalkOrb({ variant = "mist", state = "idle", energyRef, dock, active = false, label, onToggle }: TalkOrbProps) {
+export function TalkOrb({ variant = "mist", state = "idle", intensity = "standard", energyRef, dock, active = false, label, onToggle }: TalkOrbProps) {
   const silent = useRef(SILENT_ENERGY)
   const sphereRef = useRef<HTMLButtonElement | null>(null)
   const { corner, offset, takeDragged, handlers } = useOrbDrag()
@@ -252,7 +254,7 @@ export function TalkOrb({ variant = "mist", state = "idle", energyRef, dock, act
         onClick={onClick}
         {...handlers}
       >
-        <OrbCanvas variant={variant} state={state} energyRef={energyRef ?? silent} size={SPHERE_SIZE} />
+        <OrbCanvas variant={variant} state={state} intensity={intensity} energyRef={energyRef ?? silent} size={SPHERE_SIZE} />
       </button>
     </div>
   )

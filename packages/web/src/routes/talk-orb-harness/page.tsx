@@ -187,7 +187,7 @@ export default function TalkOrbHarnessPage() {
           <div className="mt-[var(--space-5)]"><ToolBench /></div>
         </details>
       </main>
-      <TalkSurface variant={settings.talkOrbVariant} state={state} energyRef={energyRef} />
+      <TalkSurface variant={settings.talkOrbVariant} intensity={settings.talkOrbIntensity} state={state} energyRef={energyRef} />
     </div>
   )
 }

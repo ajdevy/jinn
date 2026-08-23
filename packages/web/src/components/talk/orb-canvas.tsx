@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
-import { SILENT_ENERGY, type OrbEnergy, type OrbState, type OrbVariant } from "./orb-motion"
+import { SILENT_ENERGY, type OrbEnergy, type OrbIntensity, type OrbState, type OrbVariant } from "./orb-motion"
 import { paintOrb, readPalette } from "./orb-painters"
 import { orbScene } from "./orb-scene"
 import { usePrefersReducedMotion } from "./use-reduced-motion"
@@ -40,9 +40,11 @@ interface OrbCanvasProps {
   size: number
   /** Comparison surfaces paint one deterministic frame even when motion is allowed. */
   motion?: "live" | "still"
+  /** Taste, not accessibility: how far the orb may move. */
+  intensity?: OrbIntensity
 }
 
-export function OrbCanvas({ state, variant = "mist", energyRef, size, motion = "live" }: OrbCanvasProps) {
+export function OrbCanvas({ state, variant = "mist", energyRef, size, motion = "live", intensity = "standard" }: OrbCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reduce = usePrefersReducedMotion()
   const themeAttribute = useThemeAttribute()
@@ -59,19 +61,19 @@ export function OrbCanvas({ state, variant = "mist", energyRef, size, motion = "
 
     // Still, not dead: one frame per state, in that state's own geometry.
     if (reduce || motion === "still") {
-      paintOrb(ctx, { size, palette, scene: orbScene(variant, state, SILENT_ENERGY, 0) })
+      paintOrb(ctx, { size, palette, scene: orbScene(variant, state, SILENT_ENERGY, 0, intensity) })
       return
     }
 
     let frame = 0
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw)
-      paintOrb(ctx, { size, palette, scene: orbScene(variant, state, energyRef.current, now / 1000) })
+      paintOrb(ctx, { size, palette, scene: orbScene(variant, state, energyRef.current, now / 1000, intensity) })
     }
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
     // `themeAttribute` is not read here — it re-reads the palette when the theme flips.
-  }, [state, variant, size, reduce, motion, themeAttribute, energyRef])
+  }, [state, variant, size, reduce, motion, themeAttribute, energyRef, intensity])
 
   return (
     <canvas
