@@ -1,9 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Employee, JinnConfig, OrgHierarchy, OrgNode } from "../shared/types.js";
-import { compactEmployeeRole } from "../shared/employee-role.js";
 import { JINN_HOME, ORG_DIR, CRON_JOBS, DOCS_DIR } from "../shared/paths.js";
 import { gatewayBaseUrl } from "../gateway/gateway-info.js";
+import {
+  buildRosterUnavailableSection,
+  buildScopedRosterSection,
+  buildScopedRosterSummary,
+} from "./context/roster.js";
 
 /**
  * Token budget strategy:
@@ -85,6 +89,8 @@ export interface BuildContextOptions {
   language?: string;
   channelName?: string;
   hierarchy?: OrgHierarchy;
+  /** Why the roster is missing, when it is — rendered in place of the roster. */
+  rosterUnavailable?: string;
   /** Whether the built-in Jinn MCP toolset is attached for context dieting. */
   jinnMcpAttached?: boolean;
 }
@@ -269,23 +275,19 @@ export function buildContext(opts: BuildContextOptions): string {
 
   // ── STANDARD: Relationship-scoped role orientation ──────────
   const jinnMcpAttached = opts.jinnMcpAttached === true;
-  const scopedRoster = buildScopedRosterSection(
-    opts.employee,
-    opts.hierarchy,
-    portalName,
-    jinnMcpAttached,
-  );
+  // A roster that could not be read is reported, never omitted — an absent
+  // section reads to the employee as a company with nobody in it.
+  const scopedRoster = opts.rosterUnavailable
+    ? buildRosterUnavailableSection(opts.rosterUnavailable)
+    : buildScopedRosterSection(opts.employee, opts.hierarchy, portalName, jinnMcpAttached);
   if (scopedRoster) {
     sections.push({
       tier: Tier.STANDARD,
       marker: "## Working roster",
       content: scopedRoster,
-      summary: buildScopedRosterSummary(
-        opts.employee,
-        opts.hierarchy,
-        portalName,
-        jinnMcpAttached,
-      ),
+      summary: opts.rosterUnavailable
+        ? scopedRoster
+        : buildScopedRosterSummary(opts.employee, opts.hierarchy, portalName, jinnMcpAttached),
     });
   }
 
@@ -597,150 +599,6 @@ function buildCooCompanyAnchorSummary(engine?: string): string {
     `Use the attached Jinn MCP${engineName} for company state, delegation, Todos, Workflows, and reference reads.`,
     "Match work to employee roles and keep routine coordination away from the operator.",
   ].join("\n");
-}
-
-const WORKING_ROSTER_HEADING = "## Working roster (scoped orientation; not exhaustive)";
-const FULL_ROSTER_HINT = "Use `find_employees` / `list_employees` for the full roster and `get_employee` for a finalist's full persona.";
-
-function rosterRole(employee: Employee): string {
-  const role = compactEmployeeRole(employee.persona) ?? employee.displayName;
-  return role.replace(/[`|]/g, "").replace(/\s+/g, " ").trim();
-}
-
-function rosterRow(employee: Employee, includeEngine: boolean): string {
-  const engine = includeEngine ? ` · ${employee.engine}` : "";
-  return `- \`${employee.name}\` — ${rosterRole(employee)} · ${employee.department}${engine}`;
-}
-
-function stablePriority(
-  names: string[],
-  hierarchy: OrgHierarchy,
-  score: (node: OrgNode) => number,
-): string[] {
-  return names
-    .map((name, index) => ({ name, index, score: score(hierarchy.nodes[name]) }))
-    .sort((a, b) => a.score - b.score || a.index - b.index)
-    .map(({ name }) => name);
-}
-
-function topLevelRosterNames(hierarchy: OrgHierarchy, employee?: Employee): string[] {
-  const executiveName = hierarchy.root ?? (employee?.rank === "executive" ? employee.name : null);
-  const executive = executiveName ? hierarchy.nodes[executiveName] : undefined;
-  const roots = hierarchy.sorted.filter((name) => hierarchy.nodes[name]?.parentName === null && name !== executiveName);
-  const names = executive?.directReports.length
-    ? [...executive.directReports, ...roots]
-    : hierarchy.sorted.filter((name) => hierarchy.nodes[name]?.parentName === null);
-  return [...new Set(names)].filter((name) => name !== employee?.name && hierarchy.nodes[name]);
-}
-
-function appendRosterGroup(
-  lines: string[],
-  heading: string,
-  names: string[],
-  hierarchy: OrgHierarchy,
-  cap: number,
-  jinnMcpAttached: boolean,
-  includeEngine = false,
-): void {
-  if (names.length === 0 || cap === 0) return;
-  const shown = names.slice(0, cap);
-  lines.push("", `${heading}:`);
-  for (const name of shown) lines.push(rosterRow(hierarchy.nodes[name].employee, includeEngine));
-  const omitted = names.length - shown.length;
-  if (omitted > 0) {
-    lines.push(jinnMcpAttached ? `+${omitted} more — use \`list_employees\`.` : `+${omitted} more not shown.`);
-  }
-}
-
-function renderScopedRoster(
-  employee: Employee | undefined,
-  hierarchy: OrgHierarchy | undefined,
-  portalName: string,
-  compact: boolean,
-  jinnMcpAttached: boolean,
-): string | null {
-  if (!hierarchy || Object.keys(hierarchy.nodes).length === 0) return null;
-  const lines = [WORKING_ROSTER_HEADING];
-
-  if (!employee || employee.rank === "executive") {
-    let names = topLevelRosterNames(hierarchy, employee);
-    names = stablePriority(names, hierarchy, (node) => {
-      if (node.directReports.length > 0) return 0;
-      if (node.employee.rank === "manager") return 1;
-      return 2;
-    });
-
-    if (employee?.rank === "executive") {
-      const node = hierarchy.nodes[employee.name];
-      if (node?.parentName && hierarchy.nodes[node.parentName]) {
-        appendRosterGroup(lines, "Your manager", [node.parentName], hierarchy, 1, jinnMcpAttached);
-      }
-    }
-    appendRosterGroup(lines, "Top-level employees", names, hierarchy, compact ? 6 : 20, jinnMcpAttached, true);
-  } else {
-    const node = hierarchy.nodes[employee.name];
-    if (!node) return null;
-
-    if (node.parentName && hierarchy.nodes[node.parentName]) {
-      appendRosterGroup(lines, "Your manager", [node.parentName], hierarchy, 1, jinnMcpAttached);
-    } else {
-      lines.push("", "Your manager:", `- ${portalName} (COO) — Company coordination and escalation · company`);
-    }
-
-    const isReportHolder = node.directReports.length > 0;
-    if (isReportHolder) {
-      appendRosterGroup(lines, "Your direct reports", node.directReports, hierarchy, compact ? 4 : 12, jinnMcpAttached);
-
-      const peerNames = node.parentName && hierarchy.nodes[node.parentName]
-        ? hierarchy.nodes[node.parentName].directReports.filter((name) => name !== employee.name)
-        : hierarchy.sorted.filter((name) => {
-            const peer = hierarchy.nodes[name];
-            return peer.parentName === null && name !== employee.name;
-          });
-      const prioritizedPeers = stablePriority(peerNames, hierarchy, (peer) => {
-        if (peer.directReports.length > 0) return 0;
-        if (peer.employee.rank === "manager") return 1;
-        return 2;
-      });
-      appendRosterGroup(lines, "Your peers", prioritizedPeers, hierarchy, compact ? 0 : 6, jinnMcpAttached);
-    } else {
-      const siblingNames = node.parentName && hierarchy.nodes[node.parentName]
-        ? hierarchy.nodes[node.parentName].directReports.filter((name) => name !== employee.name)
-        : hierarchy.sorted.filter((name) => {
-            const sibling = hierarchy.nodes[name];
-            return sibling.parentName === null && name !== employee.name && sibling.employee.department === employee.department;
-          });
-      const prioritizedSiblings = stablePriority(
-        siblingNames,
-        hierarchy,
-        (sibling) => sibling.employee.department === employee.department ? 0 : 1,
-      );
-      appendRosterGroup(lines, "Your siblings", prioritizedSiblings, hierarchy, compact ? 4 : 8, jinnMcpAttached);
-    }
-  }
-
-  if (jinnMcpAttached) lines.push("", FULL_ROSTER_HINT);
-  return lines.join("\n");
-}
-
-/** Build the bounded role-oriented slice injected into fresh session context. */
-export function buildScopedRosterSection(
-  employee: Employee | undefined,
-  hierarchy: OrgHierarchy | undefined,
-  portalName = "Jinn",
-  jinnMcpAttached = false,
-): string | null {
-  return renderScopedRoster(employee, hierarchy, portalName, false, jinnMcpAttached);
-}
-
-function buildScopedRosterSummary(
-  employee: Employee | undefined,
-  hierarchy: OrgHierarchy | undefined,
-  portalName: string,
-  jinnMcpAttached: boolean,
-): string {
-  return renderScopedRoster(employee, hierarchy, portalName, true, jinnMcpAttached)
-    ?? (jinnMcpAttached ? `${WORKING_ROSTER_HEADING}\n${FULL_ROSTER_HINT}` : WORKING_ROSTER_HEADING);
 }
 
 function buildOrgContext(

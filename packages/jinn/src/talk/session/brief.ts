@@ -160,7 +160,7 @@ function countsRoster(departments: Department[], total: number, room: number): s
  * The standing brief for this instance, and how much of the org fitted in it.
  *
  * The registry is passed in rather than scanned here so the builder stays a
- * function of its inputs: the gateway hands it `scanOrg(config)`.
+ * function of its inputs: the gateway hands it `orgRegistry(config)`.
  */
 export function buildStandingBrief(
   config: Pick<JinnConfig, "portal">,

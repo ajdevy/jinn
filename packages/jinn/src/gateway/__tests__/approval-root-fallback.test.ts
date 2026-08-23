@@ -171,11 +171,15 @@ describe("approval root resolution without an executive employee", () => {
     expect(escalated.body.workItem.approvalEscalatedAt).toBeTruthy();
   });
 
-  it("keeps an executive employee as the root when one exists", () => {
+  it("keeps an executive employee as the root when one exists", async () => {
     fs.writeFileSync(
       path.join(orgDir, "coo.yaml"),
       "name: coo\ndisplayName: COO\ndepartment: platform\nrank: executive\nengine: codex\nmodel: gpt-5.5\npersona: Runs the company.\n",
     );
+    // Stands in for the org watcher: a YAML written behind the read owner's
+    // back has to be announced before anyone can be expected to see it.
+    const { refreshOrg } = await import("../org-registry.js");
+    refreshOrg();
 
     expect(approvalAuthority.resolveRootApprovalTarget()).toEqual({ name: "coo", department: "platform", kind: "employee" });
   });

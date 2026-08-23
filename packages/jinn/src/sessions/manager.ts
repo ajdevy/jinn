@@ -320,7 +320,7 @@ export class SessionManager {
         engines: this.engines,
         gatewayBootId: this.gatewayBootId,
         connectorNames: this.connectorNames(),
-        hierarchy: await resolveTurnHierarchy(this.config),
+        roster: await resolveTurnHierarchy(this.config),
         channel: msg.channel,
         thread: msg.thread,
         user: msg.user,

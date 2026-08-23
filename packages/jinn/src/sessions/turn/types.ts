@@ -8,6 +8,13 @@ import type {
 } from "../../shared/types.js";
 import type { UpdateSessionFields } from "../registry.js";
 
+/** Org orientation for a turn, or the reason the roster could not be read. */
+export interface TurnHierarchy {
+  hierarchy?: OrgHierarchy;
+  /** Why the roster is missing, when it is. Never swallowed — the prompt says so. */
+  unavailable?: string;
+}
+
 /** What a settled turn reports outward once its receipt is written. */
 export interface TurnReceipt {
   session: Session;
@@ -52,7 +59,8 @@ export interface TurnInput {
   gatewayBootId: string;
   /** Connector ids offered to the system prompt. */
   connectorNames: string[];
-  hierarchy?: OrgHierarchy;
+  /** Org orientation for the system prompt, or the reason there is none. */
+  roster?: TurnHierarchy;
   /** Where the turn appears to the engine. */
   channel: string;
   thread?: string;

@@ -14,7 +14,7 @@ import { writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildContext } from "../src/sessions/context.js";
 import { loadConfig } from "../src/shared/config.js";
-import { scanOrg } from "../src/gateway/org.js";
+import { orgRegistry } from "../src/gateway/org-registry.js";
 import { resolveOrgHierarchy } from "../src/gateway/org-hierarchy.js";
 import { JINN_HOME } from "../src/shared/paths.js";
 
@@ -23,7 +23,7 @@ const outDir = join(JINN_HOME, "debug-context");
 mkdirSync(outDir, { recursive: true });
 
 const config = loadConfig();
-const registry = scanOrg();
+const registry = orgRegistry(config);
 const hierarchy = resolveOrgHierarchy(registry);
 const employee = registry.get(empName);
 if (!employee) {
