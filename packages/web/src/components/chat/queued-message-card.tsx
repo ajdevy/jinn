@@ -169,8 +169,14 @@ export function QueuedMessageCard({ queued, media }: QueuedMessageCardProps) {
   const { queue, draft, setDraft, error, run, save } = useCardActions(queued.item.id, text)
   const editing = draft !== null
 
+  // The transcript's shared turn spacer gives consecutive operator turns 4px, which
+  // is right for plain bubbles and too tight for two raised plates. The card pays
+  // for its own separation here rather than teaching the spacer about the queue,
+  // and pays a step more at the head so the block reads apart from the reply above.
   return (
-    <div className="flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)]">
+    <div className={`flex flex-col items-end px-[var(--space-3)] lg:px-[var(--space-8)] ${
+      queued.position === 1 ? 'pt-[var(--space-4)]' : 'pt-[var(--space-3)]'
+    }`}>
       <div
         data-queued-message
         data-editing={editing || undefined}

@@ -40,6 +40,16 @@ function renderCard(position: number, prompt = 'draft the digest') {
   )
 }
 
+// The wrapper's top padding is the card's own contribution to the vertical
+// rhythm, on top of the transcript's shared turn spacer. Read as a token step so
+// two positions can be compared without pinning either to a pixel value.
+function topInsetStep(position: number): number | null {
+  const { container, unmount } = renderCard(position)
+  const step = (container.firstElementChild as HTMLElement).className.match(/\bpt-\[var\(--space-(\d+)\)\]/)
+  unmount()
+  return step ? Number(step[1]) : null
+}
+
 describe('the queued message card', () => {
   it('offers exactly three actions and no fourth', () => {
     renderCard(1)
@@ -128,6 +138,22 @@ describe('the queued message card', () => {
     await userEvent.click(screen.getByLabelText('Send this message now'))
     expect(screen.getByRole('alert').textContent)
       .toBe('Could not send that message now · offline · try again')
+  })
+
+  // The shared turn spacer gives two consecutive user turns 4px. That is right
+  // for plain bubbles and far too tight for two raised plates, so the card pays
+  // for its own separation rather than making the spacer queue-aware.
+  it('insets itself from whatever sits above it', () => {
+    expect(topInsetStep(2)).not.toBeNull()
+  })
+
+  it('opens the queue with a wider gap than it keeps between cards', () => {
+    const first = topInsetStep(1)
+    const later = topInsetStep(2)
+
+    expect(first).not.toBeNull()
+    expect(later).not.toBeNull()
+    expect(first as number).toBeGreaterThan(later as number)
   })
 
   it('says where in the queue it sits, and that it is being edited', async () => {
