@@ -30,12 +30,16 @@ function TitleBar({ title, trailing }: { title: ReactNode; trailing: ReactNode }
   return (
     <div
       data-slot="large-title-bar"
-      className="jinn-title-bar sticky z-20 flex min-h-11 items-center bg-[var(--material-thick)] backdrop-blur"
+      className="jinn-title-bar sticky z-20 grid min-h-11 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-2 bg-[var(--material-thick)] backdrop-blur"
     >
-      <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none absolute inset-x-0 flex items-center justify-center lg:hidden", INLINE_TITLE_CLASS)}>
+      {/* Three columns with matched outer tracks: the title stays centred on the
+          bar rather than on the space `trailing` leaves over, and because its own
+          track can shrink to nothing it truncates against the button instead of
+          running under it. The bar is a constant 44px, so one line is all it gets. */}
+      <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none col-start-2 truncate text-center lg:hidden", INLINE_TITLE_CLASS)}>
         {typeof title === "string" ? title : null}
       </div>
-      <div className="relative ml-auto flex items-center gap-2">{trailing}</div>
+      <div className="relative col-start-3 flex items-center gap-2 justify-self-end">{trailing}</div>
     </div>
   )
 }
