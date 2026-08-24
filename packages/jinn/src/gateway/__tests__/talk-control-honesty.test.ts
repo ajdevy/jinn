@@ -159,6 +159,33 @@ describe("Talk control honesty", () => {
       .toContain("Couldn't talk_invent_todo: talk_invent_todo is not in the Talk manifest.");
   });
 
+  it("records a credential mismatch once at both failure layers", async () => {
+    const context = testContext();
+    const { route, chatSessionId } = await openTalkSession(context);
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const answered = await call(context, "POST", route, {
+      providerCallId: "credential-mismatch-1",
+      tool: "talk_send_to_session",
+      arguments: JSON.stringify({ id: chatSessionId, message: "Must not land." }),
+    });
+
+    expect(answered).toMatchObject({ status: 409, body: { ok: false, code: "credential-mismatch" } });
+    const failed = warn.mock.calls.map(([line]) => line)
+      .filter((line) => line.startsWith("talk control failed:") && line.includes("credential-mismatch-1"));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toContain("credential-mismatch");
+    warn.mockRestore();
+
+    const rows = sessions.getMessages(chatSessionId)
+      .filter((message) => message.toolId === "credential-mismatch-1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      content: "Couldn't talk_send_to_session: The control call does not match the active browser credential generation.",
+      meta: { talk: { kind: "control-failure", code: "credential-mismatch" } },
+    });
+  });
+
   it("logs a verified success too, so the log carries the whole dispatch history", async () => {
     const context = testContext();
     const { route } = await openTalkSession(context);

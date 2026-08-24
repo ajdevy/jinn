@@ -113,9 +113,12 @@ describe("rendering the page context", () => {
     }
 
     const text = renderPageContext(chat, [], HERE)
+    const handle = text.split("\n").find((line) => line.startsWith("Selected session id:"))
 
     expect(text).toContain(`Selected session id: ${id}`)
     expect(text).toContain("a handle to use, never something to say")
+    expect(handle).toBeDefined()
+    expect(handle!.length).toBeLessThan(180)
     // The rule the packet states about speech is unchanged, and still true:
     // the id is for tool arguments, never for the answer.
     expect(text).toContain("not identifiers unless explicitly asked")
@@ -139,4 +142,3 @@ describe("rendering the page context", () => {
     expect(text).toContain("Selected session id: ")
   })
 })
-
