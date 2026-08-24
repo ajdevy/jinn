@@ -64,6 +64,7 @@ function wire(over: Partial<TodoCaptureWire> = {}): TodoCaptureWire {
     routedTo: null,
     extraWorkItemIds: [],
     error: null,
+    waitingReason: null,
     ...over,
   }
 }

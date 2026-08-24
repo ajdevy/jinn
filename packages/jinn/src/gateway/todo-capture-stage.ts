@@ -83,10 +83,24 @@ export interface TodoCaptureState {
   extraWorkItemIds: string[];
   /** Set only on `failed`, and always the real reason. */
   error: string | null;
+  /** Why an in-flight capture is parked rather than working — the rate limiter's
+   *  own sentence while the Shaper's session is `waiting`. Never a failure: the
+   *  gateway retries on its own, so the stage is still true and this only stops
+   *  a deliberate sleep from reading as a hang. Null on every other status. */
+  waitingReason: string | null;
 }
 
 function isOver(session: TodoCaptureSessionFact): boolean {
   return session.status === "idle" || session.status === "error" || session.status === "interrupted";
+}
+
+/** A `waiting` session is neither over nor working: the rate limiter parked it
+ *  and will resume it. Its `lastError` is that parking notice, so it is read
+ *  only while the status still says waiting — on any other status it is a stale
+ *  note from a retry that has since gone back to work. */
+function waitingReasonOf(session: TodoCaptureSessionFact): string | null {
+  if (session.status !== "waiting") return null;
+  return session.lastError?.trim() || null;
 }
 
 /** The route a Todo took, if it has taken one. The Dispatcher's own session is
@@ -129,6 +143,7 @@ function landed(facts: TodoCaptureFacts, on: { id: string; title: string }): Tod
     routedTo: null,
     extraWorkItemIds: [],
     error: null,
+    waitingReason: null,
   };
 }
 
@@ -142,6 +157,7 @@ function failed(facts: TodoCaptureFacts, error: string, todo?: TodoCaptureTodoFa
     routedTo: null,
     extraWorkItemIds: facts.todos.slice(1).map((extra) => extra.id),
     error,
+    waitingReason: null,
   };
 }
 
@@ -193,6 +209,7 @@ function inFlight(
     routedTo: progress ? progress.routedTo : null,
     extraWorkItemIds: facts.todos.slice(1).map((extra) => extra.id),
     error: null,
+    waitingReason: waitingReasonOf(session),
   };
 }
 

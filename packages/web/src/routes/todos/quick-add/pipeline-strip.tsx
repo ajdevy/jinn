@@ -45,8 +45,33 @@ export function PipelineStrip({
         )
       })}
 
+      <WaitingNote state={state} error={error} settled={settled} />
       <TerminalLine state={state} error={error} />
     </ol>
+  )
+}
+
+/**
+ * Why the last rung is not moving, when the gateway knows.
+ *
+ * A rate-limited Shaper is parked rather than broken — the gateway retries it
+ * without being asked — so this is deliberately NOT the red slot below and NOT
+ * a stage of its own. It is a quiet note under the spinner, because a spinner
+ * that will not move for an hour with nothing said reads as a hang, and the
+ * operator's next move (wait, or capture it somewhere else) depends on knowing
+ * which of the two it is.
+ */
+function WaitingNote({ state, error, settled }: { state: TodoCaptureWire | null; error: string | null; settled: boolean }) {
+  if (!state?.waitingReason || settled || error) return null
+  return (
+    <li
+      data-testid="capture-waiting"
+      className="ml-[25px] text-[length:var(--text-footnote)] motion-safe:animate-capture-step-in"
+      style={{ color: "var(--text-tertiary)" }}
+    >
+      {/* The rate limiter's own sentence, including when it expects to resume. */}
+      <span className="min-w-0 whitespace-pre-wrap break-words">{state.waitingReason}</span>
+    </li>
   )
 }
 

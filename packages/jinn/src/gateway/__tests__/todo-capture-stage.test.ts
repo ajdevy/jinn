@@ -45,6 +45,36 @@ describe("deriveTodoCaptureState — the forward path", () => {
     expect(deriveTodoCaptureState(facts()).stage).toBe("shaping");
   });
 
+  // A rate-limited Shaper is parked, not broken: the gateway will retry it on
+  // its own. The stage stays honest — nothing has happened yet — but a bare
+  // spinner for a session that is deliberately asleep reads as a hang, so the
+  // reason it is asleep rides along beside it.
+  it("carries why a waiting Shaper is waiting, without calling the capture over", () => {
+    const state = deriveTodoCaptureState(facts({
+      session: session({ status: "waiting", spoke: false, lastError: "Codex usage limit — resumes 2026-08-24T12:00:00.000Z" }),
+    }));
+
+    expect(state).toMatchObject({
+      stage: "starting",
+      error: null,
+      waitingReason: "Codex usage limit — resumes 2026-08-24T12:00:00.000Z",
+    });
+  });
+
+  it("carries no waiting reason while the Shaper is simply running", () => {
+    expect(deriveTodoCaptureState(facts()).waitingReason).toBeNull();
+  });
+
+  // The reason belongs to `waiting` alone. A stale one from an earlier retry
+  // would otherwise sit under a session that has since gone back to work.
+  it("drops the waiting reason once the Shaper is running again", () => {
+    const state = deriveTodoCaptureState(facts({
+      session: session({ status: "running", lastError: "Codex usage limit — resumes 2026-08-24T12:00:00.000Z" }),
+    }));
+
+    expect(state.waitingReason).toBeNull();
+  });
+
   it("is created once a Todo names the session as its creator, and carries the Todo", () => {
     const state = deriveTodoCaptureState(facts({ todos: [todo()] }));
 

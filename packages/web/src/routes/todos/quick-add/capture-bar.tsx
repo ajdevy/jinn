@@ -86,10 +86,10 @@ function ConfirmHint() {
  * the wrong thing. One tap is the cheapest guard against that, and it is the
  * only place in this surface where the operator is asked anything.
  */
-function useCaptureDraft(onTodoCreated?: () => void) {
+function useCaptureDraft() {
   const [text, setText] = useState("")
   const [confirming, setConfirming] = useState(false)
-  const { run, start } = useTodoCapture(onTodoCreated)
+  const { run, start } = useTodoCapture()
   const started = run.steps.length > 0
 
   function submit() {
@@ -113,9 +113,9 @@ function useCaptureDraft(onTodoCreated?: () => void) {
   return { text, confirming, run, started, submit, change, landTranscript }
 }
 
-export function QuickCaptureBar({ onClose, onTodoCreated }: { onClose: () => void; onTodoCreated?: () => void }) {
+export function QuickCaptureBar({ onClose }: { onClose: () => void }) {
   const [leaving, setLeaving] = useState(false)
-  const { text, confirming, run, started, submit, change, landTranscript } = useCaptureDraft(onTodoCreated)
+  const { text, confirming, run, started, submit, change, landTranscript } = useCaptureDraft()
 
   return (
     <TodoDialog

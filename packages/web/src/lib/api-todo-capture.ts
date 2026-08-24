@@ -32,6 +32,10 @@ export interface TodoCaptureWire {
   extraWorkItemIds: string[]
   /** Set only on `failed`, and always the gateway's real reason. */
   error: string | null
+  /** Why an in-flight capture is parked — the rate limiter's own sentence while
+   *  the Shaper's session is waiting. Not a failure: the gateway resumes it on
+   *  its own, and the stage stays exactly where it was. */
+  waitingReason: string | null
 }
 
 export interface TodoCaptureHttp {

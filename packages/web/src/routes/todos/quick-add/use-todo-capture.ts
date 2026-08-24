@@ -11,6 +11,12 @@ import { foldCaptureSteps, type CaptureStep } from "./capture-stages"
  * `todo-capture:stage` is a nudge to re-read it, never the state itself. That
  * split is what makes a reload recover: the hook holds no stage the server
  * could not tell it again.
+ *
+ * Telling the board behind the bar is the same story told once more: the board
+ * is a cache of Todos that stops matching reality the moment the Shaper makes
+ * one, so `absorb` invalidates the `work-items` query and stops there. That IS
+ * the notification — the board re-reads through the same query every other
+ * writer refreshes it with, so no callback has to be threaded down to it.
  */
 
 export interface TodoCaptureRun {
@@ -49,7 +55,7 @@ function useCaptureFrames(captureId: React.RefObject<string | null>, reread: () 
   }), [subscribe, reread, captureId])
 }
 
-export function useTodoCapture(onTodoCreated?: () => void) {
+export function useTodoCapture() {
   const [run, setRun] = useState<TodoCaptureRun>(EMPTY)
   const qc = useQueryClient()
   // A capture spawns a session and spends money, so "posted once" is a
@@ -61,12 +67,12 @@ export function useTodoCapture(onTodoCreated?: () => void) {
 
   const absorb = useCallback((state: TodoCaptureWire) => {
     setRun((prev) => nextRun(prev, state))
+    // Once per Todo, which is what the ref is for.
     if (state.workItemId && announcedTodo.current !== state.workItemId) {
       announcedTodo.current = state.workItemId
       void qc.invalidateQueries({ queryKey: ["work-items"] })
-      onTodoCreated?.()
     }
-  }, [qc, onTodoCreated])
+  }, [qc])
 
   const reread = useCallback(() => {
     const id = captureId.current
