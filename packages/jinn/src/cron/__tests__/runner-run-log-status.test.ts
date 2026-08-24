@@ -91,6 +91,15 @@ describe("runCronJob — what the run log says about a settled session", () => {
     },
   );
 
+  it("keeps an empty error string as the reason it was recorded", async () => {
+    vi.mocked(getSession).mockReturnValue(makeSession({ attemptOutcome: "failed", lastError: "" }));
+
+    const entry = await runOnce();
+
+    expect(entry["status"]).toBe("error");
+    expect(entry["error"]).toBe("");
+  });
+
   it("records a failure for a session left in error, whatever its attempt receipt says", async () => {
     vi.mocked(getSession).mockReturnValue(makeSession({ status: "error", lastError: "engine crashed" }));
 

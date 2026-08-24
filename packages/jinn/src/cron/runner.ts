@@ -216,7 +216,7 @@ export async function runCronJob(
 
     const failure = settled ? sessionFailure(settled) : null;
     if (settled && failure) {
-      const message = settled.lastError || `session ${failure}`;
+      const message = settled.lastError ?? `session ${failure}`;
       appendRunLog(job.id, {
         timestamp: startedAt,
         sessionKey,
