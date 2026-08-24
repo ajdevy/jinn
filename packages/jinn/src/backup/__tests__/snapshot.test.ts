@@ -21,7 +21,8 @@ function tempDir(): string {
 function archiveEntries(snapshot: string, codecExtension: string): string[] {
   const archive = path.join(snapshot, `home.${codecExtension}`);
   const listing = execFileSync("tar", ["-tf", archive], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return listing.split("\n").filter(Boolean).map((entry) => entry.replace(/^\.\//, ""));
+  // Windows tar -tf emits CRLF; POSIX tests compare against slash paths without CR.
+  return listing.split("\n").filter(Boolean).map((entry) => entry.replace(/^\.\//, "").replace(/\r$/, ""));
 }
 
 afterEach(() => {

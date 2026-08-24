@@ -204,6 +204,7 @@ describe("AntigravityHeadlessEngine", () => {
   });
 
   it("reaps descendants and ignores late output when the leader exits with an inherited pipe", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     vi.useFakeTimers();
     const processKill = vi.mocked(process.kill);
     const deltas: unknown[] = [];
@@ -248,6 +249,7 @@ describe("AntigravityHeadlessEngine", () => {
   });
 
   it("interrupts only the tracked process group and reports the reason", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
