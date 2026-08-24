@@ -19,7 +19,7 @@ import type { WorkflowTodoLifecycle } from "./todo-ports.js";
  * and a demand they cannot meet would close nothing at all.
  */
 
-/** Proof that a commit a run reported really reached `main`. A port so the rule
+/** Proof that a commit a run reported really reached the canonical branch. A port so the rule
  *  can be judged without a repository; the default shells git. */
 export interface WorkflowLandingVerifier {
   mergedIntoMain(input: { commit: string; checkout: string }): Promise<boolean>;
@@ -56,13 +56,13 @@ function quoted(value: string): string {
   return value.length > MAX_QUOTED ? `${value.slice(0, MAX_QUOTED)}…` : value;
 }
 
-/** `undefined` when the question could not be put: a checkout git can no longer
- *  read leaves a commit unproven, which is not the same as disproven. */
+/** `undefined` when the question could not be put. Unproven delivery must block
+ *  closure just as firmly as disproven delivery. */
 async function onMain(verifier: WorkflowLandingVerifier, commit: string, checkout: string): Promise<boolean | undefined> {
   try {
     return await verifier.mergedIntoMain({ commit, checkout });
   } catch (error) {
-    logger.warn(`Workflow could not check whether ${commit} is on main in ${checkout}: `
+    logger.warn(`Workflow could not check whether ${commit} is on the canonical branch in ${checkout}: `
       + `${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
@@ -74,10 +74,8 @@ async function onMain(verifier: WorkflowLandingVerifier, commit: string, checkou
  *
  * A missing field, a blank one and a value that is not a SHA are the same
  * failure in different clothes: the phase landed nothing and said so in the
- * only place it had. Only the last check needs the world, and it is the one
- * that degrades — an End that named no checkout, or a checkout that has been
- * cleaned up, gets the shape check alone rather than a landing declared blocked
- * because git could not be asked.
+ * only place it had. A declared checkout makes canonical delivery mandatory;
+ * an unavailable repository or remote is failed proof, never permission to close.
  */
 export async function landingShortfall(run: WorkflowRunDetail,
   verifier: WorkflowLandingVerifier = gitLandingEvidence): Promise<WorkflowLandingShortfall | undefined> {
@@ -93,8 +91,16 @@ export async function landingShortfall(run: WorkflowRunDetail,
         reason: `Step ${requires.nodeId} reported ${requires.field} "${quoted(commit)}", which is not a commit SHA.` };
     }
     const checkout = requires.commitIn ? reported(run, requires.commitIn.nodeId, requires.commitIn.field) : "";
-    if (checkout !== "" && await onMain(verifier, commit, checkout) === false) {
-      return { nodeId: end.id, reason: `Commit ${commit} reported by step ${requires.nodeId} is not on main.` };
+    if (checkout !== "") {
+      const delivered = await onMain(verifier, commit, checkout);
+      if (delivered === false) {
+        return { nodeId: end.id,
+          reason: `Commit ${commit} reported by step ${requires.nodeId} is not on the canonical branch.` };
+      }
+      if (delivered === undefined) {
+        return { nodeId: end.id,
+          reason: `Commit ${commit} reported by step ${requires.nodeId} could not be verified on the canonical branch.` };
+      }
     }
   }
   return undefined;

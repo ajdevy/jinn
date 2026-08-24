@@ -82,11 +82,10 @@ function executionTimeout(item: WorkItem, now: Date): TodoAnomaly | undefined {
   return { workItemId: item.id, kind: "execution-timeout", lane: "manager", reason: "execution has outlived the 4h timeout without an in-flight session to speak for it" };
 }
 
-function reviewAnomaly(item: WorkItem): TodoAnomaly | undefined {
+function reviewAnomaly(item: WorkItem, approvedLandingComplete?: (todoId: string) => boolean): TodoAnomaly | undefined {
   if (item.status !== "in_review") return undefined;
   const approval = currentApproval(item.id);
-  const last = [...listWorkItemRuns(item.id)].reverse().find((run) => run.endedAt !== null);
-  if (approval?.state === "approved" && last?.outcome === "completed") {
+  if (approval?.state === "approved" && approvedLandingComplete?.(item.id)) {
     return { workItemId: item.id, kind: "approved-landed-open", lane: "manager", reason: "approved landing is still open" };
   }
   if (approval?.state !== "pending" && !item.assignee) {
@@ -102,13 +101,17 @@ function blockedWithoutRecovery(item: WorkItem): TodoAnomaly | undefined {
   return { workItemId: item.id, kind: "blocked-without-recovery", lane: verdict.lane, reason: "blocked with no recovery row" };
 }
 
-function inspect(item: WorkItem, now: Date): TodoAnomaly | undefined {
-  return assignedWithoutRun(item, now) ?? executionTimeout(item, now) ?? reviewAnomaly(item) ?? blockedWithoutRecovery(item);
+function inspect(item: WorkItem, now: Date,
+  approvedLandingComplete?: (todoId: string) => boolean): TodoAnomaly | undefined {
+  return assignedWithoutRun(item, now) ?? executionTimeout(item, now)
+    ?? reviewAnomaly(item, approvedLandingComplete) ?? blockedWithoutRecovery(item);
 }
 
 export interface DetectTodoAnomaliesInput {
   now?: Date;
   persist?: boolean;
+  /** Exact Workflow-run proof that the approved landing completed. */
+  approvedLandingComplete?: (todoId: string) => boolean;
   /** Close an approved-landed leftover through the existing complete() path.
    *  Return true when the Todo is done so it is not parked on Manager attention. */
   closeApprovedLanded?: (todoId: string) => boolean;
@@ -124,7 +127,7 @@ export function detectTodoAnomalies(input: DetectTodoAnomaliesInput = {}): TodoA
   const found: TodoAnomaly[] = [];
   for (const status of ["assigned", "executing", "in_review", "blocked"] as const) {
     for (const item of listWorkItems({ status })) {
-      const anomaly = inspect(item, now);
+      const anomaly = inspect(item, now, input.approvedLandingComplete);
       if (!anomaly) continue;
       if (anomaly.kind === "approved-landed-open" && input.closeApprovedLanded?.(item.id)) {
         found.push(anomaly);
