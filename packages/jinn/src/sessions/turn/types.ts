@@ -27,7 +27,9 @@ export interface TurnReceipt {
 /**
  * The only seam between a turn and the transport carrying it. The connector
  * runner and the web runner are the same code and differ ONLY in which
- * implementation of this they hand to `runTurn`.
+ * implementation of this they hand to `runTurn`; the status reconciler is a
+ * third consumer that never enters `runTurn` at all, settling a turn whose
+ * runner is already gone through this same seam.
  */
 export interface TurnSurface {
   /** The turn is live: show whatever "working" affordance the transport has. */
