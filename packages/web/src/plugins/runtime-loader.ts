@@ -4,7 +4,11 @@
  *
  *   source -> reject unsupported bare specifiers -> rewrite the mapped ones to
  *   live shim blobs -> blob `import()` -> validate the default export ->
- *   publish an inventory record -> `register(ctx)` if the operator enabled it
+ *   `register(ctx)`
+ *
+ * Registration is unconditional: the gateway only serves the client half of a
+ * plugin the operator enabled in `config.yaml`, so being handed a source here
+ * IS the decision. The dashboard keeps no enablement state of its own.
  *
  * Loading an id that is already live disposes the previous incarnation first,
  * so a saved edit is a clean reload rather than a second registration beside
@@ -16,7 +20,6 @@
  * app can. That is acceptable for a local directory the operator controls, and
  * it is exactly why a remote source may not reuse this pipeline as it stands.
  */
-import { plugins, type PluginKind } from '@/contrib/plugins-store'
 import { installPluginSdk, sdkImportMap } from './sdk/runtime'
 import { createPluginContext, type JinnPlugin } from './plugin-context'
 
@@ -150,9 +153,6 @@ function unsupportedImports(source: string): string[] {
   return [...bare]
 }
 
-const reason = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
-
 /** Evaluate the rewritten source as a module. The URL is revoked either way —
  *  an import that threw has still consumed it. */
 async function evaluate(source: string): Promise<unknown> {
@@ -177,7 +177,7 @@ function validate(module: unknown, origin: string): JinnPlugin {
     throw reject('client.js must default-export a plugin object { id, name?, register(ctx) }')
   }
 
-  const { id, name, defaultEnabled, register } = exported as Record<string, unknown>
+  const { id, name, register } = exported as Record<string, unknown>
   if (typeof id !== 'string' || id === '') throw reject('a plugin needs a non-empty string id')
   if (typeof register !== 'function') {
     throw reject(`register must be a function, not ${typeof register}`)
@@ -185,51 +185,29 @@ function validate(module: unknown, origin: string): JinnPlugin {
   if (name !== undefined && typeof name !== 'string') {
     throw reject(`name must be a string when present, not ${typeof name}`)
   }
-  if (defaultEnabled !== undefined && typeof defaultEnabled !== 'boolean') {
-    throw reject(`defaultEnabled must be a boolean when present, not ${typeof defaultEnabled}`)
-  }
 
-  // The four checks above are what make this cast true; `register` needs it
+  // The three checks above are what make this cast true; `register` needs it
   // because `typeof x === 'function'` narrows to `Function`, which is not callable
   // with the context type.
-  return { id, name, defaultEnabled, register: register as JinnPlugin['register'] }
+  return { id, name, register: register as JinnPlugin['register'] }
 }
 
-/** Publish the inventory record and its lifecycle handles, then register if the
- *  operator has enabled the plugin. */
-function publish(plugin: JinnPlugin, kind: PluginKind): void {
-  const record = { id: plugin.id, name: plugin.name ?? plugin.id, kind }
+/** Register the plugin, disposing whatever it is replacing. */
+function activate(plugin: JinnPlugin): void {
+  // A reload disposes the previous incarnation before the new one registers.
+  // Registering first would leave the old disposers holding entries that the
+  // new registration has already replaced.
+  unloadRuntimePlugin(plugin.id)
+  const disposers: (() => void)[] = []
+  loaded.set(plugin.id, disposers)
 
-  const activate = () => {
-    // A reload disposes the previous incarnation before the new one registers.
-    // Registering first would leave the old disposers holding entries that the
-    // new registration has already replaced.
-    unloadRuntimePlugin(plugin.id)
-    const disposers: (() => void)[] = []
-    loaded.set(plugin.id, disposers)
-
-    try {
-      plugin.register(createPluginContext(plugin.id, (dispose) => disposers.push(dispose)))
-      plugins.publishPlugin({ ...record, status: 'loaded' })
-    } catch (error) {
-      // Whatever it managed to register before it threw is already tracked
-      // above, so the half-built incarnation still comes down on the next
-      // unload. Only the record changes.
-      plugins.publishPlugin({ ...record, status: 'error', error: reason(error) })
-    }
+  try {
+    plugin.register(createPluginContext(plugin.id, (dispose) => disposers.push(dispose)))
+  } catch (error) {
+    // Whatever it managed to register before it threw is already tracked above,
+    // so the half-built incarnation still comes down on the next unload.
+    console.error(`[plugins] ${plugin.id} threw while registering`, error)
   }
-
-  plugins.publishPlugin(
-    { ...record, status: 'disabled' },
-    { activate, deactivate: () => unloadRuntimePlugin(plugin.id) },
-  )
-
-  // A plugin the operator has not enabled still inventories — the settings list
-  // shows it, and the handle above turns it on without a reload — it just never
-  // registers. `defaultEnabled` is deliberately not consulted: §8 says only the
-  // operator decides, and a manifest value that flipped this would be the plugin
-  // opting itself in.
-  if (plugins.pluginActive(plugin.id)) activate()
 }
 
 /** Dispose one plugin's current incarnation. */
@@ -250,18 +228,13 @@ export function unloadRuntimePlugin(id: string): void {
  * Evaluate and register one plugin. Returns the id it loaded under — which is
  * the plugin's own, not necessarily `origin` — or null if it was rejected.
  *
- * `origin` is the directory the source came from. It names the error record, so
- * a plugin too broken to have an id is still something the settings list can
- * show and somebody can fix.
+ * `origin` is the directory the source came from. It names the failure, so a
+ * plugin too broken to have an id is still something a reader can place.
  */
-export async function loadRuntimePlugin(
-  source: string,
-  origin: string,
-  kind: PluginKind,
-): Promise<string | null> {
+export async function loadRuntimePlugin(source: string, origin: string): Promise<string | null> {
   try {
     // Inside the try because it now fetches the SDK barrel's chunk: a deploy
-    // that superseded it should be recorded against this plugin, not surface as
+    // that superseded it should be reported against this plugin, not surface as
     // an unhandled rejection in the reconcile pass above.
     await installPluginSdk()
 
@@ -274,17 +247,10 @@ export async function loadRuntimePlugin(
     }
 
     const plugin = validate(await evaluate(source), origin)
-    publish(plugin, kind)
+    activate(plugin)
     return plugin.id
   } catch (error) {
     console.error(`[plugins] ${origin} failed to load`, error)
-    plugins.publishPlugin({
-      id: origin,
-      name: origin,
-      kind,
-      status: 'error',
-      error: reason(error),
-    })
     return null
   }
 }

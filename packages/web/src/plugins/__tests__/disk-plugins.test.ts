@@ -1,11 +1,12 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { plugins, type PluginRecord } from '@/contrib/plugins-store'
+import { beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { contributions } from '@/contrib/registry'
 import { scanDiskPlugins } from '../disk-plugins'
 import { useDataUrlModules } from './data-url-modules'
 
 const authFetch = vi.fn()
 vi.mock('@/lib/auth', () => ({ authFetch: (...args: unknown[]) => authFetch(...args) }))
+
+let warn: MockInstance<typeof console.warn>
 
 beforeAll(() => {
   useDataUrlModules()
@@ -14,21 +15,29 @@ beforeAll(() => {
 beforeEach(() => {
   authFetch.mockReset()
   vi.spyOn(console, 'error').mockImplementation(() => {})
-  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
-// Both the registry and the plugin store are singletons, so each test works
-// under a folder name and an area of its own.
+// The registry is a singleton — and now the only one in play, since the
+// dashboard keeps no enablement store of its own — so each test works under a
+// folder name and an area of its own.
 let counter = 0
 function fresh(): { folder: string; area: string } {
   counter += 1
   return { folder: `folder-${counter}`, area: `disk.plugins.area.${counter}` }
 }
 
-const recordFor = (id: string) => plugins.listPlugins().find((record) => record.id === id)
+/** One row as the gateway lists it. Only `id` is read by the code under test;
+ *  the rest is what `/settings/plugins` renders off the same response. */
+interface Row {
+  id: string
+  name: string
+  status: 'loaded' | 'disabled' | 'error'
+  error?: string
+}
 
-function row(id: string, patch: Partial<PluginRecord> = {}): PluginRecord {
-  return { id, name: id, kind: 'client', status: 'loaded', ...patch }
+function row(id: string, patch: Partial<Row> = {}): Row {
+  return { id, name: id, status: 'loaded', ...patch }
 }
 
 function chipPlugin(id: string, area: string, local = 'chip'): string {
@@ -39,10 +48,11 @@ function chipPlugin(id: string, area: string, local = 'chip'): string {
 `
 }
 
-/** Answer as the gateway does: an inventory, and a client half per folder that
- *  has one. A folder mapped to null 404s, which is what the gateway says for
- *  unknown, disabled, or missing. */
-function gatewayServes(inventory: PluginRecord[], clients: Record<string, string | null>): void {
+/** Answer as the gateway does: the servable subset under `plugins`, the full
+ *  listing under `inventory` (which this side ignores), and a client half per
+ *  folder that has one. A folder mapped to null 404s, which is what the gateway
+ *  says for unknown, disabled, or missing. */
+function gatewayServes(inventory: Row[], clients: Record<string, string | null>): void {
   authFetch.mockImplementation((path: string) => {
     if (path === '/api/plugins') {
       const servable = inventory.filter((entry) => entry.status === 'loaded')
@@ -57,67 +67,20 @@ function gatewayServes(inventory: PluginRecord[], clients: Record<string, string
   })
 }
 
-describe('the operator’s decision', () => {
-  // `config.yaml` is where enablement is decided, and the gateway's servable
-  // list is that decision. Before the store followed it, a plugin the operator
-  // enabled was fetched, evaluated and published, and then never registered,
-  // because nothing in the app had ever written the store's own opt-in.
-  it('registers a plugin the gateway serves without any stored decision', async () => {
-    const { folder, area } = fresh()
-    gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
-
-    await scanDiskPlugins()
-
-    expect(plugins.pluginActive(folder)).toBe(true)
-    expect(contributions.getArea(area).map((entry) => entry.id)).toEqual([`${folder}:chip`])
-  })
-
-  it('takes the decision back when the gateway stops serving it', async () => {
-    const { folder, area } = fresh()
-    gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
-    await scanDiskPlugins()
-
-    gatewayServes([row(folder, { status: 'disabled' })], { [folder]: null })
-    await scanDiskPlugins()
-
-    expect(plugins.pluginActive(folder)).toBe(false)
-    expect(contributions.getArea(area)).toEqual([])
-  })
-})
-
 describe('one pass', () => {
+  // `config.yaml` is where enablement is decided, and the gateway's servable
+  // list is that decision arriving. Nothing in the app has to opt in beside it.
   it('loads what the gateway serves', async () => {
     const { folder, area } = fresh()
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
 
     await scanDiskPlugins()
 
     expect(contributions.getArea(area).map((entry) => entry.id)).toEqual([`${folder}:chip`])
-    expect(recordFor(folder)?.status).toBe('loaded')
-  })
-
-  it('inventories what it will not serve, without registering it', async () => {
-    const { folder } = fresh()
-    const off = `${folder}-off`
-    const broken = `${folder}-broken`
-    gatewayServes(
-      [
-        row(off, { status: 'disabled' }),
-        row(broken, { status: 'error', error: 'client.js is missing' }),
-      ],
-      {},
-    )
-
-    await scanDiskPlugins()
-
-    expect(recordFor(off)).toEqual(row(off, { status: 'disabled' }))
-    expect(recordFor(broken)).toEqual(row(broken, { status: 'error', error: 'client.js is missing' }))
   })
 
   it('leaves what is loaded alone when the gateway cannot be read', async () => {
     const { folder, area } = fresh()
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
 
@@ -132,7 +95,6 @@ describe('a hot edit that changes the plugin id', () => {
   it('disposes the previous id, not just the new one', async () => {
     const { folder, area } = fresh()
     const renamed = `${folder}-renamed`
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
     expect(contributions.getArea(area)).toHaveLength(1)
@@ -140,32 +102,28 @@ describe('a hot edit that changes the plugin id', () => {
     gatewayServes([row(folder)], { [folder]: chipPlugin(renamed, area) })
     await scanDiskPlugins()
 
-    // The previous incarnation is gone: its contributions and its inventory row.
-    expect(contributions.getArea(area)).toEqual([])
-    expect(recordFor(folder)).toBeUndefined()
-    expect(recordFor(renamed)?.status).toBe('disabled')
+    // The previous incarnation is gone, and the renamed one registered in its
+    // place: the gateway served this folder, and that is the whole decision.
+    expect(contributions.getArea(area).map((entry) => entry.id)).toEqual([`${renamed}:chip`])
   })
 
-  it('drops the folder-named error record when the fixing save loads under another id', async () => {
+  it('registers the fixing save even when it loads under another id', async () => {
     const { folder, area } = fresh()
     const fixed = `${folder}-fixed`
     gatewayServes([row(folder)], { [folder]: 'export default 1;' })
     await scanDiskPlugins()
-    expect(recordFor(folder)?.status).toBe('error')
+    expect(contributions.getArea(area)).toEqual([])
 
     gatewayServes([row(folder)], { [folder]: chipPlugin(fixed, area) })
     await scanDiskPlugins()
 
-    // One row, not a ghost beside it.
-    expect(recordFor(folder)).toBeUndefined()
-    expect(recordFor(fixed)?.status).toBe('disabled')
+    expect(contributions.getArea(area).map((entry) => entry.id)).toEqual([`${fixed}:chip`])
   })
 })
 
 describe('folders that go away', () => {
   it('unloads a folder that disappears mid-pass rather than blaming it', async () => {
     const { folder, area } = fresh()
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
 
@@ -174,12 +132,10 @@ describe('folders that go away', () => {
     await scanDiskPlugins()
 
     expect(contributions.getArea(area)).toEqual([])
-    expect(recordFor(folder)).toBeUndefined()
   })
 
-  it('unloads a folder that is gone from the next inventory', async () => {
+  it('unloads a folder that is gone from the next listing', async () => {
     const { folder, area } = fresh()
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
 
@@ -187,20 +143,19 @@ describe('folders that go away', () => {
     await scanDiskPlugins()
 
     expect(contributions.getArea(area)).toEqual([])
-    expect(recordFor(folder)).toBeUndefined()
   })
 
-  it('keeps the inventory row when a running plugin is disabled at the gateway', async () => {
+  it('unregisters a running plugin that is disabled at the gateway', async () => {
     const { folder, area } = fresh()
-    await plugins.setPluginEnabled(folder, true)
     gatewayServes([row(folder)], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
 
+    // Still on disk, still compiling — but no longer served, which is the only
+    // signal that counts.
     gatewayServes([row(folder, { status: 'disabled' })], { [folder]: chipPlugin(folder, area) })
     await scanDiskPlugins()
 
     expect(contributions.getArea(area)).toEqual([])
-    expect(recordFor(folder)).toEqual(row(folder, { status: 'disabled' }))
   })
 })
 
@@ -218,13 +173,15 @@ describe('a client half the gateway could not compile', () => {
     })
   }
 
-  it('shows the file and line on the plugin’s own row', async () => {
+  it('warns with the file and line its author has to fix', async () => {
     const { folder } = fresh()
     gatewayRefusesToCompile(folder)
 
     await scanDiskPlugins()
 
-    expect(recordFor(folder)).toEqual(row(folder, { status: 'error', error: REASON }))
+    expect(warn).toHaveBeenCalledWith(
+      `[plugins] ${folder} is installed and will not compile: ${REASON}`,
+    )
   })
 
   it('leaves the running plugin registered rather than unloading it as missing', async () => {
@@ -236,7 +193,6 @@ describe('a client half the gateway could not compile', () => {
     gatewayRefusesToCompile(folder)
     await scanDiskPlugins()
 
-    expect(recordFor(folder)?.error).toBe(REASON)
     expect(contributions.getArea(area)).toHaveLength(1)
   })
 })
@@ -248,11 +204,11 @@ describe('the scanning guard', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
-    const inventory = Response.json({ plugins: [row(folder)], inventory: [row(folder)] })
+    const listing = Response.json({ plugins: [row(folder)], inventory: [row(folder)] })
     authFetch.mockImplementation(async (path: string) => {
       if (path !== '/api/plugins') return new Response(chipPlugin(folder, area), { status: 200 })
       await held
-      return inventory
+      return listing
     })
 
     const first = scanDiskPlugins()

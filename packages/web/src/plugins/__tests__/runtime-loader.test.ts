@@ -1,5 +1,4 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { plugins } from '@/contrib/plugins-store'
 import { PluginLoadError, importSpecifierRe, loadRuntimePlugin } from '../runtime-loader'
 import { useDataUrlModules, type ModuleUrls } from './data-url-modules'
 
@@ -16,14 +15,14 @@ beforeEach(() => {
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
-/** The store is a singleton, so every test loads under an id of its own. */
+/** Ids must stay fresh: the module cache would answer a repeat load from the
+ *  first evaluation, and the contributions registry outlives one test. */
 let idCounter = 0
 const freshId = () => `probe-${(idCounter += 1)}`
 
-const recordFor = (id: string) => plugins.listPlugins().find((record) => record.id === id)
-
 /** The error the loader logged alongside its message. */
 const loggedError = () => consoleError.mock.calls.at(-1)?.[1]
+const loggedMessage = () => (loggedError() as Error | undefined)?.message ?? ''
 
 describe('unsupported specifiers', () => {
   it('rejects a bare specifier the SDK map does not cover, before evaluating', async () => {
@@ -33,7 +32,7 @@ describe('unsupported specifiers', () => {
       `globalThis.${id.replace('-', '_')} = 'evaluated';\n` +
       `export default { id: ${JSON.stringify(id)}, register() {} };\n`
 
-    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
+    expect(await loadRuntimePlugin(source, id)).toBeNull()
 
     // Nothing was evaluated: the module body's side effect never happened, the
     // plugin's own source was never handed to the object-URL factory, and the
@@ -44,13 +43,7 @@ describe('unsupported specifiers', () => {
     expect(urls.created.some((created) => created.includes(id))).toBe(false)
     expect(urls.revoked).toEqual([])
     expect(loggedError()).toBeInstanceOf(PluginLoadError)
-    expect(recordFor(id)).toEqual({
-      id,
-      name: id,
-      kind: 'client',
-      status: 'error',
-      error: expect.stringContaining('lodash'),
-    })
+    expect(loggedMessage()).toContain('lodash')
   })
 
   it('lists every offending specifier, once each', async () => {
@@ -59,9 +52,9 @@ describe('unsupported specifiers', () => {
       `import a from 'lodash';\nimport b from 'zod';\nimport c from 'lodash';\n` +
       `export default { id: ${JSON.stringify(id)}, register() {} };\n`
 
-    await loadRuntimePlugin(source, id, 'client')
+    await loadRuntimePlugin(source, id)
 
-    expect(recordFor(id)?.error).toContain('lodash, zod')
+    expect(loggedMessage()).toContain('lodash, zod')
   })
 
   it('rejects a name the SDK map only inherits from Object.prototype', async () => {
@@ -72,14 +65,14 @@ describe('unsupported specifiers', () => {
       `globalThis.${probe} = 'evaluated';\n` +
       `export default { id: ${JSON.stringify(id)}, register() {} };\n`
 
-    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
+    expect(await loadRuntimePlugin(source, id)).toBeNull()
 
     // Membership, not truthiness: `map['constructor']` answers with a function
     // off the prototype, which would wave the import past the allowlist and let
     // the module body run.
     expect((globalThis as Record<string, unknown>)[probe]).toBeUndefined()
     expect(loggedError()).toBeInstanceOf(PluginLoadError)
-    expect(recordFor(id)?.error).toContain('constructor')
+    expect(loggedMessage()).toContain('constructor')
   })
 
   it('does not reject an import that only appears inside a comment', async () => {
@@ -89,7 +82,7 @@ describe('unsupported specifiers', () => {
       `/* import zod from 'zod'; */\n` +
       `export default { id: ${JSON.stringify(id)}, register() {} };\n`
 
-    expect(await loadRuntimePlugin(source, id, 'client')).toBe(id)
+    expect(await loadRuntimePlugin(source, id)).toBe(id)
   })
 
   // The direction of the comment mask that would be a hole rather than a
@@ -102,8 +95,8 @@ describe('unsupported specifiers', () => {
       `import x from 'lodash';\n` +
       `export default { id: ${JSON.stringify(id)}, name: re.source + x, register() {} };\n`
 
-    expect(await loadRuntimePlugin(source, id, 'client')).toBeNull()
-    expect(recordFor(id)?.error).toContain('lodash')
+    expect(await loadRuntimePlugin(source, id)).toBeNull()
+    expect(loggedMessage()).toContain('lodash')
   })
 
   it.each([
@@ -118,10 +111,14 @@ describe('unsupported specifiers', () => {
     await loadRuntimePlugin(
       `${statement}\nexport default { id: ${JSON.stringify(id)}, register() {} };\n`,
       id,
-      'client',
     )
 
-    expect(recordFor(id)?.error ?? '').not.toContain('cannot resolve')
+    // Reaching the object-URL factory is the proof the allowlist let it past: a
+    // rejected specifier never evaluates, so its source is never handed over.
+    // (Relative and URL specifiers still fail downstream here — nothing native
+    // can resolve them against a data: URL — which is the browser's business,
+    // not this loader's.)
+    expect(urls.created.some((created) => created.includes(id))).toBe(true)
   })
 })
 
@@ -144,7 +141,7 @@ describe('specifier rewriting', () => {
       `host.notify('react');\n` +
       `export default { id: ${JSON.stringify(id)}, name: label, register() {} };\n`
 
-    await loadRuntimePlugin(source, id, 'client')
+    await loadRuntimePlugin(source, id)
 
     const rewritten = urls.created.at(-1) ?? ''
     expect(rewritten).toContain(`import { host } from 'data:text/javascript,`)
@@ -162,7 +159,7 @@ describe('specifier rewriting', () => {
       `import { host } from '@jinn/plugin-sdk';\n` +
       `export default { id: ${JSON.stringify(id)}, name: host ? 'a' : 'b', register() {} };\n`
 
-    await loadRuntimePlugin(source, id, 'client')
+    await loadRuntimePlugin(source, id)
 
     const rewritten = urls.created.at(-1) ?? ''
     expect(rewritten).toContain(`// docs from 'react'`)
@@ -174,11 +171,7 @@ describe('specifier rewriting', () => {
   it('revokes the module URL once the import has settled', async () => {
     const id = freshId()
 
-    await loadRuntimePlugin(
-      `export default { id: ${JSON.stringify(id)}, register() {} };\n`,
-      id,
-      'client',
-    )
+    await loadRuntimePlugin(`export default { id: ${JSON.stringify(id)}, register() {} };\n`, id)
 
     expect(urls.revoked).toHaveLength(1)
   })
@@ -192,43 +185,24 @@ describe('default export validation', () => {
     ['an empty id', 'export default { id: "", register() {} };', 'non-empty string id'],
     ['a non-function register', 'export default { id: "x", register: 3 };', 'register must be a function'],
     ['a non-string name', 'export default { id: "x", name: 7, register() {} };', 'name must be a string'],
-    [
-      'a non-boolean defaultEnabled',
-      'export default { id: "x", register() {}, defaultEnabled: "yes" };',
-      'defaultEnabled must be a boolean',
-    ],
-  ])('rejects %s with an error record and no throw', async (_label, body, expected) => {
+  ])('rejects %s with a logged error and no throw', async (_label, body, expected) => {
     const id = freshId()
 
     // A comment carrying the id keeps every case a distinct module: identical
     // sources become one data: URL, and the module cache would answer the second
     // load from the first evaluation.
-    await expect(loadRuntimePlugin(`// ${id}\n${body}\n`, id, 'client')).resolves.toBeNull()
+    await expect(loadRuntimePlugin(`// ${id}\n${body}\n`, id)).resolves.toBeNull()
 
     expect(loggedError()).toBeInstanceOf(PluginLoadError)
-    expect(recordFor(id)).toEqual({
-      id,
-      name: id,
-      kind: 'client',
-      status: 'error',
-      error: expect.stringContaining(expected),
-    })
+    expect(loggedMessage()).toContain(expected)
   })
 
-  it('records the failure under the folder it came from, not under the id it claimed', async () => {
+  it('names the folder it came from in the log, not the id it claimed', async () => {
     const origin = freshId()
 
-    await loadRuntimePlugin(`// ${origin}\nexport default { id: "claimed" };\n`, origin, 'client')
+    await loadRuntimePlugin(`// ${origin}\nexport default { id: "claimed" };\n`, origin)
 
-    expect(recordFor(origin)?.status).toBe('error')
-    expect(recordFor('claimed')).toBeUndefined()
-  })
-
-  it('carries the plugin kind onto the error record', async () => {
-    const id = freshId()
-
-    await loadRuntimePlugin(`// ${id}\nexport default 1;\n`, id, 'client+server')
-
-    expect(recordFor(id)?.kind).toBe('client+server')
+    expect(consoleError.mock.calls.at(-1)?.[0]).toContain(origin)
+    expect(loggedMessage()).not.toContain('claimed')
   })
 })
