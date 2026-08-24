@@ -24,6 +24,22 @@ function Subtitle({ children }: { children: ReactNode }) {
   )
 }
 
+/** The chrome the large title collapses into: page-wide material, the inline
+ *  title centred in it, and whatever the route puts on the trailing side. */
+function TitleBar({ title, trailing }: { title: ReactNode; trailing: ReactNode }) {
+  return (
+    <div
+      data-slot="large-title-bar"
+      className="jinn-title-bar sticky z-20 flex min-h-11 items-center bg-[var(--material-thick)] backdrop-blur"
+    >
+      <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none absolute inset-x-0 flex items-center justify-center lg:hidden", INLINE_TITLE_CLASS)}>
+        {typeof title === "string" ? title : null}
+      </div>
+      <div className="relative ml-auto flex items-center gap-2">{trailing}</div>
+    </div>
+  )
+}
+
 export function LargeTitleHeader({
   title,
   subtitle,
@@ -58,16 +74,12 @@ export function LargeTitleHeader({
   }
 
   return (
-    <header data-slot="large-title-header">
-      <div
-        data-slot="large-title-bar"
-        className="sticky top-0 z-20 -mx-[var(--space-3)] flex min-h-11 items-center bg-[var(--material-thick)] px-[var(--space-3)] backdrop-blur md:-mx-[var(--space-10)] md:px-[var(--space-10)]"
-      >
-        <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none absolute inset-x-0 flex items-center justify-center lg:hidden", INLINE_TITLE_CLASS)}>
-          {typeof title === "string" ? title : null}
-        </div>
-        <div className="relative ml-auto flex items-center gap-2">{trailingSlot}</div>
-      </div>
+    // `display: contents` so the bar's containing block is the scrollport rather
+    // than this header. A sticky box cannot leave the block it lives in, and this
+    // block ends just under the subtitle — which is exactly where the bar used to
+    // scroll away instead of taking over.
+    <header data-slot="large-title-header" className="contents">
+      <TitleBar title={title} trailing={trailingSlot} />
       {leading}
       {large}
       {subtitle ? <Subtitle>{subtitle}</Subtitle> : null}

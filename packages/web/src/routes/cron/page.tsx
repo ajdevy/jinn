@@ -177,6 +177,7 @@ export default function CronPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <CronListHeader
             subtitle={
@@ -190,8 +191,7 @@ export default function CronPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
-
+        <div>
           {/* Lens control — fixed geometry, only the region below swaps. */}
           <div className="mb-3.5 mt-[22px] flex max-md:justify-center">
             <div className="inline-flex gap-0.5 rounded-[12px] bg-[var(--fill-tertiary)] p-[3px]" role="tablist">

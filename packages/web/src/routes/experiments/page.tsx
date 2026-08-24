@@ -69,6 +69,7 @@ export default function ExperimentsPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <LargeTitleHeader
             title="Experiments"
@@ -80,8 +81,7 @@ export default function ExperimentsPage() {
           />
         }
       >
-        <main className="mx-auto max-w-[840px]">
-
+        <main>
           {query.isPending ? (
             <div className="mt-6 rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] px-6 py-16 text-center text-[var(--text-tertiary)] shadow-[var(--shadow-card)]">
               Loading experiments…

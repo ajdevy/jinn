@@ -67,6 +67,21 @@ describe("PageScaffold", () => {
     expect(scroll.scrollTop).toBe(40)
   })
 
+  // `calc()` reads `+` as an operator only when it is whitespace-delimited on
+  // both sides. Unspaced there is no error to see: the declaration is dropped
+  // and the scrollport's padding-bottom resolves to 0, FAB and tab bar covering
+  // the last rows of every list.
+  it("emits a calc whose operators are whitespace-delimited, so the declaration parses", () => {
+    const combinations = [
+      { hasPrimaryAction: false, hideMobileTabBar: false },
+      { hasPrimaryAction: true, hideMobileTabBar: false },
+      { hasPrimaryAction: true, hideMobileTabBar: true },
+    ]
+    for (const combination of combinations) {
+      expect(scaffoldBottomPadding(combination)).not.toMatch(/\S\+|\+\S/)
+    }
+  })
+
   it("below-lg bottom padding derives from --tab-bar-height with no 55/56px literal", () => {
     const pad = scaffoldBottomPadding({ hasPrimaryAction: true, hideMobileTabBar: false })
     expect(pad).toContain("--tab-bar-height")

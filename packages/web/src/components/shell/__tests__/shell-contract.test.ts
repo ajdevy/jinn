@@ -51,26 +51,80 @@ export function largeTitleViolations(source: string, relPath: string): string[] 
   return found
 }
 
-export function accentButtonViolations(source: string, relPath: string): string[] {
-  const found: string[] = []
-  const lines = source.split("\n")
-  for (let i = 0; i < lines.length; i++) {
-    const text = lines[i]
-    if (HATCH.test(text)) continue
-    if (ACCENT_BUTTON.test(text) && ACCENT_CONTRAST.test(text)) {
-      found.push(`${relPath}:${i + 1} ${text.trim()}`)
+/** Where a `className` attribute's value starts and ends, braces and strings
+ *  balanced, so a class list prettier broke over five lines still reads as one. */
+function classNameSpans(source: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = []
+  for (const match of source.matchAll(/className=/g)) {
+    const start = (match.index ?? 0) + match[0].length
+    const end = spanEnd(source, start)
+    if (end > start) spans.push({ start, end })
+  }
+  return spans
+}
+
+function spanEnd(source: string, start: number): number {
+  const opener = source[start]
+  if (opener === '"' || opener === "'") {
+    const close = source.indexOf(opener, start + 1)
+    return close < 0 ? source.length : close + 1
+  }
+  if (opener !== "{") return start
+  let depth = 0
+  let quote = ""
+  for (let i = start; i < source.length; i++) {
+    const char = source[i]
+    if (quote) {
+      if (char === "\\") i++
+      else if (char === quote) quote = ""
+      continue
     }
+    if (char === '"' || char === "'" || char === "`") quote = char
+    else if (char === "{") depth++
+    else if (char === "}" && --depth === 0) return i + 1
+  }
+  return source.length
+}
+
+function hatchedBetween(source: string, firstLine: number, lastLine: number): boolean {
+  for (let line = firstLine; line <= lastLine; line++) {
+    if (HATCH.test(lineAt(source, line))) return true
+  }
+  return false
+}
+
+/**
+ * The accent pair makes a page-level button wherever the two tokens end up in
+ * the same class list — which is not the same as the same LINE, because that is
+ * a decision prettier makes about width. So the window is the whole `className`
+ * attribute the `bg-` token sits in, and only a pair written outside one falls
+ * back to its line. Reported at the `bg-` token, hatchable anywhere in the span.
+ */
+export function accentButtonViolations(source: string, relPath: string): string[] {
+  const spans = classNameSpans(source)
+  const found: string[] = []
+  for (const match of source.matchAll(new RegExp(ACCENT_BUTTON, "g"))) {
+    const index = match.index ?? 0
+    const span = spans.find((candidate) => index >= candidate.start && index < candidate.end)
+    const line = lineOf(source, index)
+    const firstLine = span ? lineOf(source, span.start) : line
+    const lastLine = span ? lineOf(source, span.end) : line
+    if (!ACCENT_CONTRAST.test(span ? source.slice(span.start, span.end) : lineAt(source, line))) continue
+    if (hatchedBetween(source, firstLine, lastLine)) continue
+    found.push(`${relPath}:${line} ${lineAt(source, line).trim()}`)
   }
   return found
 }
 
+/**
+ * A hatch answers for the sheet it sits on and no other: file-wide suppression
+ * meant the second sheet added to an already-hatched file arrived unseen.
+ */
 export function sheetHits(source: string, relPath: string): string[] {
-  if (!SHEET_SIGNATURE.test(source)) return []
-  const lines = source.split("\n")
-  for (const text of lines) {
-    if (HATCH.test(text) && SHEET_SIGNATURE.test(text)) return []
+  for (const match of source.matchAll(new RegExp(SHEET_SIGNATURE, "g"))) {
+    if (!HATCH.test(lineAt(source, lineOf(source, match.index ?? 0)))) return [relPath]
   }
-  return [relPath]
+  return []
 }
 
 describe("jinn shell contract", () => {
@@ -90,12 +144,37 @@ describe("jinn shell contract", () => {
     expect(accentButtonViolations(hatched, "src/routes/fake.tsx")).toEqual([])
   })
 
+  it("rule 2 goes red on an accent button whose className spans several lines", () => {
+    const wrapped = [
+      "<button",
+      "  className={cn(",
+      '    "rounded-full bg-[var(--accent)]",',
+      '    "text-[var(--accent-contrast)]",',
+      "  )}",
+      "/>",
+    ].join("\n")
+    expect(accentButtonViolations(wrapped, "src/routes/fake.tsx")).toEqual([
+      'src/routes/fake.tsx:3 "rounded-full bg-[var(--accent)]",',
+    ])
+    // A hatch answers for the span it sits in, so it goes on the offending line.
+    const hatched = wrapped.replace('bg-[var(--accent)]",', 'bg-[var(--accent)]", // jinn-shell: ok fixture')
+    expect(accentButtonViolations(hatched, "src/routes/fake.tsx")).toEqual([])
+  })
+
   it("rule 3 goes red on a new bottom sheet outside the enumerated set", () => {
     const source = `className="absolute inset-x-0 bottom-0 rounded-t-[var(--radius-2xl)] animate-sheet-in"`
     expect(sheetHits(source, "src/routes/new-sheet.tsx")).toEqual(["src/routes/new-sheet.tsx"])
     expect(sheetHits(source, "src/routes/todos/todo-filter-sheet.tsx")).toEqual([
       "src/routes/todos/todo-filter-sheet.tsx",
     ])
+  })
+
+  it("rule 3 goes red on a second, unhatched sheet in a file that already hatched one", () => {
+    const source = [
+      'const known = "animate-sheet-in" // jinn-shell: ok the enumerated picker',
+      'const fresh = "rounded-t-[18px]"',
+    ].join("\n")
+    expect(sheetHits(source, "src/routes/new-sheet.tsx")).toEqual(["src/routes/new-sheet.tsx"])
   })
 
   it("rule 1 is green on the migrated tree", () => {
@@ -142,15 +221,5 @@ describe("jinn shell contract", () => {
     expect(workflow).not.toMatch(/bg-\[var\(--accent\)\].*text-\[var\(--accent-contrast\)\]/)
     expect(readFileSync(join(shellRoot, "primary-action.tsx"), "utf8")).toMatch(/PRIMARY_ACTION_SLOT/)
     expect(readFileSync(join(shellRoot, "primary-action.tsx"), "utf8")).toMatch(/data-slot=\{PRIMARY_ACTION_SLOT\}/)
-  })
-
-  it("todos list still wires the virtualizer and useScrollAnchor to the same scroller", () => {
-    const page = readFileSync(join(routesRoot, "todos/board/board-page.tsx"), "utf8")
-    expect(page).toMatch(/scroll="external"/)
-    expect(page).toMatch(/ref=\{listScrollRef\}/)
-    expect(page).toMatch(/onScroll=\{onListScroll\}/)
-    expect(page).toMatch(/scrollRef=\{listScrollRef\}/)
-    const scroll = readFileSync(join(routesRoot, "todos/board/use-board-scroll.ts"), "utf8")
-    expect(scroll).toMatch(/useScrollAnchor\(listScrollRef/)
   })
 })

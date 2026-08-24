@@ -39,6 +39,11 @@ Below `lg`, bottom padding and the FAB offset both derive from
 `--tab-bar-height`. At `lg` and up, padding is `lg:pb-10` and the FAB does
 not render.
 
+`contentWidth` is the route's measure (`"640px"`). The scrollport centres on
+it through its own `--jinn-gutter`, so the header and the body it heads share
+one left edge; a route that wraps its children in `mx-auto max-w-*` instead
+puts the two on different spines. Unset, the column is the full width.
+
 ### `LargeTitleHeader`
 
 Two layers: a sticky constant-height bar (`--material-thick` + backdrop
@@ -46,6 +51,10 @@ blur, applied at all times, no hairline in any state) and a large title as
 a separate block in the scroll flow beneath it. `title` is a `ReactNode` so
 a control (the Todos board switcher) can occupy the slot. Optional
 `subtitle` (large state only), `trailing`, and `leading`.
+
+The `<header>` is `display: contents`, so the bar's containing block is the
+scrollport and not the header's own box — a sticky box cannot leave the block
+it lives in, and the header's box ends just under the subtitle.
 
 Collapse is CSS-only: `animation-timeline: scroll(nearest block)` on
 `.jinn-large-title` / `.jinn-inline-title`. No scroll listener, no

@@ -259,9 +259,8 @@ export default function SettingsPage() {
   return (
     <PageLayout>
       {/* Forms read best narrow, so the column is 640px. */}
-      <PageScaffold header={<LargeTitleHeader title="Settings" subtitle="Portal, gateway and connectors" />}>
-        <div className="mx-auto max-w-[640px]">
-
+      <PageScaffold contentWidth="640px" header={<LargeTitleHeader title="Settings" subtitle="Portal, gateway and connectors" />}>
+        <div>
           {/* -- Section 1: Appearance -- */}
           <Section title="Appearance">
             <ThemePicker />

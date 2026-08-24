@@ -131,9 +131,8 @@ export default function MorePage() {
 
   return (
     <PageLayout>
-      <PageScaffold header={<LargeTitleHeader title="More" />}>
-        <div className="mx-auto max-w-[560px]">
-
+      <PageScaffold contentWidth="560px" header={<LargeTitleHeader title="More" />}>
+        <div>
           <div className="mt-5">
             <Card>
               {overflowLinks.map((item, i) => (

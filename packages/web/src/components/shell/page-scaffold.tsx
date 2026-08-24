@@ -33,6 +33,12 @@ export function useScaffoldScrollElement() {
   return useContext(ScaffoldScrollContext)
 }
 
+/**
+ * What the tab bar, the FAB and the keyboard between them cover at the bottom of
+ * a scrollport. Joined rather than concatenated because `calc()` reads `+` as an
+ * operator only when it is whitespace-delimited: unspaced, the declaration is
+ * dropped without complaint and the padding resolves to 0.
+ */
 export function scaffoldBottomPadding({
   hasPrimaryAction,
   hideMobileTabBar,
@@ -40,11 +46,14 @@ export function scaffoldBottomPadding({
   hasPrimaryAction: boolean
   hideMobileTabBar: boolean
 }): string {
-  const tab = hideMobileTabBar
-    ? "max(var(--safe-bottom),6px)+var(--space-4)"
-    : "var(--tab-bar-height)+max(var(--safe-bottom),6px)+var(--space-4)"
-  const fab = hasPrimaryAction ? "+var(--tab-bar-height)+var(--space-4)" : ""
-  return `calc(${tab}${fab}+var(--keyboard-inset))`
+  const terms = [
+    ...(hideMobileTabBar ? [] : ["var(--tab-bar-height)"]),
+    "max(var(--safe-bottom), 6px)",
+    "var(--space-4)",
+    ...(hasPrimaryAction ? ["var(--tab-bar-height)", "var(--space-4)"] : []),
+    "var(--keyboard-inset)",
+  ]
+  return `calc(${terms.join(" + ")})`
 }
 
 function OwnedScroll({
@@ -67,8 +76,7 @@ function OwnedScroll({
         data-scrollable
         style={padStyle}
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto",
-          "px-[var(--space-3)] pt-[var(--space-5)] md:px-[var(--space-10)]",
+          "jinn-scrollport min-h-0 flex-1 overflow-y-auto",
           "pb-[var(--jinn-scaffold-bottom)] lg:pb-10",
         )}
       >
@@ -123,6 +131,7 @@ export function PageScaffold({
   children,
   scroll = "owned",
   hideMobileTabBar = false,
+  contentWidth,
   className,
 }: {
   header?: ReactNode
@@ -130,6 +139,9 @@ export function PageScaffold({
   children: ReactNode
   scroll?: "owned" | "external"
   hideMobileTabBar?: boolean
+  /** The route's measure, e.g. `"640px"`. The scrollport centres its content on
+   *  it through its own gutter, so the header shares the body's left edge. */
+  contentWidth?: string
   className?: string
 }) {
   const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null)
@@ -140,6 +152,7 @@ export function PageScaffold({
       hasPrimaryAction: Boolean(primaryAction),
       hideMobileTabBar,
     }),
+    ...(contentWidth ? { "--jinn-content-width": contentWidth } : {}),
   } as CSSProperties
   useLayoutEffect(() => {
     if (!scrollEl) return

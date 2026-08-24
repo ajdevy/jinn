@@ -987,6 +987,35 @@ h1, h2, h3, h4, h5, h6 {
    resting height the bar's rather than a tall empty cell.
    ============================================ */
 
+/* One gutter serves the page margin and the content column both, so the large
+   title and the body it heads cannot drift apart: a route publishes its measure
+   as --jinn-content-width and the leftover width is split either side. Unset,
+   the column is the full width and the gutter is just the page margin. */
+.jinn-scrollport {
+  --jinn-gutter: max(var(--space-3), (100% - var(--jinn-content-width, 100%)) / 2);
+  /* Declared here because the sticky bar pins against it — see .jinn-title-bar. */
+  --jinn-scrollport-top: var(--space-5);
+  padding-inline: var(--jinn-gutter);
+  padding-top: var(--jinn-scrollport-top);
+}
+
+@media (min-width: 48rem) {
+  .jinn-scrollport {
+    --jinn-gutter: max(var(--space-10), (100% - var(--jinn-content-width, 100%)) / 2);
+  }
+}
+
+/* The bar's material spans the page rather than the column, so it takes the
+   gutter back off and re-applies it as padding. It rises the scrollport's top
+   padding too: a sticky inset counts from the content box, so `top: 0` pins the
+   bar BELOW that padding and leaves a band of unblurred content sliding past
+   above it. */
+.jinn-title-bar {
+  top: calc(var(--jinn-scrollport-top, 0px) * -1);
+  margin-inline: calc(var(--jinn-gutter) * -1);
+  padding-inline: var(--jinn-gutter);
+}
+
 @keyframes jinn-title-collapse {
   from { opacity: 1; transform: translateY(0) scale(1); }
   to   { opacity: 0; transform: translateY(-6px) scale(0.92); }

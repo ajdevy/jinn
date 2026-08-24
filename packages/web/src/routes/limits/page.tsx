@@ -195,6 +195,7 @@ export default function LimitsPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <LargeTitleHeader
             title="Limits"
@@ -212,7 +213,7 @@ export default function LimitsPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
+        <div>
 
           {error && (
             <div

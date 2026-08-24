@@ -75,6 +75,7 @@ export default function PluginsSettingsPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <Header
             installed={inventory.isSuccess ? plugins.length : null}
@@ -84,7 +85,7 @@ export default function PluginsSettingsPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
+        <div>
 
           <div className="mt-[22px]">
             {failure && <ActionError error={failure} />}

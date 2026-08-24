@@ -142,6 +142,7 @@ export default function SkillDetailPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <LargeTitleHeader
             leading={
@@ -223,7 +224,7 @@ export default function SkillDetailPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
+        <div>
           {skillQuery.isLoading ? (
             <DetailSkeleton />
           ) : notFound ? (

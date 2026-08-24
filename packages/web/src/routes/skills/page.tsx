@@ -81,6 +81,7 @@ export default function SkillsPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <LargeTitleHeader
             title="Skills"
@@ -104,7 +105,7 @@ export default function SkillsPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
+        <div>
 
           {skillsQuery.isLoading ? (
             <ListSkeleton />

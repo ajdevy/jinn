@@ -117,6 +117,7 @@ export default function CronDetailPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="840px"
         header={
           <CronJobHeader
             job={job}
@@ -127,7 +128,7 @@ export default function CronDetailPage() {
           />
         }
       >
-        <div className="mx-auto max-w-[840px]">
+        <div>
           {jobsQuery.isLoading ? (
             <DetailSkeleton />
           ) : notFound ? (

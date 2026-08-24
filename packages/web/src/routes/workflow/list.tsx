@@ -108,6 +108,7 @@ export default function WorkflowListPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="760px"
         header={
           <LargeTitleHeader
             title="Workflows"
@@ -123,7 +124,7 @@ export default function WorkflowListPage() {
           />
         }
       >
-        <main className="mx-auto max-w-[760px]">
+        <main>
           <NewWorkflowDialog open={creating} onClose={() => setCreating(false)} />
 
           <div className="mb-3.5 flex gap-2" role="group" aria-label="Filter workflows">

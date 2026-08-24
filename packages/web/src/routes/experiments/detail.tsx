@@ -118,6 +118,7 @@ export default function ExperimentDetailPage() {
   return (
     <PageLayout>
       <PageScaffold
+        contentWidth="900px"
         header={
           experiment ? (
             <LargeTitleHeader
@@ -164,7 +165,7 @@ export default function ExperimentDetailPage() {
           )
         }
       >
-        <main className="mx-auto max-w-[900px]">
+        <main>
           {query.isPending ? (
             <div className="py-20 text-center text-[var(--text-tertiary)]">Loading experiment…</div>
           ) : query.isError || !experiment ? (
