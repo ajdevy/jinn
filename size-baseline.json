@@ -201,7 +201,7 @@
       ]
     },
     "packages/jinn/src/engines/grok.ts": {
-      "lines": 791,
+      "lines": 790,
       "exempt": [
         "complexity",
         "max-depth",
