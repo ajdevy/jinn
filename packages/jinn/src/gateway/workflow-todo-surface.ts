@@ -35,11 +35,12 @@ import type {
  *   - record WHY a run settled failed
  *   - wake the routed employee when the run parks on their decision
  *   - send the work round again when that approver rejects WITH feedback
- *   - close a successful run after an operator-only gate supplied the review
+ *   - close a successful run after a reserved gate supplied the review
  *
  * Completion remains absent for every other path. Reaching a success End alone
- * is not a review; only a recorded operator-only approval supplies the human
- * authority to close without weakening the self-review rule.
+ * is not a review; only a recorded reserved approval (operator-only, or handed
+ * to the COO's lane) supplies the human authority to close without weakening
+ * the self-review rule.
  */
 
 /**

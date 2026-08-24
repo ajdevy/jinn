@@ -45,5 +45,5 @@ export function approvalAuthority(req: IncomingMessage, authenticated: boolean):
   });
   if (identity.kind === "operator") return "operator";
   if (identity.kind !== "session") return "employee";
-  return deciderAuthority(approvalActor(req));
+  return deciderAuthority(`${SESSION_ACTOR_PREFIX}${identity.callerId}`);
 }

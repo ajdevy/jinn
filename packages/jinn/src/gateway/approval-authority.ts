@@ -240,8 +240,13 @@ export function resolveApprovalDecisionAuthority(
   // refusal reads an employee-less session as no identity at all, which is
   // exactly what the portal session is. Keyed on the whole portal shape and not
   // on the missing employee, or the child anyone can spawn would inherit it.
-  if (opts.cooDecidable && isPortalAgentSession(caller.session)) {
-    return { ok: true, authority: { ...route, kind: "operator", actor: `session:${caller.session.id}` } };
+  // Admitted only for the portal — a routed manager falling through to ordinary
+  // org rules would decide the Todo while the workflow gate stayed pending.
+  if (opts.cooDecidable) {
+    if (isPortalAgentSession(caller.session)) {
+      return { ok: true, authority: { ...route, kind: "operator", actor: `session:${caller.session.id}` } };
+    }
+    return { ok: false, status: 403, error: `Todo ${item.id} has a COO-decidable approval; only the COO portal session may decide it` };
   }
 
   const employee = caller.session.employee;
