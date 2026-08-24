@@ -115,7 +115,7 @@ test("the driving audio catalog covers each spoken journey turn with reusable fa
   assert.match(TALK_DRIVING_UTTERANCES[1].synthesis, /send them a message saying ping are you still on this/i)
   assert.doesNotMatch(TALK_DRIVING_UTTERANCES[1].synthesis, /[:,?]/)
   assert.match(TALK_DRIVING_UTTERANCES.at(-2).text, /ZZZ-999/)
-  assert.match(TALK_DRIVING_UTTERANCES.at(-2).synthesis, /letter Z repeated three times.*dash nine nine nine/i)
+  assert.match(TALK_DRIVING_UTTERANCES.at(-2).synthesis, /uppercase Z, uppercase Z, uppercase Z.*dash nine nine nine/i)
   assert.match(TALK_DRIVING_UTTERANCES.at(-1).text, /fresh authoritative read/i)
   assert.match(TALK_DRIVING_UTTERANCES.at(-1).text, /do not reuse the prior result/i)
 })
