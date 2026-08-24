@@ -128,6 +128,17 @@ describe("deriveNeedsYou", () => {
     expect(deriveNeedsYou([compact({ id: "gated", status: "blocked", approvalState: "pending", parkedUntil: parked })], NOW)).toHaveLength(0)
     expect(deriveNeedsYou([compact({ id: "gated-open", status: "blocked", approvalState: "pending" })], NOW)).toHaveLength(1)
   })
+
+  it("keeps recovering and manager lanes so they reach the dashboard groups", () => {
+    const parked = new Date(NOW + 3_600_000).toISOString()
+    const set = deriveNeedsYou([
+      compact({ id: "rec-assigned", status: "assigned", attentionLane: "recovering" }),
+      compact({ id: "rec-parked", status: "blocked", attentionLane: "recovering", parkedUntil: parked }),
+      compact({ id: "mgr-review", status: "in_review", attentionLane: "manager" }),
+      compact({ id: "plain-assigned", status: "assigned" }),
+    ], NOW)
+    expect(set.map((item) => item.id)).toEqual(["rec-assigned", "rec-parked", "mgr-review"])
+  })
 })
 
 

@@ -3,6 +3,7 @@ import { loadConfig } from "../shared/config.js";
 import { sweepTodoRecovery, todoRecoveryMode } from "../work-items/recovery-controller.js";
 import { detectTodoAnomalies } from "../work-items/anomaly-detect.js";
 import { currentApproval } from "../work-items/approvals.js";
+import { listWorkItemRuns } from "../work-items/runs.js";
 import { getWorkItem } from "../work-items/store.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
 import { availabilityRearm } from "./availability-resume.js";
@@ -21,6 +22,8 @@ export function closeApprovedLanded(todoId: string): boolean {
   if (approval?.state !== "approved" || !approval.decidedBy || !approval.decidedAt) return false;
   const origin = parseTodoApprovalRef(approval.ref);
   if (!origin) return false;
+  const landed = listWorkItemRuns(todoId).some((run) => run.outcome === "completed" && run.endedAt !== null);
+  if (!landed) return false;
   workflowTodoLifecycle.complete({
     todoId, workflowId: origin.workflowId, runId: origin.runId, nodeId: origin.nodeId,
     approvedBy: approval.decidedBy, approvedAt: approval.decidedAt,

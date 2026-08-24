@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { WorkItemCompactWire, WorkItemStatusWire } from "@/lib/api"
+import { deriveNeedsYou } from "@/lib/todos"
 import { groupTodoListItems } from "../list/group-items"
 
 function item(id: string, status: WorkItemStatusWire): WorkItemCompactWire {
@@ -46,6 +47,24 @@ describe("groupTodoListItems", () => {
     expect(groups.find((group) => group.key === "recovering")?.items.map(({ id }) => id)).toEqual(["PLA-1"])
     expect(groups.find((group) => group.key === "manager")?.items.map(({ id }) => id)).toEqual(["PLA-2"])
     expect(groups.find((group) => group.key === "needs-you")?.items.map(({ id }) => id)).toEqual(["PLA-3"])
+  })
+
+  it("a recovering API row reaches Recovering automatically and not Needs you", () => {
+    const recovering = { ...item("QAP-2", "blocked"), attentionLane: "recovering" as const, assignee: "platform-worker" }
+    const operatorGate = { ...item("QAP-10", "in_review"), approvalState: "pending" as const, attentionLane: "operator" as const }
+    const empty = { items: [], total: 0 }
+    const feed = deriveNeedsYou([recovering, operatorGate])
+    const groups = groupTodoListItems(
+      {
+        backlog: empty, assigned: empty, executing: empty,
+        in_review: { items: [operatorGate], total: 1 },
+        blocked: { items: [recovering], total: 1 },
+        escalated: empty, done: empty, cancelled: empty,
+      },
+      feed,
+    )
+    expect(groups.find((group) => group.key === "recovering")?.items.map(({ id }) => id)).toEqual(["QAP-2"])
+    expect(groups.find((group) => group.key === "needs-you")?.items.map(({ id }) => id)).toEqual(["QAP-10"])
   })
 
   it("hoists an attention item outside the loaded status page", () => {

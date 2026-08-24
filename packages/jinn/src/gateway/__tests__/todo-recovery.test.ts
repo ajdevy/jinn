@@ -50,4 +50,17 @@ describe("closeApprovedLanded", () => {
     expect(recovery.closeApprovedLanded(item.id)).toBe(true);
     expect(store.getWorkItem(item.id)!.status).toBe("done");
   });
+
+  it("does not close without a completed run; the leftover stays in_review", () => {
+    const item = store.createWorkItem({
+      title: "approved but not landed", status: "assigned", assignee: "platform-worker",
+    });
+    transitions.transition(item.id, "in_review", "session:worker", { agent: true });
+    approvals.requestApproval(item.id, {
+      request: "Land?", ref: "workflow:pipeline:run_missing:gate", target: "operator",
+    });
+    approvals.decideWorkItemApprovalSync({ id: item.id, decision: "approve", decidedBy: "operator" });
+    expect(recovery.closeApprovedLanded(item.id)).toBe(false);
+    expect(store.getWorkItem(item.id)!.status).toBe("in_review");
+  });
 });

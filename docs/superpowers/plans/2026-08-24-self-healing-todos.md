@@ -588,6 +588,8 @@ EOF
 
 Compact wire adds optional `attentionLane: "recovering" | "manager" | "operator" | null`.
 
+Attention/list grouping is fed only from `GET /api/work-items?needsAttentionFor=me` then `deriveNeedsYou`. Both layers must keep recovering/manager leftovers (including parked recovering and `in_review` manager rows). `deriveNeedsYou` is not a Needs-you-only filter.
+
 List grouping: today's single `needs-you` group splits into:
 1. `recovering` — "Recovering automatically"
 2. `manager` — "Manager attention"

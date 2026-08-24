@@ -117,6 +117,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 export type NeedsYouSet = WorkItemCompactWire[]
 
 export function needsAttention(item: WorkItemCompactWire, now = Date.now()): boolean {
+  if (item.attentionLane === "recovering" || item.attentionLane === "manager") return true
   return !isParked(item.parkedUntil, now) && (item.approvalState === "pending" || item.status === "escalated" || item.status === "blocked")
 }
 
