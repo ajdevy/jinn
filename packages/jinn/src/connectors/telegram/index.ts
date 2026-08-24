@@ -33,6 +33,10 @@ import {
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 const AUTH_VERIFY_TIMEOUT_MS = 15_000;
 const AUTH_KILL_GRACE_MS = 2_000;
+const AUTH_LOGIN_PROMPT =
+  "Provider authentication is required. Check /auth status, then use /auth claude or /auth codex to sign in.";
+const AUTHENTICATION_FAILURE_PATTERN =
+  /\bauthentication(?:[_ ]failed|required)\b|\bnot authenticated\b|\bunauthori[sz]ed\b|\b401\b/i;
 const AUTH_VERIFY_ENV = {
   PATH:
     process.env.PATH ??
@@ -465,6 +469,10 @@ export class TelegramConnector implements Connector {
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
     if (!text || !text.trim()) return undefined;
+    const replyText =
+      this.authManager && AUTHENTICATION_FAILURE_PATTERN.test(text)
+        ? `${text}\n\n${AUTH_LOGIN_PROMPT}`
+        : text;
     const replyToId =
       target.replyContext?.messageId != null
         ? Number(target.replyContext.messageId)
@@ -473,7 +481,7 @@ export class TelegramConnector implements Connector {
     if (replyToId) {
       opts.reply_parameters = { message_id: replyToId };
     }
-    const chunks = formatResponse(text);
+    const chunks = formatResponse(replyText);
     let lastMessageId: string | undefined;
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
