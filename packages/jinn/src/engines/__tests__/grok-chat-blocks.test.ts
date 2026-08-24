@@ -1,55 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import type { StreamDelta, EngineResult } from "../../shared/types.js";
 
 /** ICI-1393. Live Grok stdout is only `thought` / `text` / `end`. Tool calls live
  *  in `updates.jsonl`, and the session id first appears on the same `end` line
- *  that settles the turn. A fresh dashboard turn therefore never attached the
- *  transcript, so tool cards never rendered, and the web client never started a
- *  new assistant row — every text run glued into one blob. Tests here assert the
- *  live mid-turn stream (before `end`), not the post-completion result alone. */
+ *  that settles the turn. Tests assert the live mid-turn stream (before `end`). */
 
-interface FakeProc {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
-  stdin: { end: () => void };
-  exitCode: number | null;
-  killed: boolean;
-  kill: () => boolean;
-  pid: number;
-  on: (event: string, cb: (...a: any[]) => void) => FakeProc;
-  _handlers: Record<string, (...a: any[]) => void>;
-  emitStdout: (s: string) => void;
-}
-
-const spawnCalls: FakeProc[] = [];
-
-function makeFakeProc(): FakeProc {
-  const handlers: Record<string, (...a: any[]) => void> = {};
-  const p: FakeProc = {
-    stdout: new EventEmitter(),
-    stderr: new EventEmitter(),
-    stdin: { end: () => {} },
-    exitCode: null,
-    killed: false,
-    pid: 6464,
-    kill: () => true,
-    _handlers: handlers,
-    on(event, cb) { handlers[event] = cb; return p; },
-    emitStdout(s) { p.stdout.emit("data", Buffer.from(s)); },
+vi.mock("node:child_process", async () => {
+  const { makeFakeProc, spawnCalls } = await import("./support/grok-chat-blocks-proc.js");
+  return {
+    spawn: vi.fn(() => {
+      const proc = makeFakeProc();
+      spawnCalls.push(proc);
+      return proc;
+    }),
   };
-  return p;
-}
-
-vi.mock("node:child_process", () => ({
-  spawn: vi.fn(() => {
-    const proc = makeFakeProc();
-    spawnCalls.push(proc);
-    return proc;
-  }),
-}));
+});
 
 const osMockState = vi.hoisted(() => ({ home: "" }));
 vi.mock("node:os", async (importOriginal) => {
@@ -61,76 +27,19 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir, default: { ...((actual as any).default ?? actual), homedir } };
 });
 
-import { GrokEngine } from "../grok.js";
-
-const flush = () => new Promise((r) => setTimeout(r, 0));
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function waitFor(predicate: () => boolean, label: string, timeoutMs = 3000): Promise<void> {
-  const started = Date.now();
-  while (!predicate()) {
-    if (Date.now() - started >= timeoutMs) throw new Error(`Timed out waiting for ${label}`);
-    await sleep(25);
-  }
-}
-
-function makeCwd(name: string): { cwd: string; sessionsRoot: string } {
-  const cwd = path.join(osMockState.home, name);
-  fs.mkdirSync(cwd, { recursive: true });
-  const resolved = fs.realpathSync(cwd);
-  return {
-    cwd,
-    sessionsRoot: path.join(osMockState.home, ".grok", "sessions", encodeURIComponent(resolved)),
-  };
-}
-
-function writeTranscript(sessionsRoot: string, sessionId: string, lines: unknown[]): void {
-  const file = path.join(sessionsRoot, sessionId, "updates.jsonl");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
-}
-
-const toolCall = (sessionId: string, toolCallId: string) => ({
-  method: "session/update",
-  params: {
-    sessionId,
-    update: { sessionUpdate: "tool_call", toolCallId, title: "read_file", rawInput: { target_file: "note.txt" } },
-  },
-});
-
-const toolCallDone = (sessionId: string, toolCallId: string) => ({
-  method: "session/update",
-  params: {
-    sessionId,
-    update: {
-      sessionUpdate: "tool_call_update",
-      toolCallId,
-      status: "completed",
-      title: "read_file",
-      content: [{ type: "content", content: { type: "text", text: "hello from the file" } }],
-    },
-  },
-});
-
-const END_LINE = JSON.stringify({ type: "end", stopReason: "EndTurn" }) + "\n";
-
-function startFreshTurn(cwd: string, sessionId: string):
-{ deltas: StreamDelta[]; proc: FakeProc; done: Promise<EngineResult> } {
-  const deltas: StreamDelta[] = [];
-  const engine = new GrokEngine();
-  const done = engine.run({
-    prompt: "read note.txt and summarise it",
-    cwd,
-    sessionId,
-    model: "grok-build",
-    onStream: (delta: StreamDelta) => deltas.push(delta),
-  } as any) as Promise<EngineResult>;
-  return { deltas, proc: spawnCalls[spawnCalls.length - 1], done };
-}
-
-function streamedText(deltas: StreamDelta[]): string {
-  return deltas.filter((d) => d.type === "text").map((d) => d.content).join("");
-}
+import {
+  END_LINE,
+  flush,
+  makeCwd,
+  sleep,
+  spawnCalls,
+  startFreshTurn,
+  streamedText,
+  toolCall,
+  toolCallDone,
+  waitFor,
+  writeTranscript,
+} from "./support/grok-chat-blocks-harness.js";
 
 beforeEach(() => {
   spawnCalls.length = 0;
@@ -138,7 +47,7 @@ beforeEach(() => {
 
 describe("GrokEngine — live tool cards on a fresh turn", () => {
   it("emits tool deltas mid-turn without ever seeing a session id on stdout", async () => {
-    const { cwd, sessionsRoot } = makeCwd("cwd-fresh");
+    const { cwd, sessionsRoot } = makeCwd(osMockState.home, "cwd-fresh");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-fresh");
     await flush();
@@ -196,7 +105,7 @@ describe("GrokEngine — live tool cards on a fresh turn", () => {
   });
 
   it("waits for updates.jsonl rather than the sibling files grok writes first", async () => {
-    const { cwd, sessionsRoot } = makeCwd("cwd-late-updates");
+    const { cwd, sessionsRoot } = makeCwd(osMockState.home, "cwd-late-updates");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-late-updates");
     await flush();
@@ -219,7 +128,7 @@ describe("GrokEngine — live tool cards on a fresh turn", () => {
   });
 
   it("refuses to attach while two fresh transcripts share the cwd", async () => {
-    const { cwd, sessionsRoot } = makeCwd("cwd-shared");
+    const { cwd, sessionsRoot } = makeCwd(osMockState.home, "cwd-shared");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-ambiguous");
     await flush();
@@ -236,7 +145,7 @@ describe("GrokEngine — live tool cards on a fresh turn", () => {
 
 describe("GrokEngine — live line and block seams while the turn is still running", () => {
   it("keeps grok's paragraph newline chunks in the live stream before end", async () => {
-    const { cwd } = makeCwd("cwd-newlines");
+    const { cwd } = makeCwd(osMockState.home, "cwd-newlines");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-newlines");
     await flush();
@@ -253,7 +162,7 @@ describe("GrokEngine — live line and block seams while the turn is still runni
   });
 
   it("separates two text runs split by a reasoning run before end, and leaks no reasoning", async () => {
-    const { cwd } = makeCwd("cwd-blocks");
+    const { cwd } = makeCwd(osMockState.home, "cwd-blocks");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-blocks");
     await flush();
@@ -276,7 +185,7 @@ describe("GrokEngine — live line and block seams while the turn is still runni
   });
 
   it("does not insert a break the answer already carries", async () => {
-    const { cwd } = makeCwd("cwd-own-break");
+    const { cwd } = makeCwd(osMockState.home, "cwd-own-break");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-own-break");
     await flush();
@@ -290,7 +199,7 @@ describe("GrokEngine — live line and block seams while the turn is still runni
   });
 
   it("drops an agent_thought_chunk without emitting any delta for it", async () => {
-    const { cwd } = makeCwd("cwd-thought-chunk");
+    const { cwd } = makeCwd(osMockState.home, "cwd-thought-chunk");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-thought-chunk");
     await flush();
@@ -312,7 +221,7 @@ describe("GrokEngine — live line and block seams while the turn is still runni
   });
 
   it("restarts the canonical result at a live tool card so earlier text is not rendered twice", async () => {
-    const { cwd, sessionsRoot } = makeCwd("cwd-tool-split");
+    const { cwd, sessionsRoot } = makeCwd(osMockState.home, "cwd-tool-split");
     await flush();
     const turn = startFreshTurn(cwd, "jinn-tool-split");
     await flush();
