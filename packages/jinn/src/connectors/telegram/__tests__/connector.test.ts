@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { IncomingMessage, Session, Target } from "../../../shared/types.js";
 
 // Mock node-telegram-bot-api before importing connector
@@ -21,12 +21,14 @@ const mockPtySpawn = vi.fn(() => ({
 }));
 let mockClaudeLoggedIn = false;
 let mockCodexExitCode = 1;
+let mockCodexHang = false;
 const mockExecFile = vi.fn((_file, _args, _options, callback) => {
   callback(null, JSON.stringify({ loggedIn: mockClaudeLoggedIn }));
 });
 const mockChildKill = vi.fn();
+const mockSpawnRemoveListener = vi.fn();
 const mockSpawnOnce = vi.fn(function (this: any, event: string, handler: (code?: number) => void) {
-  if (event === "exit") {
+  if (event === "exit" && !mockCodexHang) {
     queueMicrotask(() => handler(mockCodexExitCode));
   }
   return this;
@@ -34,6 +36,7 @@ const mockSpawnOnce = vi.fn(function (this: any, event: string, handler: (code?:
 const mockSpawn = vi.fn(() => ({
   kill: mockChildKill,
   once: mockSpawnOnce,
+  removeListener: mockSpawnRemoveListener,
 }));
 
 vi.mock("node-telegram-bot-api", () => {
@@ -78,9 +81,14 @@ describe("TelegramConnector", () => {
     vi.clearAllMocks();
     mockClaudeLoggedIn = false;
     mockCodexExitCode = 1;
+    mockCodexHang = false;
     connector = new TelegramConnector({
       botToken: "123456:ABC-DEF",
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("constructor", () => {
@@ -247,6 +255,51 @@ describe("TelegramConnector", () => {
           }),
           stdio: "ignore",
         }),
+      );
+    });
+
+    it("terminates timed-out Codex status and escalates to SIGKILL", async () => {
+      vi.useFakeTimers();
+      mockClaudeLoggedIn = true;
+      mockCodexHang = true;
+      const authConnector = new TelegramConnector({
+        botToken: "123456:ABC-DEF",
+        allowFrom: [67890],
+        telegramAuth: {
+          enabled: true,
+          ownerUserIds: [67890],
+        },
+      });
+      await authConnector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      const statusPromise = messageCallback({
+        message_id: 42,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "owner", first_name: "Owner", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "/auth status",
+      });
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(mockChildKill).toHaveBeenCalledWith("SIGTERM");
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(mockChildKill).toHaveBeenCalledWith("SIGKILL");
+      await vi.advanceTimersByTimeAsync(2_000);
+      await statusPromise;
+
+      expect(mockSpawnRemoveListener).toHaveBeenCalledWith("error", expect.any(Function));
+      expect(mockSpawnRemoveListener).toHaveBeenCalledWith("exit", expect.any(Function));
+      expect(mockSpawnRemoveListener).toHaveBeenCalledWith("close", expect.any(Function));
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "12345",
+        [
+          "Claude is authenticated.",
+          "Codex is not authenticated. Use /auth codex to sign in.",
+        ].join("\n"),
+        { parse_mode: "Markdown" },
       );
     });
 

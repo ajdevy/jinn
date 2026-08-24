@@ -3,6 +3,7 @@ import {
   AuthFlowManager,
   parseAuthCommand,
   redactAuthOutput,
+  type AuthProvider,
   type AuthPty,
   type SpawnPty,
 } from "../auth-flow.js";
@@ -60,6 +61,14 @@ function authMessage(text: string, userId = 67890) {
   };
 }
 
+function deferredBoolean() {
+  let resolve!: (value: boolean) => void;
+  const promise = new Promise<boolean>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("Telegram auth flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -110,6 +119,50 @@ describe("Telegram auth flow", () => {
     expect(sends).toEqual([
       [
         "Claude is authenticated.",
+        "Codex is not authenticated. Use /auth codex to sign in.",
+      ].join("\n"),
+    ]);
+  });
+
+  it("checks provider status concurrently", async () => {
+    const calls: AuthProvider[] = [];
+    const claude = deferredBoolean();
+    const codex = deferredBoolean();
+    const { manager, sends } = createManager({
+      getAuthStatus: vi.fn(async (provider) => {
+        calls.push(provider);
+        return provider === "claude" ? claude.promise : codex.promise;
+      }),
+    });
+
+    const status = manager.handleMessage(authMessage("/auth status"));
+    await Promise.resolve();
+
+    expect(calls).toEqual(["claude", "codex"]);
+    claude.resolve(true);
+    codex.resolve(false);
+    await status;
+    expect(sends).toEqual([
+      [
+        "Claude is authenticated.",
+        "Codex is not authenticated. Use /auth codex to sign in.",
+      ].join("\n"),
+    ]);
+  });
+
+  it("bounds provider status checks to the status timeout window", async () => {
+    const { manager, sends, timers } = createManager({
+      getAuthStatus: vi.fn(async () => new Promise<boolean>(() => undefined)),
+    });
+
+    const status = manager.handleMessage(authMessage("/auth status"));
+    await Promise.resolve();
+    timers.splice(0).forEach((timer) => timer());
+    await status;
+
+    expect(sends).toEqual([
+      [
+        "Claude is not authenticated. Use /auth claude to sign in.",
         "Codex is not authenticated. Use /auth codex to sign in.",
       ].join("\n"),
     ]);
