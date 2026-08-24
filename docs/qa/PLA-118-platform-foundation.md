@@ -95,3 +95,43 @@ Both sandbox gateways were stopped, their disposable homes deleted, ports 7814
 and 7815 confirmed free, the two QA Keychain accounts removed, the bundled app
 instance started by this run quit, and the pre-existing `run.jinn.shell`
 application state restored from the backup taken before the run.
+
+## Landed-surface re-confirmation — 2026-08-24
+
+- Re-confirmation base: `main` at
+  `58908f607b2661e935996c3b5c69494fad483f33`
+- Previously shipped PLA-118 head:
+  `0e5981ca`
+- Landed-surface proof: `git diff 0e5981ca..58908f60 --` across
+  `packages/web/src/platform`, the native gateway transport/profile modules,
+  `packages/shell`, `docs/adr`, and `docs/platform.md` is empty
+- S1 gates: typecheck, test, build, ratchet, footguns, and shell Cargo test
+  exited 0. Lint exited 1 only at
+  `scripts/upgrade-lab/assertions.mjs:15` (complexity 14 > 10); the same
+  failure reproduced at `0e5981ca` and remains owned by open Todo PLA-234
+- S2 journey result: the browser pairing/same-origin path and live native rows
+  1–7, 9, 12, and 14 passed against fresh 7778/7779 sandboxes and a freshly
+  built, ad-hoc signed macOS bundle. Rows 8, 11, and 13 passed their controlled
+  transport/platform/Rust harnesses but were not all injected through the
+  release WebView. Row 10 failed live: selecting stopped B left A current and
+  described B only inside the switcher instead of activating B and rendering
+  the B-named retry screen. The regression is tracked as PLA-241
+- Fresh evidence: the row ledger and screenshots are in
+  `docs/qa/PLA-118-evidence/reconfirm-2026-08-24/`. The four-way screenshot
+  matrix is complete for the browser A/Todos state and the live row-10 failure,
+  but not for every earlier human-visible row; the evidence README says so
+  explicitly and does not restate the 2026-08-23 captures as freshly driven
+- S2 gates: typecheck, test, build, ratchet, and footguns exited 0. Lint exited
+  1 on the PLA-234 line only. The focused platform run passed 7 files / 42
+  tests, shell Cargo passed 17 tests, and the production JavaScript marker scan
+  found zero Tauri/Capacitor implementation matches
+- Unchanged gaps: Developer ID signing, notarization, iOS/Android app packaging,
+  simulator/device behavior, physical devices, and store distribution remain
+  unverified. No conclusion about those lanes is inferred from the macOS
+  ad-hoc bundle
+
+This re-confirmation does **not** supersede the earlier ship verdict: it records
+that the landed product surface is byte-identical while also preserving the new
+live row-10 discrepancy as follow-up PLA-241. PLA-118 can be reviewed as the
+landed feature; PLA-241 owns the newly observed stopped-profile selection
+behavior.
