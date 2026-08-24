@@ -8,6 +8,7 @@ import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
 import type { WorkflowSessionExecutor } from "../session-executor.js";
 import { WorkflowService } from "../service.js";
+import type { WorkflowTodoApprovalMirror } from "../runner.js";
 
 /* The second reserved gate class. `operatorOnly` is the reservation AND the
  * token that lets an approved run close its bound Todo, so a gate the COO may
@@ -17,6 +18,8 @@ let root: string;
 let database: Database.Database;
 let repository: WorkflowRepository;
 let service: WorkflowService;
+/** What the runner hands the Todo mirror when a gate parks. */
+const parked: Array<Parameters<WorkflowTodoApprovalMirror["notifyParked"]>[0]> = [];
 
 /** These workflows park on the Approval before any Employee node, so the
  *  executor only has to exist. */
@@ -63,8 +66,10 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "jinn-workflow-coo-gate-"));
   database = openWorkflowDatabase(path.join(root, "workflows.db"));
   repository = new WorkflowRepository(database);
+  parked.length = 0;
   service = new WorkflowService({
     repository, executor: idleExecutor(), employees: () => new Map(), models: () => ({}),
+    todoApprovals: { request: () => {}, notifyParked: (input) => { parked.push(input); } },
   });
 });
 
@@ -131,5 +136,20 @@ describe("who the service lets decide a COO-decidable gate", () => {
     await expect(service.decideApproval({ workflowId: definition.id, runId: run.id, nodeId: "review",
       decision: "approve", decidedBy: "session:portal", decidedByAuthority: "coo", expectedRevision: run.revision }))
       .rejects.toThrow("Workflow approval review is operator-only; session:portal cannot decide it.");
+  });
+});
+
+describe("what the runner tells the Todo mirror about the gate class", () => {
+  // Default Todo routing hands an unrouted gate to the owner's manager. Without
+  // the class the mirror wakes that manager with "waiting on YOUR decision",
+  // which both the Todo decide and escalate routes then refuse with a 403.
+  it("marks a COO-decidable gate, and leaves an ordinary routed one unmarked", async () => {
+    const coo = gateDefinition("coo-gate-mirrored", { description: "Land it?", decidableBy: "coo" });
+    await service.startManual({ workflowId: coo.id, input: {}, todoId: "OPS-17" });
+    expect(parked[0]).toMatchObject({ todoId: "OPS-17", cooDecidable: true });
+
+    const routed = gateDefinition("routed-gate-mirrored", { description: "Approve?" });
+    await service.startManual({ workflowId: routed.id, input: {}, todoId: "OPS-18" });
+    expect(parked[1]).toMatchObject({ todoId: "OPS-18", cooDecidable: false });
   });
 });
