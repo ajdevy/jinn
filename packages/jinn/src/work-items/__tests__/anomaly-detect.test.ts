@@ -80,6 +80,7 @@ describe("detectTodoAnomalies", () => {
     const closed: string[] = [];
     const found = detect.detectTodoAnomalies({
       persist: true,
+      approvedLandingComplete: (todoId) => todoId === item.id,
       closeApprovedLanded: (todoId) => {
         closed.push(todoId);
         return todoId === item.id;
@@ -105,7 +106,9 @@ describe("detectTodoAnomalies", () => {
       request: "Land?", ref: `workflow:pipeline:${run.id}:gate`, target: "operator",
     });
     approvals.decideWorkItemApprovalSync({ id: item.id, decision: "approve", decidedBy: "operator" });
-    detect.detectTodoAnomalies({ persist: true, closeApprovedLanded: () => false });
+    detect.detectTodoAnomalies({ persist: true,
+      approvedLandingComplete: (todoId) => todoId === item.id,
+      closeApprovedLanded: () => false });
     const hits = store.listWorkItems({ needsAttentionFor: "operator" }).map((row) => row.id);
     expect(hits).toContain(item.id);
   });
