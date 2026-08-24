@@ -23,6 +23,31 @@ export type AttentionLane = (typeof ATTENTION_LANES)[number];
 export const TODO_RECOVERY_ACTOR = "todo-recovery";
 export const MAX_RECOVERY_ATTEMPTS = 2;
 
+/** Generic fallback: classifyRecovery found no specific incident. */
+export const GENERIC_OPERATOR_REASON = "no safe automatic recovery is known";
+
+export function isGenericOperatorFallback(verdict: RecoveryClassification): boolean {
+  return verdict.lane === "operator" && verdict.reason === GENERIC_OPERATOR_REASON;
+}
+
+/**
+ * One `work_item_recovery` row is shared by the detector and the sweep.
+ * A later generic operator fallback cannot downgrade an unresolved specific
+ * lane (manager / recovering). Specific verdicts (failure class, leftover
+ * manager, pending routed approval, operator-only authority) may replace.
+ * Terminal status means the prior condition resolved.
+ */
+export function mayReplaceRecoveryLane(
+  prior: { lane: AttentionLane } | undefined,
+  next: RecoveryClassification,
+  itemStatus: string,
+): boolean {
+  if (!prior) return true;
+  if (itemStatus === "done" || itemStatus === "cancelled") return true;
+  if (isGenericOperatorFallback(next) && prior.lane !== "operator") return false;
+  return true;
+}
+
 export interface RecoveryClassification {
   class: RecoveryClass;
   lane: AttentionLane;
@@ -94,7 +119,7 @@ export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassifi
   if (fromFailure) return verdict(input, fromFailure);
   const leftover = classifyLeftover(input);
   if (leftover) return verdict(input, leftover);
-  return verdict(input, { class: "operator", lane: "operator", reason: "no safe automatic recovery is known" });
+  return verdict(input, { class: "operator", lane: "operator", reason: GENERIC_OPERATOR_REASON });
 }
 
 /** Additive: never a column on `work_items`. The exact-shape verifier refuses

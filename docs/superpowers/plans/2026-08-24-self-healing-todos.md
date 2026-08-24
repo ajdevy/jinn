@@ -666,7 +666,7 @@ EOF
 - Operator-filtered triggers after dropping impersonation depend on the resume stamp. Covered by tests; watch first classify-only week.
 - Two-attempt cap vs block recurrences: both count; a dependency-kind requeue is not a recovery attempt.
 - Instance PLA-222 not applied until rollout step 4.
-- Sweep and the anomaly detector share one `work_item_recovery` row. Production ticks sweep then detect. An `approved-landed-open` leftover is a known manager class (not the operator fallback); sweep must not overwrite a live `anomaly:approved-landed-open` manager row; detect restores the lane if it drifted without emitting a second `anomaly_observed`. Refused `complete()` (open children) stays `in_review` on Manager attention.
+- Sweep and the anomaly detector share one `work_item_recovery` row. A later *generic* operator fallback (`no safe automatic recovery is known`) cannot replace an unresolved `manager`/`recovering` lane. Specific verdicts (failure, leftover manager, pending routed approval, operator-only) may replace. Terminal `done`/`cancelled` means the prior condition resolved. Refused `complete()` (open children) stays `in_review` on Manager attention.
 
 ## Leak-grep
 

@@ -4,6 +4,7 @@ import { getWorkItemLabels } from "./labels.js";
 import { getWorkItemRecovery, upsertWorkItemRecovery } from "./recovery-rows.js";
 import {
   classifyRecovery,
+  mayReplaceRecoveryLane,
   MAX_RECOVERY_ATTEMPTS,
   TODO_RECOVERY_ACTOR,
   type RecoveryClassification,
@@ -57,17 +58,11 @@ function incidentId(item: WorkItem, lastRunId: string | undefined): string {
   return lastRunId ?? `status:${item.id}:${item.status}:${item.updatedAt}`;
 }
 
-function detectorOwnsApprovedLanding(item: WorkItem, prior: ReturnType<typeof getWorkItemRecovery>): boolean {
-  return item.status === "in_review"
-    && prior?.lane === "manager"
-    && prior.incidentId.startsWith("anomaly:approved-landed-open");
-}
-
 function recordClassified(item: WorkItem, verdict: RecoveryClassification, lastRunId: string | undefined, now: Date): void {
   const prior = getWorkItemRecovery(item.id);
-  if (detectorOwnsApprovedLanding(item, prior)) return;
   const id = incidentId(item, lastRunId);
   if (prior?.incidentId === id && prior.class === verdict.class && prior.lane === verdict.lane) return;
+  if (!mayReplaceRecoveryLane(prior, verdict, item.status)) return;
   upsertWorkItemRecovery({
     workItemId: item.id,
     incidentId: id,

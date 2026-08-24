@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyRecovery } from "../recovery.js";
+import {
+  classifyRecovery,
+  GENERIC_OPERATOR_REASON,
+  mayReplaceRecoveryLane,
+} from "../recovery.js";
 
 /**
  * PLA-240 replay: the audit's representative incidents, written as classifier
@@ -96,5 +100,29 @@ describe("historical incident replay — classifier", () => {
     });
     expect(verdict).toMatchObject({ lane: "manager" });
     expect(verdict.lane).not.toBe("operator");
+  });
+});
+
+describe("mayReplaceRecoveryLane", () => {
+  const generic = { class: "operator" as const, lane: "operator" as const, reason: GENERIC_OPERATOR_REASON };
+  const leftover = { class: "operator" as const, lane: "manager" as const, reason: "approved landing is still open" };
+  const operatorOnly = { class: "operator" as const, lane: "operator" as const, reason: "operator-only approval is a genuine authority decision" };
+
+  it("a generic fallback cannot downgrade an unresolved manager lane", () => {
+    expect(mayReplaceRecoveryLane({ lane: "manager" }, generic, "in_review")).toBe(false);
+    expect(mayReplaceRecoveryLane({ lane: "recovering" }, generic, "blocked")).toBe(false);
+  });
+
+  it("a specific leftover manager verdict may refresh the row", () => {
+    expect(mayReplaceRecoveryLane({ lane: "manager" }, leftover, "in_review")).toBe(true);
+  });
+
+  it("operator-only authority may replace manager (Needs you)", () => {
+    expect(mayReplaceRecoveryLane({ lane: "manager" }, operatorOnly, "in_review")).toBe(true);
+  });
+
+  it("a resolved Todo may drop a stale manager row", () => {
+    expect(mayReplaceRecoveryLane({ lane: "manager" }, generic, "done")).toBe(true);
+    expect(mayReplaceRecoveryLane({ lane: "manager" }, generic, "cancelled")).toBe(true);
   });
 });
