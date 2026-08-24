@@ -17,7 +17,9 @@ is.** Nothing in PLA-187's tree adds a dependency on Ionic or Konsta; the citati
 reader can check the source of an idea, not so a slice can install it.
 
 Paths are repo-relative. `web/` abbreviates `packages/web/src/`. Expand that shorthand and
-every path here resolves at the base SHA — every one of them, with no exception.
+every path here resolves at the base SHA — every one of them, with no exception. Where a later
+sentence names a file by its bare file name alone, that is a back-reference to the full path
+given earlier, not a second citation.
 
 Two authorities cited below are **not** files in this repository, and are therefore named rather
 than pathed: **Jinn taste**, the shared standard the planner, implementer and verifier all read,
@@ -80,10 +82,12 @@ renders its own inline large-title header + top-right actions in content"*.
 `PageScaffold` is the **page** shell: the thing 12 render sites across 12 files are each
 hand-rolling today. Eleven of them repeat one identical `text-[length:var(--text-title1)] …
 md:text-[length:var(--text-large-title)]` `<h1>` recipe — `web/routes/settings/page.tsx:264`,
-`experiments/page.tsx:72`, `experiments/detail.tsx:140`, `skills/page.tsx:85`,
-`skills/detail.tsx:181`, `cron/page.tsx:181`, `cron/detail.tsx:159`, `limits/page.tsx:201`,
-`more/page.tsx:134`, `settings/plugins/page.tsx:29`, and
-`todos/board/board-switcher.tsx:58`. The twelfth, `workflow/list.tsx:111`, has already drifted
+`web/routes/experiments/page.tsx:72`, `web/routes/experiments/detail.tsx:140`,
+`web/routes/skills/page.tsx:85`, `web/routes/skills/detail.tsx:181`,
+`web/routes/cron/page.tsx:181`, `web/routes/cron/detail.tsx:159`,
+`web/routes/limits/page.tsx:201`, `web/routes/more/page.tsx:134`,
+`web/routes/settings/plugins/page.tsx:29`, and `web/routes/todos/board/board-switcher.tsx:58`.
+The twelfth, `web/routes/workflow/list.tsx:111`, has already drifted
 off it: that one jumps straight to `--text-large-title` with no `md:` step, so a phone renders
 the desktop title size. That drift is the argument for the primitive, not a counterexample to
 it — one hand-rolled recipe copied eleven times is what a twelfth copy diverges from.
@@ -164,8 +168,9 @@ In that mode it renders the header and the children and creates **no** scroll bo
 its own scrollers entirely. The Todos board takes it, for a reason that is structural rather than
 stylistic: it keeps **two** scrollports permanently mounted, `listScrollRef` and `boardScrollRef`,
 one of them `hidden`, so that a rotation between the mobile list and the desktop board does not
-lose the reader's place (`board-page.tsx:671` and `:708`). A scaffold offering one scroll slot
-cannot express that, and flattening it to one would be a regression dressed as adoption.
+lose the reader's place (`web/routes/todos/board/board-page.tsx:671` and `:708`). A scaffold
+offering one scroll slot cannot express that, and flattening it to one would be a regression
+dressed as adoption.
 
 `scroll="external"` costs the page its collapsing header — collapse requires the title to live
 inside the scroller (§1.4), and in this mode there is no scroller to put it in. `LargeTitleHeader`
@@ -339,9 +344,10 @@ only place the action is named.
 
 **Placement.** `position: absolute`, `right: var(--space-4)`, and
 `bottom: calc(55px + max(var(--safe-bottom), 6px) + var(--space-4))`. That literal `55px` is
-`MobileTabBar`'s box above its own safe-area padding — `min-h-[49px]` rows plus `py-1.5`'s 6px top
-(`web/components/chat/mobile-tab-bar.tsx:58, 85`). It is a literal because no token for the tab
-bar's height exists; §11 hands that gap to PLA-191, and the FAB is its first consumer.
+`MobileTabBar`'s box above its own safe-area padding — `min-h-[49px]` rows
+(`web/components/chat/mobile-tab-bar.tsx:85`) plus `py-1.5`'s 6px top (same file, `:58`). It is a
+literal because no token for the tab bar's height exists; §11 hands that gap to PLA-191, and the
+FAB is its first consumer.
 
 When the scaffold is rendered with `hideMobileTabBar` (the full-screen-push case — a pushed task
 page owns the bottom edge), the offset drops to
@@ -558,7 +564,7 @@ The push/pop transition contract for a route that behaves like a stack.
 
 **It builds on `web/components/edge-back/`. It does not replace it, and it does not contain a
 second gesture implementation.** That layer already ships, is already mounted, and is already
-tested:
+tested. Every symbol below is exported at the base SHA:
 
 | Symbol | File | What it is |
 | --- | --- | --- |
@@ -569,7 +575,7 @@ tested:
 | `AXIS_LOCK_PX` | same | `8` — the same lock the chat-row swipes use, so the two decide "this is a scroll" at the same moment |
 | `COMMIT_RATIO` | same | `0.35` of viewport width |
 | `COMMIT_VELOCITY` | same | `0.5` px/ms — the flick that commits regardless of distance |
-| `usePreviousViewSnapshot(contentRef)` | `web/components/edge-back/previous-view-snapshot.ts` | Photographs the outgoing route one `rAF` after commit; returns `{ previous, canGoBack }` |
+| `usePreviousViewSnapshot(contentRef)` | `web/components/edge-back/previous-view-snapshot.ts` | Photographs each route one `rAF` after it paints, keyed on its own history entry, so the entry behind the cursor is already a clone when the next navigation needs it; returns `{ previous, canGoBack }` |
 | `RETAINED_NODES` | same | `12_000` — the eviction budget for retained snapshots |
 | `EdgeBackLayer({ contentRef })` | `web/components/edge-back/edge-back-layer.tsx` | The host, the mounted clone, the `--scrim` overlay, and the `touch-pan-y` gutter strip |
 
@@ -591,10 +597,13 @@ indistinguishable at the pixel level.
    `usePreviousViewSnapshot` reports `canGoBack`. It is the mouse user's back, since the gesture
    arms only on a coarse pointer.
 
-**The constants are shared, not re-derived.** `25%` is `PARALLAX = 0.25`, already declared in
-`edge-back-layer.tsx`. The timing is `var(--duration-base) var(--ease-smooth)` — the exact string
-`TRANSITION` already holds in the same file. A tapped back that used a different distance or a
-different curve from a dragged back is the defect this table exists to prevent.
+**The constants are shared, not re-derived.** `25%` is `PARALLAX = 0.25`, and the timing is the
+exact string `TRANSITION` already holds — `var(--duration-base) var(--ease-smooth)`. Both live in
+`web/components/edge-back/edge-back-layer.tsx:11` and `:13`, and both are **module-private `const`
+at the base SHA** — unlike every symbol in the table above, which is exported today. So the slice
+that builds `NavStack` exports those two from that file and imports them; it does not retype
+`0.25` or the timing string. A tapped back that used a different distance or a different curve
+from a dragged back is the defect this rule exists to prevent.
 
 **States.** `idle` · `pushing` · `dragging` (owned entirely by `useEdgeBackGesture`; `NavStack`
 contributes nothing while a finger is down) · `settling-commit` (animates to full width, then
@@ -791,9 +800,9 @@ the third is settled here as a non-gap, so PLA-191 inherits a decision instead o
 
 1. **A tab-bar height token.** `PrimaryAction` needs `MobileTabBar`'s height to clear it and
    currently must write the literal `55px` (§4). The bar's own box is
-   `min-h-[49px] + py-1.5` at `web/components/chat/mobile-tab-bar.tsx:58, 85`. One token, declared
-   next to `--safe-bottom`, removes the literal from at least three call sites — the FAB, the
-   scaffold's mobile bottom padding, and `todo-list.tsx`'s `pb-24`.
+   `min-h-[49px]` (`web/components/chat/mobile-tab-bar.tsx:85`) plus `py-1.5` (same file, `:58`).
+   One token, declared next to `--safe-bottom`, removes the literal from at least three call
+   sites — the FAB, the scaffold's mobile bottom padding, and `todo-list.tsx`'s `pb-24`.
 2. **A large-title collapse distance — settled, and not a token.** `--jinn-collapse-distance`
    stays the inline per-instance property §1.4 sets from the large title's own measured height.
    PLA-191 declares no Ledger token for it. A fixed global distance would be wrong rather than
