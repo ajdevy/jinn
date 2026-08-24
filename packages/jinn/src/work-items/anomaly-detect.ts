@@ -9,6 +9,7 @@ import {
 import { listWorkItemRuns } from "./runs.js";
 import { appendWorkItemEvent, getWorkItem, listWorkItems, type WorkItem } from "./store.js";
 import { owningWorkflowId } from "./workflow-ownership.js";
+import { initDb } from "../shared/db.js";
 
 export const ANOMALY_KINDS = [
   "assigned-without-run",
@@ -62,10 +63,16 @@ function assignedWithoutRun(item: WorkItem, now: Date): TodoAnomaly | undefined 
   return { workItemId: item.id, kind: "assigned-without-run", lane: "recovering", reason: "assigned to a pipeline with no active run" };
 }
 
+function sessionInFlight(sessionId: string): boolean {
+  const row = initDb().prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId) as { status: string } | undefined;
+  return row?.status === "running" || row?.status === "waiting";
+}
+
 function executionTimeout(item: WorkItem, now: Date): TodoAnomaly | undefined {
   if (item.status !== "executing") return undefined;
   const open = listWorkItemRuns(item.id).find((run) => run.endedAt === null);
   if (!open) return undefined;
+  if (sessionInFlight(open.sessionId)) return undefined;
   const started = Date.parse(open.startedAt);
   if (!Number.isFinite(started) || now.getTime() - started <= EXECUTION_TIMEOUT_MS) return undefined;
   return { workItemId: item.id, kind: "execution-timeout", lane: "manager", reason: "execution has outlived the 4h timeout without an in-flight session to speak for it" };
@@ -95,16 +102,30 @@ function inspect(item: WorkItem, now: Date): TodoAnomaly | undefined {
   return assignedWithoutRun(item, now) ?? executionTimeout(item, now) ?? reviewAnomaly(item) ?? blockedWithoutRecovery(item);
 }
 
+export interface DetectTodoAnomaliesInput {
+  now?: Date;
+  persist?: boolean;
+  /** Close an approved-landed leftover through the existing complete() path.
+   *  Return true when the Todo is done so it is not parked on Manager attention. */
+  closeApprovedLanded?: (todoId: string) => boolean;
+}
+
 /**
  * Quiet detector. Returns the leftover lies on the board. A healthy board
  * returns []. Never creates a Todo or a session.
  */
-export function detectTodoAnomalies(now = new Date(), persist = true): TodoAnomaly[] {
+export function detectTodoAnomalies(input: DetectTodoAnomaliesInput = {}): TodoAnomaly[] {
+  const now = input.now ?? new Date();
+  const persist = input.persist !== false;
   const found: TodoAnomaly[] = [];
   for (const status of ["assigned", "executing", "in_review", "blocked"] as const) {
     for (const item of listWorkItems({ status })) {
       const anomaly = inspect(item, now);
       if (!anomaly) continue;
+      if (anomaly.kind === "approved-landed-open" && input.closeApprovedLanded?.(item.id)) {
+        found.push(anomaly);
+        continue;
+      }
       found.push(anomaly);
       if (persist) note(item, anomaly, now);
     }

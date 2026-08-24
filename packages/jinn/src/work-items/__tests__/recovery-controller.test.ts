@@ -96,10 +96,18 @@ describe("sweepTodoRecovery", () => {
     expect(controller.todoRecoveryMode("always")).toBe("classify-only");
   });
 
-  it("keeps recovering Todos out of the operator Needs you queue", () => {
+  it("feeds recovering leftovers into the attention query so the dashboard can split them", () => {
     const { id } = parked("quota parked", "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z", "rate_limited");
     controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
+    expect(rows.getWorkItemRecovery(id)?.lane).toBe("recovering");
     const hits = store.listWorkItems({ needsAttentionFor: "platform-worker" }).map((item) => item.id);
-    expect(hits).not.toContain(id);
+    expect(hits).toContain(id);
+  });
+
+  it("feeds recovering leftovers even when the caller is not the assignee", () => {
+    const { id } = parked("quota for another worker", "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z", "rate_limited");
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
+    const hits = store.listWorkItems({ needsAttentionFor: "operator" }).map((item) => item.id);
+    expect(hits).toContain(id);
   });
 });
