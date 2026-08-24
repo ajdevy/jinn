@@ -25,12 +25,12 @@ export const TALK_DRIVING_UTTERANCES = [
   {
     id: "read-missing-todo",
     text: "Read Todo ZZZ-999.",
-    synthesis: "Read the Todo whose ID is the letter Z repeated three times followed by dash nine nine nine.",
+    synthesis: "Read the Todo whose ID is uppercase Z, uppercase Z, uppercase Z, followed by dash nine nine nine.",
   },
   {
     id: "transport-retry",
     text: "Make a fresh authoritative read through the gateway for Todo ZZZ-999. Do not reuse the prior result.",
-    synthesis: "Make a fresh authoritative read through the gateway for the Todo whose ID is the letter Z repeated three times followed by dash nine nine nine. Do not reuse the prior result.",
+    synthesis: "Make a fresh authoritative read through the gateway for the Todo whose ID is uppercase Z, uppercase Z, uppercase Z, followed by dash nine nine nine. Do not reuse the prior result.",
   },
 ]
 
