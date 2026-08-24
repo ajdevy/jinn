@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react"
 import { RotateCcw, Trash2, Check, Save, Loader2, Plus, EyeOff } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useSettings } from "@/routes/settings-provider"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
@@ -256,18 +258,9 @@ export default function SettingsPage() {
 
   return (
     <PageLayout>
-      {/* Same page frame as Todos/Limits: one scrolling column, inline
-          large-title header. Forms read best narrow, so the column is 640px. */}
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[640px] px-5 pb-20 pt-6 md:pt-11">
-          <header className="mb-6">
-            <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-              Settings
-            </h1>
-            <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-              Portal, gateway and connectors
-            </div>
-          </header>
+      {/* Forms read best narrow, so the column is 640px. */}
+      <PageScaffold header={<LargeTitleHeader title="Settings" subtitle="Portal, gateway and connectors" />}>
+        <div className="mx-auto max-w-[640px]">
 
           {/* -- Section 1: Appearance -- */}
           <Section title="Appearance">
@@ -675,7 +668,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={addClaudeModel}
                       disabled={!claudeModelId.trim()}
-                      className="inline-flex items-center justify-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border-none bg-[var(--accent)] px-[10px] py-[6px] text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:cursor-default disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border-none bg-[var(--accent)] px-[10px] py-[6px] text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:cursor-default disabled:opacity-50" // jinn-shell: ok inline settings control, not page chrome
                     >
                       <Plus size={14} />
                       Add
@@ -1483,7 +1476,7 @@ export default function SettingsPage() {
             </div>
           </Section>
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

@@ -176,7 +176,7 @@ describe("Experiment detail links", () => {
   it("renders neither when the experiment has no Todo and no owner", async () => {
     renderDetail()
 
-    expect(await screen.findByText("Onboarding clarity")).toBeTruthy()
+    expect(await screen.findByRole("heading", { name: "Onboarding clarity" })).toBeTruthy()
     expect(screen.queryByTestId("experiment-todo-link")).toBeNull()
   })
 })

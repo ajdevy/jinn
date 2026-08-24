@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom"
 import { ChevronRight, Sun, Moon, Palette, type LucideIcon } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 import { THEMES, type ThemeId } from "@/lib/themes"
@@ -129,11 +131,8 @@ export default function MorePage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[560px] px-4 pb-20 pt-6 md:pt-11">
-          <h1 className="px-1 font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-            More
-          </h1>
+      <PageScaffold header={<LargeTitleHeader title="More" />}>
+        <div className="mx-auto max-w-[560px]">
 
           <div className="mt-5">
             <Card>
@@ -151,7 +150,7 @@ export default function MorePage() {
 
           <WorkspacesGroup />
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

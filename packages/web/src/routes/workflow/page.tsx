@@ -112,7 +112,7 @@ function RunButton({ workflowId }: { workflowId: string }) {
       onClick={() => start.mutate()}
       disabled={start.isPending}
       title={start.isError ? (start.error instanceof Error ? start.error.message : "Failed to start run.") : undefined}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[var(--accent)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50"
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[var(--accent)] px-3.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-50" // jinn-shell: ok editor run control, not page chrome
     >
       <Play className="size-3.5" aria-hidden />
       {start.isPending ? "Starting…" : "Run"}

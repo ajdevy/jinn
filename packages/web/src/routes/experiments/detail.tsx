@@ -3,6 +3,8 @@ import { ArrowLeft, CalendarDays, CheckSquare2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { EmployeeChip } from "@/components/ui/employee-chip"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
@@ -115,13 +117,54 @@ export default function ExperimentDetailPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <main className="mx-auto max-w-[900px] px-5 pb-20 pt-5 md:pt-9">
-          <Link to="/experiments" className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full px-2 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]">
-            <ArrowLeft className="size-4" aria-hidden />
-            Experiments
-          </Link>
-
+      <PageScaffold
+        header={
+          experiment ? (
+            <LargeTitleHeader
+              leading={
+                <Link to="/experiments" className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full px-2 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]">
+                  <ArrowLeft className="size-4" aria-hidden />
+                  Experiments
+                </Link>
+              }
+              title={experiment.name}
+              subtitle={
+                <>
+                  <div className="flex items-center gap-2 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                    <span className="size-2 rounded-full" style={{ background: experiment.status === "running" ? "var(--system-blue)" : "var(--system-green)" }} aria-hidden />
+                    {experiment.status === "running" ? "Running" : "Concluded"}
+                    {experiment.overdue && <OverduePill id={experiment.id} />}
+                  </div>
+                  <div className="mt-2 flex items-center gap-1.5 text-[length:var(--text-footnote)] text-[var(--text-quaternary)]">
+                    <CalendarDays className="size-3.5" aria-hidden />
+                    Started {new Date(experiment.startedAt).toLocaleDateString()} · {experiment.horizonDays}-day horizon
+                  </div>
+                  <ExperimentLinks experiment={experiment} />
+                </>
+              }
+              trailing={
+                experiment.status === "running" ? (
+                  <div className="flex shrink-0 gap-2">
+                    <ActionButton label="Record reading" testId="experiment-record-reading-open" onClick={() => setOpenDialog("reading")} />
+                    <ActionButton label="Conclude" testId="experiment-conclude-open" onClick={() => setOpenDialog("conclude")} />
+                  </div>
+                ) : null
+              }
+            />
+          ) : (
+            <LargeTitleHeader
+              leading={
+                <Link to="/experiments" className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full px-2 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]">
+                  <ArrowLeft className="size-4" aria-hidden />
+                  Experiments
+                </Link>
+              }
+              title="Experiment"
+            />
+          )
+        }
+      >
+        <main className="mx-auto max-w-[900px]">
           {query.isPending ? (
             <div className="py-20 text-center text-[var(--text-tertiary)]">Loading experiment…</div>
           ) : query.isError || !experiment ? (
@@ -130,29 +173,6 @@ export default function ExperimentDetailPage() {
             </div>
           ) : (
             <>
-              <header className="mt-4">
-                <div className="flex items-center gap-2 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                  <span className="size-2 rounded-full" style={{ background: experiment.status === "running" ? "var(--system-blue)" : "var(--system-green)" }} aria-hidden />
-                  {experiment.status === "running" ? "Running" : "Concluded"}
-                  {experiment.overdue && <OverduePill id={experiment.id} />}
-                </div>
-                <div className="mt-2 flex flex-wrap items-start justify-between gap-x-5 gap-y-3">
-                  <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-                    {experiment.name}
-                  </h1>
-                  {experiment.status === "running" && (
-                    <div className="flex shrink-0 gap-2">
-                      <ActionButton label="Record reading" testId="experiment-record-reading-open" onClick={() => setOpenDialog("reading")} />
-                      <ActionButton label="Conclude" testId="experiment-conclude-open" onClick={() => setOpenDialog("conclude")} />
-                    </div>
-                  )}
-                </div>
-                <div className="mt-2 flex items-center gap-1.5 text-[length:var(--text-footnote)] text-[var(--text-quaternary)]">
-                  <CalendarDays className="size-3.5" aria-hidden />
-                  Started {new Date(experiment.startedAt).toLocaleDateString()} · {experiment.horizonDays}-day horizon
-                </div>
-                <ExperimentLinks experiment={experiment} />
-              </header>
 
               <section className="mt-7">
                 <div className="text-[length:var(--text-caption1)] font-[var(--weight-semibold)] uppercase tracking-[0.12em] text-[var(--text-secondary)]">Hypothesis</div>
@@ -194,7 +214,7 @@ export default function ExperimentDetailPage() {
             </>
           )}
         </main>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

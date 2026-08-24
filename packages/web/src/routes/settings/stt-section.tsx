@@ -83,7 +83,7 @@ function DownloadRow({ status, onDownload }: { status: SttStatus; onDownload: ()
   return (
     <button
       onClick={onDownload}
-      className="w-full p-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-semibold)] mb-[var(--space-4)]"
+      className="w-full p-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-semibold)] mb-[var(--space-4)]" // jinn-shell: ok settings download control, not page chrome
     >
       Download Whisper Small (~500MB)
     </button>

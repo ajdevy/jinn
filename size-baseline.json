@@ -1561,14 +1561,13 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 305,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 346,
+      "lines": 338,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1660,7 +1659,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1489,
+      "lines": 1482,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1693,7 +1692,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 917,
+      "lines": 915,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

@@ -1,7 +1,6 @@
 import { useMemo } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, ChevronLeft, Play } from "lucide-react"
 import { api } from "@/lib/api"
 import { useTriggerCronJob } from "@/hooks/use-cron"
 import {
@@ -11,16 +10,16 @@ import {
   nextCronDate,
 } from "@/lib/cron-utils"
 import { PageLayout } from "@/components/page-layout"
+import { PageScaffold } from "@/components/shell/page-scaffold"
+import { CronJobHeader } from "./detail-header"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import {
   displayNameOf,
   runTimestamp,
-  ToggleSwitch,
   type CronJobWire,
   type CronRunWire,
 } from "./shared"
-import { CronDeleteMenu } from "./delete-menu"
 import { RunRow } from "./run-row"
 
 /* design-cron §2.4 — a cron job opens as a document (the Skills idiom): back
@@ -117,16 +116,18 @@ export default function CronDetailPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-24 pt-6 md:pt-11">
-          <Link
-            to="/cron"
-            className="mb-3.5 inline-flex items-center gap-1 text-[length:var(--text-footnote)] font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
-          >
-            <ChevronLeft size={13} strokeWidth={2.4} aria-hidden />
-            Cron
-          </Link>
-
+      <PageScaffold
+        header={
+          <CronJobHeader
+            job={job}
+            triggerPending={trigger.isPending}
+            triggered={triggered}
+            onRun={() => trigger.mutate()}
+            onToggle={(v) => toggle.mutate(v)}
+          />
+        }
+      >
+        <div className="mx-auto max-w-[840px]">
           {jobsQuery.isLoading ? (
             <DetailSkeleton />
           ) : notFound ? (
@@ -154,57 +155,6 @@ export default function CronDetailPage() {
             </div>
           ) : job ? (
             <>
-              <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-4">
-                <div className="min-w-0 flex-1 basis-[320px]">
-                  <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] [overflow-wrap:anywhere] md:text-[length:var(--text-large-title)]">
-                    {job.name}
-                  </h1>
-                  <p className="mt-1.5 text-[length:var(--text-subheadline)] leading-[var(--leading-normal)] text-[var(--text-secondary)]">
-                    {describeCron(job.schedule)}
-                    {job.timezone ? ` · ${job.timezone}` : ""}
-                  </p>
-                  <div
-                    className="mt-2.5 text-[length:var(--text-caption1)] leading-[1.7] text-[var(--text-quaternary)] [overflow-wrap:anywhere]"
-                    style={{ fontFamily: "var(--font-code)" }}
-                  >
-                    {job.schedule}
-                    <br />
-                    id: {job.id}
-                  </div>
-                </div>
-                <div className="flex flex-none items-center gap-3.5 pb-1">
-                  <button
-                    type="button"
-                    data-testid="cron-run-now"
-                    disabled={trigger.isPending || triggered}
-                    onClick={() => trigger.mutate()}
-                    className="inline-flex h-[38px] flex-none items-center gap-1.5 rounded-full px-4 text-[length:var(--text-subheadline)] font-semibold transition-transform hover:scale-[0.98] disabled:opacity-80"
-                    style={
-                      triggered
-                        ? { background: "color-mix(in srgb, var(--system-green) 13%, transparent)", color: "var(--system-green)", boxShadow: "var(--inset-shine)" }
-                        : { background: "var(--accent-fill)", color: "var(--accent)", boxShadow: "var(--inset-shine)" }
-                    }
-                  >
-                    {triggered ? (
-                      <>
-                        <Check className="size-[15px]" aria-hidden />
-                        Triggered
-                      </>
-                    ) : (
-                      <>
-                        <Play className="size-[13px]" fill="currentColor" strokeWidth={0} aria-hidden />
-                        {trigger.isPending ? "Starting…" : "Run now"}
-                      </>
-                    )}
-                  </button>
-                  <ToggleSwitch
-                    checked={job.enabled}
-                    onChange={(v) => toggle.mutate(v)}
-                    label={job.enabled ? `Disable ${job.name}` : `Enable ${job.name}`}
-                  />
-                  <CronDeleteMenu job={job} variant="header" onDeleted={() => navigate("/cron")} />
-                </div>
-              </header>
 
               {trigger.isError && (
                 <div
@@ -299,7 +249,7 @@ export default function CronDetailPage() {
             <DetailSkeleton />
           )}
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }
