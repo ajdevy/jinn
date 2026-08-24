@@ -59,7 +59,9 @@ result came from the turbo cache.
 | S22 gates and native targets | 0 | 0 | 0 | 0 | 0 | 0 |
 | S23 journey and evidence | 0 | 0 | 0 | 0 | 0 | 0 |
 | S24 reconcile onto `main` `aaa5f48e`, QA evidence only | 0 | 0 | 0 | 0 | 0 | 0 |
-| S25 reconcile onto `main` `2402dabd`, drift named honestly | 0 | 0 | 0 | 0 | 0 | 0 |
+| S25 reconcile onto `main` `2402dabd`, drift named honestly | 0 | 1 | 0 | 0 | 0 | 0 |
+
+`lint` exits 1 at S25, and the failure is `main`'s, not this branch's: `scripts/upgrade-lab/assertions.mjs:15` reports `Function 'assertStockBundleApplied' has a complexity of 14. Maximum allowed is 10`. That file arrived in `76be9932`, this branch's own base, and `git diff main HEAD` shows this branch changes nothing outside `docs/qa/`, so every input `lint` reads is byte-identical to `main`'s. Fixing it here would also break the branch's docs-only diff. It is reported, not fixed.
 
 `cargo test --manifest-path packages/shell/src-tauri/Cargo.toml` reports 17
 passing tests, one more than the previous round: the restored
