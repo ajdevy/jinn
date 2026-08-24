@@ -1,4 +1,5 @@
 export type AuthProvider = "claude" | "codex";
+const AUTH_PROVIDERS = ["claude", "codex"] as const satisfies readonly AuthProvider[];
 
 export type AuthCommand =
   | { kind: "start"; provider: AuthProvider }
@@ -104,29 +105,90 @@ export function parseAuthCommand(text: string): AuthCommand | null {
     return null;
   }
 
-  const args = match[1]?.trim().split(/\s+/) ?? [];
-  if (args.length !== 1 && args.length !== 2) {
-    return { kind: "rejected" };
-  }
+  return parseAuthArgs(match[1]?.trim().split(/\s+/) ?? []);
+}
 
-  const action = args[0]?.toLowerCase();
-  if (action === "claude" && args.length === 1) {
-    return { kind: "start", provider: "claude" };
+function parseAuthArgs(args: string[]): AuthCommand {
+  if (args.length === 1) {
+    return parseSingleArgCommand(args[0].toLowerCase());
   }
-  if (action === "codex" && args.length === 1) {
-    return { kind: "start", provider: "codex" };
-  }
-  if (action === "status" && args.length === 1) {
-    return { kind: "status" };
-  }
-  if (action === "cancel" && args.length === 1) {
-    return { kind: "cancel" };
-  }
-  if (action === "input" && args.length === 2 && isAuthCode(args[1])) {
+  if (args.length === 2 && args[0].toLowerCase() === "input" && isAuthCode(args[1])) {
     return { kind: "input", code: args[1] };
   }
-
   return { kind: "rejected" };
+}
+
+function parseSingleArgCommand(action: string): AuthCommand {
+  switch (action) {
+    case "claude":
+      return { kind: "start", provider: "claude" };
+    case "codex":
+      return { kind: "start", provider: "codex" };
+    case "status":
+      return { kind: "status" };
+    case "cancel":
+      return { kind: "cancel" };
+    default:
+      return { kind: "rejected" };
+  }
+}
+
+function dispatchableCommand(command: AuthCommand | null): command is AuthCommand {
+  return command !== null;
+}
+
+function providerArgs(provider: AuthProvider): string[] {
+  return provider === "claude"
+    ? ["auth", "login", "--claudeai"]
+    : ["login", "--device-auth"];
+}
+
+function providerEnv(): Record<string, string> {
+  return {
+    PATH:
+      process.env.PATH ??
+      "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    HOME: "/home/node",
+    CLAUDE_CONFIG_DIR: "/home/node/.claude",
+    CODEX_HOME: "/home/node/.codex",
+  };
+}
+
+function flowHasActiveDiscovery(flow: ActiveFlow): boolean {
+  return Boolean(
+    (flow.discoveredUrl && !flow.urlSent) ||
+      (flow.discoveredCode && !flow.codeSent),
+  );
+}
+
+function discoveryLines(flow: ActiveFlow): string[] {
+  const lines = ["Continue authentication:"];
+  if (flow.discoveredUrl && !flow.urlSent) {
+    flow.urlSent = true;
+    lines.push(flow.discoveredUrl);
+  }
+  if (flow.discoveredCode && !flow.codeSent) {
+    flow.codeSent = true;
+    lines.push("Device code: " + flow.discoveredCode);
+  }
+  return lines;
+}
+
+function activeProviderStatusLine(providers: AuthProvider[]): string | null {
+  if (providers.length === 0) {
+    return null;
+  }
+  return (
+    "Active authentication flows: " +
+    providers.map((provider) => providerLabel(provider)).join(", ") +
+    "."
+  );
+}
+
+function validDurationSeconds(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
 }
 
 export function redactAuthOutput(text: string): string {
@@ -196,6 +258,47 @@ interface ActiveFlow {
   exitSubscription?: { dispose?: () => void };
 }
 
+function createFlow(options: {
+  ownerId: number;
+  key: FlowKey;
+  provider: AuthProvider;
+  chatId: AuthChatId;
+  pty: AuthPty;
+}): ActiveFlow {
+  return {
+    ...options,
+    output: "",
+    discoveryTail: "",
+    timer: undefined,
+    urlSent: false,
+    codeSent: false,
+    discoveryScheduled: false,
+    invalidated: false,
+  };
+}
+
+function subscriptionObject(
+  subscription: { dispose?: () => void } | void,
+): { dispose?: () => void } | undefined {
+  return subscription && typeof subscription === "object"
+    ? subscription
+    : undefined;
+}
+
+function statusLines(
+  activeProviders: AuthProvider[],
+  statuses: Array<{ provider: AuthProvider; authenticated: boolean }>,
+): string[] {
+  const activeLine = activeProviderStatusLine(activeProviders);
+  const lines = activeLine ? [activeLine] : [];
+  lines.push(
+    ...statuses.map(({ provider, authenticated }) =>
+      statusLine(provider, authenticated),
+    ),
+  );
+  return lines;
+}
+
 export class AuthFlowManager {
   private readonly ownerUserIds: ReadonlySet<number>;
   private readonly clock: AuthClock;
@@ -218,17 +321,15 @@ export class AuthFlowManager {
     this.spawnPty = options.spawnPty;
     this.verifyAuth = options.verifyAuth;
     this.getAuthStatus = options.getAuthStatus;
-    this.verifyTimeoutSeconds =
-      options.verifyTimeoutSeconds &&
-      Number.isFinite(options.verifyTimeoutSeconds) &&
-      options.verifyTimeoutSeconds > 0
-        ? options.verifyTimeoutSeconds
-        : DEFAULT_VERIFY_TIMEOUT_SECONDS;
+    this.verifyTimeoutSeconds = validDurationSeconds(
+      options.verifyTimeoutSeconds,
+      DEFAULT_VERIFY_TIMEOUT_SECONDS,
+    );
     this.logger = options.logger;
-    this.flowTtlSeconds =
-      options.flowTtlSeconds && options.flowTtlSeconds > 0
-        ? options.flowTtlSeconds
-        : DEFAULT_FLOW_TTL_SECONDS;
+    this.flowTtlSeconds = validDurationSeconds(
+      options.flowTtlSeconds,
+      DEFAULT_FLOW_TTL_SECONDS,
+    );
   }
 
   async handleMessage(message: AuthMessage): Promise<boolean> {
@@ -255,31 +356,13 @@ export class AuthFlowManager {
       return true;
     }
 
-    if (!command) {
+    if (!dispatchableCommand(command)) {
       await this.sendSafely(message.chatId, "Unsupported authentication command.");
       return true;
     }
 
-    switch (command.kind) {
-      case "start":
-        await this.startFlow(ownerId, command.provider, message.chatId);
-        return true;
-      case "status":
-        await this.sendStatus(ownerId, message.chatId);
-        return true;
-      case "cancel":
-        await this.cancelFlow(ownerId, message.chatId);
-        return true;
-      case "input":
-        await this.writeCode(ownerId, command.code, message.chatId);
-        return true;
-      case "rejected":
-        await this.sendSafely(
-          message.chatId,
-          "Unsupported authentication command. One-time codes must match the short-code format; tokens are not accepted.",
-        );
-        return true;
-    }
+    await this.dispatchCommand(ownerId, command, message.chatId);
+    return true;
   }
 
   stop(): void {
@@ -296,6 +379,86 @@ export class AuthFlowManager {
       : null;
   }
 
+  private async dispatchCommand(
+    ownerId: number,
+    command: AuthCommand,
+    chatId: AuthChatId,
+  ): Promise<void> {
+    switch (command.kind) {
+      case "start":
+        await this.startFlow(ownerId, command.provider, chatId);
+        return;
+      case "status":
+        await this.sendStatus(ownerId, chatId);
+        return;
+      case "cancel":
+        await this.cancelFlow(ownerId, chatId);
+        return;
+      case "input":
+        await this.writeCode(ownerId, command.code, chatId);
+        return;
+      case "rejected":
+        await this.sendRejectedCommand(chatId);
+    }
+  }
+
+  private async sendRejectedCommand(chatId: AuthChatId): Promise<void> {
+    await this.sendSafely(
+      chatId,
+      "Unsupported authentication command. One-time codes must match the short-code format; tokens are not accepted.",
+    );
+  }
+
+  private clearPreviousFlow(key: FlowKey): void {
+    const previous = this.activeFlows.get(key);
+    if (previous) {
+      this.clearFlow(previous, true);
+    }
+  }
+
+  private async spawnProviderPty(
+    provider: AuthProvider,
+    chatId: AuthChatId,
+  ): Promise<AuthPty | null> {
+    try {
+      return this.spawnPty(provider, providerArgs(provider), {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 40,
+        cwd: "/home/node",
+        env: providerEnv(),
+      });
+    } catch {
+      await this.sendSafely(chatId, providerLabel(provider) + " authentication failed to start.");
+      this.logger.error?.("[telegram-auth] failed to start provider process");
+      return null;
+    }
+  }
+
+  private attachFlowHandlers(flow: ActiveFlow): void {
+    const dataSubscription = flow.pty.onData((data) => {
+      if (!this.isActiveFlow(flow)) {
+        return;
+      }
+      this.captureDiscovery(flow, data);
+      flow.output = appendOutput(flow.output, data);
+      this.scheduleDiscovery(flow);
+    });
+    const exitSubscription = flow.pty.onExit((event) => {
+      void this.finishFlow(flow, event.exitCode);
+    });
+    flow.dataSubscription = subscriptionObject(dataSubscription);
+    flow.exitSubscription = subscriptionObject(exitSubscription);
+    flow.timer = this.clock.setTimeout(
+      () => this.timeoutFlow(flow),
+      this.flowTtlSeconds * 1000,
+    );
+  }
+
+  private isActiveFlow(flow: ActiveFlow): boolean {
+    return this.activeFlows.get(flow.key) === flow && !flow.invalidated;
+  }
+
   private async startFlow(
     ownerId: number,
     provider: AuthProvider,
@@ -303,79 +466,16 @@ export class AuthFlowManager {
   ): Promise<void> {
     const key = flowKey(ownerId, provider);
     this.invalidatePendingVerifications(key);
-    const previous = this.activeFlows.get(key);
-    if (previous) {
-      this.clearFlow(previous, true);
-    }
+    this.clearPreviousFlow(key);
 
-    const args =
-      provider === "claude"
-        ? ["auth", "login", "--claudeai"]
-        : ["login", "--device-auth"];
-    const env = {
-      PATH:
-        process.env.PATH ??
-        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-      HOME: "/home/node",
-      CLAUDE_CONFIG_DIR: "/home/node/.claude",
-      CODEX_HOME: "/home/node/.codex",
-    };
-
-    let pty: AuthPty;
-    try {
-      pty = this.spawnPty(provider, args, {
-        name: "xterm-256color",
-        cols: 120,
-        rows: 40,
-        cwd: "/home/node",
-        env,
-      });
-    } catch {
-      await this.sendSafely(chatId, providerLabel(provider) + " authentication failed to start.");
-      this.logger.error?.("[telegram-auth] failed to start provider process");
+    const pty = await this.spawnProviderPty(provider, chatId);
+    if (!pty) {
       return;
     }
 
-    const flow: ActiveFlow = {
-      ownerId,
-      key,
-      provider,
-      chatId,
-      pty,
-      output: "",
-      discoveryTail: "",
-      timer: undefined,
-      urlSent: false,
-      codeSent: false,
-      discoveryScheduled: false,
-      invalidated: false,
-    };
+    const flow = createFlow({ ownerId, key, provider, chatId, pty });
     this.activeFlows.set(key, flow);
-
-    const dataSubscription = pty.onData((data) => {
-      if (this.activeFlows.get(key) !== flow || flow.invalidated) {
-        return;
-      }
-      this.captureDiscovery(flow, data);
-      flow.output = appendOutput(flow.output, data);
-      this.scheduleDiscovery(flow);
-    });
-    const exitSubscription = pty.onExit((event) => {
-      void this.finishFlow(flow, event.exitCode);
-    });
-    flow.dataSubscription =
-      dataSubscription && typeof dataSubscription === "object"
-        ? dataSubscription
-        : undefined;
-    flow.exitSubscription =
-      exitSubscription && typeof exitSubscription === "object"
-        ? exitSubscription
-        : undefined;
-    flow.timer = this.clock.setTimeout(
-      () => this.timeoutFlow(flow),
-      this.flowTtlSeconds * 1000,
-    );
-
+    this.attachFlowHandlers(flow);
     await this.sendSafely(
       chatId,
       providerLabel(provider) + " authentication started. Follow the instructions below.",
@@ -418,19 +518,10 @@ export class AuthFlowManager {
       flow.discoveredCode = discovery.code;
     }
 
-    const lines = ["Continue authentication:"];
-    if (flow.discoveredUrl && !flow.urlSent) {
-      flow.urlSent = true;
-      lines.push(flow.discoveredUrl);
-    }
-    if (flow.discoveredCode && !flow.codeSent) {
-      flow.codeSent = true;
-      lines.push("Device code: " + flow.discoveredCode);
-    }
-    if (lines.length === 1) {
+    if (!flowHasActiveDiscovery(flow)) {
       return;
     }
-    void this.sendSafely(flow.chatId, lines.join("\n"));
+    void this.sendSafely(flow.chatId, discoveryLines(flow).join("\n"));
   }
 
   private async sendStatus(ownerId: number, chatId: AuthChatId): Promise<void> {
@@ -438,18 +529,13 @@ export class AuthFlowManager {
       .filter((flow) => flow.ownerId === ownerId)
       .map((flow) => flow.provider)
       .sort();
-    const lines: string[] = [];
-    if (activeProviders.length > 0) {
-      lines.push(
-        "Active authentication flows: " +
-          activeProviders.map((provider) => providerLabel(provider)).join(", ") +
-          ".",
-      );
-    }
-    for (const provider of ["claude", "codex"] as const) {
-      const authenticated = await this.readAuthStatus(provider);
-      lines.push(statusLine(provider, authenticated));
-    }
+    const statuses = await Promise.all(
+      AUTH_PROVIDERS.map(async (provider) => ({
+        provider,
+        authenticated: await this.readAuthStatusWithTimeout(provider),
+      })),
+    );
+    const lines = statusLines(activeProviders, statuses);
     await this.sendSafely(chatId, lines.join("\n"));
   }
 
@@ -544,26 +630,14 @@ export class AuthFlowManager {
     if (!this.verifyAuth) {
       return false;
     }
-
-    let timeoutHandle: unknown;
-    let timerCreated = false;
     try {
-      const verification = Promise.resolve(this.verifyAuth(provider));
-      const timeout = new Promise<boolean>((resolve) => {
-        timeoutHandle = this.clock.setTimeout(
-          () => resolve(false),
-          this.verifyTimeoutSeconds * 1000,
-        );
-        timerCreated = true;
-      });
-      return await Promise.race([verification, timeout]);
+      return await this.booleanWithTimeout(
+        () => Promise.resolve(this.verifyAuth?.(provider) ?? false),
+        "[telegram-auth] post-exit authentication verification timed out",
+      );
     } catch {
       this.logger.warn?.("[telegram-auth] post-exit authentication verification failed");
       return false;
-    } finally {
-      if (timerCreated) {
-        this.clock.clearTimeout(timeoutHandle);
-      }
     }
   }
 
@@ -576,6 +650,33 @@ export class AuthFlowManager {
     } catch {
       this.logger.warn?.("[telegram-auth] authentication status check failed");
       return false;
+    }
+  }
+
+  private async readAuthStatusWithTimeout(provider: AuthProvider): Promise<boolean> {
+    return await this.booleanWithTimeout(
+      () => this.readAuthStatus(provider),
+      "[telegram-auth] authentication status check timed out",
+    );
+  }
+
+  private async booleanWithTimeout(
+    action: () => Promise<boolean>,
+    timeoutLogMessage: string,
+  ): Promise<boolean> {
+    let timeoutHandle: unknown;
+    try {
+      const timeout = new Promise<boolean>((resolve) => {
+        timeoutHandle = this.clock.setTimeout(() => {
+          this.logger.warn?.(timeoutLogMessage);
+          resolve(false);
+        }, this.verifyTimeoutSeconds * 1000);
+      });
+      return await Promise.race([action(), timeout]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        this.clock.clearTimeout(timeoutHandle);
+      }
     }
   }
 

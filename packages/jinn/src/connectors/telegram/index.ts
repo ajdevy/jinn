@@ -32,6 +32,7 @@ import {
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 const AUTH_VERIFY_TIMEOUT_MS = 15_000;
+const AUTH_KILL_GRACE_MS = 2_000;
 const AUTH_VERIFY_ENV = {
   PATH:
     process.env.PATH ??
@@ -136,19 +137,9 @@ export class TelegramConnector implements Connector {
         }
       }
 
-      const rawMessageText: string =
-        (telegramMsg as any).text || (telegramMsg as any).caption || "";
-      if (this.authManager) {
-        const handled = await this.authManager.handleMessage({
-          userId: userId ?? "unknown",
-          chatType: telegramMsg.chat.type,
-          chatId: telegramMsg.chat.id,
-          messageId: telegramMsg.message_id,
-          text: rawMessageText,
-        });
-        if (handled) {
-          return;
-        }
+      const rawMessageText = messageTextFromTelegram(telegramMsg);
+      if (await this.tryHandleAuthMessage(telegramMsg, userId, rawMessageText)) {
+        return;
       }
 
       if (!this.handler) {
@@ -432,6 +423,23 @@ export class TelegramConnector implements Connector {
     }
   }
 
+  private async tryHandleAuthMessage(
+    telegramMsg: any,
+    userId: number | undefined,
+    text: string,
+  ): Promise<boolean> {
+    if (!this.authManager) {
+      return false;
+    }
+    return await this.authManager.handleMessage({
+      userId: userId ?? "unknown",
+      chatType: telegramMsg.chat.type,
+      chatId: telegramMsg.chat.id,
+      messageId: telegramMsg.message_id,
+      text,
+    });
+  }
+
   private async deleteMessageSafely(
     chatId: AuthChatId,
     messageId: number | string,
@@ -557,22 +565,73 @@ function verifyClaudeAuth(): Promise<boolean> {
 }
 
 function verifyCodexAuth(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn("codex", ["login", "status"], {
-      env: AUTH_VERIFY_ENV,
-      stdio: "ignore",
-    });
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve(false);
-    }, AUTH_VERIFY_TIMEOUT_MS);
-    child.once("error", () => {
-      clearTimeout(timeout);
-      resolve(false);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      resolve(code === 0);
-    });
+  const child = spawn("codex", ["login", "status"], {
+    env: AUTH_VERIFY_ENV,
+    stdio: "ignore",
   });
+  return waitForCodexStatus(child);
+}
+
+function waitForCodexStatus(child: ReturnType<typeof spawn>): Promise<boolean> {
+  return new Promise((resolve) => {
+    let authTimer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let finalTimer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const settle = (authenticated: boolean) => {
+      if (settled) return;
+      settled = true;
+      cleanupCodexStatusChild(child, listeners, [authTimer, killTimer, finalTimer]);
+      resolve(authenticated);
+    };
+    const forceKill = () => {
+      killCodexStatusChild(child, "SIGKILL");
+      finalTimer = setTimeout(() => settle(false), AUTH_KILL_GRACE_MS);
+    };
+    const terminate = () => {
+      killCodexStatusChild(child, "SIGTERM");
+      killTimer = setTimeout(forceKill, AUTH_KILL_GRACE_MS);
+    };
+    const listeners = {
+      error: () => settle(false),
+      exit: (code: number | null) => settle(code === 0),
+      close: (code: number | null) => settle(code === 0),
+    };
+    child.once("error", listeners.error);
+    child.once("exit", listeners.exit);
+    child.once("close", listeners.close);
+    authTimer = setTimeout(terminate, AUTH_VERIFY_TIMEOUT_MS);
+  });
+}
+
+function killCodexStatusChild(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+): void {
+  try {
+    child.kill(signal);
+  } catch {
+    // Generic failure is reported by the caller's settled false result.
+  }
+}
+
+function cleanupCodexStatusChild(
+  child: ReturnType<typeof spawn>,
+  listeners: {
+    error: () => void;
+    exit: (code: number | null) => void;
+    close: (code: number | null) => void;
+  },
+  timers: Array<ReturnType<typeof setTimeout> | undefined>,
+): void {
+  for (const timer of timers) {
+    if (timer) clearTimeout(timer);
+  }
+  child.removeListener("error", listeners.error);
+  child.removeListener("exit", listeners.exit);
+  child.removeListener("close", listeners.close);
+}
+
+function messageTextFromTelegram(telegramMsg: any): string {
+  return telegramMsg.text || telegramMsg.caption || "";
 }
