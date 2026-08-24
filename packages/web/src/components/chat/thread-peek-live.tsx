@@ -108,10 +108,19 @@ function finishedBody(peek: CommsPeekData, messages: Message[]): string {
   return peek.preview
 }
 
+/** Only the turn in flight. History before the last user message belongs to a
+ *  finished turn and would read as current activity if it were scanned. */
+function currentTurnMessages(messages: Message[]): Message[] {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].role === 'user') return messages.slice(index + 1)
+  }
+  return messages
+}
+
 function workingActivity(messages: Message[], streamingText: string): string | null {
   let latestText = ''
   let latestTool = ''
-  for (const message of messages) {
+  for (const message of currentTurnMessages(messages)) {
     if (message.role !== 'assistant' || typeof message.content !== 'string') continue
     const content = message.content.trim()
     if (!content) continue
@@ -126,33 +135,40 @@ function workingActivity(messages: Message[], streamingText: string): string | n
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
-function peekIsWorking(peek: CommsPeekData, status: unknown, hydrating: boolean): boolean {
+/** What the peek reads off the live session. A superset of `useLiveSession`'s
+ *  result, so the hook's value passes straight through. */
+interface PeekLiveState {
+  session: Record<string, unknown> | null
+  messages: Message[]
+  streamingText: string
+  loading: boolean
+  hydrating: boolean
+}
+
+function peekIsWorking(peek: CommsPeekData, status: unknown, live: PeekLiveState): boolean {
   if (isWorkingStatus(status)) return true
+  // A cached snapshot can predate the run that started after it was written, so
+  // live activity outranks the status it carries.
+  if (live.loading || live.streamingText.trim()) return true
   if (typeof status === 'string' && status) return false
-  if (!hydrating) return false
+  if (!live.hydrating) return false
   return peek.kind === 'delegation' || peek.kind === 'dispatch'
 }
 
-function livePeekView(
-  peek: CommsPeekData,
-  session: Record<string, unknown> | null,
-  messages: Message[],
-  streamingText: string,
-  hydrating: boolean,
-): PeekViewModel {
-  const status = session?.status
+function livePeekView(peek: CommsPeekData, live: PeekLiveState): PeekViewModel {
+  const status = live.session?.status
   const error = peek.kind === 'error' || status === 'error'
-  if (peekIsWorking(peek, status, hydrating)) {
+  if (peekIsWorking(peek, status, live)) {
     return {
       state: 'working',
       dispatchedAt: peek.timestamp,
-      body: workingActivity(messages, streamingText) ?? 'Starting up',
+      body: workingActivity(live.messages, live.streamingText) ?? 'Starting up',
     }
   }
   return {
     state: error ? 'error' : 'replied',
     label: finishedLabel(peek, error),
-    body: finishedBody(peek, messages),
+    body: finishedBody(peek, live.messages),
   }
 }
 
@@ -171,7 +187,7 @@ export function PeekLiveSession({
     connectionSeq,
     readOnly: true,
   })
-  const view = livePeekView(peek, live.session, live.messages, live.streamingText, live.hydrating)
+  const view = livePeekView(peek, live)
   return children({
     stateLine: <PeekStateLine view={view} />,
     body: renderContent(view.body),

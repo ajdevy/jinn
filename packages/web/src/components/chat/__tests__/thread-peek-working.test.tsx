@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { GatewayEvent, GatewayEventListener } from '@jinn/gateway-events'
 import { api } from '@/lib/api'
-import { __clearLiveSessionSnapshotCacheForTests } from '@/hooks/use-live-session'
+import {
+  __clearLiveSessionSnapshotCacheForTests,
+  prefetchLiveSessionSnapshot,
+} from '@/hooks/use-live-session'
 import { ThreadPeek, type CommsPeekData } from '../thread-peek'
 
 const { subscribe, emit, resetBus } = vi.hoisted(() => {
@@ -172,6 +175,48 @@ describe('thread peek working state', () => {
     await act(async () => { await Promise.resolve() })
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(second.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows live text through a snapshot that was cached before the child started', async () => {
+    // The child was warm and idle when its snapshot was written; it started
+    // again with the peek closed, so nothing rewrote that cached `idle` status.
+    getSession.mockResolvedValue({
+      id: SESSION_ID,
+      status: 'idle',
+      messages: [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: 'Earlier reply.' },
+      ],
+    })
+    await prefetchLiveSessionSnapshot(SESSION_ID)
+
+    renderPeek(workingPeek())
+    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+
+    act(() => {
+      emit('session:delta', { sessionId: SESSION_ID, type: 'text', content: 'Reading the layout file.' })
+    })
+
+    expect(screen.getByText(/Reading the layout file/)).toBeTruthy()
+    expect(document.querySelector('[data-state-line="working"]')).toBeTruthy()
+    expect(document.querySelector('[data-state-line="replied"]')).toBeNull()
+  })
+
+  it('says Starting up when the current turn has no output yet, ignoring the previous reply', async () => {
+    getSession.mockResolvedValue({
+      id: SESSION_ID,
+      status: 'running',
+      messages: [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: 'Earlier reply.' },
+        { role: 'user', content: 'one more thing' },
+      ],
+    })
+    renderPeek(workingPeek())
+
+    await waitFor(() => expect(screen.getByText('Starting up')).toBeTruthy())
+    expect(screen.queryByText(/Earlier reply/)).toBeNull()
+    expect(document.querySelector('[data-state-line="working"]')).toBeTruthy()
   })
 
   it('does not open a live subscription while the peek is closed', () => {
