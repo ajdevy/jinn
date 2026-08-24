@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as headless from "../antigravity-headless.js";
 import { readAntigravityPrintModeError } from "../antigravity-cli-log.js";
-
 interface FakeProc extends EventEmitter {
   stdin: EventEmitter & { end: (text?: string) => void };
   stdout: EventEmitter;
