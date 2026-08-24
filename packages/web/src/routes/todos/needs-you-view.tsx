@@ -11,7 +11,7 @@ import {
 import { EmployeeChip } from "@/components/ui/employee-chip"
 import { STATUS_LABEL, effectiveMaxRounds, operatorSafeTodoError, provenanceLabel, publicWorkItemReference } from "@/lib/todos"
 import { legalTargets } from "@/lib/legal-targets"
-import { attentionKind, stateKey, stopCauseQuote, type AttentionKind } from "./needs-you-support"
+import { ATTENTION_GROUPS, attentionKind, stateKey, stopCauseQuote, type AttentionKind } from "./needs-you-support"
 import { ProvenanceIcon, StateCircle, StatusCircle } from "./state-glyph"
 import { rejectConsequence } from "./task-page/banner"
 import { reasonOf, rollupOf } from "./board/card"
@@ -396,14 +396,6 @@ export function NeedsYouEmpty() {
   )
 }
 
-const GROUPS: { kind: AttentionKind; label: string }[] = [
-  { kind: "recovering", label: "Recovering automatically" },
-  { kind: "manager", label: "Manager attention" },
-  { kind: "approval", label: "Approvals" },
-  { kind: "escalated", label: "Escalated" },
-  { kind: "blocked", label: "Blocked" },
-]
-
 export function NeedsYouView({
   items,
   byName,
@@ -461,7 +453,7 @@ export function NeedsYouView({
 
   if (visible.length === 0) return <NeedsYouEmpty />
 
-  const grouped = GROUPS.map((group) => ({
+  const grouped = ATTENTION_GROUPS.map((group) => ({
     ...group,
     // Oldest-first within a group — the longest-waiting ask wins (§6).
     items: visible

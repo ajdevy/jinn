@@ -3,20 +3,9 @@ import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
 import { applyLegacyFallbackMigration, validateEngineFallbackChains, validateEngineFallbackModelMaps } from "./engine-fallback.js";
 import type { JinnConfig } from "./types.js";
+import { todoRecoveryProblems } from "./todo-recovery-config.js";
 
 type ClaudeEngineConfig = JinnConfig["engines"]["claude"];
-
-const TODO_RECOVERY_MODES = new Set(["off", "classify-only", "auto"]);
-
-function todoRecoveryProblems(value: unknown): string[] {
-  if (value === undefined) return [];
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return ["gateway.todoRecovery must be a mapping"];
-  }
-  const mode = (value as { mode?: unknown }).mode;
-  if (mode === undefined || (typeof mode === "string" && TODO_RECOVERY_MODES.has(mode))) return [];
-  return [`gateway.todoRecovery.mode must be off, classify-only, or auto (got ${JSON.stringify(mode)})`];
-}
 
 export function normalizeClaudeEngineConfig(raw: ClaudeEngineConfig): Required<Pick<ClaudeEngineConfig, "maxLivePtys">> & ClaudeEngineConfig {
   return {

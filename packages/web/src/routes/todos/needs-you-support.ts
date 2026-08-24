@@ -7,6 +7,14 @@ import type { StateGlyphKey } from "./state-glyph"
  *  over the status, because a Todo can be blocked AND holding a decision. */
 export type AttentionKind = "approval" | "escalated" | "blocked" | "recovering" | "manager"
 
+export const ATTENTION_GROUPS: { kind: AttentionKind; label: string }[] = [
+  { kind: "recovering", label: "Recovering automatically" },
+  { kind: "manager", label: "Manager attention" },
+  { kind: "approval", label: "Approvals" },
+  { kind: "escalated", label: "Escalated" },
+  { kind: "blocked", label: "Blocked" },
+]
+
 export function attentionKind(item: WorkItemCompactWire): AttentionKind {
   if (item.attentionLane === "recovering") return "recovering"
   if (item.attentionLane === "manager") return "manager"

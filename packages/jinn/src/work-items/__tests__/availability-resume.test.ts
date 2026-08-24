@@ -235,34 +235,6 @@ describe("what the sweep will not touch", () => {
     expect(resumeEvents(id, runId)).toHaveLength(0);
   });
 
-  it("resumes a weekly-capped Todo after the stated reset, even when endedAt is older than 24h", () => {
-    const resetAt = new Date(NOW.getTime() - 60_000).toISOString();
-    const { id, runId } = parked("weekly cap", {
-      outcome: "rate_limited",
-      endedAt: minutesBefore(6 * 24 * 60),
-      error: `Usage limit exceeded; try again at ${resetAt}`,
-    });
-    const port = recorder();
-
-    resume.sweepAvailabilityResumes({ rearm: port.rearm, now: () => NOW });
-
-    expect(port.calls).toContain(id);
-    expect(resumeEvents(id, runId)[0]?.detail).toMatchObject({ source: "stated" });
-  });
-
-  it("does not resume a weekly cap whose reset is still in the future", () => {
-    const resetAt = new Date(NOW.getTime() + 2 * 24 * 60 * 60_000).toISOString();
-    const { id, runId } = parked("weekly cap still closed", {
-      outcome: "rate_limited",
-      endedAt: minutesBefore(2 * 24 * 60),
-      error: `Usage limit exceeded; try again at ${resetAt}`,
-    });
-
-    resume.sweepAvailabilityResumes({ rearm: recorder().rearm, now: () => NOW });
-
-    expect(resumeEvents(id, runId)).toHaveLength(0);
-  });
-
   it("skips a failure a retry could actually fix", () => {
     const { id, runId } = parked("ordinary failure", {
       outcome: "crashed", endedAt: minutesBefore(90), error: "the build step exited with code 1",

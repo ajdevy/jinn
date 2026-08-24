@@ -15,6 +15,8 @@ export interface TodoStopCauseWire {
   parkedUntil?: string
   /** What has to happen and who has to do it (older gateways omit it). */
   unblockHint?: TodoUnblockHintWire
+  /** Todo-recovery attention lane (older gateways omit it). */
+  attentionLane?: "recovering" | "manager" | "operator" | null
 }
 
 /** Expiry is what the clock says, not what a sweeper got around to, so the board

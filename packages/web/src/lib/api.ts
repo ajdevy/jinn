@@ -528,8 +528,6 @@ export interface WorkItemCompactWire extends TodoStopCauseWire {
   updatedAt: string
   /** Manual sort rank (design-todos §7.3). Null until the operator reorders. */
   rank?: number | null
-  /** PLA-240: which attention lane this row belongs to, when the gateway knows. */
-  attentionLane?: "recovering" | "manager" | "operator" | null
 }
 
 /** GET /api/work-items and /api/search/work-items page payload

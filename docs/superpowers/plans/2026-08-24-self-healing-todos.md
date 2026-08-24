@@ -670,4 +670,4 @@ EOF
 
 ## Leak-grep
 
-Before every commit, run the instance leak-grep from the platform skill against the staged diff. The only OK hits are the public brew tap and the generic COO name Jimbo. Fixture departments stay `platform` / `operations`. Employees stay `platform-worker` / `reviewer`. Never put personal names, project names, emails, or `/Users/` paths in this repo.
+Before every commit, run the instance leak-grep from the platform skill against the staged diff. The only OK hits are the public brew tap and the generic COO name Jimbo. Fixture departments stay `platform` / `operations`. Employees stay `platform-worker` / `reviewer`. Never put personal names, project names, emails, or absolute home-directory paths in this repo.

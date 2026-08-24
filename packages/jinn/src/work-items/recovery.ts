@@ -138,6 +138,10 @@ CREATE TABLE IF NOT EXISTS work_item_recovery (
   updated_at       TEXT NOT NULL
 )`;
 
+export const WORK_ITEM_RECOVERY_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
+  { name: "work_item_recovery", ddl: WORK_ITEM_RECOVERY_DDL },
+];
+
 export interface WorkItemRecovery {
   workItemId: string;
   incidentId: string;
