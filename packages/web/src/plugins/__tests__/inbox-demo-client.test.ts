@@ -5,7 +5,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Puzzle } from 'lucide-react'
 import { contributions } from '@/contrib/registry'
 import { AREAS } from '@/contrib/types'
-import { plugins } from '@/contrib/plugins-store'
 import { navigationFor } from '@/lib/nav'
 import { loadRuntimePlugin, unloadRuntimePlugin } from '../runtime-loader'
 import { useDataUrlModules } from './data-url-modules'
@@ -34,29 +33,23 @@ beforeAll(() => {
   useDataUrlModules()
 })
 
-beforeEach(async () => {
+beforeEach(() => {
   unloadRuntimePlugin('inbox-demo')
-  // What `disk-plugins.ts` records from the gateway's servable list before it
-  // hands a source to the loader.
-  await plugins.setPluginEnabled('inbox-demo', true)
 })
 
 describe('examples/plugins/inbox-demo/client.js', () => {
   it('loads through the runtime loader under its own id', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    expect(await loadRuntimePlugin(source, 'inbox-demo', 'client+server')).toBe('inbox-demo')
+    expect(await loadRuntimePlugin(source, 'inbox-demo')).toBe('inbox-demo')
 
     expect(error).not.toHaveBeenCalled()
-    expect(plugins.listPlugins().find((record) => record.id === 'inbox-demo')).toMatchObject({
-      status: 'loaded',
-      kind: 'client+server',
-    })
+    expect(contributionIn(AREAS.routes)).toBeDefined()
     error.mockRestore()
   })
 
   it('lands a contribution in all three v1 areas', async () => {
-    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+    await loadRuntimePlugin(source, 'inbox-demo')
 
     for (const area of [AREAS.routes, AREAS.sidebarNav, AREAS.statusbarRight]) {
       expect(contributionIn(area), `nothing contributed to ${area}`).toBeDefined()
@@ -64,7 +57,7 @@ describe('examples/plugins/inbox-demo/client.js', () => {
   })
 
   it('claims a route path and a nav destination that agree with each other', async () => {
-    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+    await loadRuntimePlugin(source, 'inbox-demo')
 
     const page = contributions.getArea(AREAS.routes).find((entry) => entry.source === 'plugin:inbox-demo')
     const nav = contributions.getArea(AREAS.sidebarNav).find((entry) => entry.source === 'plugin:inbox-demo')
@@ -76,7 +69,7 @@ describe('examples/plugins/inbox-demo/client.js', () => {
   /* The demo is what an author copies, so its nav row has to arrive with a glyph
    * of its own rather than the fallback every iconless row shares. */
   it('resolves its nav row to a real icon rather than the fallback glyph', async () => {
-    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+    await loadRuntimePlugin(source, 'inbox-demo')
 
     const row = navigationFor(false).items.find((item) => item.href === '/inbox-demo')
 
@@ -85,13 +78,13 @@ describe('examples/plugins/inbox-demo/client.js', () => {
   })
 
   it('namespaces its local contribution ids under the plugin', async () => {
-    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+    await loadRuntimePlugin(source, 'inbox-demo')
 
     expect(contributionIn(AREAS.routes)?.id).toBe('inbox-demo:page')
   })
 
   it('takes every contribution down again on unload', async () => {
-    await loadRuntimePlugin(source, 'inbox-demo', 'client+server')
+    await loadRuntimePlugin(source, 'inbox-demo')
     unloadRuntimePlugin('inbox-demo')
 
     for (const area of [AREAS.routes, AREAS.sidebarNav, AREAS.statusbarRight]) {
