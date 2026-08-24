@@ -29,8 +29,13 @@ function armedTodo(title: string, source: Source = "human"): string {
   return store.createWorkItem({ title, source, status: "assigned" }).id;
 }
 
-function reflect(todoId: string, status: "executing" | "in_review" | "blocked", nodeId = "plan"): void {
-  surface.workflowTodoLifecycle.reflect({ todoId, status, workflowId: "pipeline", runId: "run_1", nodeId });
+function reflect(
+  todoId: string,
+  status: "executing" | "in_review" | "blocked",
+  nodeId = "plan",
+  runId = "run_1",
+): void {
+  surface.workflowTodoLifecycle.reflect({ todoId, status, workflowId: "pipeline", runId, nodeId });
 }
 
 beforeAll(async () => {
@@ -88,13 +93,52 @@ describe("reflecting a run's lifecycle onto its bound Todo", () => {
     expect(store.getWorkItem(id)!.status).toBe("in_review");
   });
 
-  it("still reports a dead run, because a failed run is the newest fact about the work", () => {
-    const id = armedTodo("phase reviewed it, then the run died");
+  it("does not let a stale failure End stomp a successor executing Todo", () => {
+    const id = armedTodo("rearmed while the old End was still firing");
+    reflect(id, "executing");
+    transitions.transition(id, "assigned", "availability-resume", {
+      requeue: true,
+      detail: { workflowId: "pipeline", availabilityResume: true },
+    });
+    reflect(id, "executing", "plan", "run_2");
+
+    reflect(id, "blocked", "land", "run_1");
+
+    expect(store.getWorkItem(id)!.status).toBe("executing");
+  });
+
+  it("does not let a stale failure End stomp an operator or employee move to assigned", () => {
+    const id = armedTodo("rescued while the old End was still firing");
+    reflect(id, "executing");
+    transitions.transition(id, "assigned", "operator", { requeue: true });
+
+    reflect(id, "blocked", "land");
+
+    expect(store.getWorkItem(id)!.status).toBe("assigned");
+  });
+
+  it("still blocks a quiet Todo this run itself left executing", () => {
+    const id = armedTodo("this run died");
+    reflect(id, "executing");
+    reflect(id, "blocked", "land");
+    expect(store.getWorkItem(id)!.status).toBe("blocked");
+  });
+
+  it("still blocks when THIS run reflected in_review and then failed", () => {
+    const id = armedTodo("gate parked then the land died");
+    reflect(id, "executing");
+    reflect(id, "in_review", "gate");
+    reflect(id, "blocked", "land");
+    expect(store.getWorkItem(id)!.status).toBe("blocked");
+  });
+
+  it("does not stomp in_review a successor already moved to, with no matching run", () => {
+    const id = armedTodo("phase reviewed it, then a stale End fired");
     transitions.transition(id, "in_review", "session:abc", { agent: true });
 
     reflect(id, "blocked", "land");
 
-    expect(store.getWorkItem(id)!.status).toBe("blocked");
+    expect(store.getWorkItem(id)!.status).toBe("in_review");
   });
 
   it("never pulls a Todo out of a sticky terminal", () => {
