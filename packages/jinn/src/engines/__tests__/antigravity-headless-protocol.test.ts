@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANTIGRAVITY_TURN_TIMEOUT_MS,
   buildAntigravityHeadlessArgs,
   parseAntigravityStreamLine,
 } from "../antigravity-headless.js";
+
+/** agy takes Go durations; a bare seconds suffix is all this adapter emits. */
+function goDurationToMs(duration: string): number {
+  const seconds = /^(\d+)s$/.exec(duration)?.[1];
+  if (!seconds) throw new Error(`not a whole-second Go duration: ${duration}`);
+  return Number(seconds) * 1000;
+}
 
 describe("parseAntigravityStreamLine", () => {
   it("captures the conversation id from init without settling", () => {
@@ -142,8 +150,27 @@ describe("buildAntigravityHeadlessArgs", () => {
       "--model", "example-model",
       "--dangerously-skip-permissions",
       "--verbose",
+      "--print-timeout", "7200s",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
     ]);
+  });
+
+  it("caps agy's print mode at the same duration jinn waits for the turn", () => {
+    const args = buildAntigravityHeadlessArgs({ prompt: "ignored", cwd: "/workspace" });
+
+    expect(goDurationToMs(args[args.indexOf("--print-timeout") + 1]!))
+      .toBe(ANTIGRAVITY_TURN_TIMEOUT_MS);
+  });
+
+  it("emits its own print timeout after any employee cliFlags", () => {
+    const args = buildAntigravityHeadlessArgs({
+      prompt: "ignored",
+      cwd: "/workspace",
+      cliFlags: ["--print-timeout", "30s"],
+    });
+
+    expect(args.lastIndexOf("--print-timeout")).toBeGreaterThan(args.indexOf("--print-timeout"));
+    expect(args[args.lastIndexOf("--print-timeout") + 1]).toBe("7200s");
   });
 });
