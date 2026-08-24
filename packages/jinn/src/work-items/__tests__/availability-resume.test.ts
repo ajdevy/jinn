@@ -225,9 +225,37 @@ describe("what the sweep will not touch", () => {
     expect(store.listWorkItemEvents(id).filter((event) => event.kind === "availability_resumed")).toHaveLength(0);
   });
 
-  it("skips a failure old enough that no window it named is still open", () => {
+  it("skips a nameless failure old enough that resuming it would resurrect history", () => {
     const { id, runId } = parked("yesterday", {
-      outcome: "rate_limited", endedAt: minutesBefore(25 * 60), error: QUOTA_WITH_RESET,
+      outcome: "crashed", endedAt: minutesBefore(25 * 60), error: OUTAGE,
+    });
+
+    resume.sweepAvailabilityResumes({ rearm: recorder().rearm, now: () => NOW });
+
+    expect(resumeEvents(id, runId)).toHaveLength(0);
+  });
+
+  it("resumes a weekly-capped Todo after the stated reset, even when endedAt is older than 24h", () => {
+    const resetAt = new Date(NOW.getTime() - 60_000).toISOString();
+    const { id, runId } = parked("weekly cap", {
+      outcome: "rate_limited",
+      endedAt: minutesBefore(6 * 24 * 60),
+      error: `Usage limit exceeded; try again at ${resetAt}`,
+    });
+    const port = recorder();
+
+    resume.sweepAvailabilityResumes({ rearm: port.rearm, now: () => NOW });
+
+    expect(port.calls).toContain(id);
+    expect(resumeEvents(id, runId)[0]?.detail).toMatchObject({ source: "stated" });
+  });
+
+  it("does not resume a weekly cap whose reset is still in the future", () => {
+    const resetAt = new Date(NOW.getTime() + 2 * 24 * 60 * 60_000).toISOString();
+    const { id, runId } = parked("weekly cap still closed", {
+      outcome: "rate_limited",
+      endedAt: minutesBefore(2 * 24 * 60),
+      error: `Usage limit exceeded; try again at ${resetAt}`,
     });
 
     resume.sweepAvailabilityResumes({ rearm: recorder().rearm, now: () => NOW });
