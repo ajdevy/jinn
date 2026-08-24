@@ -20,7 +20,6 @@ let registry: Registry;
 beforeAll(async () => {
   ({ registry } = await startRouteHarness());
 });
-
 afterAll(async () => {
   await stopRouteHarness();
 });
@@ -109,4 +108,3 @@ describe("POST /api/todo-captures", () => {
     }
   });
 });
-

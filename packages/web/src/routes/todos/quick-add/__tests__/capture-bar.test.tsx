@@ -20,7 +20,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
   return { ...actual, api: { startTodoCapture, getTodoCapture } }
 })
-
 let listener: ((event: string, payload: unknown) => void) | undefined
 vi.mock("@/hooks/use-gateway", () => ({
   useGateway: () => ({
@@ -264,4 +263,3 @@ describe("QuickCaptureBar — the text path", () => {
     await waitFor(() => expect(screen.getByTestId("capture-error").textContent).toContain("the cap is 4000"))
   })
 })
-

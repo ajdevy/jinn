@@ -44,7 +44,6 @@ function landedWorkItem(
   const item = getWorkItem(landedId);
   return item ? { id: item.id, title: item.title } : null;
 }
-
 function factsFor(captureId: string, dispatcherEmployee: string, shaperEmployee: string): TodoCaptureFacts {
   const session = getSession(captureId);
   // Narrow in SQL to Todos this employee made from a session, then match the
@@ -114,4 +113,3 @@ export function refreshTodoCapture(context: ApiContext, captureId: string): Todo
   }
   return state;
 }
-

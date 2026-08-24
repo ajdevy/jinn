@@ -36,7 +36,6 @@ beforeAll(async () => {
     [CALLER_SESSION_CAPABILITY_HEADER]: ensureSessionCapability(sessionId),
   });
 });
-
 afterAll(async () => {
   await stopRouteHarness();
 });
@@ -231,4 +230,3 @@ describe("GET /api/todo-captures/:id", () => {
     }
   });
 });
-
