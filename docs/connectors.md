@@ -10,17 +10,17 @@ connectors:
   telegram:
     botToken: ...
     allowFrom:
-      - 5658965359
+      - 123456789
     telegramAuth:
       enabled: true
       ownerUserIds:
-        - 5658965359
+        - 123456789
       flowTtlSeconds: 600
 ```
 
 `ownerUserIds` must contain numeric Telegram user IDs. It does not replace the
 normal `allowFrom` gate; keep both restricted to the intended owner. Usernames
-are not an authentication boundary.
+are not an authentication boundary. Replace the example ID with your own.
 
 Supported private-chat commands:
 

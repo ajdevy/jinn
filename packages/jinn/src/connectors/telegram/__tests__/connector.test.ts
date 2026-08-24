@@ -717,12 +717,12 @@ describe("TelegramConnector", () => {
             userId: 67890,
           },
         },
-        "⛔ HTTP 401 from an unrelated MCP server",
+        "⛔ unrelated MCP: browser is not logged in",
       );
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         "12345",
-        "⛔ HTTP 401 from an unrelated MCP server",
+        "⛔ unrelated MCP: browser is not logged in",
         {
           parse_mode: "Markdown",
           reply_parameters: { message_id: 42 },
