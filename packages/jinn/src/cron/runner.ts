@@ -1,9 +1,10 @@
-import type { CronJob, Connector, JinnConfig } from "../shared/types.js";
+import type { CronJob, Connector, JinnConfig, Session } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { appendRunLog } from "./jobs.js";
 import { orgRegistry } from "../gateway/org-registry.js";
 import { CronConnector } from "../connectors/cron/index.js";
 import type { SessionManager } from "../sessions/manager.js";
+import { getSession, getSessionBySessionKey } from "../sessions/registry.js";
 import { createWorkItem, linkSession, type WorkItem } from "../work-items/store.js";
 import { reconcileWorkItem } from "../work-items/reconcile.js";
 import { notifyTodoChanged } from "../work-items/live-events.js";
@@ -24,6 +25,18 @@ export interface RunCronJobOptions {
   fireIso?: string;
   /** Gateway broadcast seam. Absent in CLI/unit contexts without a live server. */
   emit?: GatewayEmit;
+}
+
+/**
+ * How a settled session failed, or null if it did not. `attemptOutcome` is the
+ * durable receipt for the attempt; `status === "error"` catches a session that was
+ * left broken without ever getting one.
+ */
+function sessionFailure(session: Session): "failed" | "interrupted" | "error" | null {
+  if (session.attemptOutcome === "failed" || session.attemptOutcome === "interrupted") {
+    return session.attemptOutcome;
+  }
+  return session.status === "error" ? "error" : null;
 }
 
 export async function runCronJob(
@@ -94,6 +107,20 @@ export async function runCronJob(
       `Cron job "${job.name}" work-item mint skipped: ${wiErr instanceof Error ? wiErr.message : wiErr}`,
     );
   }
+
+  const sendFailureAlert = async (message: string): Promise<void> => {
+    const alertConnector = config.cron?.alertConnector;
+    const alertChannel = config.cron?.alertChannel;
+    if (!alertConnector || !alertChannel) return;
+    const alertTarget = connectors.get(alertConnector);
+    if (!alertTarget) return;
+    await alertTarget.sendMessage(
+      { channel: alertChannel },
+      `⚠️ Cron job "${job.name}" failed:\n${message.slice(0, 500)}`,
+    ).catch((alertErr) => {
+      logger.error(`Failed to send cron alert: ${alertErr instanceof Error ? alertErr.message : alertErr}`);
+    });
+  };
 
   try {
     // Org scanning lives inside the try: org/ hot-reloads, and a malformed YAML
@@ -171,6 +198,39 @@ export async function runCronJob(
     }
 
     const durationMs = Date.now() - startTime;
+
+    // ICI-1410 — `route()` resolving is not the same as the turn succeeding. A dead
+    // auth chain, a rate limit, or an engine crash settles the session as failed and
+    // still returns here, so the run log has to read the session's own receipt. A
+    // registry hiccup must not fail a run that otherwise worked: it falls through to
+    // `success`, which keeps this guard able only to turn a FALSE green red.
+    let settled: Session | undefined;
+    try {
+      settled = (routeResult?.sessionId ? getSession(routeResult.sessionId) : undefined)
+        ?? getSessionBySessionKey(sessionKey);
+    } catch (lookupErr) {
+      logger.warn(
+        `Cron job "${job.name}" could not read its settled session: ${lookupErr instanceof Error ? lookupErr.message : lookupErr}`,
+      );
+    }
+
+    const failure = settled ? sessionFailure(settled) : null;
+    if (settled && failure) {
+      const message = settled.lastError || `session ${failure}`;
+      appendRunLog(job.id, {
+        timestamp: startedAt,
+        sessionKey,
+        sessionId: routeResult?.sessionId ?? null,
+        status: "error",
+        durationMs,
+        error: message,
+      });
+      opts?.emit?.("cron:run-finished", { jobId: job.id, status: "error" });
+      logger.error(`Cron job "${job.name}" failed after ${durationMs}ms: ${message}`);
+      await sendFailureAlert(message);
+      return;
+    }
+
     appendRunLog(job.id, {
       timestamp: startedAt,
       sessionKey,
@@ -213,19 +273,6 @@ export async function runCronJob(
     opts?.emit?.("cron:run-finished", { jobId: job.id, status: "error" });
     logger.error(`Cron job "${job.name}" failed: ${message}`);
 
-    // Send alert if configured
-    const alertConnector = config.cron?.alertConnector;
-    const alertChannel = config.cron?.alertChannel;
-    if (alertConnector && alertChannel) {
-      const alertTarget = connectors.get(alertConnector);
-      if (alertTarget) {
-        await alertTarget.sendMessage(
-          { channel: alertChannel },
-          `⚠️ Cron job "${job.name}" failed:\n${message.slice(0, 500)}`,
-        ).catch((alertErr) => {
-          logger.error(`Failed to send cron alert: ${alertErr instanceof Error ? alertErr.message : alertErr}`);
-        });
-      }
-    }
+    await sendFailureAlert(message);
   }
 }
