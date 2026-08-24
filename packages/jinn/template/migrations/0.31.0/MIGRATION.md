@@ -1,4 +1,4 @@
-# Instance migration bundle: 0.31.0 → 0.31.0
+# Instance migration bundle: 0.30.1 → 0.31.0
 
 <!-- BEGIN RELEASE RATIONALE -->
 Five instance files changed in 0.31.0, all of them agent-facing doctrine.
@@ -27,3 +27,38 @@ Perform the three-way merge only from those materialized snapshot payloads and t
 - Base payload: `files/base/docs/connectors.md`
 - Target payload: `files/target/docs/connectors.md`
 - Merge instruction: compare the audited materialized base with the current instance path `docs/connectors.md` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.
+
+## `skills.json`
+
+- Operation: `modify`
+- Base payload: `files/base/skills.json`
+- Target payload: `files/target/skills.json`
+- Merge instruction: compare the audited materialized base with the current instance path `skills.json` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.
+
+## `skills/find-and-install/SKILL.md`
+
+- Operation: `modify`
+- Base payload: `files/base/skills/find-and-install/SKILL.md`
+- Target payload: `files/target/skills/find-and-install/SKILL.md`
+- Merge instruction: compare the audited materialized base with the current instance path `skills/find-and-install/SKILL.md` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.
+
+## `skills/management/SKILL.md`
+
+- Operation: `modify`
+- Base payload: `files/base/skills/management/SKILL.md`
+- Target payload: `files/target/skills/management/SKILL.md`
+- Merge instruction: compare the audited materialized base with the current instance path `skills/management/SKILL.md` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.
+
+## `skills/todo-handling/SKILL.md`
+
+- Operation: `modify`
+- Base payload: `files/base/skills/todo-handling/SKILL.md`
+- Target payload: `files/target/skills/todo-handling/SKILL.md`
+- Merge instruction: compare the audited materialized base with the current instance path `skills/todo-handling/SKILL.md` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.
+
+## `skills/workflow/SKILL.md`
+
+- Operation: `modify`
+- Base payload: `files/base/skills/workflow/SKILL.md`
+- Target payload: `files/target/skills/workflow/SKILL.md`
+- Merge instruction: compare the audited materialized base with the current instance path `skills/workflow/SKILL.md` and the audited materialized target; preserve customized content, record unresolved placeholders as conflicts, and verify the result before completion.

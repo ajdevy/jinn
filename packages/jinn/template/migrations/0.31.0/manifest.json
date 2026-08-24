@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "version": "0.31.0",
-  "baseVersion": "0.31.0",
+  "baseVersion": "0.30.1",
   "generatedFrom": {
-    "baseRef": "v0.31.0",
+    "baseRef": "v0.30.1",
     "headRef": "WORKTREE"
   },
   "files": [
@@ -14,6 +14,46 @@
       "targetSha256": "7400864eb4f5d8722486ee4402a4ca73cb2896a888bde5ed86d7915c516da8c1",
       "basePayload": "files/base/docs/connectors.md",
       "targetPayload": "files/target/docs/connectors.md"
+    },
+    {
+      "path": "skills.json",
+      "operation": "modify",
+      "baseSha256": "cf58fab1d118c0190d81287e8876489a447a271f6cd282f71f6f33355122998a",
+      "targetSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "basePayload": "files/base/skills.json",
+      "targetPayload": "files/target/skills.json"
+    },
+    {
+      "path": "skills/find-and-install/SKILL.md",
+      "operation": "modify",
+      "baseSha256": "91a2047a0bbbe940546d5193a02e06fb7ddf2833fb40a71b1cf4fc4c4c1b59be",
+      "targetSha256": "356effeca161e8fb327dae71dd4324c1373ce5b323ab67df91f7a9f2e81cda00",
+      "basePayload": "files/base/skills/find-and-install/SKILL.md",
+      "targetPayload": "files/target/skills/find-and-install/SKILL.md"
+    },
+    {
+      "path": "skills/management/SKILL.md",
+      "operation": "modify",
+      "baseSha256": "efb63f3d69cb0d64b904676dcab8adcdd878a333457a200591765704ab1e8aed",
+      "targetSha256": "a7ab4f21e35a12c4cd26d1620f1651323e887284579b29b6967a156670cd0de8",
+      "basePayload": "files/base/skills/management/SKILL.md",
+      "targetPayload": "files/target/skills/management/SKILL.md"
+    },
+    {
+      "path": "skills/todo-handling/SKILL.md",
+      "operation": "modify",
+      "baseSha256": "5b95a84bf8e1a19e591628a3926cb4b56d994090b518462b7232ee19b587e953",
+      "targetSha256": "07f721103523c7a5cf33489338ccb0afd4756d44905ba575119f575612b59456",
+      "basePayload": "files/base/skills/todo-handling/SKILL.md",
+      "targetPayload": "files/target/skills/todo-handling/SKILL.md"
+    },
+    {
+      "path": "skills/workflow/SKILL.md",
+      "operation": "modify",
+      "baseSha256": "6631234ed590a341ebf7596ce72eb04e337306eb847da380282a428f1682d260",
+      "targetSha256": "efacaf13a7766e3ff4fb5f50595f5cca71d9d492eb80fa6c9c336996cad6fcdd",
+      "basePayload": "files/base/skills/workflow/SKILL.md",
+      "targetPayload": "files/target/skills/workflow/SKILL.md"
     }
   ]
 }
