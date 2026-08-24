@@ -397,6 +397,8 @@ export function NeedsYouEmpty() {
 }
 
 const GROUPS: { kind: AttentionKind; label: string }[] = [
+  { kind: "recovering", label: "Recovering automatically" },
+  { kind: "manager", label: "Manager attention" },
   { kind: "approval", label: "Approvals" },
   { kind: "escalated", label: "Escalated" },
   { kind: "blocked", label: "Blocked" },

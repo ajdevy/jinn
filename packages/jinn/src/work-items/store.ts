@@ -598,7 +598,7 @@ function workItemWhere(filter: ListWorkItemsFilter, textIds?: readonly string[])
     // Approvals live in work_item_approvals (their sole owner since PLA-48). An unexpired park is a
     // clock-wait (PLA-157) and leaves this set outright, gate included; an unreadable one is not a park.
     conditions.push(
-      "((EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated'))) AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?)))",
+      "((EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated'))) AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?)) AND NOT EXISTS (SELECT 1 FROM work_item_recovery rec WHERE rec.work_item_id = work_items.id AND rec.lane = 'recovering'))",
     );
     values.push(filter.needsAttentionFor, filter.needsAttentionFor, new Date().toISOString());
   }

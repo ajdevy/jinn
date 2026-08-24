@@ -5,15 +5,19 @@ import type { StateGlyphKey } from "./state-glyph"
 
 /** Which of the inbox's three kickers an entry belongs to. A pending gate wins
  *  over the status, because a Todo can be blocked AND holding a decision. */
-export type AttentionKind = "approval" | "escalated" | "blocked"
+export type AttentionKind = "approval" | "escalated" | "blocked" | "recovering" | "manager"
 
 export function attentionKind(item: WorkItemCompactWire): AttentionKind {
+  if (item.attentionLane === "recovering") return "recovering"
+  if (item.attentionLane === "manager") return "manager"
   if (item.approvalState === "pending") return "approval"
   return item.status === "blocked" ? "blocked" : "escalated"
 }
 
 export function stateKey(kind: AttentionKind): StateGlyphKey {
-  return kind === "approval" ? "approval" : kind
+  if (kind === "approval" || kind === "manager") return "approval"
+  if (kind === "recovering") return "blocked"
+  return kind
 }
 
 /** A stopped Todo's own account of the wait (PLA-157), for the inbox line that

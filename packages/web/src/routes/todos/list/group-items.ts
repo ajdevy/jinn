@@ -9,6 +9,8 @@ export type TodoListColumns = Record<WorkItemStatusWire, TodoListColumnInput>
 
 export type TodoListGroupKey =
   | "needs-you"
+  | "recovering"
+  | "manager"
   | "executing"
   | "in-review"
   | "assigned"
@@ -27,7 +29,7 @@ export interface TodoListGroup {
 }
 
 const OPEN_GROUPS: Array<{
-  key: Exclude<TodoListGroupKey, "needs-you" | "closed">
+  key: Exclude<TodoListGroupKey, "needs-you" | "recovering" | "manager" | "closed">
   label: string
   status: WorkItemStatusWire
   omitWhenEmpty?: boolean
@@ -55,13 +57,36 @@ export function groupTodoListItems(
     hoistedByStatus.set(item.status, (hoistedByStatus.get(item.status) ?? 0) + 1)
   }
 
-  const groups: TodoListGroup[] = [{
+  const recoveringItems = needsItems.filter((item) => item.attentionLane === "recovering")
+  const managerItems = needsItems.filter((item) => item.attentionLane === "manager")
+  const operatorItems = needsItems.filter((item) => item.attentionLane !== "recovering" && item.attentionLane !== "manager")
+
+  const groups: TodoListGroup[] = []
+  if (recoveringItems.length > 0) {
+    groups.push({
+      key: "recovering",
+      label: "Recovering automatically",
+      statuses: [],
+      items: recoveringItems,
+      count: recoveringItems.length,
+    })
+  }
+  if (managerItems.length > 0) {
+    groups.push({
+      key: "manager",
+      label: "Manager attention",
+      statuses: [],
+      items: managerItems,
+      count: managerItems.length,
+    })
+  }
+  groups.push({
     key: "needs-you",
     label: "Needs you",
     statuses: [],
-    items: needsItems,
-    count: needsItems.length,
-  }]
+    items: operatorItems,
+    count: operatorItems.length,
+  })
 
   for (const definition of OPEN_GROUPS) {
     const column = columns[definition.status]

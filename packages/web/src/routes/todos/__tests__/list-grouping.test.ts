@@ -30,6 +30,24 @@ function item(id: string, status: WorkItemStatusWire): WorkItemCompactWire {
 }
 
 describe("groupTodoListItems", () => {
+  it("splits recovering and manager lanes out of Needs you", () => {
+    const recovering = { ...item("PLA-1", "blocked"), attentionLane: "recovering" as const }
+    const manager = { ...item("PLA-2", "blocked"), attentionLane: "manager" as const }
+    const operator = { ...item("PLA-3", "blocked"), attentionLane: "operator" as const }
+    const empty = { items: [], total: 0 }
+    const groups = groupTodoListItems(
+      {
+        backlog: empty, assigned: empty, executing: empty, in_review: empty,
+        blocked: { items: [recovering, manager, operator], total: 3 },
+        escalated: empty, done: empty, cancelled: empty,
+      },
+      [recovering, manager, operator],
+    )
+    expect(groups.find((group) => group.key === "recovering")?.items.map(({ id }) => id)).toEqual(["PLA-1"])
+    expect(groups.find((group) => group.key === "manager")?.items.map(({ id }) => id)).toEqual(["PLA-2"])
+    expect(groups.find((group) => group.key === "needs-you")?.items.map(({ id }) => id)).toEqual(["PLA-3"])
+  })
+
   it("hoists an attention item outside the loaded status page", () => {
     const needsReview = item("PLA-21", "in_review")
     const groups = groupTodoListItems(
