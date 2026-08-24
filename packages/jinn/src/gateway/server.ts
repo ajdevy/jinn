@@ -78,7 +78,6 @@ import { createPluginEventsChannel, matchPluginEventsPath } from "./plugin-event
 import { startPluginRuntime, stopPluginRuntime } from "../plugins/runtime.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
-import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
@@ -258,7 +257,7 @@ export interface NormalizedConnector {
 /** When a legacy top-level connector counts as configured. */
 const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
   slack: (config) => Boolean(config.appToken && config.botToken),
-  discord: (config) => Boolean(config.botToken || config.proxyVia),
+  discord: (config) => Boolean(config.botToken),
   telegram: (config) => Boolean(config.botToken),
   whatsapp: () => true,
 };
@@ -312,13 +311,6 @@ export function createConnector(instance: NormalizedConnector): Connector {
     case "slack":
       return new SlackConnector(config as unknown as SlackConnectorConfig);
     case "discord":
-      // Remote mode proxies all Discord I/O through the primary instance.
-      if (config.proxyVia) {
-        if (instance.id !== "discord") {
-          throw new Error("Named Remote Discord instances are not supported until the proxy protocol authenticates and validates instance identity");
-        }
-        return new RemoteDiscordConnector({ proxyVia: String(config.proxyVia), channelId: config.channelId as string | undefined });
-      }
       return new DiscordConnector(config as unknown as DiscordConnectorConfig);
     case "telegram":
       return new TelegramConnector(config as unknown as TelegramConnectorConfig);
