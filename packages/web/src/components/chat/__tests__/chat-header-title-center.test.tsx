@@ -1,7 +1,13 @@
+import { type ReactNode } from 'react'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render } from '@testing-library/react'
 
+import { MobileWorkingSetNav } from '@/routes/chat/mobile-working-set-nav'
 import { ChatHeaderPills } from '../chat-tabs'
+
+vi.mock('@/components/ui/employee-avatar', () => ({
+  EmployeeAvatar: ({ name }: { name: string }) => <span data-avatar={name}>{name}</span>,
+}))
 
 // The mobile nav bar centres its title on the HEADER, not on the gap between the
 // controls, by locking both side tracks to the width of the wider cluster. jsdom
@@ -10,19 +16,25 @@ import { ChatHeaderPills } from '../chat-tabs'
 // and read back the grid template the component derives from them.
 
 const ACTIONS_WIDTH = 72
+const ONE_ACTION_WIDTH = 36
 const BARE_BACK_WIDTH = 36
 const LABELLED_BACK_WIDTH = 132
+const HEADER_WIDTH = 390
+const HEADER_PAD_X = 12 // px-1.5 on both sides
+const HEADER_COL_GAPS = 8 // gap-1 between the three tracks
+const CHIP = 36
+const CHIP_GAP = 4
 
 // Stand in for layout: the back control reports `backWidth`, the actions cluster
 // (identified by the compose button it wraps, not by the classes under test)
-// reports ACTIONS_WIDTH, everything else zero.
-function stubClusterWidths(backWidth: number) {
+// reports `actionWidth`, everything else zero.
+function stubClusterWidths(backWidth: number, actionWidth = ACTIONS_WIDTH) {
   const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
     configurable: true,
     get(this: HTMLElement) {
       if (this.matches('button[aria-label^="Back to"]')) return backWidth
-      if (this.querySelector(':scope > button[aria-label="New chat"]')) return ACTIONS_WIDTH
+      if (this.querySelector(':scope > button[aria-label="New chat"]')) return actionWidth
       return 0
     },
   })
@@ -38,16 +50,20 @@ function renderNavBar(props: {
   backWidth: number
   title: string
   backTo?: string
-  mobileWorkingSet?: boolean
+  mobileWorkingSet?: boolean | ReactNode
+  actionWidth?: number
 }) {
-  restores.push(stubClusterWidths(props.backWidth))
+  restores.push(stubClusterWidths(props.backWidth, props.actionWidth ?? ACTIONS_WIDTH))
+  const workingSet = props.mobileWorkingSet === true
+    ? <div>Working set</div>
+    : props.mobileWorkingSet || undefined
   const { container } = render(
     <ChatHeaderPills
       title={props.title}
       onBack={vi.fn()}
       onNew={vi.fn()}
       backTo={props.backTo ? { label: props.backTo, onClick: vi.fn() } : undefined}
-      mobileWorkingSet={props.mobileWorkingSet ? <div>Working set</div> : undefined}
+      mobileWorkingSet={workingSet}
     />,
   )
   const bar = container.querySelector<HTMLElement>('.lg\\:hidden')
@@ -60,6 +76,17 @@ function sideTracks(row: HTMLElement): [string, string] {
   const tracks = template.match(/^(\S+)\s+minmax\(0,\s*1fr\)\s+(\S+)$/)
   if (!tracks) throw new Error(`nav bar is not a centred 3-track grid: "${template}"`)
   return [tracks[1], tracks[2]]
+}
+
+function workingSetItems(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: String.fromCharCode(97 + i),
+    title: `Chat ${i + 1}`,
+    employee: `employee-${i + 1}`,
+    preview: `preview ${i + 1}`,
+    revision: 0,
+    moved: false,
+  }))
 }
 
 describe('mobile chat header title centring', () => {
@@ -88,13 +115,18 @@ describe('mobile chat header title centring', () => {
     expect(title.className).toContain('text-center')
   })
 
-  it('centres the working set on the header when the actions are the wider cluster', () => {
+  it.each([
+    { name: '0 action buttons', actionWidth: 0, expected: BARE_BACK_WIDTH },
+    { name: '1 action button', actionWidth: ONE_ACTION_WIDTH, expected: ONE_ACTION_WIDTH },
+    { name: '2 action buttons', actionWidth: ACTIONS_WIDTH, expected: ACTIONS_WIDTH },
+  ])('centres the working set on the header with $name', ({ actionWidth, expected }) => {
     const row = renderNavBar({
       backWidth: BARE_BACK_WIDTH,
       title: 'Ignored while the working set is present',
       mobileWorkingSet: true,
+      actionWidth,
     })
-    expect(sideTracks(row)).toEqual([`${ACTIONS_WIDTH}px`, `${ACTIONS_WIDTH}px`])
+    expect(sideTracks(row)).toEqual([`${expected}px`, `${expected}px`])
   })
 
   it('centres the working set on the header when a labelled back is the wider cluster', () => {
@@ -126,5 +158,36 @@ describe('mobile chat header title centring', () => {
 
     expect(back(withChips)).toContain('max-w-[27vw]')
     expect(back(withTitle)).toContain('max-w-[34vw]')
+  })
+
+  it('leaves room for four compact chips at 390px under the 27vw labelled-back cap', () => {
+    const side = Math.floor(HEADER_WIDTH * 0.27)
+    const middle = HEADER_WIDTH - HEADER_PAD_X - HEADER_COL_GAPS - 2 * side
+    expect(middle).toBeGreaterThanOrEqual(CHIP * 4 + CHIP_GAP * 3)
+  })
+
+  it.each([1, 2, 3, 4])('keeps %i working-set chips centred and shrinkable, with the active chip expanded', (count) => {
+    const row = renderNavBar({
+      backWidth: BARE_BACK_WIDTH,
+      title: 'Ignored while the working set is present',
+      mobileWorkingSet: (
+        <MobileWorkingSetNav
+          items={workingSetItems(count)}
+          activeId="a"
+          onSelect={vi.fn()}
+        />
+      ),
+    })
+    const nav = row.querySelector('[data-mobile-working-set-nav]')
+    expect(nav).toBeTruthy()
+    expect(nav!.className).toContain('justify-center')
+    expect(nav!.className).toContain('min-w-0')
+    expect(row.querySelectorAll('[data-mobile-working-set-chip]')).toHaveLength(count)
+
+    const active = row.querySelector('[data-mobile-working-set-active="true"]')
+    const compact = row.querySelector('[data-mobile-working-set-active="false"]')
+    expect(active?.className).toContain('max-w-[132px]')
+    expect(active?.textContent).toContain('Chat 1')
+    if (count > 1) expect(compact?.className).toContain('w-9')
   })
 })
