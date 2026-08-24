@@ -166,6 +166,16 @@ function fixedLines(snapshot: PageSnapshot, instance: InstanceIdentity): string[
       ? `chat ${semantic?.title ? clip(semantic.title, VALUE_CHARS) : "current"}`
       : `${snapshot.selection.kind} ${clip(snapshot.selection.id, VALUE_CHARS)}`
     lines.push(`Selected: ${selected}`)
+    // The one identifier the packet carries, and only for what the operator has
+    // actually selected. Without it the model can read the chat's title off the
+    // screen but cannot name the session to any tool, so asked what it is
+    // looking at it narrates instead of reading — the hallucination PLA-224 was
+    // raised for. Every other session on screen stays a title (`objectLine`
+    // withholds ids on a chat page), and this one is stated as a handle so the
+    // preamble's "speak names, not identifiers" still holds for what is said.
+    if (snapshot.selection.kind === "chat session") {
+      lines.push(`Selected session id: ${clip(snapshot.selection.id, VALUE_CHARS)} — this is the id of the chat on screen. Pass it as the id argument to any tool that takes a session id, including reading this chat or sending into it. It is a handle to use, never something to say.`)
+    }
   }
   if ("version" in snapshot) lines.push(...semanticLines(snapshot as TalkScreenContext))
   const filters = pairs(snapshot.filters)

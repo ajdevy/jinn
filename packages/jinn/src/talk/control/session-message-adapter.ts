@@ -2,6 +2,7 @@ import type { ApiContext } from "../../gateway/api.js";
 import { dispatchWebSessionRun } from "../../gateway/web-session-dispatch.js";
 import { claimIncomingTurn } from "../../sessions/incoming-turn.js";
 import { getSession } from "../../sessions/registry.js";
+import { requireBoundOperatorEvidence } from "./operator-evidence.js";
 import type { TalkControlAdapterContext } from "./types.js";
 
 /** Atomically claim the visible message and queue intent before dispatch. The
@@ -12,6 +13,7 @@ export function dispatchTalkSessionMessage(
   prompt: string,
   call: TalkControlAdapterContext,
 ): { messageId: string; queueItemId: string; replayed: boolean } {
+  requireBoundOperatorEvidence(call, "send-evidence-required", "Sending a message into a session");
   const session = getSession(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
   const engine = context.sessionManager.getEngine(session.engine);

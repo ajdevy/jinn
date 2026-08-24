@@ -5,6 +5,7 @@ import type { TalkControlManifest } from "../talk/control/types.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { insertTalkMessage } from "../sessions/talk-message-store.js";
 import { updateSession } from "../sessions/registry.js";
+import { logger } from "../shared/logger.js";
 import { readJsonBody } from "./http-helpers.js";
 import type { CallerIdentity } from "./session-comm-guards.js";
 
@@ -59,10 +60,21 @@ async function readControlBody(
   return null;
 }
 
-function approvalCredentialMatches(body: ControlBody, session: ReturnType<TalkSessionRegistry["get"]>): boolean {
+/**
+ * Writes that reach past this browser, and so must be bound to the credential
+ * generation the live orb was opened with — not merely posted with the
+ * operator's token. `operator-evidence.ts` states the same contract adapter-side.
+ */
+const BOUND_CREDENTIAL_OPERATIONS = new Set([
+  "prepare_voice_approval",
+  "commit_voice_approval",
+  "talk_send_to_session",
+]);
+
+function boundCredentialMatches(body: ControlBody, session: ReturnType<TalkSessionRegistry["get"]>): boolean {
   if (!session) return false;
-  const approval = new Set(["prepare_voice_approval", "commit_voice_approval"]).has(body.tool);
-  return !approval || (body.browserInstanceId === session.browserInstanceId && body.credentialGeneration === session.credentialGeneration);
+  return !BOUND_CREDENTIAL_OPERATIONS.has(body.tool)
+    || (body.browserInstanceId === session.browserInstanceId && body.credentialGeneration === session.credentialGeneration);
 }
 
 function auditVerifiedControl(
@@ -82,25 +94,48 @@ function auditVerifiedControl(
   });
 }
 
-function recordVerifiedControl(
+/**
+ * One server line per dispatch, whatever the outcome.
+ *
+ * The file logged nothing at all, so a Talk write that never landed left no
+ * trace anyone could search for — the failure this route exists to make
+ * audible. A failure is a warning because it is what someone greps for.
+ */
+function logControlOutcome(
+  talkSessionId: string,
+  body: ControlBody,
+  result: Awaited<ReturnType<TalkControlRuntime["dispatch"]>>,
+): void {
+  const where = `${body.tool} on talk session ${talkSessionId} (provider call ${body.providerCallId})`;
+  if (result.ok) {
+    logger.info(`talk control ok: ${where}${result.replayed ? " — replayed" : ""}`);
+    return;
+  }
+  logger.warn(`talk control failed: ${where} — ${result.code}: ${result.error}`);
+}
+
+/**
+ * The transcript row, for a failure as much as for a receipt.
+ *
+ * Writing successes only meant the session store agreed with the model that
+ * nothing had been attempted. The two rows carry different identities so a
+ * retry that succeeds is recorded next to the attempt that did not.
+ */
+function recordControlOutcome(
   sessionId: string,
   body: ControlBody,
   result: Awaited<ReturnType<TalkControlRuntime["dispatch"]>>,
 ): void {
-  if (!result.ok) return;
   const message = insertTalkMessage({
     sessionId,
     role: "assistant",
-    content: `Completed ${result.operation}.`,
-    identity: `control:${body.providerCallId}`,
-    toolCall: result.operation,
+    content: result.ok ? `Completed ${result.operation}.` : `Couldn't ${body.tool}: ${result.error}`,
+    identity: result.ok ? `control:${body.providerCallId}` : `control-failure:${body.providerCallId}`,
+    toolCall: result.ok ? result.operation : body.tool,
     toolId: body.providerCallId,
-    meta: { talk: {
-      kind: "control-receipt",
-      receiptId: result.receiptId,
-      verified: true,
-      operation: result.operation,
-    } },
+    meta: { talk: result.ok
+      ? { kind: "control-receipt", receiptId: result.receiptId, verified: true, operation: result.operation }
+      : { kind: "control-failure", verified: false, operation: body.tool, code: result.code, reason: result.error } },
   });
   if (message.created) updateSession(sessionId, { lastActivity: new Date().toISOString() });
 }
@@ -119,12 +154,13 @@ export async function handleTalkControl(
   const body = await readControlBody(req, res, options.send);
   if (!body) return;
   const session = options.registry.get(id);
-  if (!approvalCredentialMatches(body, session)) {
+  if (!boundCredentialMatches(body, session)) {
     options.send(res, 409, { ok: false, code: "credential-mismatch", error: "The control call does not match the active browser credential generation." });
     return;
   }
   const result = await options.runtime.dispatch({ talkSessionId: id, ...body, caller: options.caller });
   auditVerifiedControl(id, body, result, options);
-  if (session) recordVerifiedControl(session.sessionId, body, result);
+  logControlOutcome(id, body, result);
+  if (session) recordControlOutcome(session.sessionId, body, result);
   options.send(res, 200, result);
 }

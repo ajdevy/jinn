@@ -246,17 +246,19 @@ describe("universal Talk gateway control acceptance", () => {
     const delegatedSession = delegatedSessions[0]!;
     expect(delegated.body).toMatchObject({ uiEffect: { navigate: `/?session=${delegatedSession.id}` } });
 
+    // The named-session send is a gateway write now (PLA-224 S3), and it is
+    // gated on the operator's own live utterance rather than on a browser
+    // sheet. Posted without that binding it is refused before anything runs.
     const message = control("message-1", "talk_send_to_session", {
       id: delegatedSession.id,
       message: "Please include the final evidence summary.",
     });
-    const sent = await call(context, "POST", route, message);
-    expect(sent.body).toMatchObject({
-      ok: false,
-      code: "wrong-target",
-    });
+    const unbound = await call(context, "POST", route, message);
+    expect(unbound).toMatchObject({ status: 409, body: { code: "credential-mismatch" } });
     expect(sessions.getMessages(delegatedSession.id).filter((entry) => entry.role === "user").map((entry) => entry.content))
       .toEqual(["Complete the bounded verification task."]);
+
+    // That the bound send really lands is journey step 2 in talk-journey.test.ts.
 
     const workflow = control("workflow-1", "talk_start_workflow_run", {
       id: "verification-flow",

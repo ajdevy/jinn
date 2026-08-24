@@ -6,7 +6,7 @@ import { currentApproval } from "../../work-items/approval-rows.js";
 import { initDb } from "../../shared/db.js";
 import { TalkTopicRepository } from "../topics/repository.js";
 import type { TalkControlExecution, TalkControlOperation, TalkControlVerification } from "./types.js";
-import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./manifest.js";
+import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./capability-coverage.js";
 
 interface VerificationHost {
   workflowService?: WorkflowService;
@@ -25,6 +25,29 @@ function text(args: Record<string, unknown>, key: string): string {
 const verifyTodo: VerifyHandler = (args) => {
   const item = getWorkItem(text(args, "id"));
   return { ok: !!item, evidence: item ? { id: item.id, version: item.version, status: item.status, assignee: item.assignee } : {} };
+};
+
+/** A dictated Todo is only created if the ledger has it, under the title that
+ *  was spoken. The id comes from the execution, so a replay verifies the same
+ *  row rather than a second one. */
+const verifyCreate: VerifyHandler = (args, execution) => {
+  const id = String((execution.data.todo as { id?: unknown } | undefined)?.id ?? "");
+  const item = id ? getWorkItem(id) : undefined;
+  return {
+    ok: !!item && item.title === text(args, "title"),
+    evidence: item ? { id: item.id, title: item.title, status: item.status, version: item.version } : {},
+  };
+};
+
+/** The board is the authority on where a Todo sits, not the transition's return
+ *  value: a bounded-loop rule can redirect the move to `escalated`, and a
+ *  status that did not land must not be reported as one that did. */
+const verifyStatus: VerifyHandler = (args) => {
+  const item = getWorkItem(text(args, "id"));
+  return {
+    ok: !!item && item.status === text(args, "status"),
+    evidence: item ? { id: item.id, status: item.status, version: item.version } : {},
+  };
 };
 
 const verifyEdit: VerifyHandler = (args) => {
@@ -125,6 +148,8 @@ const verifyCapability: VerifyHandler = (args, execution) => {
 
 const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   read_todo: verifyTodo,
+  talk_create_todo: verifyCreate,
+  talk_set_todo_status: verifyStatus,
   talk_edit_todo: verifyEdit,
   talk_assign_todo: verifyAssignment,
   prepare_voice_approval: verifyPreparedApproval,
@@ -140,6 +165,11 @@ const VERIFY_HANDLERS: Record<string, VerifyHandler> = {
   talk_remember_topic: verifyTopicCommitment,
   read_talk_capability: verifyCapability,
 };
+
+/** Every operation name with an authoritative re-read. A gateway operation
+ *  missing from here fails closed (`ok: false`), which is correct but silent —
+ *  the manifest suite asserts the pairing instead of waiting for it. */
+export const VERIFY_HANDLER_NAMES: readonly string[] = Object.keys(VERIFY_HANDLERS);
 
 export async function verifyTalkDomainOperation(
   operation: TalkControlOperation,

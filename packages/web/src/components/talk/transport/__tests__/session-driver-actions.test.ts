@@ -192,4 +192,6 @@ describe("gateway-target Talk controls", () => {
     })
     expect(sent.filter((event) => event.type === "conversation.item.create")).toHaveLength(1)
   })
+
 })
+
