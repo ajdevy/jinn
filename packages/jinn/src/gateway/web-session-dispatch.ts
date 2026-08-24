@@ -23,7 +23,7 @@ import type { ApiContext } from "./api.js";
  */
 
 /** The turn surface every web-dispatched turn reports through. */
-function webTurnSurface(sessionId: string, context: ApiContext) {
+export function webTurnSurface(sessionId: string, context: ApiContext) {
   return createWebTurnSurface({
     sessionId,
     emit: context.emit,

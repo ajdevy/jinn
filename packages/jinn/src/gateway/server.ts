@@ -56,6 +56,7 @@ import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
 import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
 import { startStatusReconciler } from "./status-reconciler.js";
+import { webTurnSurface } from "./web-session-dispatch.js";
 import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
@@ -882,9 +883,8 @@ export async function startGateway(
   };
   apiContext.reloadConfig = reloadConfig;
 
-  // Unstick sessions whose completion event was lost (status:"running" with no
-  // live turn). 15s sweep; logs one line per fix.
-  const stopStatusReconciler = startStatusReconciler({ engines, emit });
+  // Unstick sessions whose completion event was lost (status:"running", no live turn): a 15s sweep, settling through the one completion path.
+  const stopStatusReconciler = startStatusReconciler({ engines, surfaceFor: (id) => webTurnSurface(id, apiContext) });
   const stopHeartbeatScheduler = startHeartbeatScheduler();
 
   // Todos ledger truth-keeping: derive status from linked-session evidence so a mid-process settle lands without a boot (GRS-021a), and resume a Todo parked on a provider window that has since reopened (PLA-153).
