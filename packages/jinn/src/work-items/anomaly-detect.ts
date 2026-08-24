@@ -36,15 +36,19 @@ function alreadyObserved(workItemId: string, kind: AnomalyKind): boolean {
 }
 
 function note(item: WorkItem, anomaly: TodoAnomaly, now: Date): void {
+  const incidentId = `anomaly:${anomaly.kind}:${item.id}`;
+  const prior = getWorkItemRecovery(item.id);
+  if (prior?.lane !== anomaly.lane || prior.incidentId !== incidentId) {
+    upsertWorkItemRecovery({
+      workItemId: item.id,
+      incidentId,
+      class: anomaly.lane === "recovering" ? "transient" : anomaly.lane === "manager" ? "code" : "operator",
+      lane: anomaly.lane,
+      reason: anomaly.reason,
+      now,
+    });
+  }
   if (alreadyObserved(item.id, anomaly.kind)) return;
-  upsertWorkItemRecovery({
-    workItemId: item.id,
-    incidentId: `anomaly:${anomaly.kind}:${item.id}`,
-    class: anomaly.lane === "recovering" ? "transient" : anomaly.lane === "manager" ? "code" : "operator",
-    lane: anomaly.lane,
-    reason: anomaly.reason,
-    now,
-  });
   appendWorkItemEvent({
     workItemId: item.id,
     kind: "anomaly_observed",

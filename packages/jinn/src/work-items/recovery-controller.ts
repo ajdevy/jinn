@@ -57,8 +57,15 @@ function incidentId(item: WorkItem, lastRunId: string | undefined): string {
   return lastRunId ?? `status:${item.id}:${item.status}:${item.updatedAt}`;
 }
 
+function detectorOwnsApprovedLanding(item: WorkItem, prior: ReturnType<typeof getWorkItemRecovery>): boolean {
+  return item.status === "in_review"
+    && prior?.lane === "manager"
+    && prior.incidentId.startsWith("anomaly:approved-landed-open");
+}
+
 function recordClassified(item: WorkItem, verdict: RecoveryClassification, lastRunId: string | undefined, now: Date): void {
   const prior = getWorkItemRecovery(item.id);
+  if (detectorOwnsApprovedLanding(item, prior)) return;
   const id = incidentId(item, lastRunId);
   if (prior?.incidentId === id && prior.class === verdict.class && prior.lane === verdict.lane) return;
   upsertWorkItemRecovery({

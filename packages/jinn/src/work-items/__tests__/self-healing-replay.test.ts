@@ -81,4 +81,20 @@ describe("historical incident replay — classifier", () => {
     expect(verdict.lane).not.toBe("recovering");
     expect(verdict.class).toBe("operator");
   });
+
+  it("an approved completed leftover still in_review is Manager attention, not Needs you", () => {
+    const verdict = classifyRecovery({
+      todo: { id: "PLA-15", status: "in_review", assignee: "platform-worker", source: "workflow" },
+      lastRun: {
+        id: "run_landed",
+        outcome: "completed",
+        error: null,
+        endedAt: "2026-08-20T12:00:00.000Z",
+      },
+      approval: { state: "approved", operatorOnly: false },
+      labels: ["build"],
+    });
+    expect(verdict).toMatchObject({ lane: "manager" });
+    expect(verdict.lane).not.toBe("operator");
+  });
 });

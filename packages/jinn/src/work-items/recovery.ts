@@ -73,6 +73,16 @@ function classifyFromFailure(input: RecoveryIncidentInput): RecoveryClassificati
   return undefined;
 }
 
+function classifyLeftover(input: RecoveryIncidentInput): RecoveryClassification | undefined {
+  if (input.approval?.state === "pending") {
+    return { class: "operator", lane: "manager", reason: "a routed approval is waiting on an employee, not the operator" };
+  }
+  if (input.todo.status === "in_review" && input.approval?.state === "approved" && input.lastRun?.outcome === "completed") {
+    return { class: "operator", lane: "manager", reason: "approved landing is still open" };
+  }
+  return undefined;
+}
+
 export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassification {
   if (input.todo.status === "backlog") {
     return verdict(input, { class: "operator", lane: "operator", reason: "ordinary backlog work is never auto-started" });
@@ -82,9 +92,8 @@ export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassifi
   }
   const fromFailure = classifyFromFailure(input);
   if (fromFailure) return verdict(input, fromFailure);
-  if (input.approval?.state === "pending") {
-    return verdict(input, { class: "operator", lane: "manager", reason: "a routed approval is waiting on an employee, not the operator" });
-  }
+  const leftover = classifyLeftover(input);
+  if (leftover) return verdict(input, leftover);
   return verdict(input, { class: "operator", lane: "operator", reason: "no safe automatic recovery is known" });
 }
 

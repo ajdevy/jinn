@@ -49,6 +49,29 @@ describe("groupTodoListItems", () => {
     expect(groups.find((group) => group.key === "needs-you")?.items.map(({ id }) => id)).toEqual(["PLA-3"])
   })
 
+  it("an in_review approved leftover with attentionLane manager reaches Manager attention, not Needs you", () => {
+    const leftover = {
+      ...item("QPR-4", "in_review"),
+      attentionLane: "manager" as const,
+      approvalState: "approved" as const,
+      assignee: "platform-worker",
+    }
+    const operatorGate = { ...item("QAP-10", "in_review"), approvalState: "pending" as const, attentionLane: "operator" as const }
+    const empty = { items: [], total: 0 }
+    const feed = deriveNeedsYou([leftover, operatorGate])
+    const groups = groupTodoListItems(
+      {
+        backlog: empty, assigned: empty, executing: empty,
+        in_review: { items: [leftover, operatorGate], total: 2 },
+        blocked: empty, escalated: empty, done: empty, cancelled: empty,
+      },
+      feed,
+    )
+    expect(groups.find((group) => group.key === "manager")?.items.map(({ id }) => id)).toEqual(["QPR-4"])
+    expect(groups.find((group) => group.key === "needs-you")?.items.map(({ id }) => id)).toEqual(["QAP-10"])
+    expect(groups.find((group) => group.key === "in-review")?.items.map(({ id }) => id)).not.toContain("QPR-4")
+  })
+
   it("a recovering API row reaches Recovering automatically and not Needs you", () => {
     const recovering = { ...item("QAP-2", "blocked"), attentionLane: "recovering" as const, assignee: "platform-worker" }
     const operatorGate = { ...item("QAP-10", "in_review"), approvalState: "pending" as const, attentionLane: "operator" as const }

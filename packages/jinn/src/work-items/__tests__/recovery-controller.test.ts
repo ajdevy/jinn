@@ -110,4 +110,32 @@ describe("sweepTodoRecovery", () => {
     const hits = store.listWorkItems({ needsAttentionFor: "operator" }).map((item) => item.id);
     expect(hits).toContain(id);
   });
+
+  it("does not overwrite an approved-landed-open manager row with the operator fallback", () => {
+    const item = store.createWorkItem({
+      title: "approved landing leftover", status: "in_review", assignee: "platform-worker",
+    });
+    const sessionId = `s-mgr-${item.id}`;
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, work_item_id, created_at, last_activity)
+       VALUES (?, 'claude', 'cron', ?, 'idle', ?, ?, ?)`,
+    ).run(sessionId, `cron:${sessionId}`, item.id, new Date().toISOString(), new Date().toISOString());
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId });
+    runs.closeWorkItemRun(run.id, { outcome: "completed", endedAt: new Date().toISOString() });
+    rows.upsertWorkItemRecovery({
+      workItemId: item.id,
+      incidentId: `anomaly:approved-landed-open:${item.id}`,
+      class: "code",
+      lane: "manager",
+      reason: "approved landing is still open",
+    });
+
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
+
+    expect(rows.getWorkItemRecovery(item.id)).toMatchObject({
+      lane: "manager",
+      incidentId: `anomaly:approved-landed-open:${item.id}`,
+    });
+    expect(store.listWorkItems({ needsAttentionFor: "operator" }).map((row) => row.id)).toContain(item.id);
+  });
 });

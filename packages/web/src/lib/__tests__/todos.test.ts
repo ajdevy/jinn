@@ -134,7 +134,7 @@ describe("deriveNeedsYou", () => {
     const set = deriveNeedsYou([
       compact({ id: "rec-assigned", status: "assigned", attentionLane: "recovering" }),
       compact({ id: "rec-parked", status: "blocked", attentionLane: "recovering", parkedUntil: parked }),
-      compact({ id: "mgr-review", status: "in_review", attentionLane: "manager" }),
+      compact({ id: "mgr-review", status: "in_review", attentionLane: "manager", approvalState: "approved" }),
       compact({ id: "plain-assigned", status: "assigned" }),
     ], NOW)
     expect(set.map((item) => item.id)).toEqual(["rec-assigned", "rec-parked", "mgr-review"])
