@@ -197,7 +197,7 @@ export function useBoardMenuCounts(departments: DepartmentSummaryWire[] | undefi
       const openOf = (totals: Partial<Record<WorkItemStatusWire, number>> | undefined): number =>
         OPEN_STATUSES.reduce((sum, s) => sum + (totals?.[s] ?? 0), 0)
       const [home, everything, ...perDept] = await Promise.all([
-        api.listWorkItems({ kept: true, rootsOnly: true, limit: 1 }),
+        api.listWorkItems({ home: true, rootsOnly: true, limit: 1 }),
         api.listWorkItems({ rootsOnly: true, limit: 1 }),
         ...slugs.map((slug) => api.listWorkItems({ department: slug, rootsOnly: true, limit: 1 })),
       ])
