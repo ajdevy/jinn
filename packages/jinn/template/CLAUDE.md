@@ -57,7 +57,6 @@ Shipped skills:
 - **experiments**: Create, measure, update, and conclude experiments.
 - **find-and-install**: Find and install community skills.
 - **management**: Manage departments, employees, hierarchy, and ownership.
-- **migrate**: Apply packaged workspace migrations.
 - **new**: Start a fresh chat session.
 - **notes**: Find, read, create, and safely update durable Notes.
 - **onboarding**: Guide a new operator through first-run setup.

@@ -16,12 +16,6 @@
     "packages/jinn/src/cli/limits.ts": [
       "complexity"
     ],
-    "packages/jinn/src/cli/migrate-prompt.ts": [
-      "max-lines-per-function"
-    ],
-    "packages/jinn/src/cli/migrate.ts": [
-      "complexity"
-    ],
     "packages/jinn/src/cli/nuke.ts": [
       "complexity",
       "max-lines-per-function"
@@ -320,19 +314,6 @@
     "packages/jinn/src/mcp/work-item-tools.ts": [
       "complexity",
       "max-lines-per-function"
-    ],
-    "packages/jinn/src/migrations/completion.ts": [
-      "complexity",
-      "max-lines-per-function"
-    ],
-    "packages/jinn/src/migrations/service.ts": [
-      "complexity",
-      "max-depth",
-      "max-lines-per-function"
-    ],
-    "packages/jinn/src/migrations/snapshot.ts": [
-      "complexity",
-      "max-depth"
     ],
     "packages/jinn/src/notes/store.ts": [
       "complexity",
@@ -685,10 +666,6 @@
     ],
     "packages/web/src/components/markdown-view.tsx": [
       "@typescript-eslint/no-unused-vars",
-      "max-lines-per-function"
-    ],
-    "packages/web/src/components/migration/instance-migration-gate.tsx": [
-      "complexity",
       "max-lines-per-function"
     ],
     "packages/web/src/components/onboarding-wizard.tsx": [

@@ -36,9 +36,6 @@ const gateway = vi.hoisted(() => ({ connected: false, subscribe: () => () => {} 
 vi.mock("@/hooks/use-gateway", () => ({ GatewayProvider: passThrough, useGateway: () => gateway }))
 vi.mock("@/hooks/use-query-invalidation", () => ({ useQueryInvalidation: () => {} }))
 vi.mock("@/components/emoji-favicon", () => ({ EmojiFavicon: () => null }))
-vi.mock("@/components/migration/instance-migration-gate", () => ({
-  InstanceMigrationGate: () => null,
-}))
 
 function renderApp() {
   const router = createMemoryRouter(
