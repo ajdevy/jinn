@@ -5,7 +5,7 @@
 | Route | Path | Context | Evidence and controls |
 | --- | --- | --- | --- |
 | chat | `/` | semantic | selected session and transcript; controls: open, message, continue, stop |
-| chat-redirect | `/chat` | semantic | redirect destination; controls: navigate |
+| chat-redirect | `/chat/:sessionId?` | semantic | redirect destination; controls: navigate |
 | cron-list | `/cron` | semantic | jobs, filters, and run summaries; controls: filter, open, trigger |
 | cron-detail | `/cron/:id` | semantic | selected job and run history; controls: edit, enable, disable, trigger |
 | todos-index | `/todos` | semantic | board redirect; controls: navigate |

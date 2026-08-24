@@ -94,6 +94,18 @@ describe("the authoritative Talk control manifest", () => {
     });
   });
 
+  it("requires the spoken creation confirmation to name the new Todo id", () => {
+    const create = buildTalkControlManifest().operations.find(({ name }) => name === "talk_create_todo");
+
+    expect(create?.description).toMatch(/say.*full Todo id/i);
+  });
+
+  it("requires an authoritative read for unfamiliar Todo ids", () => {
+    const read = buildTalkControlManifest().operations.find(({ name }) => name === "read_todo");
+
+    expect(read?.description).toMatch(/always call.*unfamiliar/i);
+  });
+
   it("contains no credentials or machine paths", () => {
     const serialized = JSON.stringify(buildTalkControlManifest());
     expect(serialized).not.toMatch(/authorization|bearer|api[_-]?key|\/Users\//i);
