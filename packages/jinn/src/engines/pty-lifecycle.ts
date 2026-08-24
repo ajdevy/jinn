@@ -15,6 +15,34 @@ export interface PtyHandle {
   kill: (signal?: string) => void;
 }
 
+/** What node-pty reports when a PTY's process goes away. The claude watchdog path
+ *  only ever sees an exit code, so both halves are optional. */
+export interface PtyExit {
+  exitCode?: number | null;
+  signal?: number | null;
+}
+
+/**
+ * Why a turn ended when the PTY process it was talking to went away.
+ *
+ * Lives beside `PtyHandle` because all four interactive engines settle their
+ * active turn with one of these and have to agree on the shape. Two rules bind it:
+ * it must keep starting with `Interrupted`, because `wasQuietlyPreempted`
+ * (sessions/turn/runner.ts) reads that prefix to settle the turn silently rather
+ * than report a failure nobody caused; and everything after the sentence is
+ * diagnostics, because a bare "claude process exited" was the entire account an
+ * 82-minute session got of why it ended.
+ */
+export function processExitInterruption(engine: string, exit?: PtyExit): string {
+  return `Interrupted: ${engine} process exited (code ${exit?.exitCode ?? "unknown"}, signal ${exit?.signal ?? "unknown"})`;
+}
+
+/** Whether an interruption reason is one of the above. A prefix test rather than an
+ *  equality one, because the sentence now carries per-exit diagnostics after it. */
+export function isProcessExitInterruption(reason: string): boolean {
+  return /^Interrupted: \S+ process exited\b/.test(reason);
+}
+
 export interface PtyLifecycleOpts {
   maxLivePtys: number;
   /** Called after a new PTY session is adopted — used to refresh gateway.json pids. */

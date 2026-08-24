@@ -7,7 +7,7 @@ import { JINN_HOME } from "../shared/paths.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
 import { neutralizeForPaste } from "../shared/skill-commands.js";
-import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
+import { PtyLifecycleManager, processExitInterruption, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped } from "./pty-stream.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
 import type { PtyControlEvent, PtyIdleSpawnOpts, PtySnapshotSubscription, PtyViewEngine } from "./pty-view-engine.js";
@@ -395,7 +395,7 @@ export class GrokInteractiveEngine implements InterruptibleEngine, PtyViewEngine
         this.lifecycle.releaseSession(jinnSessionId);
       }
       const e = this.active.get(jinnSessionId);
-      if (e && e.boundProc === proc) e.interrupt("Interrupted: grok process exited");
+      if (e && e.boundProc === proc) e.interrupt(processExitInterruption("grok", event));
     });
     return handle;
   }
