@@ -1241,7 +1241,7 @@
       ]
     },
     "packages/web/src/components/chat/thread-peek.tsx": {
-      "lines": 403,
+      "lines": 364,
       "exempt": [
         "complexity",
         "max-lines-per-function"
