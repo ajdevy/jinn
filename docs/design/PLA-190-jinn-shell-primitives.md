@@ -6,7 +6,8 @@ This document is the contract PLA-191..195 implement against. Eight primitives, 
 each, in the same shape every time: **anatomy**, **states**, **breakpoint behaviour**, **tokens
 consumed**, and a **named source** for anything borrowed. A slice implements from here without
 asking a follow-up question: every size is a number with a unit, and every colour, radius,
-shadow, easing and duration is a token that already exists.
+shadow, easing and duration is a token that already exists — with exactly one exception, the
+refresh spinner's rotation period, which §9 writes as a literal and justifies where it is used.
 
 Four questions were left open by PLA-187's dispatch and blocked PLA-191/192 from starting.
 §1 answers all four, one answer each, no hedging. §10 enumerates every place a borrowed idiom
@@ -60,6 +61,12 @@ so a token-driven animation collapses for free and a hardcoded one does not. `Ed
 already relies on exactly this: it *parses* `--duration-base` off the computed root style
 (`web/components/edge-back/edge-back-layer.tsx`, `settleMs()`) so the CSS that runs the settle and
 the navigation that waits for it cannot drift apart.
+
+The rule holds for every animation that *finishes*. A continuous rotation is the one case where
+collapsing the period to `--duration-instant` would make the animation worse rather than absent —
+it would spin the glyph, not still it — so §9's spinner is authored as a literal and stands its
+reduced-motion behaviour down explicitly instead. That is the only literal duration in this
+document.
 
 **Compose safe-area at the call site.** The convention already in the tree is
 `pb-[max(var(--safe-bottom),6px)]`, not a second token wrapping the first.
@@ -252,9 +259,21 @@ The page shell. One per route, rendered as `PageLayout`'s child.
    (§1.3), exposed as a node, never written to.
 3. `PrimaryAction` (§4) — a sibling of the scrollport, not a child, so it does not scroll away.
 
-Content padding is `px-[var(--space-3)] pt-[var(--space-5)] md:px-[var(--space-10)]`, with bottom
-padding `pb-24` on mobile and `md:pb-10` — the mobile value clears both the FAB and the tab bar,
-and it is what `web/routes/todos/list/todo-list.tsx` already uses.
+Content padding is `px-[var(--space-3)] pt-[var(--space-5)] md:px-[var(--space-10)]`, and
+`md:pb-10` at `md` and up. The mobile bottom padding is computed, not a round number, because it
+has to clear whatever actually floats over the scrollport:
+
+- **Tab bar only** — `calc(55px + max(var(--safe-bottom), 6px) + var(--space-4))`, the same
+  expression `PrimaryAction` uses for its own offset (§4), and `calc(max(var(--safe-bottom), 6px)
+  + var(--space-4))` when the scaffold is rendered with `hideMobileTabBar`.
+- **With `PrimaryAction`** — that value plus `calc(56px + var(--space-4))`, the FAB's own height
+  and one gap above it.
+
+`todo-list.tsx` ships `pb-24` today, and that is correct for a page with no FAB — 96px clears the
+tab bar with room to spare. It is *not* enough once a FAB is present: the button spans 77px to
+133px above the bottom edge at a zero safe inset, so a flat `pb-24` would leave the last 37px of
+a scrolled-to-bottom list sitting underneath it. The scaffold knows whether it rendered a
+`PrimaryAction`, so it is the right place to spend the extra padding only where it is owed.
 
 **States.** `default` · `scroll="external"` (page owns its scrollers; §1.3) · `no header` (title
 omitted; the scrollport becomes the whole box) · `empty` (the page's own empty state renders inside
@@ -266,7 +285,9 @@ the scrollport; the scaffold has no opinion) · `keyboard raised` (bottom paddin
 *Padding switches at `md` (768px).* Padding is a measure concern: it answers how wide the text
 column may run, and by 768px `--space-3` gutters leave text reading edge-to-edge. This is the
 switch `web/routes/todos/list/todo-list.tsx:23` ships today — `px-3 pb-24 pt-5 md:px-10 md:pb-10` —
-and the scaffold adopts it unchanged rather than moving a padding every Todos screenshot depends on.
+and the scaffold keeps its horizontal and top values, and its `md` breakpoint, rather than moving
+a padding every Todos screenshot depends on. The mobile bottom value is the one part it does not
+inherit, for the FAB-clearance reason given above; `md:pb-10` is unchanged.
 
 *Chrome switches at `lg` (1024px).* Chrome is a navigation concern: `lg` is where `NavRibbon`
 appears and `MobileTabBar` stands down. Below `lg`, `PrimaryAction` renders and the header may
@@ -291,7 +312,17 @@ element so the existing anchoring and virtualization keep working against a node
 
 ## 3. `LargeTitleHeader`
 
-**Anatomy.** Two titles stacked in one grid cell, cross-fading as the reader scrolls.
+**Anatomy.** Two layers, not two boxes sharing one cell. A **sticky bar of constant height**
+carries the inline title and the trailing slot; the **large title is a separate block in the
+scroll flow beneath it**, and scrolls up under the bar. The two cross-fade as the reader scrolls.
+
+**The collapsed header is the bar's height, and no animation is asked to make it so.** The large
+title's box leaves by scrolling out of the scrollport, taking its own height with it. The opacity
+and transform in §1.4's keyframes change what the title *looks* like on the way out, never what it
+occupies — so the header's resting height is the bar's, at every point in the collapse. Stacking
+both titles in one grid cell would size that cell to the large title forever and collapse to a
+tall empty bar; that is the reason for two layers, and it is also why §2 places this whole header
+inside the scrollport rather than above it.
 
 - **Large title** — `--text-large-title` / `--weight-bold` / `--text-primary`, with
   `--text-large-title--line-height` and `--text-large-title--letter-spacing`. Leading-aligned to
@@ -316,13 +347,18 @@ element so the existing anchoring and virtualization keep working against a node
 | `lg` and up | `opacity: 1`, permanent | not rendered | unchanged |
 
 **Breakpoint behaviour.** Below `lg`: both states live, collapse is armed, inline title centred,
-top padding `max(var(--safe-top), var(--space-3))`. At `lg` and up: large title only, no collapse,
-no sticky material needed but kept for consistency of surface, leading-aligned.
+top padding `var(--space-3)`. That is breathing room only and deliberately carries **no**
+`--safe-top`: `PageLayout` already pads every non-chromeless child by
+`pt-[var(--safe-top)] lg:pt-0` (`web/components/page-layout.tsx:166`), so a second inset here
+would clear the notch twice on a standard route — and §1.1 puts that line of `PageLayout` out of
+scope, which leaves this header the side that has to yield. A `chromeless` host is the exception
+and owns its own inset. At `lg` and up: large title only, no collapse, no sticky material needed
+but kept for consistency of surface, leading-aligned.
 
 **Tokens.** `--text-large-title`, `--text-large-title--line-height`,
 `--text-large-title--letter-spacing`, `--text-headline`, `--text-headline--line-height`,
 `--text-footnote`, `--weight-bold`, `--weight-semibold`, `--text-primary`, `--text-secondary`,
-`--material-thick`, `--fill-secondary`, `--space-3`, `--space-4`, `--safe-top`, `--ease-smooth`,
+`--material-thick`, `--fill-secondary`, `--space-3`, `--space-4`, `--ease-smooth`,
 `--font-ui`.
 
 *Source: Ionic (`IonHeader collapse="condense"` — the large-title-to-nav-bar collapse, and the
@@ -388,7 +424,8 @@ rather than redesigns.
 2. **Container** — `--bg-secondary`, `rounded-t-[var(--radius-2xl)]` on mobile,
    `--radius-xl` all round on desktop, `--shadow-overlay`. No border: `--shadow-overlay` carries
    the faint ~0.5px per-theme ring that stands in for one.
-3. **Grabber** — a 36×4px `--fill-tertiary` pill, `border-radius: 2px`, centred, mobile only.
+3. **Grabber** — a 36×4px `--fill-tertiary` pill, fully rounded (`border-radius: 9999px`, a
+   shape rather than a design radius, so no Ledger token is implied), centred, mobile only.
 4. **Header** — optional title at `--text-headline` / `--weight-semibold`, with a trailing
    borderless close button.
 5. **Body** — `min-h-0 overflow-y-auto`, stamped `data-scrollable`.
@@ -500,6 +537,11 @@ grouped-inset grammar, and PLA-195 owns any update to it.
 **Anatomy.** Quoting the settled rule: a collection is *ONE grouped-inset container
 (`--bg-secondary` + `--shadow-card` + 5px pad, radius `--radius-xl`) with FLAT rows inside (inner
 radius 13px, hover `--fill-quaternary`) — never a pile of per-row shadowed cards.*
+
+The `13px` in that quote is not a free literal and is not a second radius token: it is the
+container's own radius minus its pad, `calc(var(--radius-xl) - 5px)` — 18px less 5px — which is
+the radius an inner corner has to take to stay concentric with the outer one. Author it as that
+`calc`, so it tracks `--radius-xl` if the token ever moves.
 
 - **Section header** — optional, *outside* the container, above it. Kicker voice: 11px mono
   semibold, `0.15em` uppercase, `--text-secondary` in both themes, `--font-code`.
@@ -644,9 +686,19 @@ armed page and an unarmed page have identical resting geometry.
 | `idle` | not rendered |
 | `pulling` | `opacity` and `rotate` track pull distance, `--text-quaternary` → `--text-tertiary` |
 | `armed` | full opacity, `--text-secondary`, one `scale(1.06)` tick at `--duration-fast` |
-| `refreshing` | continuous rotation, 900ms linear, `--text-secondary` |
+| `refreshing` | continuous rotation, `900ms` linear period (see below), `--text-secondary` |
 | `settling` | fades out over `--duration-base`, scrollport returns to `0` |
 | `reduced motion` | no rotation; the glyph holds at full opacity for the duration of the refresh |
+
+**The one literal duration in this document, and why it is not a token.** The `refreshing`
+rotation is authored as `900ms`, not as `--duration-*`. The token rule exists so reduced motion
+can collapse an animation to `--duration-instant`; applied to a *continuous* rotation that
+collapse would spin the glyph roughly a thousand times a second rather than stop it. Reduced
+motion is handled one row above instead — the rotation is not applied at all and the glyph holds
+at full opacity — which is the accessible behaviour outright, not an approximation of it. No
+Ledger duration is within an order of magnitude of a spinner's period, and §11 deliberately does
+not ask PLA-191 for one: a rotation period is a property of this indicator, not a shared motion
+step that other surfaces would consume.
 
 **Gesture ownership, stated because two gestures share this surface.** `PullToRefresh` is vertical
 and lives inside the scrollport. `useEdgeBackGesture` is horizontal and starts within
