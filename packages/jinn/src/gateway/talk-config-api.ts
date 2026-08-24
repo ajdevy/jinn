@@ -8,10 +8,13 @@
  * capability only — the providers the gateway implements, and whether the
  * configured one would actually build. The answer is a boolean rather than the
  * `realtime` block itself so that no shape of this response can carry the key.
+ * The voice list is the one piece of provider knowledge it does hand over: a
+ * picker needs it, and it is public information about the provider, not about
+ * this account.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { JinnConfig } from "../shared/types.js";
-import { REALTIME_PROVIDERS, isRealtimeConfigured } from "../talk/realtime/index.js";
+import { REALTIME_PROVIDERS, isRealtimeConfigured, realtimeProviderVoices } from "../talk/realtime/index.js";
 
 /**
  * Handle `/api/talk/config`, returning false for anything else so the caller
@@ -31,6 +34,9 @@ export function handleTalkConfigApi(
       configured: isRealtimeConfigured(realtime),
       provider: realtime.provider ?? null,
       providers: REALTIME_PROVIDERS,
+      // The configured provider's own voices, so Settings can offer a picker
+      // without the browser bundle holding provider knowledge.
+      voices: realtimeProviderVoices(realtime.provider),
     }),
   );
   return true;

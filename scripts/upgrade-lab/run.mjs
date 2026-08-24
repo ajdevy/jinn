@@ -767,15 +767,25 @@ function runStateProbe(mode, packageRoot, layout, env) {
   try { return JSON.parse(output) } catch { throw new Error(`State probe returned invalid JSON: ${output}`) }
 }
 
+import { assertServiceOwnedRemovalsApplied, assertStockBundleApplied } from "./assertions.mjs"
+
+export { assertServiceOwnedRemovalsApplied, assertStockBundleApplied }
+
 export function mergeBundle(home, materializedBundleDir, manifest, materializationAudit, version) {
   const reviewedFiles = []
   const skippedItems = []
+  const serviceOwnedRemovals = []
   for (const record of manifest.files) {
     const user = path.join(home, record.path)
     const base = record.basePayload ? path.join(materializedBundleDir, record.basePayload) : null
     const target = record.targetPayload ? path.join(materializedBundleDir, record.targetPayload) : null
     const audited = materializationAudit.files?.find((file) => file.version === version && file.path === record.path)
     if (!audited) throw new Error(`materialization audit is missing ${version}:${record.path}`)
+    // A removal is service-owned: reconcileServiceOwnedRemovals performs it during
+    // completion against the materialized base and records its own outcome. Completion
+    // refuses a generic receipt that names a removal path, so the agent-side merge must
+    // neither delete the file nor claim it as reviewed or skipped.
+    if (record.operation === "remove") { serviceOwnedRemovals.push(record.path); continue }
     const userBytes = fs.existsSync(user) && fs.lstatSync(user).isFile() ? fs.readFileSync(user) : null
     const baseBytes = base ? fs.readFileSync(base) : null
     const unchanged = userBytes !== null && baseBytes !== null && userBytes.equals(baseBytes)
@@ -799,15 +809,13 @@ export function mergeBundle(home, materializedBundleDir, manifest, materializati
       } else {
         skippedItems.push({ path: record.path, reason: merged.reason || "user customization preserved after merge conflict" })
       }
-    } else if (record.operation === "remove" && unchanged) {
-      fs.rmSync(user); reviewedFiles.push(record.path)
     } else if (record.operation === "add" && userBytes !== null) {
       skippedItems.push({ path: record.path, reason: "custom file occupies added stock path" })
     } else {
       skippedItems.push({ path: record.path, reason: "user customization preserved for conservative merge" })
     }
   }
-  return { reviewedFiles, skippedItems }
+  return { reviewedFiles, skippedItems, serviceOwnedRemovals }
 }
 
 export function mergeMigrationChain({
@@ -820,6 +828,7 @@ export function mergeMigrationChain({
 }) {
   const reviewedFiles = new Set()
   const skippedItems = new Map()
+  const serviceOwnedRemovals = new Set()
   const appliedVersions = []
   for (const { version } of manifests) {
     const manifest = JSON.parse(fs.readFileSync(path.join(migrationsDir, version, "manifest.json"), "utf8"))
@@ -827,6 +836,7 @@ export function mergeMigrationChain({
     const preMergeTree = hashTree(home, new Set([".migration-snapshots", "logs", "tmp"]))
     const bundleReceipt = mergeBundle(home, materializedBundleDir, manifest, materializationAudit, version)
     for (const reviewed of bundleReceipt.reviewedFiles) reviewedFiles.add(reviewed)
+    for (const removal of bundleReceipt.serviceOwnedRemovals) serviceOwnedRemovals.add(removal)
     for (const skipped of bundleReceipt.skippedItems) {
       skippedItems.set(`${version}:${skipped.path}:${skipped.reason}`, skipped)
     }
@@ -837,34 +847,11 @@ export function mergeMigrationChain({
   }
   return {
     appliedVersions,
+    serviceOwnedRemovals: [...serviceOwnedRemovals],
     receipt: {
       reviewedFiles: [...reviewedFiles],
       skippedItems: [...skippedItems.values()],
     },
-  }
-}
-
-export function assertStockBundleApplied({ home, materializedBundleDir, manifest, receipt, preMergeTree }) {
-  if (receipt.skippedItems.length > 0) throw new Error(`stock migration skipped manifest paths: ${JSON.stringify(receipt.skippedItems)}`)
-  const reviewed = new Set(receipt.reviewedFiles)
-  for (const record of manifest.files) {
-    if (!reviewed.has(record.path)) throw new Error(`stock migration did not review manifest path: ${record.path}`)
-    const user = path.join(home, record.path)
-    if (record.operation === "remove") {
-      if (fs.existsSync(user)) throw new Error(`removed stock path survived: ${record.path}`)
-      continue
-    }
-    if (!fs.existsSync(user)) throw new Error(`stock path is missing after migration: ${record.path}`)
-    const actualSha256 = sha256(fs.readFileSync(user))
-    const baseSha256 = record.basePayload ? sha256(fs.readFileSync(path.join(materializedBundleDir, record.basePayload))) : null
-    const targetSha256 = record.targetPayload ? sha256(fs.readFileSync(path.join(materializedBundleDir, record.targetPayload))) : null
-    const wasUnmodifiedStock = record.operation === "add" || preMergeTree[record.path] === baseSha256
-    if (wasUnmodifiedStock && actualSha256 !== targetSha256) {
-      throw new Error(`stock path did not reach target: ${record.path}`)
-    }
-    if (!wasUnmodifiedStock && baseSha256 !== targetSha256 && actualSha256 === preMergeTree[record.path]) {
-      throw new Error(`personalized stock path did not incorporate target changes: ${record.path}`)
-    }
   }
 }
 
@@ -1056,6 +1043,9 @@ async function executeScenario({ scenario, candidateTarball, baselineTarball, ro
       pending = service.getPendingInstanceMigration({ instanceHome: layout.home, packageVersion: candidateVersion, migrationsDir })
       if (pending.required) throw new Error("completion left the migration pending")
       summary.checks.markerAdvanced = "PASS"
+      assertServiceOwnedRemovalsApplied({ home: layout.home, serviceOwnedRemovals: chain.serviceOwnedRemovals })
+      summary.serviceOwnedRemovals = chain.serviceOwnedRemovals
+      summary.checks.serviceOwnedRemovalsApplied = chain.serviceOwnedRemovals.length > 0 ? "PASS" : "PASS_NO_REMOVALS"
 
       if (scenario === "stock") {
         summary.checks.allStockTargetsApplied = "PASS"

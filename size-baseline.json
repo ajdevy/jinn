@@ -88,7 +88,6 @@
       ]
     },
     "packages/jinn/src/connectors/discord/index.ts": {
-      "lines": 351,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -305,10 +304,10 @@
       "lines": 485
     },
     "packages/jinn/src/gateway/__tests__/file-read.test.ts": {
-      "lines": 549
+      "lines": 524
     },
     "packages/jinn/src/gateway/__tests__/instance-migration-api.test.ts": {
-      "lines": 394
+      "lines": 367
     },
     "packages/jinn/src/gateway/__tests__/lifecycle-stop.test.ts": {
       "lines": 525
@@ -344,7 +343,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5510,
+      "lines": 5338,
       "exempt": [
         "complexity",
         "max-depth",
@@ -382,7 +381,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1553,
+      "lines": 1386,
       "exempt": [
         "complexity",
         "max-depth",
@@ -442,7 +441,7 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1313,
+      "lines": 1305,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -621,7 +620,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 666,
+      "lines": 665,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -746,7 +745,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2760,
+      "lines": 2635,
       "exempt": [
         "complexity",
         "max-depth",
@@ -847,7 +846,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 837
+      "lines": 833
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1165,7 +1164,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 588,
+      "lines": 582,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1264,12 +1263,6 @@
       "lines": 525,
       "exempt": [
         "complexity",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/web/src/components/chat/queue-panel.tsx": {
-      "exempt": [
-        "@typescript-eslint/no-floating-promises",
         "max-lines-per-function"
       ]
     },
@@ -1506,7 +1499,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1119,
+      "lines": 1117,
       "exempt": [
         "complexity"
       ]
@@ -1667,7 +1660,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1493,
+      "lines": 1489,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1994,7 +1987,7 @@
       "lines": 812
     },
     "scripts/upgrade-lab/run.mjs": {
-      "lines": 1140,
+      "lines": 1130,
       "exempt": [
         "complexity",
         "max-depth",

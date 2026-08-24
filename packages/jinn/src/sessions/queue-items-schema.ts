@@ -15,7 +15,9 @@ export const CREATE_QUEUE_ITEMS_TABLE = `
         position INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         started_at TEXT,
-        completed_at TEXT
+        completed_at TEXT,
+        message_id TEXT,
+        dispatch_payload TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_queue_session
         ON queue_items (session_key, status, position);
@@ -32,6 +34,16 @@ export const CREATE_QUEUE_ITEMS_TABLE = `
  * the key, so identity only binds while the send is unsettled — once the first
  * row completes, a genuinely repeated later send is a new intent and enqueues
  * normally.
+ *
+ * `message_id` links a parked row to the transcript row the operator can see,
+ * so the chat can tell which of its own bubbles are still waiting and edit the
+ * two together. Null on every row enqueued by a path that has no message.
+ *
+ * `dispatch_payload` holds the rest of what the turn runs on - its attachments
+ * and whether its text was spoken. Those used to live only in the dispatch
+ * closure, which is wrong the moment "send this one now" moves a payload onto a
+ * different row: the text would arrive with the other message's attachments.
+ * Null whenever there is nothing extra to carry, which is most rows.
  */
 export function migrateQueueItemsSchema(database: Database.Database): void {
   const columns = database.prepare('PRAGMA table_info(queue_items)').all() as Array<{ name: string }>;
@@ -41,6 +53,12 @@ export function migrateQueueItemsSchema(database: Database.Database): void {
   }
   if (!names.has('dedupe_key')) {
     database.exec('ALTER TABLE queue_items ADD COLUMN dedupe_key TEXT');
+  }
+  if (!names.has('message_id')) {
+    database.exec('ALTER TABLE queue_items ADD COLUMN message_id TEXT');
+  }
+  if (!names.has('dispatch_payload')) {
+    database.exec('ALTER TABLE queue_items ADD COLUMN dispatch_payload TEXT');
   }
   database.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_queue_items_dedupe

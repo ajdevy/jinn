@@ -10,6 +10,7 @@
  * the lifecycle can be driven by a fake in a test — jsdom implements none of
  * `RTCPeerConnection`, `getUserMedia`, or `AudioContext`.
  */
+import type { OrbEnergy } from "../orb-motion"
 
 /**
  * OpenAI's SDP exchange, confirmed against the Realtime WebRTC guide on
@@ -33,8 +34,10 @@ export interface TalkConnection {
 export interface ConnectOptions {
   /** The ephemeral credential from `POST /api/talk/sessions`. */
   token: string
-  /** Written each frame with the assistant's 0..1 loudness, for the orb's lobes. */
-  level: { current: number }
+  /** Written each frame with the 0..1 loudness of each side, for the orb's
+   *  lobes. Mutated in place: at 60fps for two streams, a fresh object per
+   *  frame is garbage the whole call long. */
+  energy: { current: OrbEnergy }
   onOpen: () => void
   onFrame: (data: string) => void
   onClose: (reason: "expected" | "failed") => void
@@ -42,9 +45,22 @@ export interface ConnectOptions {
 
 export type ConnectRealtime = (options: ConnectOptions) => Promise<TalkConnection>
 
-/** Drive `level` from the assistant's own audio, so the orb answers the voice
- *  the operator is hearing rather than a timer. Returns its own teardown. */
-function meterStream(stream: MediaStream, level: { current: number }): () => void {
+/**
+ * Drive one channel of `energy` from one stream, so the orb answers audio rather
+ * than a timer. Returns its own teardown.
+ *
+ * Both sides are metered by the same code and differ only in which channel they
+ * write: the microphone feeds `input`, the assistant's track feeds `output`.
+ * They overlap during a barge-in, which is exactly why they are two channels.
+ *
+ * The analyser is never connected to the context destination. Routing the
+ * microphone to the speakers would echo the operator back at themselves.
+ */
+function meterStream(
+  stream: MediaStream,
+  energy: { current: OrbEnergy },
+  channel: keyof OrbEnergy,
+): () => void {
   const context = new AudioContext()
   const analyser = context.createAnalyser()
   analyser.fftSize = 256
@@ -61,15 +77,25 @@ function meterStream(stream: MediaStream, level: { current: number }): () => voi
     }
     // RMS is a quiet number for speech; the orb reads 0..1, so it is scaled and
     // clamped rather than left to sit near zero for a normal speaking voice.
-    level.current = Math.min(1, Math.sqrt(sum / samples.length) * 4)
+    energy.current[channel] = Math.min(1, Math.sqrt(sum / samples.length) * 4)
     frame = requestAnimationFrame(read)
   }
   frame = requestAnimationFrame(read)
 
   return () => {
     cancelAnimationFrame(frame)
-    level.current = 0
+    energy.current[channel] = 0
     void context.close().catch(() => {})
+  }
+}
+
+/** A browser that refuses an AudioContext still gets its call. The orb loses its
+ *  pulse, which is not a reason to fail a voice session. */
+function meter(stream: MediaStream, energy: { current: OrbEnergy }, channel: keyof OrbEnergy): () => void {
+  try {
+    return meterStream(stream, energy, channel)
+  } catch {
+    return () => {}
   }
 }
 
@@ -109,7 +135,7 @@ function wirePeer(
     audio.srcObject = stream
     void audio.play().catch(() => {})
     stopMeter?.()
-    stopMeter = meterStream(stream, options.level)
+    stopMeter = meter(stream, options.energy, "output")
   }
   // A connection the provider dropped is a closed session, not a live one the
   // orb keeps animating.
@@ -124,17 +150,22 @@ export const connectRealtime: ConnectRealtime = async (options) => {
   const peer = new RTCPeerConnection()
   const audio = remoteAudio()
   let closed = false
+  // The microphone is metered from the moment it is granted, so the orb can
+  // ride the operator's own voice — the remote track only ever answered the
+  // assistant.
+  const stopInputMeter = meter(microphone, options.energy, "input")
 
   const close = (reason: "expected" | "failed") => {
     if (closed) return
     closed = true
-    meter.stop()
+    stopInputMeter()
+    outputMeter.stop()
     for (const track of microphone.getTracks()) track.stop()
     audio.srcObject = null
     peer.close()
     options.onClose(reason)
   }
-  const meter = wirePeer(peer, options, audio, close)
+  const outputMeter = wirePeer(peer, options, audio, close)
 
   try {
     for (const track of microphone.getTracks()) peer.addTrack(track, microphone)

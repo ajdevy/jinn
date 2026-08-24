@@ -157,9 +157,13 @@ const ATTESTED = {
   // headroom the move would otherwise have left, so Pi sits exactly ON the moved
   // ceiling: the next addition to this surface has to buy its room BEFORE it
   // spends any.
-  rpc: { tokens: 5446, sha256: "cfc8b9a7df51e4b28ac4382a9bc94a7b5bc23309fbd57769daa4858107fe30b5" },
-  pi: { tokens: 5952, sha256: "05bc26e60d6178aa96db272183d4fea17cf3bc91b79b3e91fdaf4840b70ce131" },
-  openai: { tokens: 5651, sha256: "90f1818ae5a7e8e9c4a2e9094dd395e729630835a6b69ddb9fc0897b0a351e54" },
+  // Reattested for PLA-227: `assignee` left create_work_item's schema, because
+  // creation no longer writes ownership — the assign flow is its only writer. It
+  // gives 8 tokens back on each wrapper. The ceiling does not move, so Pi comes off
+  // it and sits 8 under: this refactor hands the next addition its room back.
+  rpc: { tokens: 5438, sha256: "2b3556e30cc0a46f9a7fb5f592845980d83c68b4a72322b1244397cabebbc2d2" },
+  pi: { tokens: 5944, sha256: "96000ceef8c8d58cb7ef9a08805db72291587df446f7878017ff5f65b9336ada" },
+  openai: { tokens: 5643, sha256: "b26d667bbfae543baf471adafe05ae90713217782fdff53d902a80fc778009c0" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;

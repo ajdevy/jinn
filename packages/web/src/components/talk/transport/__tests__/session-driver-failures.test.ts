@@ -141,6 +141,42 @@ describe("what the model is told when a control fails", () => {
       error: "The gateway's answer to talk_comment_todo did not say whether it succeeded.",
     })
   })
+  it("preserves the real reason when a verified control effect fails", async () => {
+    authFetch.mockResolvedValue(response({
+      ok: true,
+      verified: true,
+      receiptId: "effect-receipt-1",
+      replayed: false,
+      operation: operation.name,
+      data: {},
+      evidence: {},
+      uiEffect: { navigate: "/todos/ABC-1" },
+    }))
+    const sent: Array<Record<string, unknown>> = []
+    const driver = createTalkDriver({
+      sessionId: "talk-1",
+      manifest: { version: 1, operations: [operation] },
+      send: (event) => sent.push(event),
+      onState: () => {},
+      onError: () => {},
+      applyUiEffect: async () => { throw new Error("The selected Todo could not be shown.") },
+    })
+
+    driver.receive(JSON.stringify({
+      type: "response.function_call_arguments.done",
+      call_id: "effect-call-1",
+      name: operation.name,
+      arguments: '{"id":"ABC-1","body":"done"}',
+    }))
+
+    await vi.waitFor(() => expect(sent.some((event) => event.type === "conversation.item.create")).toBe(true))
+    const output = sent.find((event) => event.type === "conversation.item.create")!.item as { output: string }
+    expect(JSON.parse(output.output)).toEqual({
+      ok: false,
+      code: "tool-failed",
+      error: "The selected Todo could not be shown.",
+    })
+  })
   /**
    * Found by the live sandbox replay: with the gateway killed mid-session, a
    * spoken turn failed while persisting the operator's utterance — before the

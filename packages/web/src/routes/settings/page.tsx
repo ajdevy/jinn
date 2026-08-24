@@ -23,11 +23,11 @@ import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
 import type { Config } from "./config-shape"
 import { configSaveBlocker } from "./engines/model-map-model"
-import { fetchTalkCapability, type TalkCapability } from "@/lib/talk-capability"
 import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
 import { PairingSection } from "./pairing-section"
 import { ShortcutsSection } from "./shortcuts-section"
+import { useVoiceCapability } from "./use-voice-capability"
 import {
   CONTROL_CLASS,
   FieldRow,
@@ -95,7 +95,7 @@ export default function SettingsPage() {
    *  made since the load is refused rather than silently overwritten. */
   const [configRevision, setConfigRevision] = useState("")
   const [conflict, setConflict] = useState<{ message: string; remedy?: string } | null>(null)
-  const [voiceCapability, setVoiceCapability] = useState<TalkCapability | null>(null)
+  const { voiceCapability, reloadVoiceCapability } = useVoiceCapability()
   const [feedback, setFeedback] = useState<{
     type: "success" | "error"
     message: string
@@ -150,16 +150,8 @@ export default function SettingsPage() {
       .finally(() => setConfigLoading(false))
   }
 
-  // Whether voice would actually open. The config block alone cannot answer it:
-  // a key held as ${ENV_VAR} only resolves where the gateway runs. Re-read after
-  // a save so the Talk Orb note clears the moment it stops being true.
-  function loadVoiceCapability() {
-    fetchTalkCapability().then(setVoiceCapability).catch(() => {})
-  }
-
   useEffect(() => {
     loadConfig()
-    loadVoiceCapability()
   }, [])
 
   // Poll for WhatsApp QR code when WhatsApp connector is configured
@@ -247,7 +239,7 @@ export default function SettingsPage() {
       .updateConfig(config, configRevision || undefined)
       .then((result) => {
         setConfigRevision(result?.revision ?? "")
-        loadVoiceCapability()
+        reloadVoiceCapability()
         setFeedback({ type: "success", message: "Settings saved successfully" })
       })
       .catch((err) => {
@@ -1411,6 +1403,10 @@ export default function SettingsPage() {
               <VoiceSection
                 provider={config.realtime?.provider ?? ""}
                 apiKey={config.realtime?.apiKey ?? ""}
+                model={config.realtime?.model ?? ""}
+                voice={config.realtime?.voice ?? ""}
+                turnDetection={config.realtime?.turnDetection}
+                noiseReduction={config.realtime?.noiseReduction ?? ""}
                 capability={voiceCapability}
                 onChange={updateConfig}
                 talkOrbOn={settings.talkOrb}

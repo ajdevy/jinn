@@ -37,7 +37,7 @@ function stubReducedMotion(reduce: boolean) {
   }))
 }
 
-const levelRef = { current: 0 }
+const energyRef = { current: { input: 0, output: 0 } }
 
 beforeEach(() => {
   ctx = fakeContext()
@@ -60,7 +60,7 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
     vi.stubGlobal("requestAnimationFrame", raf)
     stubReducedMotion(true)
 
-    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
 
     expect(raf).not.toHaveBeenCalled()
   })
@@ -70,25 +70,45 @@ describe("OrbCanvas under prefers-reduced-motion: reduce", () => {
     vi.stubGlobal("requestAnimationFrame", raf)
     stubReducedMotion(true)
 
-    const view = render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    const view = render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
     expect(paints()).toBe(1)
 
-    view.rerender(<OrbCanvas state="thinking" levelRef={levelRef} size={64} />)
+    view.rerender(<OrbCanvas state="thinking" energyRef={energyRef} size={64} />)
     expect(paints()).toBe(2)
 
-    view.rerender(<OrbCanvas state="speaking" levelRef={levelRef} size={64} />)
+    view.rerender(<OrbCanvas state="assistant_speaking" energyRef={energyRef} size={64} />)
     expect(paints()).toBe(3)
     expect(raf).not.toHaveBeenCalled()
   })
 
-  it("still paints, so the orb reads as parked rather than as broken", () => {
+  it("paints each state in its own geometry, not one frozen shape for all", () => {
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
     stubReducedMotion(true)
 
-    render(<OrbCanvas state="listening" levelRef={levelRef} size={64} />)
+    const traces: string[] = []
+    for (const state of ["idle", "listening", "user_speaking", "thinking", "assistant_speaking", "error"] as const) {
+      ctx = fakeContext()
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx) as never
+      const view = render(<OrbCanvas state={state} energyRef={energyRef} size={64} />)
+      // Exactly one frame per state — still, but in that state's own shape.
+      expect(paints(), state).toBe(1)
+      traces.push(ctx.ellipse.mock.calls.map((c) => c.join(",")).join("|"))
+      view.unmount()
+    }
+
+    expect(new Set(traces).size).toBe(traces.length)
+  })
+
+  it("still paints the layered material, so the orb reads as parked, not broken", () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
+    stubReducedMotion(true)
+
+    render(<OrbCanvas state="listening" energyRef={energyRef} size={64} />)
 
     expect(ctx.createRadialGradient).toHaveBeenCalled()
-    expect(ctx.fill).toHaveBeenCalledOnce()
+    // One frame, but the whole sphere: body, lobes, core, specular, rim. A
+    // single fill here would be the flat blob this work replaced.
+    expect(ctx.fill.mock.calls.length).toBeGreaterThan(1)
   })
 })
 
@@ -106,7 +126,7 @@ describe("OrbCanvas when the palette changes under it", () => {
     stubReducedMotion(true)
     document.documentElement.setAttribute("data-theme", "dark")
 
-    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
     expect(paints()).toBe(1)
 
     document.documentElement.setAttribute("data-theme", "light")
@@ -119,7 +139,7 @@ describe("OrbCanvas when the palette changes under it", () => {
     stubReducedMotion(true)
     document.documentElement.setAttribute("data-theme", "dark")
 
-    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
     document.documentElement.setAttribute("lang", "en")
 
     await new Promise((resolve) => setTimeout(resolve, 20))
@@ -134,7 +154,7 @@ describe("OrbCanvas with motion allowed", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
     stubReducedMotion(false)
 
-    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
     expect(frames).toHaveLength(1)
     expect(paints()).toBe(0)
 
@@ -150,7 +170,7 @@ describe("OrbCanvas with motion allowed", () => {
     vi.stubGlobal("cancelAnimationFrame", cancel)
     stubReducedMotion(false)
 
-    render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />).unmount()
+    render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />).unmount()
 
     expect(cancel).toHaveBeenCalledWith(7)
   })
@@ -161,7 +181,7 @@ describe("OrbCanvas with motion allowed", () => {
     vi.stubGlobal("devicePixelRatio", 2)
     stubReducedMotion(false)
 
-    const { container } = render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    const { container } = render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
 
     const canvas = container.querySelector("canvas")!
     expect(canvas.width).toBe(128)
@@ -174,7 +194,7 @@ describe("OrbCanvas with motion allowed", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
     stubReducedMotion(false)
 
-    const { container } = render(<OrbCanvas state="idle" levelRef={levelRef} size={64} />)
+    const { container } = render(<OrbCanvas state="idle" energyRef={energyRef} size={64} />)
 
     expect(container.querySelector("canvas")).toHaveProperty("ariaHidden", "true")
   })

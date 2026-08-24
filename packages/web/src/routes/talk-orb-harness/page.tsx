@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { OrbCanvas } from "@/components/talk/orb-canvas"
 import { OrbVariantPicker } from "@/components/talk/orb-variant-picker"
-import { ORB_STATES, ORB_VARIANTS, type OrbState } from "@/components/talk/orb-motion"
+import { ORB_STATES, ORB_VARIANTS, SILENT_ENERGY, stateEnergy, type OrbEnergy, type OrbState } from "@/components/talk/orb-motion"
 import type { SituationPayload } from "@/components/talk/situation-payload"
 import {
   presentSituation,
@@ -21,28 +21,37 @@ import { ToolBench } from "./tool-bench"
  * behind the sphere.
  */
 
-/** A pair of beating sines reads as speech; one sine reads as a metronome. */
-function useSyntheticLevel(state: OrbState) {
-  const level = useRef(0)
+/**
+ * A pair of beating sines reads as speech; one sine reads as a metronome.
+ *
+ * Both channels are driven, and the state picks the one it rides — which is the
+ * point of the bench: a state wired to the wrong channel shows up here as an
+ * orb that will not move.
+ */
+function useSyntheticEnergy(state: OrbState) {
+  const energy = useRef<OrbEnergy>({ input: 0, output: 0 })
   const reduce = usePrefersReducedMotion()
   useEffect(() => {
-    if (reduce || (state !== "listening" && state !== "speaking")) {
-      level.current = 0
+    const silent = () => { energy.current.input = 0; energy.current.output = 0 }
+    if (reduce || stateEnergy(state, { input: 1, output: 1 }) === 0) {
+      silent()
       return
     }
     let frame = 0
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick)
       const seconds = now / 1000
-      level.current = Math.abs(Math.sin(seconds * 2.3) * 0.6 + Math.sin(seconds * 5.7) * 0.4)
+      const value = Math.abs(Math.sin(seconds * 2.3) * 0.6 + Math.sin(seconds * 5.7) * 0.4)
+      energy.current.input = value
+      energy.current.output = value
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
   }, [reduce, state])
-  return level
+  return energy
 }
 
-const QUIET_LEVEL = { current: 0 }
+const QUIET_ENERGY = { current: SILENT_ENERGY }
 
 function VariantGallery() {
   return (
@@ -58,7 +67,7 @@ function VariantGallery() {
           >
             {variant}
           </h2>
-          <div className="grid grid-cols-3 gap-[var(--space-2)] sm:grid-cols-6">
+          <div className="grid grid-cols-4 gap-[var(--space-2)] sm:grid-cols-7">
             {ORB_STATES.map((state) => (
               <div
                 key={state}
@@ -68,7 +77,7 @@ function VariantGallery() {
                 className="min-w-0 rounded-[var(--radius-md)] bg-[var(--material-ultra-thin)] px-[var(--space-1)] py-[var(--space-2)] text-center"
               >
                 <div className="flex justify-center">
-                  <OrbCanvas variant={variant} state={state} levelRef={QUIET_LEVEL} size={56} motion="still" />
+                  <OrbCanvas variant={variant} state={state} energyRef={QUIET_ENERGY} size={56} motion="still" />
                 </div>
                 <span className="block truncate text-[length:var(--text-caption2)] capitalize text-[var(--text-secondary)]">
                   {state}
@@ -147,7 +156,7 @@ function SituationPicker({ onPick }: { onPick: (kind: SituationPayload["kind"]) 
 
 export default function TalkOrbHarnessPage() {
   const [state, setState] = useState<OrbState>("idle")
-  const levelRef = useSyntheticLevel(state)
+  const energyRef = useSyntheticEnergy(state)
   const { settings, setTalkOrbVariant } = useSettings()
 
   return (
@@ -178,7 +187,7 @@ export default function TalkOrbHarnessPage() {
           <div className="mt-[var(--space-5)]"><ToolBench /></div>
         </details>
       </main>
-      <TalkSurface variant={settings.talkOrbVariant} state={state} levelRef={levelRef} />
+      <TalkSurface variant={settings.talkOrbVariant} intensity={settings.talkOrbIntensity} state={state} energyRef={energyRef} />
     </div>
   )
 }

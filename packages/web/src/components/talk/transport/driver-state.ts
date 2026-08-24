@@ -1,37 +1,17 @@
 /**
- * What one live Talk conversation is, as data.
+ * What one live conversation remembers.
  *
- * Split out of `session-driver.ts` so the tool lane can be its own module
- * without either file importing the other back.
+ * Split out of `session-driver.ts` so the loop that handles frames reads as a
+ * loop: this is the shape it mutates, and every field here exists because the
+ * provider can replay, interleave, or cancel something.
  */
 import type { OrbState } from "../orb-motion"
-import type { createVisualCapture, VisualCaptureReceipt } from "../context/visual-capture"
 import type { OperatorTranscriptEvidence } from "./operator-transcript-evidence"
-import type { TalkControlManifest } from "./control-manifest"
-import type { TalkUiEffect } from "./ui-effects"
+import type { TalkDriverOptions } from "./session-driver"
 import type { TalkUsage } from "./usage-delta"
+import type { VisualCaptureReceipt, createVisualCapture } from "../context/visual-capture"
+import type { FalseStartRecovery } from "./false-start-recovery"
 import type { DriverProactiveCues } from "./driver-proactive-cues"
-import type { FalseStartRecovery, InterruptionTelemetry } from "./false-start-recovery"
-
-export interface TalkDriverOptions {
-  sessionId: string
-  browserInstanceId?: string
-  credentialGeneration?: number
-  /** What this instance is, as the gateway described it when the session opened
-   *  — the company, its conventions, and who works here. Absent on a session
-   *  opened against a gateway that does not send one. */
-  brief?: string
-  topicMemory?: string
-  manifest: TalkControlManifest
-  /** Send one client event over the `oai-events` data channel. */
-  send: (event: Record<string, unknown>) => void
-  onState: (state: OrbState) => void
-  onError: (message: string) => void
-  vadType?: InterruptionTelemetry["vadType"]
-  onInterruption?: (event: InterruptionTelemetry) => void
-  visualCapture?: ReturnType<typeof createVisualCapture>
-  applyUiEffect?: (effect: TalkUiEffect | null) => Promise<void>
-}
 
 /** Everything one live conversation remembers: what has been billed, what the
  *  assistant last said, what the orb is currently showing, and enough about the

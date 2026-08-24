@@ -20,6 +20,27 @@ import type {
 import { addUsage, emptyUsage, type OpenAiUsage } from "./openai-usage.js";
 import { buildSessionPayload, DEFAULT_REALTIME_MODEL } from "./openai-session-payload.js";
 
+/**
+ * The voices this provider will accept on a session.
+ *
+ * Confirmed against the OpenAI Realtime voice list for `gpt-realtime`. It lives
+ * here rather than in the web bundle because it is provider knowledge: a second
+ * provider brings its own list, and a browser hard-coding one would be wrong
+ * the moment `realtime.provider` changes.
+ */
+export const OPENAI_REALTIME_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "cedar",
+  "coral",
+  "echo",
+  "marin",
+  "sage",
+  "shimmer",
+  "verse",
+] as const;
+
 export { buildSessionPayload } from "./openai-session-payload.js";
 
 const REALTIME_WS_URL = "wss://api.openai.com/v1/realtime";

@@ -7,15 +7,15 @@ describe("POST /api/work-items — provenance and approval routing fields", () =
     const caller = reg.createSession({ engine: "codex", source: "web", sourceRef: "caller", title: "caller", employee: "platform-worker" });
 
     const spoof = makeRes();
-    await api.handleApiRequest(
-      makeReq("POST", "/api/work-items", { title: "Spoof", provenance: { source: "workflow", sourceRef: "workflow:wf:run" } }, toolHeaders(caller.id)),
-      spoof.res,
-      ctx,
-    );
+    await api.handleApiRequest(makeReq("POST", "/api/work-items", { title: "Spoof", provenance: { source: "workflow", sourceRef: "workflow:wf:run" } }, toolHeaders(caller.id)), spoof.res, ctx);
     expect(spoof.status).toBe(400);
     expect(spoof.body.error).toContain("cron and delegation create their own records");
     expect(spoof.body.error).toContain("source=workflow is historical audit provenance and is not currently minted");
     expect(spoof.body.error).not.toMatch(/cron\/workflow\/delegation source records are minted|dedicated bridges?/i);
+    const owned = makeRes();
+    await api.handleApiRequest(makeReq("POST", "/api/work-items", { title: "Owned", assignee: "platform-worker" }, toolHeaders(caller.id)), owned.res, ctx);
+    expect(owned.status).toBe(400);
+    expect(owned.body.error).toMatch(/assign_work_item.+POST \/api\/work-items\/:id\/assign/);
 
     const ok = makeRes();
     await api.handleApiRequest(makeReq("POST", "/api/work-items", { title: "Normal" }, toolHeaders(caller.id)), ok.res, ctx);

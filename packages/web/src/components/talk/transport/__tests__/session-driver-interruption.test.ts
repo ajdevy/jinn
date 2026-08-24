@@ -10,43 +10,16 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 const { createTalkDriver } = await import("../session-driver")
 const { browserControlFixture } = await import("./control-fixture")
 
-function event(type: string, fields: Record<string, unknown> = {}) {
-  return JSON.stringify({ type, ...fields })
-}
-
-function responseCreated(responseId: string) {
-  return event("response.created", { response: { id: responseId } })
-}
-
-function responseDone(responseId: string) {
-  return event("response.done", {
-    response: { id: responseId, status: "cancelled", status_details: { reason: "turn_detected" } },
-  })
-}
-
-function speechStarted(itemId?: string, audioStartMs?: number) {
-  return event("input_audio_buffer.speech_started", { item_id: itemId, audio_start_ms: audioStartMs })
-}
-
-function speechStopped(itemId?: string, audioEndMs?: number) {
-  return event("input_audio_buffer.speech_stopped", { item_id: itemId, audio_end_ms: audioEndMs })
-}
-
-function outputCleared(responseId?: string) {
-  return event("output_audio_buffer.cleared", { response_id: responseId })
-}
-
-function outputStarted(responseId: string) {
-  return event("output_audio_buffer.started", { response_id: responseId })
-}
-
-function transcript(itemId: string, text: string) {
-  return event("conversation.item.input_audio_transcription.completed", {
-    item_id: itemId,
-    event_id: `event-${itemId}`,
-    transcript: text,
-  })
-}
+import {
+  event,
+  outputCleared,
+  outputStarted,
+  responseCreated,
+  responseDone,
+  speechStarted,
+  speechStopped,
+  transcript,
+} from "./interruption-fixture"
 
 function driver() {
   const sent: Array<Record<string, unknown>> = []
@@ -86,7 +59,7 @@ describe("provider-owned interruption and false-start recovery", () => {
     expect(talk.states.at(-1)).toBe("interrupted")
 
     talk.driver.receive(speechStopped("item-user-1", 1_300))
-    expect(talk.states.at(-1)).toBe("thinking")
+    expect(talk.states.at(-1)).toBe("listening")
   })
 
   it("does not call ordinary listening an interruption", () => {
@@ -95,6 +68,7 @@ describe("provider-owned interruption and false-start recovery", () => {
     talk.driver.receive(speechStarted("item-user-1", 1_000))
 
     expect(talk.states).not.toContain("interrupted")
+    expect(talk.states.at(-1)).toBe("user_speaking")
   })
 
   it("continues exactly once after correlated short empty speech", () => {
@@ -275,6 +249,38 @@ describe("provider-owned interruption and false-start recovery", () => {
     expect(newerResponse.requests()).toHaveLength(0)
     expect(newerSpeech.requests()).toHaveLength(0)
     expect(stopped.requests()).toHaveLength(0)
+  })
+
+  /**
+   * The routing PLA-223 turns on: the operator's own voice has to reach the orb
+   * as its own state, and it has to do that without touching the response
+   * bookkeeping underneath — the orb is a readout, not a participant.
+   */
+  it("shows the operator speaking without disturbing the response in flight", () => {
+    const quiet = driver()
+    quiet.driver.receive(speechStarted("item-user-1", 1_000))
+    expect(quiet.states.at(-1)).toBe("user_speaking")
+    quiet.driver.receive(speechStopped("item-user-1", 1_800))
+    expect(quiet.states.at(-1)).toBe("listening")
+    // The VAD pair on its own neither asks for a response nor cancels one; the
+    // transcript is what asks.
+    expect(quiet.requests()).toHaveLength(0)
+    expect(quiet.cancels()).toHaveLength(0)
+
+    const live = driver()
+    live.driver.receive(responseCreated("response-1"))
+    live.driver.receive(speechStarted("item-user-1", 1_000))
+    // Over the assistant it is an interruption, not an ordinary turn.
+    expect(live.states.at(-1)).toBe("interrupted")
+    live.driver.receive(speechStopped("item-user-1", 1_240))
+    expect(live.states.at(-1)).toBe("listening")
+    live.driver.receive(transcript("item-user-1", "Stop and show the open Todos"))
+
+    // The response it interrupted still owns the turn until it reports done.
+    expect(live.cancels()).toHaveLength(0)
+    expect(live.requests()).toHaveLength(0)
+    live.driver.receive(responseDone("response-1"))
+    expect(live.requests()).toEqual([{ type: "response.create" }])
   })
 
   it("creates one response for an ordinary user turn", () => {

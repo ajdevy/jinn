@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.31.0] - 2026-08-23
+
+### ✨ Features
+- **One window, several chats side by side.** The dashboard is no longer one conversation at a time. A working set of chats lays out as a live grid you drag sessions into, each pane carrying its own title bar, its own controls and its own composer, so an answer in one pane no longer costs you the thread in another. "Open beside" is on the row menu and the pane menu, drops preview where they will land before you let go, and an empty pane offers a picker instead of sitting blank. On a phone the same working set becomes slots you swipe, seated by what you actually opened rather than by raw recency.
+- **⌘K is now a search workspace, not a jump box.** One ranked endpoint searches across chats, Todos, employees and workflows with a small query grammar, and the overlay previews the hit before you commit to it. From inside that preview you can act on the thing you found — assign it, move it, run it, start a new session against it — so the common "find it, then do the one obvious thing to it" round trip stops being two screens. Todos gain full-text search over title, body and comments, and the Todo search box opens the same overlay scoped to Todos.
+- **Talk becomes an instrument you can read.** The orb is a lit sphere driven by two channels of energy — yours and the model's — with live mic metering, six states you can tell apart without reading the label, and tokens retuned for both themes. The whole realtime configuration moved into Settings, where the voice list comes from the provider's own capability endpoint rather than a hardcoded list. Talk also recovers from an interruption mid-sentence, carries live chat context, searches chat history, and has a driving audio profile for hands-busy use.
+- **A workflow can loop, and it can hold a lock.** A Call node can run its target again up to N times, with each round getting its own card and a link to the session that ran it, and a broken round says so rather than silently ending the run. An employee node can hold a mutex key, so two runs that must not land at the same time serialize instead of racing. Approvals gained one door for choice and reason, Workflows can be archived and brought back, and a run started by an attempt session is linked and guarded rather than orphaned.
+- **An engine that runs out can hand the turn to one that has not.** Engine failures are now named once, as a taxonomy, with the moment they clear recorded. Each engine declares the engines that cover for it, and any engine can walk that chain — skipping one that is out of allowance rather than discovering it the hard way mid-turn. Settings exposes both the fallback chains and live engine health, and the model map is editable there instead of read-only.
+- **Queued messages are visible and editable.** A message parked behind a running turn renders as its own card in the thread, with its own vertical rhythm, and you can edit it or send it now instead of waiting for the turn it is stuck behind.
+- **Every instance home gets a nightly backup it can be restored from.** One bad target no longer takes the whole backup run down, and an archive that does not read back is refused rather than quietly replacing the registry it was meant to update.
+- **A desktop shell that keeps its own profile.** The Tauri shell gains profile-aware transport, a bundled auth bridge, isolated gateway profiles and consolidated native targets, so the native window authenticates and points at its own instance instead of borrowing the browser's.
+- **Cron jobs can be deleted from the dashboard,** and each run-history row links to the session it spawned.
+- **The reader picks the UI's text size, per device** — and the Todo board scales with it.
+
+### ⚡ Performance
+- **Long lists get their flick back.** Momentum scrolling was being eaten on every long list, and three separate things could move the transcript under a reader who had only scrolled. Concurrent test suites are also capped machine-wide, so a verification run no longer drives the machine to a load average nobody asked for.
+
+### 🐛 Fixes
+- **An upgrade stops skipping the skill docs that quote Workflow binding syntax.** The migration materializer flagged every `{{ ... }}` as an unresolved template placeholder, though only `{{portalName}}` and `{{portalSlug}}` are ever substituted. A shipped skill that documents a binding expression such as `{{ trigger.round }}` therefore looked like a file full of broken placeholders, and the merge conservatively skipped it — so a release could no longer teach an instance anything about the syntax it was documenting. Detection now matches the shape of a placeholder, a bare name, so a placeholder a newer template introduces is still reported while a binding expression is left alone.
+- **A blocked landing can no longer close its Todo.** A workflow that failed to land was still able to settle the work item as done; the close is now gated on the landing actually succeeding.
+- **The engine reset is honest.** A reset was reported optimistically and never re-checked; it is now reported truthfully and re-probed on an internal timer.
+- **A restart no longer strands a session mid-turn.** Sessions interrupted by a gateway restart are nudged to continue, a workflow attempt a restart killed is replaced instead of failing the run, and an operator's stop can no longer be refused by a retry.
+- **An engine swap never carries a foreign model.** Switching engines used to leave the previous engine's model selected.
+- **A Todo keeps the label its own lane trigger fires on.** Label deferrals now outrank a supersession and say so in the ledger, a backlog of pending Todo events collapses to the newest one, and a released deferral cannot take a lane a newer event has already run.
+- **Antigravity turns settle.** Prompts stream over stdin, managed process trees are reaped, headless work turns settle instead of hanging, and the work and terminal adapters are separated.
+- **A sandbox command can no longer be aimed at the live instance** by a leaked gateway binding in the environment.
+- **A delegation names its caller** even when the assignment does not move.
+- **Chat surface polish** — the stale-chat notice hides when you send, workflow runs are first-class rows in the chat list again, the mobile tab bar survives route loads, the image lightbox dismisses on a completed backdrop click, an automatic fold answers a click instead of swallowing it, and a turn shows its actions once, under the answer that owns them.
+
+### 🪄 Docs
+- The Settings model map is documented as editable rather than read-only, and the platform profile modules' docs were corrected to describe what the modules actually do.
+
 ## [0.30.1] - 2026-08-18
 
 ### ✨ Features

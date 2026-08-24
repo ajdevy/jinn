@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, JinnConfig, JsonObject, Session } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
@@ -65,7 +65,6 @@ import {
   cancelQueueItem,
   markRunningQueueItemsCompletedForSession,
   getQueueItems,
-  cancelAllPendingQueueItems,
   listAllPendingQueueItems,
   getSessionDelivery,
   getSessionDeliveryByQueueItemId,
@@ -117,7 +116,7 @@ import {
 import { CODEX_HOMES_DIR, JINN_HOME } from "../shared/paths.js";
 import { resolveClaudeConfigDir } from "../shared/home.js";
 import { collectEngineLimits } from "../shared/engine-limits.js";
-import { SUPERSEDED_TURN_META_KEY } from "../sessions/turn/superseded.js";
+import { supersedeRunningTurn } from "../sessions/turn/superseded.js";
 import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
 import { spawnSession } from "./spawn-session.js";
 export { deliverConnectorReply } from "./connector-reply.js";
@@ -130,6 +129,7 @@ import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type Pendin
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
+import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
@@ -1100,6 +1100,8 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
+  if (method === "PATCH" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item edit";
+  if (method === "POST" && matchRoute("/api/sessions/:id/queue/:itemId/send-now", pathname)) return "session queue item send now";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue", pathname)) return "session queue clear";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/pause", pathname)) return "session queue pause";
   if (method === "POST" && matchRoute("/api/sessions/:id/queue/resume", pathname)) return "session queue resume";
@@ -1338,26 +1340,6 @@ function serializeSessionList(sessions: readonly Session[], context: ApiContext)
 function serializeSessionResponse(session: Session, context: ApiContext): Session {
   const delegatedActivityIndex = buildSessionDelegatedActivityIndex(listSessions(), context);
   return serializeSession(session, context, delegatedActivityIndex);
-}
-
-function withTransportMeta(session: Session, updates: JsonObject): JsonObject {
-  const base =
-    session.transportMeta && typeof session.transportMeta === "object" && !Array.isArray(session.transportMeta)
-      ? session.transportMeta
-      : {};
-  return { ...base, ...updates };
-}
-
-function supersedeRunningTurn(session: Session): void {
-  updateSession(session.id, {
-    transportMeta: withTransportMeta(session, {
-      [SUPERSEDED_TURN_META_KEY]: new Date().toISOString(),
-    }),
-    ...(session.workflowProvenance?.kind === "phase" ? {
-      attemptInterruptionCause: "user-message",
-      attemptInterruptionTurn: (session.attemptTurn ?? 0) + 1,
-    } : {}),
-  });
 }
 
 function isSessionLiveRunning(session: Session, context: ApiContext): boolean {
@@ -2419,65 +2401,7 @@ export async function handleApiRequest(
       }
     }
 
-    // DELETE /api/sessions/:id/queue/:itemId — cancel specific item
-    const queueItemParams = matchRoute("/api/sessions/:id/queue/:itemId", pathname);
-    if (method === "DELETE" && queueItemParams) {
-      const session = getSession(queueItemParams.id);
-      if (!session) return notFound(res);
-      const cancelled = cancelQueueItem(queueItemParams.itemId);
-      if (!cancelled) {
-        res.writeHead(409, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Item not found or already running" }));
-        return;
-      }
-      context.emit("queue:updated", { sessionId: queueItemParams.id, sessionKey: session.sessionKey });
-      return json(res, { status: "cancelled", itemId: queueItemParams.itemId });
-    }
-
-    // GET /api/sessions/:id/queue
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "GET" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const items = getQueueItems(session.sessionKey || session.sourceRef || session.id);
-      return json(res, items);
-    }
-
-    // DELETE /api/sessions/:id/queue — clear all pending
-    params = matchRoute("/api/sessions/:id/queue", pathname);
-    if (method === "DELETE" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      // Cancel only operator-visible rows. SessionQueue checks each durable row
-      // before execution, so no coarse in-memory cancellation is needed here;
-      // setting one would also discard protected internal callback rows.
-      const cancelled = cancelAllPendingQueueItems(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, depth: 0 });
-      return json(res, { status: "cleared", cancelled });
-    }
-
-    // POST /api/sessions/:id/queue/pause
-    params = matchRoute("/api/sessions/:id/queue/pause", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().pauseQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: true });
-      return json(res, { status: "paused", sessionId: params.id });
-    }
-
-    // POST /api/sessions/:id/queue/resume
-    params = matchRoute("/api/sessions/:id/queue/resume", pathname);
-    if (method === "POST" && params) {
-      const session = getSession(params.id);
-      if (!session) return notFound(res);
-      const sessionKey = session.sessionKey || session.sourceRef || session.id;
-      context.sessionManager.getQueue().resumeQueue(sessionKey);
-      context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: false });
-      return json(res, { status: "resumed", sessionId: params.id });
-    }
+    if (await handleSessionQueueRoute(method, pathname, req, res, context)) return;
 
     // POST /api/sessions/bulk-delete
     if (method === "POST" && pathname === "/api/sessions/bulk-delete") {
@@ -2599,6 +2523,7 @@ export async function handleApiRequest(
       if (body.provenance !== undefined) {
         return badRequest(res, "provenance cannot be supplied on public Todo creation — the server assigns source provenance: public creation uses source=human or source=session, while cron and delegation create their own records; source=workflow is historical audit provenance and is not currently minted");
       }
+      if (body.assignee !== undefined) return badRequest(res, "assignee cannot be supplied at Todo creation — create first, then grant ownership through the assign flow (assign_work_item / POST /api/work-items/:id/assign), which is its own action: it validates the roster, derives the department, moves backlog→assigned, and notifies the assignee");
       const title = typeof body.title === "string" ? stripControlChars(body.title).trim() : "";
       if (!title) return badRequest(res, "title is required");
       const verifyPolicy = validateVerifyPolicy(body.verifyPolicy);
@@ -2645,7 +2570,6 @@ export async function handleApiRequest(
         title: title.slice(0, 200),
         body: typeof body.body === "string" ? body.body : null,
         acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
-        assignee: typeof body.assignee === "string" && body.assignee.trim() ? body.assignee.trim() : null,
         // The department key is included only when the request carries one, so a
         // sub-task with no department inherits the parent's at the store layer.
         ...(body.department !== undefined
@@ -4748,33 +4672,31 @@ export async function handleApiRequest(
 
       const attachmentPaths = resolveAttachmentPaths(body.attachments);
 
-      // Internal notification-role messages are already durably queued above;
-      // only real user messages create a visible queue-panel item here.
-      if (!isNotification) {
-        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-        context.emit("queue:updated", { sessionId: session.id, sessionKey });
-      }
-
       // Speech-derived operator messages carry a hidden context note to the engine
       // only. Everything persisted/queued/emitted above uses the clean `prompt`;
       // notifications (callbacks, relays) never qualify, and interactive dispatch
       // (ptyEngine truthy) suppresses the note so the visible PTY paste stays the
       // operator's exact text. Recomputed per request → exactly one note, never
       // persisted, never rendered, never duplicated on retry/reload/reconnect.
-      const { engine: enginePrompt } = resolveMessageAudiences(
-        prompt,
-        speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine }),
-      );
+      const speechDerived = speechContextApplies({ speech: body.speech === true, isNotification, promptRendered: !!ptyEngine });
+      const { engine: enginePrompt } = resolveMessageAudiences(prompt, speechDerived);
+
+      // Internal notification-role messages are already durably queued above;
+      // only real user messages create a visible queue-panel item here. The row
+      // carries the whole payload so "send this one now" can move all of it.
+      if (!isNotification) {
+        queueItemId = enqueueQueueItem(session.id, sessionKey, prompt, { messageId: incomingMessageId, dispatch: { attachments: attachmentPaths, speechDerived } });
+        context.emit("queue:updated", { sessionId: session.id, sessionKey });
+      }
+
       dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
 
       return json(res, {
         status: "queued",
         sessionId: session.id,
-        ...(callbackDelivery ? {
-          callbackDeliveryId: callbackDelivery.id,
-          messageId: incomingMessageId,
-          queueItemId,
-        } : {}),
+        messageId: incomingMessageId,
+        queueItemId,
+        ...(callbackDelivery ? { callbackDeliveryId: callbackDelivery.id } : {}),
       });
     }
 
@@ -4934,100 +4856,6 @@ export async function handleApiRequest(
       } catch (err) {
         return json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
       }
-    }
-
-    // POST /api/connectors/discord/incoming — receive proxied Discord messages from a primary instance
-    if (method === "POST" && pathname === "/api/connectors/discord/incoming") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-      if (!("deliverMessage" in connector)) {
-        return json(res, { error: "Discord connector is not in remote mode" }, 400);
-      }
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      // Download attachments from Discord CDN URLs to local temp
-      const { downloadAttachment } = await import("../connectors/discord/format.js");
-      const attachments = await Promise.all(
-        (body.attachments || []).map(async (att: { name: string; url: string; mimeType: string }) => {
-          if (att.url) {
-            try {
-              const localPath = await downloadAttachment(att.url, TMP_DIR, att.name);
-              return { name: att.name, url: att.url, mimeType: att.mimeType, localPath };
-            } catch {
-              return { name: att.name, url: att.url, mimeType: att.mimeType };
-            }
-          }
-          return att;
-        }),
-      );
-
-      const incomingMsg: IncomingMessage = {
-        connector: "discord",
-        source: "discord",
-        sessionKey: body.sessionKey,
-        channel: body.channel,
-        thread: body.thread,
-        user: body.user,
-        userId: body.userId,
-        text: body.text,
-        messageId: body.messageId,
-        attachments,
-        replyContext: body.replyContext || {},
-        transportMeta: body.transportMeta,
-        raw: body,
-      };
-
-      (connector as any).deliverMessage(incomingMsg);
-      return json(res, { status: "delivered" });
-    }
-
-    // POST /api/connectors/discord/proxy — proxy connector operations from remote instances
-    if (method === "POST" && pathname === "/api/connectors/discord/proxy") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      const action = body.action as string;
-      const target = body.target as Target | undefined;
-      let messageId: string | undefined;
-
-      switch (action) {
-        case "sendMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.sendMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "replyMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.replyMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "editMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          await connector.editMessage(target, redactText(String(body.text)));
-          break;
-        case "addReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.addReaction(target, body.emoji);
-          break;
-        case "removeReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.removeReaction(target, body.emoji);
-          break;
-        case "setTypingStatus":
-          if (connector.setTypingStatus) {
-            await connector.setTypingStatus(body.channelId ?? "", body.threadTs, body.status ?? "");
-          }
-          break;
-        default:
-          return badRequest(res, `Unknown proxy action: ${action}`);
-      }
-
-      return json(res, { status: "ok", messageId });
     }
 
     // POST /api/connectors/:name/send — send via the connector with that instance id

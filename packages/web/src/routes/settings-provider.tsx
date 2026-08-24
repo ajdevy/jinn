@@ -30,7 +30,7 @@ interface SettingsContextValue {
   setLanguage: (language: string) => void
   setTalkOrb: (enabled: boolean) => void
   setTalkOrbVariant: (variant: JinnSettings["talkOrbVariant"]) => void
-  setTalkMicrophone: (microphone: JinnSettings["talkMicrophone"]) => void
+  setTalkOrbIntensity: (intensity: JinnSettings["talkOrbIntensity"]) => void
   setTextScale: (textScale: JinnSettings["textScale"]) => void
   setEmployeeOverride: (employeeId: string, override: EmployeeOverride) => void
   clearEmployeeOverride: (employeeId: string) => void
@@ -53,13 +53,25 @@ const SettingsContext = createContext<SettingsContextValue>({
   setLanguage: () => {},
   setTalkOrb: () => {},
   setTalkOrbVariant: () => {},
-  setTalkMicrophone: () => {},
+  setTalkOrbIntensity: () => {},
   setTextScale: () => {},
   setEmployeeOverride: () => {},
   clearEmployeeOverride: () => {},
   getEmployeeDisplay: (employee) => ({ emoji: employee.emoji }),
   resetAll: () => {},
 })
+
+type SettingsUpdate = (next: (prev: JinnSettings) => JinnSettings) => void
+
+/** One field, set as itself. For knobs whose value needs no coercion. */
+function useField<K extends keyof JinnSettings>(
+  update: SettingsUpdate,
+  key: K,
+): (value: JinnSettings[K]) => void {
+  return useCallback((value: JinnSettings[K]) => {
+    update((prev) => ({ ...prev, [key]: value }))
+  }, [update, key])
+}
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // Read localStorage during the first render rather than in a mount effect.
@@ -180,24 +192,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     },
     [update],
   )
-  const setTalkOrb = useCallback(
-    (enabled: boolean) => {
-      update((prev) => ({ ...prev, talkOrb: enabled }))
-    },
-    [update],
-  )
-  const setTalkOrbVariant = useCallback(
-    (variant: JinnSettings["talkOrbVariant"]) => {
-      update((prev) => ({ ...prev, talkOrbVariant: variant }))
-    },
-    [update],
-  )
-  const setTalkMicrophone = useCallback(
-    (microphone: JinnSettings["talkMicrophone"]) => {
-      update((prev) => ({ ...prev, talkMicrophone: microphone }))
-    },
-    [update],
-  )
+  // The Talk knobs are all the same setter with a different key, so they are
+  // written once. The ones above coerce their input and stay spelled out.
+  const setTalkOrb = useField(update, "talkOrb")
+  const setTalkOrbVariant = useField(update, "talkOrbVariant")
+  const setTalkOrbIntensity = useField(update, "talkOrbIntensity")
 
   const setTextScale = useCallback(
     (textScale: JinnSettings["textScale"]) => {
@@ -265,7 +264,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setLanguage,
         setTalkOrb,
         setTalkOrbVariant,
-        setTalkMicrophone,
+        setTalkOrbIntensity,
         setTextScale,
         setEmployeeOverride,
         clearEmployeeOverride,
