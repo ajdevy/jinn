@@ -7,6 +7,7 @@ import {
   prefetchLiveSessionSnapshot,
 } from '@/hooks/use-live-session'
 import { ThreadPeek, type CommsPeekData } from '../thread-peek'
+import { cleanLikeGateway } from '../teammate-reply'
 
 const { subscribe, emit, resetBus } = vi.hoisted(() => {
   const listeners = new Set<GatewayEventListener>()
@@ -125,7 +126,16 @@ describe('thread peek working state', () => {
   })
 
   it('renders a settled reply as the full final message with the replied state line', async () => {
-    const fullReply = 'Canvas direction is ready.\n\nKeep left-in/right-out port discipline.'
+    const fullReply = [
+      'Canvas direction is ready.',
+      'Keep left-in/right-out port discipline so every edge reads in one direction, and let the inspector own validation instead of the node body.',
+      'Spacing stays on the 8px grid at every zoom, and the minimap stays out until a graph passes forty nodes.',
+    ].join('\n\n')
+    const preview = cleanLikeGateway(fullReply)
+    // The closing line survives only in the full reply, so falling back to the
+    // preview cannot satisfy the assertion below.
+    expect(preview).not.toContain('minimap stays out')
+
     getSession.mockResolvedValue({
       id: SESSION_ID,
       status: 'idle',
@@ -134,12 +144,10 @@ describe('thread peek working state', () => {
         { role: 'assistant', content: fullReply },
       ],
     })
-    renderPeek(replyPeek({
-      preview: 'Canvas direction is ready. Keep left-in/right-out port discipline.',
-    }))
+    renderPeek(replyPeek({ preview }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Keep left-in\/right-out port discipline/)).toBeTruthy()
+      expect(screen.getByText(/minimap stays out until a graph passes forty nodes/)).toBeTruthy()
     })
     expect(document.querySelector('[data-state-line="replied"]')).toBeTruthy()
     expect(document.querySelector('[data-state-line="working"]')).toBeNull()
@@ -217,6 +225,31 @@ describe('thread peek working state', () => {
     await waitFor(() => expect(screen.getByText('Starting up')).toBeTruthy())
     expect(screen.queryByText(/Earlier reply/)).toBeNull()
     expect(document.querySelector('[data-state-line="working"]')).toBeTruthy()
+  })
+
+  it('says Starting up on a follow-up whose own user row has not arrived yet', async () => {
+    // The child settled, then a follow-up was dispatched and its card opened at
+    // once. The new user boundary is still in flight, so the newest thing in the
+    // history is the PREVIOUS turn's final reply.
+    const settledAt = Date.now() - 30 * 60_000
+    getSession.mockResolvedValue({
+      id: SESSION_ID,
+      status: 'running',
+      messages: [
+        { role: 'user', content: 'go', timestamp: settledAt },
+        { role: 'assistant', content: 'Earlier final reply.', timestamp: settledAt + 1_000 },
+      ],
+    })
+    renderPeek(workingPeek())
+
+    await waitFor(() => expect(screen.getByText('Starting up')).toBeTruthy())
+    expect(screen.queryByText(/Earlier final reply/)).toBeNull()
+
+    act(() => {
+      emit('session:delta', { sessionId: SESSION_ID, type: 'text', content: 'Picking it up now.' })
+    })
+    expect(screen.getByText(/Picking it up now/)).toBeTruthy()
+    expect(screen.queryByText(/Earlier final reply/)).toBeNull()
   })
 
   it('does not open a live subscription while the peek is closed', () => {

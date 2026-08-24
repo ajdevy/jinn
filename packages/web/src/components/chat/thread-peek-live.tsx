@@ -108,19 +108,22 @@ function finishedBody(peek: CommsPeekData, messages: Message[]): string {
   return peek.preview
 }
 
-/** Only the turn in flight. History before the last user message belongs to a
- *  finished turn and would read as current activity if it were scanned. */
-function currentTurnMessages(messages: Message[]): Message[] {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index].role === 'user') return messages.slice(index + 1)
+/** Only the turn in flight. Anything the child wrote before this handoff was
+ *  dispatched belongs to a finished turn, and on a fresh follow-up the new turn's
+ *  own user row can still be in flight — so the dispatch time is the floor, not
+ *  the last user message, which would still be pointing at the previous turn. */
+function currentTurnMessages(messages: Message[], dispatchedAt: number): Message[] {
+  const turn = messages.filter((message) => message.timestamp >= dispatchedAt)
+  for (let index = turn.length - 1; index >= 0; index--) {
+    if (turn[index].role === 'user') return turn.slice(index + 1)
   }
-  return messages
+  return turn
 }
 
-function workingActivity(messages: Message[], streamingText: string): string | null {
+function workingActivity(messages: Message[], streamingText: string, dispatchedAt: number): string | null {
   let latestText = ''
   let latestTool = ''
-  for (const message of currentTurnMessages(messages)) {
+  for (const message of currentTurnMessages(messages, dispatchedAt)) {
     if (message.role !== 'assistant' || typeof message.content !== 'string') continue
     const content = message.content.trim()
     if (!content) continue
@@ -162,7 +165,7 @@ function livePeekView(peek: CommsPeekData, live: PeekLiveState): PeekViewModel {
     return {
       state: 'working',
       dispatchedAt: peek.timestamp,
-      body: workingActivity(live.messages, live.streamingText) ?? 'Starting up',
+      body: workingActivity(live.messages, live.streamingText, peek.timestamp) ?? 'Starting up',
     }
   }
   return {
