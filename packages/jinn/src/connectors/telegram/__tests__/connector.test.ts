@@ -663,6 +663,58 @@ describe("TelegramConnector", () => {
     });
   });
 
+  describe("authentication failures", () => {
+    it("offers the owner login commands after a provider authentication failure", async () => {
+      const authConnector = new TelegramConnector({
+        botToken: "123456:ABC-DEF",
+        allowFrom: [67890],
+        telegramAuth: {
+          enabled: true,
+          ownerUserIds: [67890],
+        },
+      });
+
+      await authConnector.replyMessage(
+        { channel: "12345", replyContext: { chatId: "12345", messageId: 42 } },
+        "⛔ Interactive turn failed: authentication_failed",
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "12345",
+        expect.stringContaining("use /auth claude or /auth codex to sign in."),
+        expect.objectContaining({
+          parse_mode: "Markdown",
+          reply_parameters: { message_id: 42 },
+        }),
+      );
+    });
+
+    it("does not add login prompts to unrelated provider errors", async () => {
+      const authConnector = new TelegramConnector({
+        botToken: "123456:ABC-DEF",
+        allowFrom: [67890],
+        telegramAuth: {
+          enabled: true,
+          ownerUserIds: [67890],
+        },
+      });
+
+      await authConnector.replyMessage(
+        { channel: "12345", replyContext: { chatId: "12345", messageId: 42 } },
+        "⛔ Interactive turn failed: rate_limit",
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "12345",
+        "⛔ Interactive turn failed: rate_limit",
+        {
+          parse_mode: "Markdown",
+          reply_parameters: { message_id: 42 },
+        },
+      );
+    });
+  });
+
   describe("replyMessage", () => {
     it("sends a reply to a specific message", async () => {
       const target: Target = {
