@@ -247,8 +247,8 @@ beforeEach(() => {
 })
 
 describe("boardScopeParams — the board data wiring", () => {
-  it("Home = kept + roots only", () => {
-    expect(boardScopeParams({ kind: "home" })).toEqual({ kept: true, rootsOnly: true })
+  it("Home = the union scope + roots only", () => {
+    expect(boardScopeParams({ kind: "home" })).toEqual({ home: true, rootsOnly: true })
   })
   it("a department board = department scope + roots only", () => {
     expect(boardScopeParams({ kind: "department", slug: "platform" })).toEqual({ department: "platform", rootsOnly: true })
@@ -418,14 +418,14 @@ describe("the board surface", () => {
     expect(screen.getByTestId("board-column-backlog").textContent).toContain("1")
   })
 
-  it("queries with kept=true on Home", async () => {
+  // PLA-230: Home asks for the union scope. `kept` alone would drop the Todos
+  // the operator created, and sending both would be the intersection.
+  it("queries with home=true, not kept=true, on Home", async () => {
     renderBoard("/todos/b/home")
     await waitFor(() => expect(listWorkItems).toHaveBeenCalled())
     const statusCalls = listWorkItems.mock.calls.map(([params]) => params).filter((p) => p?.status)
-    for (const params of statusCalls) {
-      expect(params.kept).toBe(true)
-      expect(params.rootsOnly).toBe(true)
-    }
+    expect(statusCalls.length).toBeGreaterThan(0)
+    for (const p of statusCalls) { expect(p).toMatchObject({ home: true, rootsOnly: true }); expect(p.kept).toBeUndefined() }
   })
 
   it("folds Done and Cancelled into the Closed rail with the combined true count", async () => {
