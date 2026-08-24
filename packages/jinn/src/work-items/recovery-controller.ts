@@ -9,7 +9,7 @@ import {
   type RecoveryClassification,
 } from "./recovery.js";
 import { listWorkItemRuns } from "./runs.js";
-import { appendWorkItemEvent, getWorkItem, listWorkItems, type WorkItem } from "./store.js";
+import { appendWorkItemEvent, listWorkItems, type WorkItem } from "./store.js";
 import { owningWorkflowId } from "./workflow-ownership.js";
 import type { AvailabilityRearmResult } from "./availability-resume.js";
 

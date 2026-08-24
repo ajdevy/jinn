@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { WorkflowTodoEventClaimOutcome, WorkflowTodoEventFeed, WorkflowTodoStatusEvent }
+import type { WorkflowTodoEventFeed, WorkflowTodoStatusEvent }
   from "../../work-items/workflow-event-feed.js";
 import type { WorkflowDefinition, WorkflowNode } from "../model.js";
 import type { WorkflowRepository } from "../repository.js";
