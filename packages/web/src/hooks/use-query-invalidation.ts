@@ -133,9 +133,6 @@ export function useQueryInvalidation() {
           case 'status':
             qc.invalidateQueries({ queryKey: queryKeys.status })
             break
-          case 'instance-migration':
-            qc.invalidateQueries({ queryKey: queryKeys.instanceMigration })
-            break
         }
       }
       pendingRef.current = kept
@@ -245,7 +242,6 @@ export function useQueryInvalidation() {
           pendingRef.current.add('config')
           pendingRef.current.add('engines')
           pendingRef.current.add('status')
-          pendingRef.current.add('instance-migration')
           break
         case 'engines:updated':
           pendingRef.current.add('engines')
