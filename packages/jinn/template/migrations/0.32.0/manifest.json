@@ -6,5 +6,14 @@
     "baseRef": "v0.31.0",
     "headRef": "WORKTREE"
   },
-  "files": []
+  "files": [
+    {
+      "path": "docs/connectors.md",
+      "operation": "modify",
+      "baseSha256": "b439377e3feda09132cd4b92a3044ab6d61d4d578734ae551d0601f68943dcb2",
+      "targetSha256": "7400864eb4f5d8722486ee4402a4ca73cb2896a888bde5ed86d7915c516da8c1",
+      "basePayload": "files/base/docs/connectors.md",
+      "targetPayload": "files/target/docs/connectors.md"
+    }
+  ]
 }
