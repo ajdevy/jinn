@@ -260,8 +260,9 @@ The page shell. One per route, rendered as `PageLayout`'s child.
 3. `PrimaryAction` (§4) — a sibling of the scrollport, not a child, so it does not scroll away.
 
 Content padding is `px-[var(--space-3)] pt-[var(--space-5)] md:px-[var(--space-10)]`, and
-`md:pb-10` at `md` and up. The mobile bottom padding is computed, not a round number, because it
-has to clear whatever actually floats over the scrollport:
+`lg:pb-10` at `lg` and up. Below `lg` the bottom padding is computed, not a round number, because
+it has to clear whatever actually floats over the scrollport — and the tab bar and the FAB float
+over it at every width below `lg`, not just below `md`:
 
 - **Tab bar only** — `calc(55px + max(var(--safe-bottom), 6px) + var(--space-4))`, the same
   expression `PrimaryAction` uses for its own offset (§4), and `calc(max(var(--safe-bottom), 6px)
@@ -269,11 +270,19 @@ has to clear whatever actually floats over the scrollport:
 - **With `PrimaryAction`** — that value plus `calc(56px + var(--space-4))`, the FAB's own height
   and one gap above it.
 
+At a zero safe inset — the worst case, since `max(var(--safe-bottom), 6px)` only grows — and with
+`--space-4` at its declared 16px (`web/routes/globals.css:252`), those resolve to **77px** with the
+tab bar alone (55 + 6 + 16), **22px** under `hideMobileTabBar` (6 + 16), and **149px** with a
+`PrimaryAction` (77 + 56 + 16). The FAB's own box spans 77px to
+**133px** above the bottom edge, so 149px leaves exactly one `--space-4` gap between the last row
+of content and the button. All three hold at every width from 320px to 1023px; none of them is a
+flat number that stops tracking the chrome partway up that range.
+
 `todo-list.tsx` ships `pb-24` today, and that is correct for a page with no FAB — 96px clears the
-tab bar with room to spare. It is *not* enough once a FAB is present: the button spans 77px to
-133px above the bottom edge at a zero safe inset, so a flat `pb-24` would leave the last 37px of
-a scrolled-to-bottom list sitting underneath it. The scaffold knows whether it rendered a
-`PrimaryAction`, so it is the right place to spend the extra padding only where it is owed.
+tab bar with room to spare. It is *not* enough once a FAB is present: 96px lands 37px short of the
+FAB's 133px top edge, leaving the last 37px of a scrolled-to-bottom list sitting underneath it.
+The scaffold knows whether it rendered a `PrimaryAction`, so it is the right place to spend the
+extra padding only where it is owed.
 
 **States.** `default` · `scroll="external"` (page owns its scrollers; §1.3) · `no header` (title
 omitted; the scrollport becomes the whole box) · `empty` (the page's own empty state renders inside
@@ -282,24 +291,29 @@ the scrollport; the scaffold has no opinion) · `keyboard raised` (bottom paddin
 
 **Breakpoint behaviour. Two switches, at two different widths, and that is deliberate.**
 
-*Padding switches at `md` (768px).* Padding is a measure concern: it answers how wide the text
-column may run, and by 768px `--space-3` gutters leave text reading edge-to-edge. This is the
-switch `web/routes/todos/list/todo-list.tsx:23` ships today — `px-3 pb-24 pt-5 md:px-10 md:pb-10` —
-and the scaffold keeps its horizontal and top values, and its `md` breakpoint, rather than moving
-a padding every Todos screenshot depends on. The mobile bottom value is the one part it does not
-inherit, for the FAB-clearance reason given above; `md:pb-10` is unchanged.
+*Measure switches at `md` (768px).* Horizontal and top padding are a measure concern: they answer
+how wide the text column may run, and by 768px `--space-3` gutters leave text reading edge-to-edge.
+This is the switch `web/routes/todos/list/todo-list.tsx:23` ships today —
+`px-3 pb-24 pt-5 md:px-10 md:pb-10` — and the scaffold keeps its horizontal and top values, and
+their `md` breakpoint, rather than moving a padding every Todos screenshot depends on.
 
-*Chrome switches at `lg` (1024px).* Chrome is a navigation concern: `lg` is where `NavRibbon`
-appears and `MobileTabBar` stands down. Below `lg`, `PrimaryAction` renders and the header may
-collapse. At `lg` and up, `PrimaryAction` does not render — its action moves into the header's
-trailing slot — and the header is permanently expanded, because a 900px-tall desktop viewport has
-room for the title and collapsing it buys nothing.
+*Chrome switches at `lg` (1024px), and bottom padding goes with it.* Chrome is a navigation
+concern: `lg` is where `NavRibbon` appears and `MobileTabBar` stands down. Below `lg`,
+`PrimaryAction` renders and the header may collapse. At `lg` and up, `PrimaryAction` does not
+render — its action moves into the header's trailing slot — and the header is permanently expanded,
+because a 900px-tall desktop viewport has room for the title and collapsing it buys nothing.
+Bottom padding is not a measure concern at all: it exists only to clear the bar and the button, so
+it is owed for exactly as long as they render, which makes `lg` its switch too. This is the one
+value the scaffold deliberately does **not** inherit from `todo-list.tsx:23` — that file's
+`md:pb-10` drops to 40px at 768px while the FAB still reaches 133px up, and the scaffold writes
+`lg:pb-10` instead.
 
-So between 768px and 1024px a page carries desktop padding with mobile chrome. **That is the
-reading that survives**: the reader gets the wider measure the moment the width supports it, and
-keeps the tab bar and the FAB until the ribbon actually replaces them. Neither number is a typo for
-the other, and no primitive below reads `md` and `lg` as the same boundary. Verification viewports
-are 1440×900 and 390×844, both themes.
+So between 768px and 1023px a page carries a desktop measure with mobile chrome: wide gutters, and
+the full 149px (or 77px without a FAB) of bottom clearance the tab bar and the button still demand.
+**That is the reading that survives**: the reader gets the wider column the moment the width
+supports it, and keeps both the chrome and the room to scroll clear of it until the ribbon actually
+replaces them. Neither number is a typo for the other, and no primitive below reads `md` and `lg`
+as the same boundary. Verification viewports are 1440×900 and 390×844, both themes.
 
 **Tokens.** `--space-3`, `--space-5`, `--space-10`, `--bg`, `--safe-top`, `--safe-bottom`,
 `--keyboard-inset`.
@@ -854,7 +868,7 @@ the third is settled here as a non-gap, so PLA-191 inherits a decision instead o
    currently must write the literal `55px` (§4). The bar's own box is
    `min-h-[49px]` (`web/components/chat/mobile-tab-bar.tsx:85`) plus `py-1.5` (same file, `:58`).
    One token, declared next to `--safe-bottom`, removes the literal from at least three call
-   sites — the FAB, the scaffold's mobile bottom padding, and `todo-list.tsx`'s `pb-24`.
+   sites — the FAB, the scaffold's below-`lg` bottom padding, and `todo-list.tsx`'s `pb-24`.
 2. **A large-title collapse distance — settled, and not a token.** `--jinn-collapse-distance`
    stays the inline per-instance property §1.4 sets from the large title's own measured height.
    PLA-191 declares no Ledger token for it. A fixed global distance would be wrong rather than
