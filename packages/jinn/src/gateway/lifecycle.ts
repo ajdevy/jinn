@@ -12,10 +12,12 @@ import { loadConfig } from "../shared/config.js";
 import { gatewayBaseUrl, readGatewayInfo } from "./gateway-info.js";
 import { ensureGatewayAuthToken } from "./auth.js";
 import { buildRestartEntryArgv } from "./restart-entry-options.js";
+import { syncShippedSkills } from "../migrations/sync-on-boot.js";
 
 export { resolveLocalGatewayConnection, type LocalGatewayConnection } from "./local-gateway-connection.js";
 
 export async function startForeground(config: JinnConfig): Promise<void> {
+  syncShippedSkills();
   const cleanup = await startGateway(config);
 
   let shuttingDown = false;
@@ -42,15 +44,18 @@ export async function startForeground(config: JinnConfig): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-export function startDaemon(config: JinnConfig): void {
-  const __filename = fileURLToPath(import.meta.url);
-  const candidateEntryScripts = [
-    // When running from a built bundle, __filename is dist/src/gateway/lifecycle.js
-    path.resolve(path.dirname(__filename), "daemon-entry.js"),
-    // Fallback for unusual layouts
-    path.resolve(path.dirname(__filename), "..", "..", "dist", "src", "gateway", "daemon-entry.js"),
+/** Built layout puts this file at dist/src/gateway/; the fallback covers the rest. */
+function resolveEntryScript(name: string): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, name),
+    path.resolve(here, "..", "..", "dist", "src", "gateway", name),
   ];
-  const entryScript = candidateEntryScripts.find((p) => fs.existsSync(p)) ?? candidateEntryScripts[0];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+}
+
+export function startDaemon(config: JinnConfig): void {
+  const entryScript = resolveEntryScript("daemon-entry.js");
 
   const child = spawn(process.execPath, [entryScript], {
     detached: true,
@@ -100,12 +105,7 @@ export function restartDetached(options: RestartDetachedOptions = {}): void {
     ...loadedConfig,
     gateway: { ...loadedConfig.gateway, port },
   };
-  const __filename = fileURLToPath(import.meta.url);
-  const candidateEntryScripts = [
-    path.resolve(path.dirname(__filename), "restart-entry.js"),
-    path.resolve(path.dirname(__filename), "..", "..", "dist", "src", "gateway", "restart-entry.js"),
-  ];
-  const entryScript = candidateEntryScripts.find((p) => fs.existsSync(p)) ?? candidateEntryScripts[0];
+  const entryScript = resolveEntryScript("restart-entry.js");
 
   const args = buildRestartEntryArgv(entryScript, { port, takePort: options.takePort });
 

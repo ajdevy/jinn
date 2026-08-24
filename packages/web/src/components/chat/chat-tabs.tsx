@@ -4,6 +4,7 @@ import { ChevronLeft, SquarePen } from 'lucide-react'
 import { type ChatTab } from '@/hooks/use-chat-tabs'
 // Frosted pill primitives now live in the shared cross-page pill system.
 import { PILL_CLASS, PillButton } from '@/components/pill-nav'
+import { cn } from '@/lib/utils'
 import { useTitleArrival } from './title-arrival'
 
 export interface ChatHeaderPillsProps {
@@ -151,15 +152,14 @@ export function ChatHeaderPills({
           className="absolute inset-x-0 top-0 z-10 lg:hidden"
           style={{ paddingTop: 'max(var(--safe-top), 0px)' }}
         >
-          {/* The plain title locks both side tracks to the WIDER cluster, so its
-              middle track sits on the header's centre line. The working set
-              instead sizes against its real neighbours: mirroring a labelled
-              back control would take that width from the four mobile chips. */}
+          {/* Both side tracks lock to the WIDER cluster, so whatever occupies the
+              middle track — the plain title or the working-set chips — sits on
+              the header's centre line instead of centred between two asymmetric
+              controls. A labelled back control mirrors its width onto the right,
+              and the chips truncate into what is left rather than overlap. */}
           <div
             className="relative grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 bg-[var(--material-thick-opaque)] px-1.5 [@media(pointer:fine)]:bg-[var(--material-thick)] [@media(pointer:fine)]:[backdrop-filter:blur(20px)_saturate(1.3)] [@media(pointer:fine)]:[-webkit-backdrop-filter:blur(20px)_saturate(1.3)]"
-            style={mobileWorkingSet
-              ? undefined
-              : { gridTemplateColumns: `${sideTrack}px minmax(0,1fr) ${sideTrack}px` }}
+            style={{ gridTemplateColumns: `${sideTrack}px minmax(0,1fr) ${sideTrack}px` }}
           >
             {/* Back control. A drill-in reads `‹ Parent` and returns to the
                 parent thread (iOS previous-screen-title idiom); otherwise the
@@ -171,7 +171,14 @@ export function ChatHeaderPills({
                 onClick={backTo.onClick}
                 aria-label={`Back to ${backTo.label}`}
                 title={`Back to ${backTo.label}`}
-                className="inline-flex h-9 max-w-[34vw] shrink-0 items-center justify-self-start gap-0.5 rounded-full pl-1 pr-2.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]"
+                className={cn(
+                  'inline-flex h-9 shrink-0 items-center justify-self-start gap-0.5 rounded-full pl-1 pr-2.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:bg-[var(--fill-secondary)]',
+                  // Mirroring this control onto the right track spends its width
+                  // twice, so the label yields when the chips hold the middle:
+                  // four 36px chips plus their gaps need 156px, which 27vw a side
+                  // leaves intact at 390px. Without the working set it keeps 34vw.
+                  mobileWorkingSet ? 'max-w-[27vw]' : 'max-w-[34vw]',
+                )}
               >
                 <ChevronLeft size={22} className="shrink-0" />
                 <span className="truncate text-[length:var(--text-subheadline)] font-medium">{backTo.label}</span>

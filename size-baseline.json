@@ -20,12 +20,6 @@
         "complexity"
       ]
     },
-    "packages/jinn/src/cli/__tests__/migrate-prompt.test.ts": {
-      "lines": 503
-    },
-    "packages/jinn/src/cli/__tests__/migrate.test.ts": {
-      "lines": 595
-    },
     "packages/jinn/src/cli/__tests__/pair.test.ts": {
       "lines": 304
     },
@@ -35,16 +29,6 @@
       ]
     },
     "packages/jinn/src/cli/limits.ts": {
-      "exempt": [
-        "complexity"
-      ]
-    },
-    "packages/jinn/src/cli/migrate-prompt.ts": {
-      "exempt": [
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/cli/migrate.ts": {
       "exempt": [
         "complexity"
       ]
@@ -306,9 +290,6 @@
     "packages/jinn/src/gateway/__tests__/file-read.test.ts": {
       "lines": 524
     },
-    "packages/jinn/src/gateway/__tests__/instance-migration-api.test.ts": {
-      "lines": 367
-    },
     "packages/jinn/src/gateway/__tests__/lifecycle-stop.test.ts": {
       "lines": 525
     },
@@ -343,7 +324,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5338,
+      "lines": 5150,
       "exempt": [
         "complexity",
         "max-depth",
@@ -624,33 +605,6 @@
       "exempt": [
         "complexity",
         "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/__tests__/completion.test.ts": {
-      "lines": 321
-    },
-    "packages/jinn/src/migrations/__tests__/service.test.ts": {
-      "lines": 373
-    },
-    "packages/jinn/src/migrations/completion.ts": {
-      "exempt": [
-        "complexity",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/service.ts": {
-      "lines": 617,
-      "exempt": [
-        "complexity",
-        "max-depth",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/snapshot.ts": {
-      "lines": 331,
-      "exempt": [
-        "complexity",
-        "max-depth"
       ]
     },
     "packages/jinn/src/notes/__tests__/store.test.ts": {
@@ -1349,15 +1303,6 @@
         "max-lines-per-function"
       ]
     },
-    "packages/web/src/components/migration/__tests__/instance-migration-gate.test.tsx": {
-      "lines": 341
-    },
-    "packages/web/src/components/migration/instance-migration-gate.tsx": {
-      "exempt": [
-        "complexity",
-        "max-lines-per-function"
-      ]
-    },
     "packages/web/src/components/onboarding-wizard.tsx": {
       "lines": 780,
       "exempt": [
@@ -1499,7 +1444,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1117,
+      "lines": 1098,
       "exempt": [
         "complexity"
       ]

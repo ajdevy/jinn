@@ -10,6 +10,7 @@ import { registerRoutePrefetch } from './lib/route-prefetch'
 import { startKeyboardInset } from './platform'
 import { RouteLoading } from './components/route-loading'
 import { TodosIndexRedirect, todosIndexLoader } from './routes/todos/board/todos-index-redirect'
+import { LegacyChatRedirect } from './routes/chat/legacy-chat-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
 import type { NativeGatewayProfiles, NativeGatewayProfilesSnapshot } from './lib/native-gateway-profiles'
@@ -118,7 +119,7 @@ const routeElements: Partial<Record<AppRouteId, ReactNode>> = {
   // the reader sees one loading state instead of "loading page" and then, a beat
   // later, "loading chat".
   chat: <Suspense fallback={<RouteLoading label="Loading chat" />}><ChatPage /></Suspense>,
-  "chat-redirect": <Navigate to="/" replace />,
+  "chat-redirect": <LegacyChatRedirect />,
   "cron-list": <CronPage />,
   "cron-detail": <CronDetailPage />,
   // Todos v2 slice 6 (stage-C cutover): the board IS /todos and

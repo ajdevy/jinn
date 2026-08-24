@@ -9,7 +9,6 @@ import { BreadcrumbProvider } from '@/context/breadcrumb-context'
 import { EmojiFavicon } from '@/components/emoji-favicon'
 import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
-import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
 import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
@@ -40,7 +39,6 @@ export function ClientProviders({ children }: { children: ReactNode }) {
             <AuthGate>
               <SettingsProvider>
                 <GatewayProvider>
-                  <InstanceMigrationGate />
                   <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
                   <TalkContextBridge />
                   {/* Above the router, so route changes never remount the orb. */}

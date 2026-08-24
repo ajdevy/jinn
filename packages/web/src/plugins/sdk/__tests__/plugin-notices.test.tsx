@@ -55,9 +55,6 @@ vi.mock('@/hooks/use-gateway', () => ({
 }))
 vi.mock('@/hooks/use-query-invalidation', () => ({ useQueryInvalidation: () => {} }))
 vi.mock('@/components/emoji-favicon', () => ({ EmojiFavicon: () => null }))
-vi.mock('@/components/migration/instance-migration-gate', () => ({
-  InstanceMigrationGate: () => null,
-}))
 vi.mock('@/components/talk/talk-orb-overlay', () => ({ TalkOrbOverlay: () => null }))
 /** The disk loader subscribes to the same gateway, which would make "who
  *  subscribed" ambiguous below — and it reads the inventory over the network. */

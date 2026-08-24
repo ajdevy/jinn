@@ -104,11 +104,17 @@ afterAll(() => {
 describe("PUT /api/config top-level key allowlist", () => {
   it("accepts and persists the workflows block", async () => {
     const response = await call("PUT", "/api/config", {
-      workflows: { armingDelegates: ["platform-delegate"] },
+      workflows: {
+        armingDelegates: ["platform-delegate"],
+        delivery: { remote: "upstream", branch: "stable" },
+      },
     });
 
     expect(response.status).toBe(200);
-    expect(savedConfig().workflows).toEqual({ armingDelegates: ["platform-delegate"] });
+    expect(savedConfig().workflows).toEqual({
+      armingDelegates: ["platform-delegate"],
+      delivery: { remote: "upstream", branch: "stable" },
+    });
   });
 
   it("round-trips a gateway configured with arming delegates", async () => {
@@ -204,6 +210,26 @@ describe("PUT /api/config top-level key allowlist", () => {
     const response = await call("PUT", "/api/config", { gateway: { authDisabled: "yes" } });
 
     expect(response.status).toBe(400);
+    expect(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")).toBe(before);
+  });
+
+  // A tab-joined "id<TAB>label" composite is a nonempty string, so only the control
+  // character catches it — and it has to be caught here, before it is on disk.
+  it("refuses a fallbackModelMap entry that is not a model id, and leaves the file alone", async () => {
+    const before = fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8");
+
+    const response = await call("PUT", "/api/config", {
+      engines: {
+        default: "codex",
+        claude: {},
+        codex: { fallbackModelMap: { "gpt-5.6-sol": "gemini-3.7-flash-high\tGemini 3.7 Flash (High)" } },
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(String(response.body.error)).toContain(
+      'engines.codex.fallbackModelMap["gpt-5.6-sol"] must be a model id with no control characters',
+    );
     expect(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")).toBe(before);
   });
 

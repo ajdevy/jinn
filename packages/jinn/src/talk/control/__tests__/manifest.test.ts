@@ -6,6 +6,9 @@ import {
   TALK_COMPANY_CAPABILITY_COVERAGE,
   validateTalkCompanyCoverage,
 } from "../manifest.js";
+import { BROWSER_CONTROL_OPERATIONS } from "../browser-tools.js";
+import { DOMAIN_HANDLER_NAMES } from "../domain-adapters.js";
+import { VERIFY_HANDLER_NAMES } from "../verification.js";
 
 describe("the authoritative Talk control manifest", () => {
   it("owns every provider declaration exactly once", () => {
@@ -46,7 +49,30 @@ describe("the authoritative Talk control manifest", () => {
     expect(byName.get("read_talk_capability")).toMatchObject({ target: "gateway", mutability: "read", operatorOnly: false });
   });
 
-  it("keeps visible-composer actions browser-local while named-session send stays gated", () => {
+  /**
+   * The twin PLA-224 found: `talk_send_to_session` was declared browser-target
+   * while a complete gateway adapter, durable claim, and re-read sat behind it
+   * as dead code. Preflight refused the gateway path, the consent sheet asked
+   * and never sent, and the operator's message went nowhere. One name, one
+   * owner — enforced here rather than left to reading.
+   */
+  it("gives every operation exactly one execution owner", () => {
+    const manifest = buildTalkControlManifest();
+    const browserNames = new Set(BROWSER_CONTROL_OPERATIONS.map((operation) => operation.name));
+    const gatewayNames = manifest.operations
+      .filter((operation) => operation.target === "gateway")
+      .map((operation) => operation.name);
+
+    expect(gatewayNames.filter((name) => browserNames.has(name))).toEqual([]);
+    // A gateway operation is only reachable if something executes it AND
+    // something re-reads it authoritatively; missing either fails closed.
+    expect(gatewayNames.filter((name) => !DOMAIN_HANDLER_NAMES.includes(name))).toEqual([]);
+    expect(gatewayNames.filter((name) => !VERIFY_HANDLER_NAMES.includes(name))).toEqual([]);
+    // And nothing executes on the gateway that the manifest never declared.
+    expect(DOMAIN_HANDLER_NAMES.filter((name) => !gatewayNames.includes(name))).toEqual([]);
+  });
+
+  it("keeps visible-composer actions browser-local while the named-session send is a gateway write", () => {
     const byName = new Map(buildTalkControlManifest().operations.map((operation) => [operation.name, operation]));
     for (const name of ["talk_draft_reply", "talk_replace_draft", "talk_send_draft", "talk_draft_and_send"]) {
       const operation = byName.get(name);
@@ -60,11 +86,24 @@ describe("the authoritative Talk control manifest", () => {
       expect(operation?.parameters.properties).not.toHaveProperty("sessionId");
     }
     expect(byName.get("talk_send_to_session")).toMatchObject({
-      target: "browser",
-      mutability: "effect",
-      operatorOnly: false,
-      verification: "browser-receipt",
+      target: "gateway",
+      intent: "sessions",
+      mutability: "write",
+      operatorOnly: true,
+      verification: "session-message-reread",
     });
+  });
+
+  it("requires the spoken creation confirmation to name the new Todo id", () => {
+    const create = buildTalkControlManifest().operations.find(({ name }) => name === "talk_create_todo");
+
+    expect(create?.description).toMatch(/say.*full Todo id/i);
+  });
+
+  it("requires an authoritative read for unfamiliar Todo ids", () => {
+    const read = buildTalkControlManifest().operations.find(({ name }) => name === "read_todo");
+
+    expect(read?.description).toMatch(/always call.*unfamiliar/i);
   });
 
   it("contains no credentials or machine paths", () => {

@@ -1,5 +1,7 @@
-import { Archive, ArchiveRestore, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Search, Share2, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Copy, ExternalLink, MoreHorizontal, PanelRightOpen, Pin, PinOff, Search, Share2, Trash2 } from 'lucide-react'
+import { sessionUrl } from '@/components/chat/chat-route-helpers'
 import { usePins, useTogglePin } from '@/hooks/use-pins'
+import { openExternal } from '@/platform'
 import { cn } from '@/lib/utils'
 import type { ViewMode } from '@/lib/view-mode'
 
@@ -33,7 +35,8 @@ type SelectedChatProps = Omit<ChatHeaderMenuProps, 'selectedId'> & { selectedId:
 // More (…) menu — rendered as the last control inside the right header pill.
 // D7: ALWAYS rendered (even on a new chat, where it carries Search, the view
 // toggle, and Open beside) so the right pill is consistent. When a session is
-// selected the items are grouped: primary (Search · view toggle · Open beside · Pin · Duplicate) → Developer
+// selected the items are grouped: primary (Search · view toggle · Open beside · Open in new
+// tab · Pin · Duplicate) → Developer
 // cluster → destructive Delete, each separated.
 //
 // Open state lives in the route, not here: the outside-click handler there
@@ -54,8 +57,8 @@ export function ChatHeaderMenu(props: ChatHeaderMenuProps) {
 
       {open && (
         <div className="absolute right-0 top-full z-[200] mt-2 min-w-[220px] overflow-hidden rounded-[var(--radius-md)] border border-border bg-[var(--material-thick)] shadow-[var(--shadow-overlay)] backdrop-blur-xl">
-          {/* PRIMARY group — Search (⌘K), the Chat/CLI view toggle, Open beside, then Pin and
-              Duplicate (only when a session is selected). */}
+          {/* PRIMARY group — Search (⌘K), the Chat/CLI view toggle, Open beside, then Open in
+              new tab, Pin and Duplicate (only when a session is selected). */}
           {/* D4: Search lives at the very top — the only visible ⌘K entry point on desktop. */}
           <button
             onClick={props.openGlobalSearch}
@@ -120,6 +123,13 @@ function SelectedChatItems(props: SelectedChatProps) {
 
   return (
     <>
+      <button
+        onClick={() => { void openExternal(sessionUrl(selectedId)); onOpenChange(false) }}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-subheadline text-foreground transition-colors hover:bg-accent"
+      >
+        <ExternalLink className="size-3.5" />
+        <span className="flex-1">Open in new tab</span>
+      </button>
       <PinItem selectedId={selectedId} onOpenChange={onOpenChange} />
       <button
         onClick={() => props.onDuplicate(selectedId)}
