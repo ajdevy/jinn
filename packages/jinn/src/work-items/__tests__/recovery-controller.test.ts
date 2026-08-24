@@ -96,6 +96,16 @@ describe("sweepTodoRecovery", () => {
     expect(controller.todoRecoveryMode("always")).toBe("classify-only");
   });
 
+  it("mode off writes no recovery rows for a classifiable blocked Todo", () => {
+    const { id } = parked("quota off", "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z", "rate_limited");
+    const result = controller.sweepTodoRecovery({
+      mode: "off",
+      rearm: () => ({ status: "assigned" }),
+    });
+    expect(result).toEqual({ classified: 0, applied: 0 });
+    expect(rows.getWorkItemRecovery(id)).toBeUndefined();
+  });
+
   it("feeds recovering leftovers into the attention query so the dashboard can split them", () => {
     const { id } = parked("quota parked", "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z", "rate_limited");
     controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });

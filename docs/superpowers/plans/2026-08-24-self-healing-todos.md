@@ -47,7 +47,7 @@
 - `packages/jinn/src/shared/config-types.ts` + `config.ts` — `gateway.todoRecovery`
 - `packages/jinn/src/gateway/server.ts` — start classify/apply sweep next to availability resume
 - `packages/jinn/src/gateway/work-item-payload.ts` — `attentionLane` on compact wire
-- `packages/jinn/src/work-items/store.ts` — `needsAttentionFor` excludes recovering/clock-wait (already excludes parked)
+- `packages/jinn/src/work-items/store.ts` — `needsAttentionFor` includes recovering/manager leftovers so Attention/list grouping can split them; parked clock-waits without those lanes stay out
 
 **Modify (dashboard)**
 - `packages/web/src/lib/api.ts` — `attentionLane` on compact wire
@@ -597,7 +597,9 @@ List grouping: today's single `needs-you` group splits into:
 
 Items without a lane keep current behaviour (blocked/escalated/pending approval → needs-you).
 
-`needsAttentionFor` SQL: exclude rows whose recovery lane is `recovering` (they are not a you-wait). Include manager-lane items for the assignee's manager queue via existing assignee match, not the operator's Needs you.
+`needsAttentionFor` SQL: include open recovering/manager leftovers (including parked rows that already have those lanes). Parked clock-waits without a recovering/manager row stay out. The dashboard then splits Recovering automatically / Manager attention / Needs you. Do not exclude recovering from this feed — grouping is only fed from `needsAttentionFor=me`.
+
+Classifier vs detector: `classifyRecovery` treats approved+completed+`in_review` as manager, not the operator fallback. Sweep must not overwrite a live `anomaly:approved-landed-open` manager row. Conclusive mirrored approved + completed run + `in_review` closes through `complete()`; a refused close (open children) stays `in_review` on Manager attention.
 
 - [ ] **Step 1: Failing grouping tests**
 - [ ] **Step 2: Red**

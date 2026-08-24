@@ -104,6 +104,28 @@ describe("NeedsYouView", () => {
     expect(screen.getByText("All quiet.")).toBeTruthy()
   })
 
+  it("a recovering leftover reaches Recovering automatically and not Blocked", () => {
+    renderView([
+      item("QAP-2", "blocked", null, { title: "quota parked build", attentionLane: "recovering", assignee: "platform-worker" }),
+      item("QAP-10", "in_review", "pending", { title: "operator gate", attentionLane: "operator" }),
+    ])
+    expect(screen.getByTestId("needs-group-recovering").textContent).toContain("Recovering automatically")
+    expect(screen.getByTestId("needs-group-recovering").textContent).toContain("quota parked build")
+    expect(screen.getByTestId("needs-group-approval").textContent).toContain("operator gate")
+    expect(screen.queryByTestId("needs-group-blocked")).toBeNull()
+  })
+
+  it("an approved in_review leftover with attentionLane manager reaches Manager attention, not Approvals", () => {
+    renderView([
+      item("QAP-15", "in_review", "approved", { title: "approved landing leftover", attentionLane: "manager", assignee: "platform-worker" }),
+      item("QAP-10", "in_review", "pending", { title: "operator gate", attentionLane: "operator" }),
+    ])
+    expect(screen.getByTestId("needs-group-manager").textContent).toContain("Manager attention")
+    expect(screen.getByTestId("needs-group-manager").textContent).toContain("approved landing leftover")
+    expect(screen.getByTestId("needs-group-approval").textContent).toContain("operator gate")
+    expect(screen.getByTestId("needs-group-manager").textContent).not.toContain("operator gate")
+  })
+
   it("groups by kind in fixed kicker order — Approvals, Escalated, Blocked — oldest first within a group", () => {
     renderView([
       item("wi_private_blocked", "blocked", null, { title: "Blocked item" }),
