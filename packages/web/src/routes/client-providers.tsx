@@ -1,9 +1,9 @@
 
-import type { ReactNode } from "react"
+import { lazy, Suspense, type ReactNode } from "react"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
 import { ThemeProvider } from "@/routes/providers"
-import { SettingsProvider, DocumentTitle } from "@/routes/settings-provider"
+import { SettingsProvider, DocumentTitle, useSettings } from "@/routes/settings-provider"
 import { useQueryInvalidation } from '@/hooks/use-query-invalidation'
 import { BreadcrumbProvider } from '@/context/breadcrumb-context'
 import { EmojiFavicon } from '@/components/emoji-favicon'
@@ -16,11 +16,28 @@ import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
 import { PluginNotices } from "@/plugins/sdk/plugin-notices"
 import { DiskPluginsBridge } from "@/plugins/disk-plugins-bridge"
-import { TalkContextBridge } from "@/components/talk/context/talk-context-bridge"
+
+const TalkContextBridge = lazy(() =>
+  import("@/components/talk/context/talk-context-bridge").then((module) => ({
+    default: module.TalkContextBridge,
+  })),
+)
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
   return null
+}
+
+/** Off the first paint: the semantic snapshot exists for the Talk session, and
+ *  Talk is off until the operator asks for it. Same gate as TalkOrbOverlay. */
+function DeferredTalkContextBridge() {
+  const { settings } = useSettings()
+  if (!settings.talkOrb) return null
+  return (
+    <Suspense fallback={null}>
+      <TalkContextBridge />
+    </Suspense>
+  )
 }
 
 /** Which 3-letter prefixes name a live board, app-wide: a Todo id reads as a
@@ -42,7 +59,7 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                 <GatewayProvider>
                   <InstanceMigrationGate />
                   <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
-                  <TalkContextBridge />
+                  <DeferredTalkContextBridge />
                   {/* Above the router, so route changes never remount the orb. */}
                   <TalkOrbOverlay />
                   <DocumentTitle />

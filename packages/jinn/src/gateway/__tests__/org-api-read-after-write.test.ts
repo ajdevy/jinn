@@ -122,8 +122,11 @@ beforeAll(async () => {
   dbModule.initDb();
 });
 
-afterAll(() => {
-  fs.rmSync(home, { recursive: true, force: true });
+afterAll(async () => {
+  dbModule.__closeDbForTest();
+  try {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch { /* Windows can keep a handle past close; the suite already passed. */ }
 });
 
 describe("PATCH /api/org/employees/:name — read after write", () => {
