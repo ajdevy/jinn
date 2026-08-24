@@ -65,6 +65,16 @@ export function validateConfigShape(config: unknown): string[] {
       if (c.gateway.resumeInterruptedSessions !== undefined && typeof c.gateway.resumeInterruptedSessions !== "boolean") {
         problems.push(`gateway.resumeInterruptedSessions must be a boolean (got ${typeof c.gateway.resumeInterruptedSessions})`);
       }
+      if (c.gateway.todoRecovery !== undefined) {
+        if (typeof c.gateway.todoRecovery !== "object" || c.gateway.todoRecovery === null || Array.isArray(c.gateway.todoRecovery)) {
+          problems.push("gateway.todoRecovery must be a mapping");
+        } else if (c.gateway.todoRecovery.mode !== undefined
+          && c.gateway.todoRecovery.mode !== "off"
+          && c.gateway.todoRecovery.mode !== "classify-only"
+          && c.gateway.todoRecovery.mode !== "auto") {
+          problems.push(`gateway.todoRecovery.mode must be off, classify-only, or auto (got ${JSON.stringify(c.gateway.todoRecovery.mode)})`);
+        }
+      }
     }
   }
 

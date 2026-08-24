@@ -97,7 +97,7 @@ export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassifi
     });
   }
 
-  if (input.lastRun && (input.lastRun.outcome === "crashed" || input.lastRun.outcome === "failed")) {
+  if (input.lastRun && ["crashed", "failed", "blocked", "timed_out", "abandoned"].includes(input.lastRun.outcome)) {
     return withOwner({
       class: "code",
       lane: "manager",
@@ -118,4 +118,45 @@ export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassifi
     lane: "operator",
     reason: "no safe automatic recovery is known",
   });
+}
+
+/** Additive: never a column on `work_items`. The exact-shape verifier refuses
+ *  drift in an existing table, so a new table is the only extension a deployed
+ *  database can survive. */
+export const WORK_ITEM_RECOVERY_DDL = `
+CREATE TABLE IF NOT EXISTS work_item_recovery (
+  work_item_id     TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+  incident_id      TEXT NOT NULL,
+  class            TEXT NOT NULL CHECK (class IN ('transient','code','verification','security','operator')),
+  lane             TEXT NOT NULL CHECK (lane IN ('recovering','manager','operator')),
+  attempts         INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0 AND attempts <= 2),
+  last_attempt_at  TEXT,
+  last_run_id      TEXT,
+  reason           TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+)`;
+
+export interface WorkItemRecovery {
+  workItemId: string;
+  incidentId: string;
+  class: RecoveryClass;
+  lane: AttentionLane;
+  attempts: number;
+  lastAttemptAt: string | null;
+  lastRunId: string | null;
+  reason: string;
+  updatedAt: string;
+}
+
+export interface UpsertRecoveryInput {
+  workItemId: string;
+  incidentId: string;
+  class: RecoveryClass;
+  lane: AttentionLane;
+  reason: string;
+  lastRunId?: string | null;
+  /** When true, increment attempts for the same incident (capped at 2). A new
+   *  incident_id starts at 0. */
+  attempted?: boolean;
+  now?: Date;
 }
