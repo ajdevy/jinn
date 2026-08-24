@@ -63,9 +63,5 @@ export const BROWSER_CONTROL_OPERATIONS: readonly TalkControlOperation[] = [
   browser("talk_draft_and_send", "Atomically draft and send one reply in the chat currently on screen. Use only for an explicit draft-and-send request.", params({
     message: string("The reply text, at most 8000 characters."),
   }, ["message"]), "sessions"),
-  browser("talk_send_to_session", "Send a message into a named or non-visible chat session. Always asks for confirmation before sending.", params({
-    id: string("The session id."),
-    message: string("The operator message."),
-  }, ["id", "message"]), "sessions"),
   browser("capture_current_view", "Capture one bounded image only for a declared semantic visual gap.", params({ reason: string("The declared visual-gap reason.") }, ["reason"]), "visual", "read"),
 ];

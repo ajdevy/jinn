@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, JinnConfig, JsonObject, Session } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
@@ -124,7 +124,7 @@ export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
 } from "../sessions/turn/text.js";
-import { decideJinnAttachment } from "../mcp/attachment.js";
+import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
 import { createMigrationSnapshot } from "../migrations/snapshot.js";
 import { getPackageVersion } from "../shared/version.js";
@@ -133,6 +133,7 @@ import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
+import { handleTodoCaptureApi } from "./todo-capture-api.js";
 import { handleSkillsApi } from "./skills-api.js";
 import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
@@ -1097,6 +1098,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && matchRoute("/api/sessions/:id/unarchive", pathname)) return "session unarchive";
   if (method === "POST" && matchRoute("/api/sessions/:id/reset", pathname)) return "session reset";
   if (method === "POST" && pathname === "/api/sessions/bulk-delete") return "session bulk delete";
+  if (method === "POST" && pathname === "/api/todo-captures") return "quick capture";
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
@@ -3085,23 +3087,16 @@ export async function handleApiRequest(
       // it exists to move a stuck Todo onto another engine, so it has to win.
       const dispatchEngineName = dispatchPrefs.preamble.engine ?? dispatcher.engine;
       const dispatchModel = dispatchPrefs.preamble.engine ? dispatchPrefs.preamble.model ?? undefined : dispatcher.model;
-      const attachment = decideJinnAttachment({
-        globalMcp: config.mcp,
-        employee: dispatcher,
-        engine: dispatchEngineName,
+      const preflight = preflightSystemEmployee({
+        employee: dispatcher, label: "Todo Dispatcher", settingLabel: "Dispatcher",
+        engineName: dispatchEngineName, globalMcp: config.mcp,
+        getEngine: (name) => context.sessionManager.getEngine(name),
       });
-      if (!attachment.attach) {
+      if (!preflight.ok) {
         claim.release();
-        return json(res, {
-          error: `Todo Dispatcher cannot run on engine "${dispatchEngineName}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
-        }, 409);
+        return json(res, { error: preflight.error }, preflight.status);
       }
-
-      const engine = context.sessionManager.getEngine(dispatchEngineName);
-      if (!engine) {
-        claim.release();
-        return json(res, { error: `engine "${dispatchEngineName}" not available; change the Dispatcher engine override and try again` }, 502);
-      }
+      const engine = preflight.engine;
 
       const prompt = dispatchPrefs.preamble.prefix + [
         `Dispatch Todo ${item.id}.`,
@@ -4713,6 +4708,7 @@ export async function handleApiRequest(
     }
 
     if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleTodoCaptureApi(req, res, { method, pathname, url }, context)) return;
     if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
     if (await handleSkillsApi(req, res, { method, pathname, url }, context)) return;
     if (await handlePluginsApi(req, res, { method, pathname, url }, context)) return;
@@ -4856,100 +4852,6 @@ export async function handleApiRequest(
       } catch (err) {
         return json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
       }
-    }
-
-    // POST /api/connectors/discord/incoming — receive proxied Discord messages from a primary instance
-    if (method === "POST" && pathname === "/api/connectors/discord/incoming") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-      if (!("deliverMessage" in connector)) {
-        return json(res, { error: "Discord connector is not in remote mode" }, 400);
-      }
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      // Download attachments from Discord CDN URLs to local temp
-      const { downloadAttachment } = await import("../connectors/discord/format.js");
-      const attachments = await Promise.all(
-        (body.attachments || []).map(async (att: { name: string; url: string; mimeType: string }) => {
-          if (att.url) {
-            try {
-              const localPath = await downloadAttachment(att.url, TMP_DIR, att.name);
-              return { name: att.name, url: att.url, mimeType: att.mimeType, localPath };
-            } catch {
-              return { name: att.name, url: att.url, mimeType: att.mimeType };
-            }
-          }
-          return att;
-        }),
-      );
-
-      const incomingMsg: IncomingMessage = {
-        connector: "discord",
-        source: "discord",
-        sessionKey: body.sessionKey,
-        channel: body.channel,
-        thread: body.thread,
-        user: body.user,
-        userId: body.userId,
-        text: body.text,
-        messageId: body.messageId,
-        attachments,
-        replyContext: body.replyContext || {},
-        transportMeta: body.transportMeta,
-        raw: body,
-      };
-
-      (connector as any).deliverMessage(incomingMsg);
-      return json(res, { status: "delivered" });
-    }
-
-    // POST /api/connectors/discord/proxy — proxy connector operations from remote instances
-    if (method === "POST" && pathname === "/api/connectors/discord/proxy") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      const action = body.action as string;
-      const target = body.target as Target | undefined;
-      let messageId: string | undefined;
-
-      switch (action) {
-        case "sendMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.sendMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "replyMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.replyMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "editMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          await connector.editMessage(target, redactText(String(body.text)));
-          break;
-        case "addReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.addReaction(target, body.emoji);
-          break;
-        case "removeReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.removeReaction(target, body.emoji);
-          break;
-        case "setTypingStatus":
-          if (connector.setTypingStatus) {
-            await connector.setTypingStatus(body.channelId ?? "", body.threadTs, body.status ?? "");
-          }
-          break;
-        default:
-          return badRequest(res, `Unknown proxy action: ${action}`);
-      }
-
-      return json(res, { status: "ok", messageId });
     }
 
     // POST /api/connectors/:name/send — send via the connector with that instance id

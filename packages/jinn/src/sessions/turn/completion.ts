@@ -38,7 +38,8 @@ export interface SettleTurnInput {
    */
   expectedStatuses?: readonly Session["status"][];
   employee?: Employee;
-  /** Interrupted turns stay silent: whoever interrupted already reported it. */
+  /** Interrupters pass false — they report the interrupt themselves. The status
+   *  reconciler, the interrupt nobody is left to report, keeps the default. */
   notifyParent?: boolean;
   surface: TurnSurface;
 }

@@ -56,6 +56,7 @@ import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
 import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
 import { startStatusReconciler } from "./status-reconciler.js";
+import { webTurnSurface } from "./web-session-dispatch.js";
 import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
@@ -78,7 +79,6 @@ import { createPluginEventsChannel, matchPluginEventsPath } from "./plugin-event
 import { startPluginRuntime, stopPluginRuntime } from "../plugins/runtime.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
-import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
@@ -258,7 +258,7 @@ export interface NormalizedConnector {
 /** When a legacy top-level connector counts as configured. */
 const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
   slack: (config) => Boolean(config.appToken && config.botToken),
-  discord: (config) => Boolean(config.botToken || config.proxyVia),
+  discord: (config) => Boolean(config.botToken),
   telegram: (config) => Boolean(config.botToken),
   whatsapp: () => true,
 };
@@ -312,13 +312,6 @@ export function createConnector(instance: NormalizedConnector): Connector {
     case "slack":
       return new SlackConnector(config as unknown as SlackConnectorConfig);
     case "discord":
-      // Remote mode proxies all Discord I/O through the primary instance.
-      if (config.proxyVia) {
-        if (instance.id !== "discord") {
-          throw new Error("Named Remote Discord instances are not supported until the proxy protocol authenticates and validates instance identity");
-        }
-        return new RemoteDiscordConnector({ proxyVia: String(config.proxyVia), channelId: config.channelId as string | undefined });
-      }
       return new DiscordConnector(config as unknown as DiscordConnectorConfig);
     case "telegram":
       return new TelegramConnector(config as unknown as TelegramConnectorConfig);
@@ -890,9 +883,8 @@ export async function startGateway(
   };
   apiContext.reloadConfig = reloadConfig;
 
-  // Unstick sessions whose completion event was lost (status:"running" with no
-  // live turn). 15s sweep; logs one line per fix.
-  const stopStatusReconciler = startStatusReconciler({ engines, emit });
+  // Unstick sessions whose completion event was lost (status:"running", no live turn): a 15s sweep, settling through the one completion path.
+  const stopStatusReconciler = startStatusReconciler({ engines, surfaceFor: (id) => webTurnSurface(id, apiContext) });
   const stopHeartbeatScheduler = startHeartbeatScheduler();
 
   // Todos ledger truth-keeping: derive status from linked-session evidence so a mid-process settle lands without a boot (GRS-021a), and resume a Todo parked on a provider window that has since reopened (PLA-153).

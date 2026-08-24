@@ -18,6 +18,39 @@ function failure(code: string, error: string): TalkControlFailure {
   return { ok: false, code, error };
 }
 
+/** Long enough for an adapter sentence naming an id, short enough that no
+ *  message the model reads back can run away. */
+const REASON_CHARS = 300;
+
+function clipReason(reason: string): string {
+  return reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}\u2026` : reason;
+}
+
+/**
+ * The adapter's own words, not a house phrase.
+ *
+ * Collapsing every throw into one sentence made "Todo ABC-1 not found" and
+ * "Employee dana not found" arrive identical, so the model could only say
+ * something generic and the operator learned nothing. The reason is the whole
+ * value of the failure.
+ */
+function executionReason(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+  return message ? clipReason(message) : "The gateway could not complete this operation.";
+}
+
+/** Name the check that did not match and the evidence actually found, so a
+ *  verification failure is diagnosable instead of merely reported. */
+function verificationReason(
+  operation: NonNullable<ReturnType<typeof operationByName>>,
+  verification: { evidence: Record<string, unknown> },
+): string {
+  const found = Object.entries(verification.evidence)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(", ");
+  return clipReason(`${operation.name} did not match its ${operation.verification} check; ${found ? `found ${found}` : "nothing was found"}.`);
+}
+
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object") {
@@ -80,8 +113,8 @@ function preflight(
   input: TalkControlDispatch,
   operation: ReturnType<typeof operationByName>,
 ): { ok: true; operation: NonNullable<typeof operation>; args: Record<string, unknown> } | { ok: false; result: TalkControlFailure } {
-  if (!operation) return { ok: false, result: failure("unknown-operation", "This operation is not in the Talk manifest.") };
-  if (operation.target !== "gateway") return { ok: false, result: failure("wrong-target", "This operation must execute in the browser.") };
+  if (!operation) return { ok: false, result: failure("unknown-operation", `${clipReason(input.tool)} is not in the Talk manifest.`) };
+  if (operation.target !== "gateway") return { ok: false, result: failure("wrong-target", `${operation.name} must execute in the browser.`) };
   if (operation.operatorOnly && input.caller.kind !== "operator") return { ok: false, result: failure("operator-required", "This operation requires the authenticated operator.") };
   if (!input.providerCallId || input.providerCallId.length > 200) return { ok: false, result: failure("invalid-provider-call", "A bounded provider call id is required.") };
   const args = parseArguments(input.arguments);
@@ -172,7 +205,7 @@ export class TalkControlRuntime {
       });
       const verification = await this.options.verify(operation, args, execution);
       if (!verification.ok) {
-        return failure("verification-failed", "The operation completed without matching authoritative evidence.");
+        return failure("verification-failed", verificationReason(operation, verification));
       }
       const result: TalkControlSuccess = {
         ok: true,
@@ -187,7 +220,7 @@ export class TalkControlRuntime {
       return result;
     } catch (error) {
       if (error instanceof TalkControlRefusal) return failure(error.code, error.message);
-      return failure("execution-failed", "The gateway could not complete this operation.");
+      return failure("execution-failed", executionReason(error));
     }
   }
 }

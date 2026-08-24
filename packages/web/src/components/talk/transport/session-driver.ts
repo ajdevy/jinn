@@ -107,8 +107,10 @@ async function runTool(driver: DriverState, call: Extract<RealtimeFrame, { type:
         await (driver.options.applyUiEffect ?? applyTalkUiEffect)(effect)
       },
     })
-  } catch {
-    result = { ok: false, error: "The verified Talk control could not be completed." }
+  } catch (failure) {
+    // `executeTalkTool` answers every failure it can name, so reaching here is
+    // a tool that threw outright — still reported in its own words.
+    result = { ok: false, code: "tool-failed", error: failure instanceof Error ? failure.message : "The Talk control could not be completed." }
   }
   driver.outstanding -= 1
   if (driver.stopped) return
