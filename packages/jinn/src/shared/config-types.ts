@@ -146,9 +146,10 @@ export interface JinnConfig {
     channel?: string;    // Discord channel ID for admin notifications
   };
   workflows?: {
-    /** Canonical Git ref a code Workflow must prove delivery to before its Todo
-     * may close. Defaults to `origin/main`. */
+    /** Local Git branch a code Workflow must prove delivery to before its Todo
+     * may close. Defaults to `main`. */
     delivery?: {
+      /** @deprecated Remote publication is not part of Workflow delivery. */
       remote?: string;
       branch?: string;
     };
