@@ -155,6 +155,19 @@ describe("syncTemplateSkills: recoverability", () => {
     expect(fs.readFileSync(path.join(result.backupDir!, "skills/notes/retired-helper.md"), "utf8")).toBe("about to be deleted\n")
   })
 
+  it("backs up config.yaml and the ownership receipt before overwriting them", () => {
+    const { home, templateDir } = fixture()
+    write(path.join(home, "skills/cron-manager/SKILL.md"), "# Cron Manager\nstale\n")
+    const configBefore = fs.readFileSync(path.join(home, "config.yaml"), "utf8")
+    const receiptBefore = JSON.stringify({ version: "0.30.0", skills: ["cron-manager"] })
+    fs.writeFileSync(receiptPath(home), receiptBefore)
+
+    const result = sync(home, templateDir)
+
+    expect(fs.readFileSync(path.join(result.backupDir!, "config.yaml"), "utf8")).toBe(configBefore)
+    expect(fs.readFileSync(path.join(result.backupDir!, ".jinn-template-skills.json"), "utf8")).toBe(receiptBefore)
+  })
+
   it("is a no-op on a second run and creates no second backup directory", () => {
     const { home, templateDir } = fixture()
     write(path.join(home, "skills/cron-manager/SKILL.md"), "# Cron Manager\nstale\n")
@@ -176,7 +189,7 @@ describe("syncTemplateSkills: path safety", () => {
     fs.writeFileSync(path.join(root, "outside.md"), "untouched\n")
     fs.writeFileSync(receiptPath(home), JSON.stringify({ version: "0.30.0", skills: ["../../outside.md"] }))
 
-    expect(() => sync(home, templateDir)).toThrow(/outside the skills directory/)
+    expect(() => sync(home, templateDir)).toThrow(/inside the skills directory/)
 
     expect(fs.readFileSync(path.join(root, "outside.md"), "utf8")).toBe("untouched\n")
     expect(fs.existsSync(path.join(home, "skills/notes/SKILL.md"))).toBe(false)
@@ -198,6 +211,30 @@ describe("syncTemplateSkills: path safety", () => {
     expect(fs.readFileSync(target, "utf8")).toBe("link target\n")
   })
 
+  it("refuses to write through a symlinked skill directory", () => {
+    const { root, home, templateDir } = fixture()
+    const outside = path.join(root, "outside-skill")
+    fs.mkdirSync(outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, "SKILL.md"), "not ours\n")
+    fs.mkdirSync(path.join(home, "skills"), { recursive: true })
+    fs.symlinkSync(outside, path.join(home, "skills/cron-manager"))
+
+    expect(() => sync(home, templateDir)).toThrow(/symlink/)
+
+    expect(fs.readFileSync(path.join(outside, "SKILL.md"), "utf8")).toBe("not ours\n")
+    expect(fs.lstatSync(path.join(home, "skills/cron-manager")).isSymbolicLink()).toBe(true)
+  })
+
+  it("refuses a receipt name that resolves to the skills directory itself", () => {
+    const { home, templateDir } = fixture()
+    write(path.join(home, "skills/my-thing/SKILL.md"), "# Mine\n")
+    fs.writeFileSync(receiptPath(home), JSON.stringify({ version: "0.30.0", skills: ["."] }))
+
+    expect(() => sync(home, templateDir)).toThrow(/skills directory/)
+
+    expect(fs.existsSync(path.join(home, "skills/my-thing/SKILL.md"))).toBe(true)
+  })
+
   it("refuses a template entry that is a symlink instead of copying through it", () => {
     const { root, home, templateDir } = fixture()
     fs.writeFileSync(path.join(root, "secret.md"), "not ours to ship\n")
@@ -209,7 +246,33 @@ describe("syncTemplateSkills: path safety", () => {
   })
 })
 
+describe("syncTemplateSkills: nothing is written until everything can be written", () => {
+  it("refuses a config.yaml whose jinn key is not a mapping before touching a single skill", () => {
+    const { home, templateDir } = fixture()
+    write(path.join(home, "skills/cron-manager/SKILL.md"), "# Cron Manager\nstale\n")
+    fs.writeFileSync(path.join(home, "config.yaml"), "jinn: false\n")
+
+    expect(() => sync(home, templateDir)).toThrow(/isn't a mapping/)
+
+    expect(fs.readFileSync(path.join(home, "skills/cron-manager/SKILL.md"), "utf8")).toBe("# Cron Manager\nstale\n")
+    expect(fs.existsSync(receiptPath(home))).toBe(false)
+    expect(fs.existsSync(path.join(home, "skills/notes"))).toBe(false)
+    expect(backupDirs(home)).toEqual([])
+  })
+})
+
 describe("syncTemplateSkills: honest failure", () => {
+  it("refuses a receipt that is present but unreadable instead of erasing the evidence", () => {
+    const { home, templateDir } = fixture()
+    write(path.join(home, "skills/retired/SKILL.md"), "# Retired\n")
+    fs.writeFileSync(receiptPath(home), "{ not json")
+
+    expect(() => sync(home, templateDir)).toThrow(/\.jinn-template-skills\.json/)
+
+    expect(fs.existsSync(path.join(home, "skills/retired/SKILL.md"))).toBe(true)
+    expect(fs.readFileSync(receiptPath(home), "utf8")).toBe("{ not json")
+  })
+
   it("reports why a malformed config.yaml stopped the sync", () => {
     const { home, templateDir } = fixture()
     fs.writeFileSync(path.join(home, "config.yaml"), "jinn:\n  version: [\n")

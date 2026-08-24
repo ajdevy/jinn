@@ -26,6 +26,15 @@ interface PlannedWrite {
   bytes: Buffer
 }
 
+/** A whole-file replacement decided during planning and written once the skills land. */
+interface PlannedFile {
+  destination: string
+  text: string
+  mode?: number
+}
+
+type BackupWriter = ReturnType<typeof backupWriter>
+
 interface PlanContext {
   skillsRoot: string
   templateSkillsRoot: string
@@ -66,13 +75,18 @@ export function syncTemplateSkills(options: {
   for (const name of shipped) planShippedSkill(plan, context, name)
   planRetiredSkills(plan, context, shipped, readReceipt(home))
 
-  const backupDir = applyPlan(plan, home, options.packageVersion)
+  // The receipt and config.yaml are written last but decided first: a config.yaml that
+  // cannot be stamped has to refuse before any skill is touched, not after.
+  const receipt = plannedReceipt(home, options.packageVersion, shipped)
+  const stamp = plannedVersionStamp(home, options.packageVersion)
 
+  const backup = backupWriter(home, options.packageVersion)
+  applyPlan(plan, backup)
   seedSkillsIndex(home, options.templateDir)
-  writeReceipt(home, options.packageVersion, shipped)
-  stampVersion(home, options.packageVersion)
+  if (receipt) writePlannedFile(receipt, backup)
+  if (stamp) writePlannedFile(stamp, backup)
 
-  return { added: plan.added, updated: plan.updated, removed: plan.removed, backupDir }
+  return { added: plan.added, updated: plan.updated, removed: plan.removed, backupDir: backup.directory() }
 }
 
 function planShippedSkill(plan: SyncPlan, context: PlanContext, name: string): void {
@@ -114,14 +128,16 @@ function planRetiredSkills(plan: SyncPlan, context: PlanContext, shipped: string
     if (shipped.includes(name)) continue
     const dir = resolveSkillPath(context.skillsRoot, name)
     if (!fs.existsSync(dir)) continue
-    for (const relative of listFilesRecursive(dir)) plan.deletions.push(path.join(dir, relative))
+    // Unlink a symlinked skill dir rather than walking it: its target is not ours to delete.
+    if (!fs.lstatSync(dir).isSymbolicLink()) {
+      for (const relative of listFilesRecursive(dir)) plan.deletions.push(path.join(dir, relative))
+    }
     plan.retiredDirs.push(dir)
     plan.removed.push(name)
   }
 }
 
-function applyPlan(plan: SyncPlan, home: string, packageVersion: string): string | null {
-  const backup = backupWriter(home, packageVersion)
+function applyPlan(plan: SyncPlan, backup: BackupWriter): void {
   for (const destination of plan.deletions) {
     backup.capture(destination)
     fs.rmSync(destination, { force: true })
@@ -134,17 +150,33 @@ function applyPlan(plan: SyncPlan, home: string, packageVersion: string): string
     fs.writeFileSync(destination, bytes)
   }
   for (const dir of plan.retiredDirs) fs.rmSync(dir, { recursive: true, force: true })
-  return backup.directory()
 }
 
 /** Every write and every delete resolves through here, so a crafted skill name — from
  *  the template or from a receipt the user could have edited — cannot reach outside. */
 function resolveSkillPath(skillsRoot: string, relative: string): string {
   const resolved = path.resolve(skillsRoot, relative)
-  if (resolved !== skillsRoot && !resolved.startsWith(`${skillsRoot}${path.sep}`)) {
-    throw new Error(`refusing "${relative}": it resolves outside the skills directory`)
+  // Equality is a refusal, not a pass: a receipt naming "." would otherwise retire the
+  // whole skills directory, user-authored skills included.
+  if (resolved === skillsRoot || !resolved.startsWith(`${skillsRoot}${path.sep}`)) {
+    throw new Error(`refusing "${relative}": it does not resolve to a path inside the skills directory`)
   }
+  assertNoSymlinkedParent(skillsRoot, resolved)
   return resolved
+}
+
+/** A lexically contained path is not a contained path. If `skills/<name>` is a symlink,
+ *  every write and unlink beneath it lands wherever it points, so a directory on the way
+ *  down is refused outright. Only the leaf may be a link — that one is replaced, never
+ *  followed. */
+function assertNoSymlinkedParent(skillsRoot: string, resolved: string): void {
+  for (let current = path.dirname(resolved); current !== skillsRoot; current = path.dirname(current)) {
+    let stat: fs.Stats
+    try { stat = fs.lstatSync(current) } catch { continue }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`refusing "${path.relative(skillsRoot, resolved)}": "${path.relative(skillsRoot, current)}" is a symlink`)
+    }
+  }
 }
 
 function isUpToDate(destination: string, bytes: Buffer): boolean {
@@ -219,30 +251,48 @@ function seedSkillsIndex(home: string, templateDir: string): void {
   fs.writeFileSync(destination, fs.readFileSync(source))
 }
 
-/** An unreadable receipt is treated as a first run rather than as a failure: the only
- *  consequence is that a retired skill lingers, and that beats refusing to boot. */
+/** No receipt is a first run. A receipt that exists but will not read is not: it is the
+ *  record deciding what gets deleted, so it refuses rather than quietly reading as empty
+ *  and then overwriting the only evidence of what went wrong. */
 function readReceipt(home: string): string[] {
-  let parsed: unknown
-  try { parsed = JSON.parse(fs.readFileSync(path.join(home, RECEIPT_FILE), "utf8")) } catch { return [] }
-  const skills = (parsed as { skills?: unknown } | null)?.skills
-  return Array.isArray(skills) ? skills.filter((name): name is string => typeof name === "string") : []
-}
-
-function writeReceipt(home: string, version: string, skills: string[]): void {
   const receiptPath = path.join(home, RECEIPT_FILE)
-  const text = JSON.stringify({ version, skills })
-  if (fs.existsSync(receiptPath) && fs.readFileSync(receiptPath, "utf8") === text) return
-  fs.writeFileSync(receiptPath, text)
+  let raw: string
+  try { raw = fs.readFileSync(receiptPath, "utf8") } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw new Error(`cannot read ${RECEIPT_FILE}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) } catch (error) {
+    throw new Error(`${RECEIPT_FILE} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const skills = (parsed as { skills?: unknown } | null)?.skills
+  if (!Array.isArray(skills) || skills.some((name) => typeof name !== "string")) {
+    throw new Error(`${RECEIPT_FILE} needs a "skills" array of names`)
+  }
+  return skills as string[]
 }
 
-function stampVersion(home: string, packageVersion: string): void {
-  const configPath = path.join(home, "config.yaml")
-  if (!fs.existsSync(configPath)) return
-  const raw = fs.readFileSync(configPath, "utf8")
+function plannedReceipt(home: string, version: string, skills: string[]): PlannedFile | null {
+  const destination = path.join(home, RECEIPT_FILE)
+  const text = JSON.stringify({ version, skills })
+  if (fs.existsSync(destination) && fs.readFileSync(destination, "utf8") === text) return null
+  return { destination, text }
+}
+
+function plannedVersionStamp(home: string, packageVersion: string): PlannedFile | null {
+  const destination = path.join(home, "config.yaml")
+  if (!fs.existsSync(destination)) return null
+  const raw = fs.readFileSync(destination, "utf8")
   const result = stampVersionInYaml(raw, packageVersion)
   if (!result.ok) throw new Error(result.reason)
-  if (result.text === raw) return
-  const temp = `${configPath}.sync-${process.pid}.tmp`
-  fs.writeFileSync(temp, result.text, { mode: fs.statSync(configPath).mode & 0o777 })
-  fs.renameSync(temp, configPath)
+  if (result.text === raw) return null
+  return { destination, text: result.text, mode: fs.statSync(destination).mode & 0o777 }
+}
+
+/** config.yaml is hot-reloaded by a running gateway, so both land by rename. */
+function writePlannedFile(file: PlannedFile, backup: BackupWriter): void {
+  backup.capture(file.destination)
+  const temp = `${file.destination}.sync-${process.pid}.tmp`
+  fs.writeFileSync(temp, file.text, file.mode === undefined ? {} : { mode: file.mode })
+  fs.renameSync(temp, file.destination)
 }
