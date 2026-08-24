@@ -43,81 +43,49 @@ export interface RecoveryIncidentInput {
 const AVAILABILITY_CLASSES = ["quota", "rate-limit", "provider-outage", "network"] as const;
 const VERIFY_FAILURE = /independent review|verifier rejected|verification failed|review rejected the diff/i;
 
-export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassification {
-  const owner = input.owningWorkflowId;
-  const withOwner = (verdict: RecoveryClassification): RecoveryClassification =>
-    owner === undefined ? verdict : { ...verdict, owningWorkflowId: owner };
+function verdict(input: RecoveryIncidentInput, value: RecoveryClassification): RecoveryClassification {
+  return input.owningWorkflowId === undefined ? value : { ...value, owningWorkflowId: input.owningWorkflowId };
+}
 
-  if (input.todo.status === "backlog") {
-    return withOwner({
-      class: "operator",
-      lane: "operator",
-      reason: "ordinary backlog work is never auto-started",
-    });
-  }
+function isAvailability(input: RecoveryIncidentInput, error: string): boolean {
+  return input.lastRun?.outcome === "rate_limited"
+    || hasEngineFailureClass(classifyEngineFailureText(error), ...AVAILABILITY_CLASSES);
+}
 
-  if (input.approval?.state === "pending" && input.approval.operatorOnly) {
-    return withOwner({
-      class: "operator",
-      lane: "operator",
-      reason: "operator-only approval is a genuine authority decision",
-    });
-  }
+function isVerificationFailure(input: RecoveryIncidentInput, error: string): boolean {
+  return (input.verifyMode === "verify" || input.verifyMode === "thorough") && VERIFY_FAILURE.test(error);
+}
 
+function classifyFromFailure(input: RecoveryIncidentInput): RecoveryClassification | undefined {
   const error = input.lastRun?.error ?? "";
-  const failure = classifyEngineFailureText(error);
-
-  if (hasEngineFailureClass(failure, "auth-terminal")) {
-    return withOwner({
-      class: "security",
-      lane: "manager",
-      reason: "credentials or auth failed; a clock retry cannot fix it",
-    });
+  if (hasEngineFailureClass(classifyEngineFailureText(error), "auth-terminal")) {
+    return { class: "security", lane: "manager", reason: "credentials or auth failed; a clock retry cannot fix it" };
   }
-
-  const availability =
-    input.lastRun?.outcome === "rate_limited"
-    || hasEngineFailureClass(failure, ...AVAILABILITY_CLASSES);
-  if (availability && input.todo.status !== "backlog") {
-    return withOwner({
-      class: "transient",
-      lane: "recovering",
-      reason: "provider availability; resume the owning workflow when the window reopens",
-    });
+  if (isAvailability(input, error)) {
+    return { class: "transient", lane: "recovering", reason: "provider availability; resume the owning workflow when the window reopens" };
   }
-
-  if (
-    (input.verifyMode === "verify" || input.verifyMode === "thorough")
-    && VERIFY_FAILURE.test(error)
-  ) {
-    return withOwner({
-      class: "verification",
-      lane: "manager",
-      reason: "independent verification rejected the work",
-    });
+  if (isVerificationFailure(input, error)) {
+    return { class: "verification", lane: "manager", reason: "independent verification rejected the work" };
   }
-
   if (input.lastRun && ["crashed", "failed", "blocked", "timed_out", "abandoned"].includes(input.lastRun.outcome)) {
-    return withOwner({
-      class: "code",
-      lane: "manager",
-      reason: "the attempt failed in the work itself",
-    });
+    return { class: "code", lane: "manager", reason: "the attempt failed in the work itself" };
   }
+  return undefined;
+}
 
+export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassification {
+  if (input.todo.status === "backlog") {
+    return verdict(input, { class: "operator", lane: "operator", reason: "ordinary backlog work is never auto-started" });
+  }
+  if (input.approval?.state === "pending" && input.approval.operatorOnly) {
+    return verdict(input, { class: "operator", lane: "operator", reason: "operator-only approval is a genuine authority decision" });
+  }
+  const fromFailure = classifyFromFailure(input);
+  if (fromFailure) return verdict(input, fromFailure);
   if (input.approval?.state === "pending") {
-    return withOwner({
-      class: "operator",
-      lane: "manager",
-      reason: "a routed approval is waiting on an employee, not the operator",
-    });
+    return verdict(input, { class: "operator", lane: "manager", reason: "a routed approval is waiting on an employee, not the operator" });
   }
-
-  return withOwner({
-    class: "operator",
-    lane: "operator",
-    reason: "no safe automatic recovery is known",
-  });
+  return verdict(input, { class: "operator", lane: "operator", reason: "no safe automatic recovery is known" });
 }
 
 /** Additive: never a column on `work_items`. The exact-shape verifier refuses

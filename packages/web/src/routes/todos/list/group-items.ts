@@ -42,6 +42,21 @@ const OPEN_GROUPS: Array<{
   { key: "escalated", label: "Escalated", status: "escalated", omitWhenEmpty: true },
 ]
 
+function attentionGroup(key: Extract<TodoListGroupKey, "recovering" | "manager" | "needs-you">, label: string, items: WorkItemCompactWire[]): TodoListGroup {
+  return { key, label, statuses: [], items, count: items.length }
+}
+
+function attentionGroups(needsItems: WorkItemCompactWire[]): TodoListGroup[] {
+  const recovering = needsItems.filter((item) => item.attentionLane === "recovering")
+  const manager = needsItems.filter((item) => item.attentionLane === "manager")
+  const operator = needsItems.filter((item) => item.attentionLane !== "recovering" && item.attentionLane !== "manager")
+  const groups: TodoListGroup[] = []
+  if (recovering.length > 0) groups.push(attentionGroup("recovering", "Recovering automatically", recovering))
+  if (manager.length > 0) groups.push(attentionGroup("manager", "Manager attention", manager))
+  groups.push(attentionGroup("needs-you", "Needs you", operator))
+  return groups
+}
+
 export function groupTodoListItems(
   columns: TodoListColumns,
   needsAttention: WorkItemCompactWire[],
@@ -57,36 +72,7 @@ export function groupTodoListItems(
     hoistedByStatus.set(item.status, (hoistedByStatus.get(item.status) ?? 0) + 1)
   }
 
-  const recoveringItems = needsItems.filter((item) => item.attentionLane === "recovering")
-  const managerItems = needsItems.filter((item) => item.attentionLane === "manager")
-  const operatorItems = needsItems.filter((item) => item.attentionLane !== "recovering" && item.attentionLane !== "manager")
-
-  const groups: TodoListGroup[] = []
-  if (recoveringItems.length > 0) {
-    groups.push({
-      key: "recovering",
-      label: "Recovering automatically",
-      statuses: [],
-      items: recoveringItems,
-      count: recoveringItems.length,
-    })
-  }
-  if (managerItems.length > 0) {
-    groups.push({
-      key: "manager",
-      label: "Manager attention",
-      statuses: [],
-      items: managerItems,
-      count: managerItems.length,
-    })
-  }
-  groups.push({
-    key: "needs-you",
-    label: "Needs you",
-    statuses: [],
-    items: operatorItems,
-    count: operatorItems.length,
-  })
+  const groups: TodoListGroup[] = attentionGroups(needsItems)
 
   for (const definition of OPEN_GROUPS) {
     const column = columns[definition.status]

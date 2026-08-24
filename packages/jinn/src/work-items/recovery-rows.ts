@@ -47,14 +47,20 @@ export function recoveryByItem(workItemIds: readonly string[]): Map<string, Work
   return map;
 }
 
+function nextAttempts(existing: WorkItemRecovery | undefined, incidentId: string, attempted: boolean | undefined, now: string) {
+  const sameIncident = existing !== undefined && existing.incidentId === incidentId;
+  return {
+    attempts: sameIncident
+      ? Math.min(MAX_RECOVERY_ATTEMPTS, existing.attempts + (attempted ? 1 : 0))
+      : attempted ? 1 : 0,
+    lastAttemptAt: attempted ? now : (sameIncident ? existing.lastAttemptAt : null),
+  };
+}
+
 export function upsertWorkItemRecovery(input: UpsertRecoveryInput): WorkItemRecovery {
   const now = (input.now ?? new Date()).toISOString();
   const existing = getWorkItemRecovery(input.workItemId);
-  const sameIncident = existing !== undefined && existing.incidentId === input.incidentId;
-  const attempts = sameIncident
-    ? Math.min(MAX_RECOVERY_ATTEMPTS, existing.attempts + (input.attempted ? 1 : 0))
-    : input.attempted ? 1 : 0;
-  const lastAttemptAt = input.attempted ? now : (sameIncident ? existing.lastAttemptAt : null);
+  const { attempts, lastAttemptAt } = nextAttempts(existing, input.incidentId, input.attempted, now);
   initDb().prepare(
     `INSERT INTO work_item_recovery
        (work_item_id, incident_id, class, lane, attempts, last_attempt_at, last_run_id, reason, updated_at)

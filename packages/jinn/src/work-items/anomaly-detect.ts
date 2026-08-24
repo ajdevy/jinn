@@ -53,58 +53,46 @@ function note(item: WorkItem, anomaly: TodoAnomaly, now: Date): void {
   });
 }
 
-function inspect(item: WorkItem, now: Date): TodoAnomaly | undefined {
+function assignedWithoutRun(item: WorkItem, now: Date): TodoAnomaly | undefined {
+  if (item.status !== "assigned" || !owningWorkflowId(item.id)) return undefined;
   const runs = listWorkItemRuns(item.id);
-  const open = runs.filter((run) => run.endedAt === null);
+  if (runs.some((run) => run.endedAt === null)) return undefined;
   const last = [...runs].reverse().find((run) => run.endedAt !== null);
+  if (last?.endedAt && now.getTime() - Date.parse(last.endedAt) < FRESH_RUN_MS) return undefined;
+  return { workItemId: item.id, kind: "assigned-without-run", lane: "recovering", reason: "assigned to a pipeline with no active run" };
+}
+
+function executionTimeout(item: WorkItem, now: Date): TodoAnomaly | undefined {
+  if (item.status !== "executing") return undefined;
+  const open = listWorkItemRuns(item.id).find((run) => run.endedAt === null);
+  if (!open) return undefined;
+  const started = Date.parse(open.startedAt);
+  if (!Number.isFinite(started) || now.getTime() - started <= EXECUTION_TIMEOUT_MS) return undefined;
+  return { workItemId: item.id, kind: "execution-timeout", lane: "manager", reason: "execution has outlived the 4h timeout without an in-flight session to speak for it" };
+}
+
+function reviewAnomaly(item: WorkItem): TodoAnomaly | undefined {
+  if (item.status !== "in_review") return undefined;
   const approval = currentApproval(item.id);
-  const owner = owningWorkflowId(item.id);
-
-  if (item.status === "assigned" && open.length === 0 && owner) {
-    const fresh = last?.endedAt && now.getTime() - Date.parse(last.endedAt) < FRESH_RUN_MS;
-    if (!fresh) {
-      return {
-        workItemId: item.id, kind: "assigned-without-run", lane: "recovering",
-        reason: "assigned to a pipeline with no active run",
-      };
-    }
+  const last = [...listWorkItemRuns(item.id)].reverse().find((run) => run.endedAt !== null);
+  if (approval?.state === "approved" && last?.outcome === "completed") {
+    return { workItemId: item.id, kind: "approved-landed-open", lane: "manager", reason: "approved landing is still open" };
   }
-
-  if (item.status === "executing" && open.length > 0) {
-    const started = Date.parse(open[0]!.startedAt);
-    if (Number.isFinite(started) && now.getTime() - started > EXECUTION_TIMEOUT_MS) {
-      return {
-        workItemId: item.id, kind: "execution-timeout", lane: "manager",
-        reason: "execution has outlived the 4h timeout without an in-flight session to speak for it",
-      };
-    }
+  if (approval?.state !== "pending" && !item.assignee) {
+    return { workItemId: item.id, kind: "review-without-reviewer", lane: "manager", reason: "in review with no pending approval and no reviewer" };
   }
-
-  if (item.status === "in_review" && approval?.state === "approved" && last?.outcome === "completed") {
-    return {
-      workItemId: item.id, kind: "approved-landed-open", lane: "manager",
-      reason: "approved landing is still open",
-    };
-  }
-
-  if (item.status === "in_review" && approval?.state !== "pending" && !item.assignee) {
-    return {
-      workItemId: item.id, kind: "review-without-reviewer", lane: "manager",
-      reason: "in review with no pending approval and no reviewer",
-    };
-  }
-
-  if (item.status === "blocked" && !getWorkItemRecovery(item.id)) {
-    const verdict = classifyWorkItem(item);
-    if (verdict.lane !== "operator") {
-      return {
-        workItemId: item.id, kind: "blocked-without-recovery", lane: verdict.lane,
-        reason: "blocked with no recovery row",
-      };
-    }
-  }
-
   return undefined;
+}
+
+function blockedWithoutRecovery(item: WorkItem): TodoAnomaly | undefined {
+  if (item.status !== "blocked" || getWorkItemRecovery(item.id)) return undefined;
+  const verdict = classifyWorkItem(item);
+  if (verdict.lane === "operator") return undefined;
+  return { workItemId: item.id, kind: "blocked-without-recovery", lane: verdict.lane, reason: "blocked with no recovery row" };
+}
+
+function inspect(item: WorkItem, now: Date): TodoAnomaly | undefined {
+  return assignedWithoutRun(item, now) ?? executionTimeout(item, now) ?? reviewAnomaly(item) ?? blockedWithoutRecovery(item);
 }
 
 /**

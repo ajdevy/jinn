@@ -116,6 +116,16 @@ function applyCodeRepair(item: WorkItem, deps: RecoveryApplyDeps, lastRunId: str
  * re-arms code failures (transients stay with the availability sweep so the two
  * never double-start a run). Backlog is never listed.
  */
+function recoverOne(item: WorkItem, deps: RecoveryApplyDeps, now: Date): { classified: boolean; applied: boolean } {
+  const verdict = classifyWorkItem(item);
+  const lastRunId = [...listWorkItemRuns(item.id)].reverse().find((run) => run.endedAt !== null)?.id;
+  const before = getWorkItemRecovery(item.id);
+  recordClassified(item, verdict, lastRunId, now);
+  const classified = !before || before.incidentId !== incidentId(item, lastRunId) || before.lane !== verdict.lane;
+  const applied = deps.mode === "auto" && verdict.class === "code" && applyCodeRepair(item, deps, lastRunId, now);
+  return { classified, applied };
+}
+
 export function sweepTodoRecovery(deps: RecoveryApplyDeps): RecoverySweepResult {
   if (deps.mode === "off") return { classified: 0, applied: 0 };
   const now = deps.now?.() ?? new Date();
@@ -123,15 +133,9 @@ export function sweepTodoRecovery(deps: RecoveryApplyDeps): RecoverySweepResult 
   let applied = 0;
   for (const status of SWEEP_STATUSES) {
     for (const item of listWorkItems({ status })) {
-      const verdict = classifyWorkItem(item);
-      const lastRunId = [...listWorkItemRuns(item.id)].reverse().find((run) => run.endedAt !== null)?.id;
-      const before = getWorkItemRecovery(item.id);
-      recordClassified(item, verdict, lastRunId, now);
-      if (!before || before.incidentId !== incidentId(item, lastRunId) || before.lane !== verdict.lane) {
-        classified++;
-      }
-      if (deps.mode !== "auto") continue;
-      if (verdict.class === "code" && applyCodeRepair(item, deps, lastRunId, now)) applied++;
+      const result = recoverOne(item, deps, now);
+      if (result.classified) classified++;
+      if (result.applied) applied++;
     }
   }
   return { classified, applied };
