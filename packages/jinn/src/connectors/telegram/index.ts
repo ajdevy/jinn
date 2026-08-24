@@ -36,7 +36,7 @@ const AUTH_KILL_GRACE_MS = 2_000;
 const AUTH_LOGIN_PROMPT =
   "Provider authentication is required. Check /auth status, then use /auth claude or /auth codex to sign in.";
 const AUTHENTICATION_FAILURE_PATTERN =
-  /\bauthentication(?:[_ ]failed|required)\b|\bnot authenticated\b|\bunauthori[sz]ed\b|\b401\b/i;
+  /\binteractive turn failed:\s*authentication_failed\b|\b(?:claude|codex)(?:\s+cli)?\s+(?:authentication failed|is not authenticated|is not logged in)\b|\b(?:codex|claude)\s+(?:login required|login needed)\b|\bnot logged in\b/i;
 const AUTH_VERIFY_ENV = {
   PATH:
     process.env.PATH ??
@@ -52,6 +52,7 @@ export class TelegramConnector implements Connector {
   private bot: TelegramBot;
   private handler: ((msg: IncomingMessage) => void) | null = null;
   private readonly allowedUsers: Set<number> | null;
+  private readonly authOwnerUserIds: ReadonlySet<number>;
   private readonly ignoreOldMessagesOnBoot: boolean;
   private readonly bootTimeMs = Date.now();
   private started = false;
@@ -78,6 +79,7 @@ export class TelegramConnector implements Connector {
       config.allowFrom && config.allowFrom.length > 0
         ? new Set(config.allowFrom)
         : null;
+    this.authOwnerUserIds = new Set(config.telegramAuth?.ownerUserIds ?? []);
     this.sttConfig = config.stt;
     if (config.telegramAuth?.enabled === true) {
       this.authManager = new AuthFlowManager({
@@ -470,7 +472,9 @@ export class TelegramConnector implements Connector {
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
     if (!text || !text.trim()) return undefined;
     const replyText =
-      this.authManager && AUTHENTICATION_FAILURE_PATTERN.test(text)
+      this.authManager &&
+      isOwnerPrivateAuthTarget(target, this.authOwnerUserIds) &&
+      AUTHENTICATION_FAILURE_PATTERN.test(text)
         ? `${text}\n\n${AUTH_LOGIN_PROMPT}`
         : text;
     const replyToId =
@@ -540,6 +544,24 @@ export class TelegramConnector implements Connector {
 
 function verifyProviderAuth(provider: AuthProvider): Promise<boolean> {
   return getProviderAuthStatus(provider);
+}
+
+function isOwnerPrivateAuthTarget(
+  target: Target,
+  ownerUserIds: ReadonlySet<number>,
+): boolean {
+  const context = target.replyContext;
+  if (!context || context.chatType !== "private") {
+    return false;
+  }
+  const rawUserId = context.userId;
+  const userId =
+    typeof rawUserId === "number"
+      ? rawUserId
+      : typeof rawUserId === "string"
+        ? Number(rawUserId)
+        : NaN;
+  return Number.isSafeInteger(userId) && ownerUserIds.has(userId);
 }
 
 function getProviderAuthStatus(provider: AuthProvider): Promise<boolean> {

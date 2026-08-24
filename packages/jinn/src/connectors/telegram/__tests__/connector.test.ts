@@ -675,7 +675,15 @@ describe("TelegramConnector", () => {
       });
 
       await authConnector.replyMessage(
-        { channel: "12345", replyContext: { chatId: "12345", messageId: 42 } },
+        {
+          channel: "12345",
+          replyContext: {
+            chatId: "12345",
+            messageId: 42,
+            chatType: "private",
+            userId: 67890,
+          },
+        },
         "⛔ Interactive turn failed: authentication_failed",
       );
 
@@ -700,13 +708,87 @@ describe("TelegramConnector", () => {
       });
 
       await authConnector.replyMessage(
-        { channel: "12345", replyContext: { chatId: "12345", messageId: 42 } },
-        "⛔ Interactive turn failed: rate_limit",
+        {
+          channel: "12345",
+          replyContext: {
+            chatId: "12345",
+            messageId: 42,
+            chatType: "private",
+            userId: 67890,
+          },
+        },
+        "⛔ HTTP 401 from an unrelated MCP server",
       );
 
       expect(mockSendMessage).toHaveBeenCalledWith(
         "12345",
-        "⛔ Interactive turn failed: rate_limit",
+        "⛔ HTTP 401 from an unrelated MCP server",
+        {
+          parse_mode: "Markdown",
+          reply_parameters: { message_id: 42 },
+        },
+      );
+    });
+
+    it("does not offer login outside the owner private chat", async () => {
+      const authConnector = new TelegramConnector({
+        botToken: "123456:ABC-DEF",
+        allowFrom: [67890],
+        telegramAuth: {
+          enabled: true,
+          ownerUserIds: [67890],
+        },
+      });
+
+      await authConnector.replyMessage(
+        {
+          channel: "-100999",
+          replyContext: {
+            chatId: "-100999",
+            messageId: 42,
+            chatType: "group",
+            userId: 67890,
+          },
+        },
+        "⛔ Interactive turn failed: authentication_failed",
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "-100999",
+        "⛔ Interactive turn failed: authentication_failed",
+        {
+          parse_mode: "Markdown",
+          reply_parameters: { message_id: 42 },
+        },
+      );
+    });
+
+    it("does not offer login to a non-owner private chat", async () => {
+      const authConnector = new TelegramConnector({
+        botToken: "123456:ABC-DEF",
+        allowFrom: [11111],
+        telegramAuth: {
+          enabled: true,
+          ownerUserIds: [67890],
+        },
+      });
+
+      await authConnector.replyMessage(
+        {
+          channel: "12345",
+          replyContext: {
+            chatId: "12345",
+            messageId: 42,
+            chatType: "private",
+            userId: 11111,
+          },
+        },
+        "⛔ Interactive turn failed: authentication_failed",
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "12345",
+        "⛔ Interactive turn failed: authentication_failed",
         {
           parse_mode: "Markdown",
           reply_parameters: { message_id: 42 },
