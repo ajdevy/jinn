@@ -18,6 +18,7 @@ export type EngineFailureClass =
   | "provider-outage"
   | "network"
   | "auth-terminal"
+  | "invalid-model"
   | "terminal";
 
 export interface EngineFailureClassification {
@@ -67,12 +68,23 @@ const AUTH_TERMINAL_SIGNATURES: readonly RegExp[] = [
   /unauthori[sz]|unauthenticated|forbidden|\b401\b|\b403\b|invalid[ _-]?(api[ _-]?)?key|invalid[ _-]?token|expired[ _-]?(token|credential|session)|credential|authenticat|not logged in|please log in|oauth/i,
 ];
 
+/**
+ * The engine refused the model id it was handed. Ours to fix, not the provider's
+ * verdict on the work: the id came from our config or from our own discovery, and
+ * the turn never ran.
+ */
+const INVALID_MODEL_SIGNATURES: readonly RegExp[] = [
+  /\b(?:invalid|unknown|unsupported) model\b/i,
+  /\bmodel[ _]not[ _]found\b/i,
+];
+
 const SIGNATURES: readonly (readonly [EngineFailureClass, readonly RegExp[]])[] = [
   ["quota", QUOTA_SIGNATURES],
   ["rate-limit", RATE_LIMIT_SIGNATURES],
   ["provider-outage", PROVIDER_OUTAGE_SIGNATURES],
   ["network", NETWORK_SIGNATURES],
   ["auth-terminal", AUTH_TERMINAL_SIGNATURES],
+  ["invalid-model", INVALID_MODEL_SIGNATURES],
 ];
 
 /**
