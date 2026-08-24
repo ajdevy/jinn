@@ -1,8 +1,10 @@
 import TelegramBot, { type SendMessageParams } from "node-telegram-bot-api";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as pty from "node-pty";
 import type {
   Attachment,
   Connector,
@@ -22,8 +24,22 @@ import {
   resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
+import {
+  AuthFlowManager,
+  type AuthChatId,
+  type AuthProvider,
+} from "./auth-flow.js";
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
+const AUTH_VERIFY_TIMEOUT_MS = 15_000;
+const AUTH_VERIFY_ENV = {
+  PATH:
+    process.env.PATH ??
+    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  HOME: "/home/node",
+  CLAUDE_CONFIG_DIR: "/home/node/.claude",
+  CODEX_HOME: "/home/node/.codex",
+};
 
 export class TelegramConnector implements Connector {
   name = "telegram";
@@ -36,6 +52,7 @@ export class TelegramConnector implements Connector {
   private started = false;
   private lastError: string | null = null;
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly authManager?: AuthFlowManager;
 
   private readonly capabilities: ConnectorCapabilities = {
     threading: false,
@@ -57,6 +74,27 @@ export class TelegramConnector implements Connector {
         ? new Set(config.allowFrom)
         : null;
     this.sttConfig = config.stt;
+    if (config.telegramAuth?.enabled === true) {
+      this.authManager = new AuthFlowManager({
+        ownerUserIds: config.telegramAuth.ownerUserIds ?? [],
+        flowTtlSeconds: config.telegramAuth.flowTtlSeconds,
+        clock: {
+          now: () => Date.now(),
+          setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),
+          clearTimeout: (handle) =>
+            clearTimeout(handle as ReturnType<typeof setTimeout>),
+        },
+        send: async (chatId, text) => {
+          await this.safeSend(String(chatId), text);
+        },
+        deleteMessage: (chatId, messageId) =>
+          this.deleteMessageSafely(chatId, messageId),
+        spawnPty: (file, args, options) => pty.spawn(file, args, options),
+        verifyAuth: (provider) => verifyProviderAuth(provider),
+        getAuthStatus: (provider) => getProviderAuthStatus(provider),
+        logger,
+      });
+    }
   }
 
   async start(): Promise<void> {
@@ -80,11 +118,6 @@ export class TelegramConnector implements Connector {
         return;
       }
 
-      if (!this.handler) {
-        logger.debug("[telegram] No handler registered, dropping message");
-        return;
-      }
-
       if (
         this.ignoreOldMessagesOnBoot &&
         isOldTelegramMessage(telegramMsg.date, this.bootTimeMs)
@@ -103,14 +136,33 @@ export class TelegramConnector implements Connector {
         }
       }
 
+      const rawMessageText: string =
+        (telegramMsg as any).text || (telegramMsg as any).caption || "";
+      if (this.authManager) {
+        const handled = await this.authManager.handleMessage({
+          userId: userId ?? "unknown",
+          chatType: telegramMsg.chat.type,
+          chatId: telegramMsg.chat.id,
+          messageId: telegramMsg.message_id,
+          text: rawMessageText,
+        });
+        if (handled) {
+          return;
+        }
+      }
+
+      if (!this.handler) {
+        logger.debug("[telegram] No handler registered, dropping message");
+        return;
+      }
+
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
       const replyContext = buildReplyContext(telegramMsg);
 
       const username =
         telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
 
-      let messageText: string =
-        (telegramMsg as any).text || (telegramMsg as any).caption || "";
+      let messageText = rawMessageText;
 
       // File attachments: download via bot token and push to msg.attachments.
       // sessions/manager.ts pulls localPath and engines auto-inject
@@ -325,6 +377,7 @@ export class TelegramConnector implements Connector {
   }
 
   async stop(): Promise<void> {
+    this.authManager?.stop();
     for (const interval of this.typingIntervals.values()) {
       clearInterval(interval);
     }
@@ -376,6 +429,17 @@ export class TelegramConnector implements Connector {
         logger.error(`[telegram] Send failed: ${retryErr}`);
         throw retryErr;
       }
+    }
+  }
+
+  private async deleteMessageSafely(
+    chatId: AuthChatId,
+    messageId: number | string,
+  ): Promise<void> {
+    try {
+      await (this.bot as any).deleteMessage(String(chatId), Number(messageId));
+    } catch {
+      logger.debug("[telegram] Unable to delete auth message");
     }
   }
 
@@ -456,4 +520,59 @@ export class TelegramConnector implements Connector {
   onMessage(handler: (msg: IncomingMessage) => void): void {
     this.handler = handler;
   }
+}
+
+function verifyProviderAuth(provider: AuthProvider): Promise<boolean> {
+  return getProviderAuthStatus(provider);
+}
+
+function getProviderAuthStatus(provider: AuthProvider): Promise<boolean> {
+  return provider === "claude" ? verifyClaudeAuth() : verifyCodexAuth();
+}
+
+function verifyClaudeAuth(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(
+      "claude",
+      ["auth", "status", "--json"],
+      {
+        env: AUTH_VERIFY_ENV,
+        timeout: AUTH_VERIFY_TIMEOUT_MS,
+        maxBuffer: 16 * 1024,
+      },
+      (error, stdout) => {
+        if (error) {
+          resolve(false);
+          return;
+        }
+        try {
+          const status = JSON.parse(stdout);
+          resolve(status?.loggedIn === true);
+        } catch {
+          resolve(false);
+        }
+      },
+    );
+  });
+}
+
+function verifyCodexAuth(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn("codex", ["login", "status"], {
+      env: AUTH_VERIFY_ENV,
+      stdio: "ignore",
+    });
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, AUTH_VERIFY_TIMEOUT_MS);
+    child.once("error", () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code === 0);
+    });
+  });
 }
