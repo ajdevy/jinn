@@ -671,13 +671,7 @@ export interface TelegramConnectorConfig {
   employee?: string;
   botToken: string;
   allowFrom?: number[];
-  ignoreOldMessagesOnBoot?: boolean;
-  /** Owner-only interactive provider authentication commands. Disabled by default. */
-  telegramAuth?: {
-    enabled?: boolean;
-    ownerUserIds?: number[];
-    flowTtlSeconds?: number;
-  };
+  ignoreOldMessagesOnBoot?: boolean; telegramAuth?: { enabled?: boolean; ownerUserIds?: number[]; flowTtlSeconds?: number };
   /** Speech-to-text settings forwarded from top-level `config.stt` */
   stt?: {
     enabled?: boolean;

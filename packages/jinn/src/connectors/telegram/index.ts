@@ -1,5 +1,4 @@
 import TelegramBot, { type SendMessageParams } from "node-telegram-bot-api";
-import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,7 +15,7 @@ import type {
   TelegramConnectorConfig,
 } from "../../shared/types.js";
 import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
-import { formatResponse, stripTelegramMarkdown } from "./format.js";
+import { stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
 import { TMP_DIR } from "../../shared/paths.js";
 import {
@@ -24,28 +23,19 @@ import {
   resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
+import { AuthFlowManager } from "./auth-flow.js";
 import {
-  AuthFlowManager,
-  type AuthChatId,
-  type AuthProvider,
-} from "./auth-flow.js";
+  createTelegramAuthManager,
+  handleTelegramAuthMessage,
+} from "./auth-connector.js";
+import {
+  editTelegramMessage,
+  replyTelegramMessage,
+  sendTelegramMessage,
+  setTelegramTypingStatus,
+} from "./output.js";
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
-const AUTH_VERIFY_TIMEOUT_MS = 15_000;
-const AUTH_KILL_GRACE_MS = 2_000;
-const AUTH_LOGIN_PROMPT =
-  "Provider authentication is required. Check /auth status, then use /auth claude or /auth codex to sign in.";
-const AUTHENTICATION_FAILURE_PATTERN =
-  /\binteractive turn failed:\s*authentication_failed\b|\b(?:claude|codex)(?:\s+cli)?\s+(?:authentication failed|is not authenticated|is not logged in)\b|\b(?:codex|claude)\s+(?:login required|login needed)\b/i;
-const AUTH_VERIFY_ENV = {
-  PATH:
-    process.env.PATH ??
-    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-  HOME: "/home/node",
-  CLAUDE_CONFIG_DIR: "/home/node/.claude",
-  CODEX_HOME: "/home/node/.codex",
-};
-
 export class TelegramConnector implements Connector {
   name = "telegram";
   id: string;
@@ -82,24 +72,13 @@ export class TelegramConnector implements Connector {
     this.authOwnerUserIds = new Set(config.telegramAuth?.ownerUserIds ?? []);
     this.sttConfig = config.stt;
     if (config.telegramAuth?.enabled === true) {
-      this.authManager = new AuthFlowManager({
-        ownerUserIds: config.telegramAuth.ownerUserIds ?? [],
-        flowTtlSeconds: config.telegramAuth.flowTtlSeconds,
-        clock: {
-          now: () => Date.now(),
-          setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),
-          clearTimeout: (handle) =>
-            clearTimeout(handle as ReturnType<typeof setTimeout>),
-        },
+      this.authManager = createTelegramAuthManager(config.telegramAuth, {
         send: async (chatId, text) => {
           await this.safeSend(String(chatId), text);
         },
         deleteMessage: (chatId, messageId) =>
-          this.deleteMessageSafely(chatId, messageId),
+          (this.bot as any).deleteMessage(String(chatId), Number(messageId)),
         spawnPty: (file, args, options) => pty.spawn(file, args, options),
-        verifyAuth: (provider) => verifyProviderAuth(provider),
-        getAuthStatus: (provider) => getProviderAuthStatus(provider),
-        logger,
       });
     }
   }
@@ -144,7 +123,7 @@ export class TelegramConnector implements Connector {
       }
 
       const rawMessageText = messageTextFromTelegram(telegramMsg);
-      if (await this.tryHandleAuthMessage(telegramMsg, userId, rawMessageText)) {
+      if (await handleTelegramAuthMessage(this.authManager, telegramMsg, userId, rawMessageText)) {
         return;
       }
 
@@ -429,91 +408,24 @@ export class TelegramConnector implements Connector {
     }
   }
 
-  private async tryHandleAuthMessage(
-    telegramMsg: any,
-    userId: number | undefined,
-    text: string,
-  ): Promise<boolean> {
-    if (!this.authManager) {
-      return false;
-    }
-    return await this.authManager.handleMessage({
-      userId: userId ?? "unknown",
-      chatType: telegramMsg.chat.type,
-      chatId: telegramMsg.chat.id,
-      messageId: telegramMsg.message_id,
-      text,
-    });
-  }
-
-  private async deleteMessageSafely(
-    chatId: AuthChatId,
-    messageId: number | string,
-  ): Promise<void> {
-    try {
-      await (this.bot as any).deleteMessage(String(chatId), Number(messageId));
-    } catch {
-      logger.debug("[telegram] Unable to delete auth message");
-    }
-  }
-
   async sendMessage(target: Target, text: string): Promise<string | undefined> {
-    if (!text || !text.trim()) return undefined;
-    const chunks = formatResponse(text);
-    let lastMessageId: string | undefined;
-    for (const chunk of chunks) {
-      if (!chunk.trim()) continue;
-      const id = await this.safeSend(target.channel, chunk);
-      if (id) lastMessageId = id;
-    }
-    return lastMessageId;
+    return sendTelegramMessage(target, text, (chatId, message, opts) =>
+      this.safeSend(chatId, message, opts),
+    );
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
-    if (!text || !text.trim()) return undefined;
-    const replyText =
-      this.authManager &&
-      isOwnerPrivateAuthTarget(target, this.authOwnerUserIds) &&
-      AUTHENTICATION_FAILURE_PATTERN.test(text)
-        ? `${text}\n\n${AUTH_LOGIN_PROMPT}`
-        : text;
-    const replyToId =
-      target.replyContext?.messageId != null
-        ? Number(target.replyContext.messageId)
-        : undefined;
-    const opts: SendMessageOptions = {};
-    if (replyToId) {
-      opts.reply_parameters = { message_id: replyToId };
-    }
-    const chunks = formatResponse(replyText);
-    let lastMessageId: string | undefined;
-    for (const chunk of chunks) {
-      if (!chunk.trim()) continue;
-      const id = await this.safeSend(target.channel, chunk, opts);
-      if (id) lastMessageId = id;
-    }
-    return lastMessageId;
+    return replyTelegramMessage(
+      target,
+      text,
+      this.authManager,
+      this.authOwnerUserIds,
+      (chatId, message, opts) => this.safeSend(chatId, message, opts),
+    );
   }
 
   async setTypingStatus(channelId: string, _threadTs: string | undefined, status: string): Promise<void> {
-    const existing = this.typingIntervals.get(channelId);
-    if (existing) {
-      clearInterval(existing);
-      this.typingIntervals.delete(channelId);
-    }
-    if (!status) return;
-    try {
-      await this.bot.sendChatAction(channelId, "typing");
-      // Telegram typing expires after ~5s — refresh every 4s
-      const interval = setInterval(async () => {
-        try {
-          await this.bot.sendChatAction(channelId, "typing");
-        } catch { /* non-fatal */ }
-      }, 4_000);
-      this.typingIntervals.set(channelId, interval);
-    } catch {
-      // non-fatal
-    }
+    return setTelegramTypingStatus(this.bot, this.typingIntervals, channelId, status);
   }
 
   async addReaction(_target: Target, _emoji: string): Promise<void> {
@@ -525,141 +437,12 @@ export class TelegramConnector implements Connector {
   }
 
   async editMessage(target: Target, text: string): Promise<void> {
-    if (!target.messageTs) return;
-    if (!text || !text.trim()) return;
-    // Apply the same markdown conversion as sends; edits are single-message,
-    // so keep only the first chunk (truncated to the platform limit).
-    const [converted] = formatResponse(text);
-    await this.bot.editMessageText(converted, {
-      chat_id: target.channel,
-      message_id: Number(target.messageTs),
-      parse_mode: "Markdown",
-    });
+    return editTelegramMessage(this.bot, target, text);
   }
 
   onMessage(handler: (msg: IncomingMessage) => void): void {
     this.handler = handler;
   }
-}
-
-function verifyProviderAuth(provider: AuthProvider): Promise<boolean> {
-  return getProviderAuthStatus(provider);
-}
-
-function isOwnerPrivateAuthTarget(
-  target: Target,
-  ownerUserIds: ReadonlySet<number>,
-): boolean {
-  const context = target.replyContext;
-  if (!context || context.chatType !== "private") {
-    return false;
-  }
-  const rawUserId = context.userId;
-  const userId =
-    typeof rawUserId === "number"
-      ? rawUserId
-      : typeof rawUserId === "string"
-        ? Number(rawUserId)
-        : NaN;
-  return Number.isSafeInteger(userId) && ownerUserIds.has(userId);
-}
-
-function getProviderAuthStatus(provider: AuthProvider): Promise<boolean> {
-  return provider === "claude" ? verifyClaudeAuth() : verifyCodexAuth();
-}
-
-function verifyClaudeAuth(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile(
-      "claude",
-      ["auth", "status", "--json"],
-      {
-        env: AUTH_VERIFY_ENV,
-        timeout: AUTH_VERIFY_TIMEOUT_MS,
-        maxBuffer: 16 * 1024,
-      },
-      (error, stdout) => {
-        if (error) {
-          resolve(false);
-          return;
-        }
-        try {
-          const status = JSON.parse(stdout);
-          resolve(status?.loggedIn === true);
-        } catch {
-          resolve(false);
-        }
-      },
-    );
-  });
-}
-
-function verifyCodexAuth(): Promise<boolean> {
-  const child = spawn("codex", ["login", "status"], {
-    env: AUTH_VERIFY_ENV,
-    stdio: "ignore",
-  });
-  return waitForCodexStatus(child);
-}
-
-function waitForCodexStatus(child: ReturnType<typeof spawn>): Promise<boolean> {
-  return new Promise((resolve) => {
-    let authTimer: ReturnType<typeof setTimeout> | undefined;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-    let finalTimer: ReturnType<typeof setTimeout> | undefined;
-    let settled = false;
-    const settle = (authenticated: boolean) => {
-      if (settled) return;
-      settled = true;
-      cleanupCodexStatusChild(child, listeners, [authTimer, killTimer, finalTimer]);
-      resolve(authenticated);
-    };
-    const forceKill = () => {
-      killCodexStatusChild(child, "SIGKILL");
-      finalTimer = setTimeout(() => settle(false), AUTH_KILL_GRACE_MS);
-    };
-    const terminate = () => {
-      killCodexStatusChild(child, "SIGTERM");
-      killTimer = setTimeout(forceKill, AUTH_KILL_GRACE_MS);
-    };
-    const listeners = {
-      error: () => settle(false),
-      exit: (code: number | null) => settle(code === 0),
-      close: (code: number | null) => settle(code === 0),
-    };
-    child.once("error", listeners.error);
-    child.once("exit", listeners.exit);
-    child.once("close", listeners.close);
-    authTimer = setTimeout(terminate, AUTH_VERIFY_TIMEOUT_MS);
-  });
-}
-
-function killCodexStatusChild(
-  child: ReturnType<typeof spawn>,
-  signal: NodeJS.Signals,
-): void {
-  try {
-    child.kill(signal);
-  } catch {
-    // Generic failure is reported by the caller's settled false result.
-  }
-}
-
-function cleanupCodexStatusChild(
-  child: ReturnType<typeof spawn>,
-  listeners: {
-    error: () => void;
-    exit: (code: number | null) => void;
-    close: (code: number | null) => void;
-  },
-  timers: Array<ReturnType<typeof setTimeout> | undefined>,
-): void {
-  for (const timer of timers) {
-    if (timer) clearTimeout(timer);
-  }
-  child.removeListener("error", listeners.error);
-  child.removeListener("exit", listeners.exit);
-  child.removeListener("close", listeners.close);
 }
 
 function messageTextFromTelegram(telegramMsg: any): string {
