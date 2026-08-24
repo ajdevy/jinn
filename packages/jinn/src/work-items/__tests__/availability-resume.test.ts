@@ -225,9 +225,9 @@ describe("what the sweep will not touch", () => {
     expect(store.listWorkItemEvents(id).filter((event) => event.kind === "availability_resumed")).toHaveLength(0);
   });
 
-  it("skips a failure old enough that no window it named is still open", () => {
+  it("skips a nameless failure old enough that resuming it would resurrect history", () => {
     const { id, runId } = parked("yesterday", {
-      outcome: "rate_limited", endedAt: minutesBefore(25 * 60), error: QUOTA_WITH_RESET,
+      outcome: "crashed", endedAt: minutesBefore(25 * 60), error: OUTAGE,
     });
 
     resume.sweepAvailabilityResumes({ rearm: recorder().rearm, now: () => NOW });
