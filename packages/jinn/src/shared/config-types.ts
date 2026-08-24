@@ -146,6 +146,12 @@ export interface JinnConfig {
     channel?: string;    // Discord channel ID for admin notifications
   };
   workflows?: {
+    /** Canonical Git ref a code Workflow must prove delivery to before its Todo
+     * may close. Defaults to `origin/main`. */
+    delivery?: {
+      remote?: string;
+      branch?: string;
+    };
     /**
      * Employees whose OWN move of a Todo to `assigned` may satisfy a
      * `todo-status` trigger's `actor: operator` filter, so an autonomous

@@ -86,7 +86,7 @@ let executor: FakeExecutor;
 let lifecycle: RecordingLifecycle;
 let service: WorkflowService;
 let asked: Array<{ commit: string; checkout: string }>;
-let onMain: boolean;
+let onMain: boolean | Error;
 const now = new Date("2026-08-22T19:59:00.000Z");
 
 function edge(id: string, from: string, port: string, to: string) {
@@ -150,7 +150,11 @@ beforeEach(() => {
     repository, executor: executor as unknown as WorkflowSessionExecutor,
     employees: () => new Map([[employee.name, employee]]), models: () => models, now: () => now.toISOString(),
     todoLifecycle: lifecycle,
-    landingEvidence: { mergedIntoMain: async (input) => { asked.push(input); return onMain; } },
+    landingEvidence: { mergedIntoMain: async (input) => {
+      asked.push(input);
+      if (onMain instanceof Error) throw onMain;
+      return onMain;
+    } },
   });
 });
 
@@ -192,6 +196,16 @@ describe("a success End that demands landing evidence", () => {
     expect(lifecycle.reflections.at(-1)).toEqual({ status: "blocked", nodeId: "done" });
     expect(lifecycle.failures.at(-1)!.message).toContain(PHANTOM);
     expect(asked).toEqual([{ commit: PHANTOM, checkout: "/checkouts/pla-180" }]);
+  });
+
+  it("blocks the Todo when canonical delivery cannot be checked", async () => {
+    onMain = new Error("origin is unavailable");
+    const { definition, runId } = await approvedLanding("landing-unreadable");
+    await executor.succeed("land", { mergeCommit: PHANTOM });
+
+    expect(service.getRun(definition.id, runId)!.status).toBe("failed");
+    expect(lifecycle.completions).toEqual([]);
+    expect(lifecycle.failures.at(-1)!.message).toContain("could not be verified on the canonical branch");
   });
 
   it("completes the Todo when the reported commit is on main", async () => {

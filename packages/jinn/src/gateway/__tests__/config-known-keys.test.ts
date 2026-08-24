@@ -104,11 +104,17 @@ afterAll(() => {
 describe("PUT /api/config top-level key allowlist", () => {
   it("accepts and persists the workflows block", async () => {
     const response = await call("PUT", "/api/config", {
-      workflows: { armingDelegates: ["platform-delegate"] },
+      workflows: {
+        armingDelegates: ["platform-delegate"],
+        delivery: { remote: "upstream", branch: "stable" },
+      },
     });
 
     expect(response.status).toBe(200);
-    expect(savedConfig().workflows).toEqual({ armingDelegates: ["platform-delegate"] });
+    expect(savedConfig().workflows).toEqual({
+      armingDelegates: ["platform-delegate"],
+      delivery: { remote: "upstream", branch: "stable" },
+    });
   });
 
   it("round-trips a gateway configured with arming delegates", async () => {
