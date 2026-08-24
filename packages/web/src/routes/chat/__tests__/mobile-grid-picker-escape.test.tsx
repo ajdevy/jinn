@@ -112,3 +112,43 @@ describe('the mobile grid picker releases the screen', () => {
     ))
   })
 })
+
+describe('the desktop grid picker stays a pane', () => {
+  let pickerLayout: VirtualLayout | null = null
+
+  beforeEach(() => {
+    sessionIds.splice(0, sessionIds.length, 'a', 'b')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 900 })
+    localStorage.clear()
+    gateway.listeners.clear()
+    apiMocks.createSession.mockClear()
+    localStorage.setItem(WORKING_SET_STORAGE_KEY, JSON.stringify({
+      version: 1, sessionIds: ['a'], focusedId: 'a', focusHistory: ['a'],
+    }))
+    pickerLayout = installVirtualLayout(44, 360, {
+      scroller: '[data-testid="session-picker-scroll"]',
+      row: '[data-session-picker-row]',
+      rowId: 'data-session-picker-row',
+    })
+  })
+
+  afterEach(() => {
+    pickerLayout?.release()
+    pickerLayout = null
+  })
+
+  it('leaves the picker open when new chat is tapped', async () => {
+    renderRoute('/?session=a')
+    await screen.findByText('transcript-a')
+
+    const desktopNewChat = screen.getAllByRole('button', { name: 'New chat' })[0]
+    fireEvent.click(within(desktopNewChat.parentElement!).getByRole('button', { name: 'More options' }))
+    fireEvent.click(within(desktopNewChat.parentElement!).getByRole('button', { name: 'Open beside' }))
+    expect(await pickerSearch()).toBeTruthy()
+
+    fireEvent.click(desktopNewChat)
+
+    expect(await screen.findByRole('combobox', { name: 'Search chats' })).toBeTruthy()
+  })
+})
