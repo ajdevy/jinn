@@ -214,6 +214,11 @@ export const payloadGuards: Record<GatewayEventName, PayloadGuard> = {
         || value.action === "updated"
         || value.action === "reading-recorded"
         || value.action === "concluded"),
+  "todo-capture:stage": (value) =>
+    isRecord(value)
+      && isString(value.captureId)
+      && isString(value.stage)
+      && (value.workItemId === null || isString(value.workItemId)),
   "org:changed": isEmptyPayload,
   "config:reloaded": isEmptyPayload,
   "skills:changed": isEmptyPayload,

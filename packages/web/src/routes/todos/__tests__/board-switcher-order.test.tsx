@@ -10,7 +10,7 @@ import { BoardSwitcher } from "../board/board-switcher"
  * These pin the ORDER — three lenses, then the places — at both org sizes,
  * because the defect only shows once the department list is long. */
 
-const listWorkItems = vi.fn(async () => ({ workItems: [], totals: {} }))
+const listWorkItems = vi.fn(async (_params?: Record<string, unknown>) => ({ workItems: [], totals: {} }))
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
   return { ...actual, api: { listWorkItems: (...args: unknown[]) => listWorkItems(...(args as [])) } }
@@ -70,5 +70,19 @@ describe("the switcher with no departments", () => {
   it("renders the three lenses and no empty group label", async () => {
     await openMenu(0)
     expect(rowOrder()).toEqual(["board-menu-home", "board-menu-attention", "board-menu-everything"])
+  })
+})
+
+/* PLA-230, criterion 7. The Home row counts the very set the Home board draws,
+ * so it asks for the same union scope — a pinned-only count here would label
+ * Home with a number the board itself disagrees with. */
+describe("the switcher's Home count", () => {
+  it("counts the union scope rather than the pinned one", async () => {
+    listWorkItems.mockClear()
+    await openMenu(2)
+
+    const scopes = listWorkItems.mock.calls.map(([params]) => params)
+    expect(scopes).toContainEqual({ home: true, rootsOnly: true, limit: 1 })
+    for (const params of scopes) expect(params?.kept).toBeUndefined()
   })
 })

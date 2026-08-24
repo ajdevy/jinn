@@ -20,11 +20,13 @@ export function TodoListGroupHeader({
   onToggle?: () => void
   onQuickAdd: () => void
 }) {
-  const headerGlyph = group.key === "needs-you"
+  const headerGlyph = group.key === "needs-you" || group.key === "manager"
     ? <StateCircle keyOf="approval" size={16} />
-    : group.key === "closed"
-      ? <StatusCircle status="done" size={16} />
-      : <StatusCircle status={group.statuses[0] as WorkItemStatusWire} size={16} />
+    : group.key === "recovering"
+      ? <StatusCircle status="blocked" size={16} />
+      : group.key === "closed"
+        ? <StatusCircle status="done" size={16} />
+        : <StatusCircle status={group.statuses[0] as WorkItemStatusWire} size={16} />
 
   return (
     <div className="flex min-h-[34px] items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--fill-quaternary)] px-2.5">

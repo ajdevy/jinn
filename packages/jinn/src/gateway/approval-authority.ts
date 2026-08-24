@@ -89,7 +89,14 @@ function resolveRootApprovalTargetFrom(registry: Map<string, Employee>, hierarch
   return portalApprovalRoot(registry);
 }
 
-function sourceSessionId(item: WorkItem): string | null {
+/** The session that produced this Todo, read off its provenance.
+ *
+ *  Exported because quick capture needs the SAME answer this file's authority
+ *  walk uses: the Todo a Shaper may dispatch has to be the Todo its capture
+ *  reports, and two definitions of "which session made this" would eventually
+ *  disagree about exactly that. Note it is `sourceRef`, not `createdBy` —
+ *  `createdBy` records the employee, so it cannot tell two captures apart. */
+export function sourceSessionId(item: WorkItem): string | null {
   if (!item.sourceRef) return null;
   const sessionMatch = /^session:([^:]+):/.exec(item.sourceRef);
   if (sessionMatch) return sessionMatch[1];

@@ -1,9 +1,12 @@
 import {
   blankSourceProblem,
+  malformedSourceProblem,
+  malformedTargetProblem,
   modelMapEntryPath,
   targetNotAModelIdProblem,
   unservedTargetProblem,
 } from "@jinn/fallback-map-wire"
+import { isSpellableModelId } from "@jinn/model-id"
 import { chainFor, modelMapFor, type EnginesConfig } from "./chain-model"
 
 /** One `from → to` row. A list rather than an object because the editor has to be
@@ -71,6 +74,11 @@ export interface MapContext {
 /**
  * What is wrong with one row, worded the way the config loader words it, or null.
  *
+ * Spellability is asked before the substitute is consulted at all, because a pasted
+ * `id<TAB>label` composite is a nonempty string that no engine serves — judged in
+ * the other order it comes back as a target the stand-in does not serve, and that
+ * sends the operator to the engine when the fault is the character in the row.
+ *
  * A substitute the registry lists no models for is not judged at all: "serves
  * nothing" is what an engine looks like before its registry entry is populated,
  * and refusing every target on that basis would block a save over missing data
@@ -80,6 +88,8 @@ export function mapPairProblem({ engine, substitute, served }: MapContext, pairs
   const [from, to] = pairs[index]
   if (!from.trim()) return blankSourceProblem(engine)
   if (!to.trim()) return targetNotAModelIdProblem(engine, from, to)
+  if (!isSpellableModelId(from)) return malformedSourceProblem(engine, from)
+  if (!isSpellableModelId(to)) return malformedTargetProblem(engine, from, to)
   if (pairs.findIndex(([other]) => other === from) !== index) {
     return `${modelMapEntryPath(engine, from)} is set twice — a model can only be carried onto one stand-in`
   }

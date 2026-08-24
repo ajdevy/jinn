@@ -50,6 +50,9 @@ export interface JinnConfig {
     /** Nudge sessions this gateway's own restart interrupted to continue on the
      *  next boot. Default true; false leaves them interrupted for the operator. */
     resumeInterruptedSessions?: boolean;
+    /** Bounded Todo recovery (PLA-240). Unset = classify-only: lanes and
+     *  metrics, no automatic re-arm. `auto` is a reviewed production gate. */
+    todoRecovery?: { mode?: "off" | "classify-only" | "auto" };
     /** Opt-in: when set, POST /api/sessions reads the forwarded SSO identity
      *  from this request header (set by an auth proxy such as oauth2-proxy,
      *  Traefik forward-auth, or IAP) and persists it on the session. Accepts a
@@ -146,6 +149,12 @@ export interface JinnConfig {
     channel?: string;    // Discord channel ID for admin notifications
   };
   workflows?: {
+    /** Canonical Git ref a code Workflow must prove delivery to before its Todo
+     * may close. Defaults to `origin/main`. */
+    delivery?: {
+      remote?: string;
+      branch?: string;
+    };
     /**
      * Employees whose OWN move of a Todo to `assigned` may satisfy a
      * `todo-status` trigger's `actor: operator` filter, so an autonomous
@@ -173,5 +182,4 @@ export interface JinnConfig {
    * slated for removal.
    */
   realtime?: RealtimeConfig;
-  remotes?: Record<string, { url: string; label?: string; token?: string }>;
 }

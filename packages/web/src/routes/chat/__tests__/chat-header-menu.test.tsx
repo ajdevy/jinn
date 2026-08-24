@@ -1,6 +1,9 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ChatHeaderMenu } from '../chat-header-menu'
+import { installPlatform } from '@/platform'
+import { createPlatform, type Runtime } from '@/platform/contracts'
+import { createTestAdapter, type TestAdapter } from '@/platform/adapters/test'
 
 const pinState = vi.hoisted(() => ({
   keys: new Set<string>(),
@@ -13,6 +16,18 @@ vi.mock('@/hooks/use-pins', () => ({
 }))
 
 const SESSION_ID = 'session-1'
+
+const runtime: Runtime = {
+  container: 'browser',
+  os: 'unknown',
+  engine: 'unknown',
+  secureContext: true,
+  appVersion: 'test',
+  userAgent: 'chat-header-menu-test',
+}
+
+let platform: TestAdapter
+let restorePlatform: () => void
 
 function renderMenu(overrides: Partial<Parameters<typeof ChatHeaderMenu>[0]> = {}) {
   return render(
@@ -48,6 +63,12 @@ function itemLabels() {
 beforeEach(() => {
   pinState.keys = new Set<string>()
   pinState.mutate = vi.fn()
+  platform = createTestAdapter({ results: { 'navigation.open-external': { status: 'performed' } } })
+  restorePlatform = installPlatform(createPlatform({ runtime, adapters: [platform] }))
+})
+
+afterEach(() => {
+  restorePlatform()
 })
 
 describe('ChatHeaderMenu', () => {
@@ -80,6 +101,7 @@ describe('ChatHeaderMenu', () => {
     expect(screen.queryByText('Unpin')).toBeNull()
     expect(screen.queryByText('Duplicate...')).toBeNull()
     expect(screen.queryByText('Archive chat')).toBeNull()
+    expect(screen.queryByText('Open in new tab')).toBeNull()
   })
 
   it('opens a picker pane beside the current chat and closes the menu', () => {
@@ -89,10 +111,28 @@ describe('ChatHeaderMenu', () => {
 
     const labels = itemLabels()
     expect(labels.indexOf('Open beside')).toBe(labels.indexOf('CLI') + 1)
-    expect(labels.indexOf('Open beside')).toBe(labels.indexOf('Pin') - 1)
+    expect(labels.indexOf('Open beside')).toBe(labels.indexOf('Open in new tab') - 1)
     fireEvent.click(screen.getByRole('button', { name: 'Open beside' }))
 
     expect(onOpenChatBeside).toHaveBeenCalledOnce()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('opens the selected chat in its own tab through the platform and closes the menu', async () => {
+    const onOpenChange = vi.fn()
+    renderMenu({ onOpenChange })
+
+    const labels = itemLabels()
+    expect(labels.indexOf('Open in new tab')).toBe(labels.indexOf('Open beside') + 1)
+    expect(labels.indexOf('Open in new tab')).toBe(labels.indexOf('Pin') - 1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in new tab' }))
+
+    await waitFor(() => expect(platform.calls).toHaveLength(1))
+    const [intent] = platform.calls
+    expect(intent.kind).toBe('navigation.open-external')
+    const target = new URL((intent as Extract<typeof intent, { kind: 'navigation.open-external' }>).url)
+    expect(`${target.pathname}${target.search}`).toBe(`/?session=${encodeURIComponent(SESSION_ID)}`)
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

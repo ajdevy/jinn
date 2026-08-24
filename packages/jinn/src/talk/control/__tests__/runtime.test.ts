@@ -139,4 +139,60 @@ describe("TalkControlRuntime", () => {
       .resolves.toMatchObject({ ok: false, code: "invalid-arguments" });
     expect(execute).not.toHaveBeenCalled();
   });
+
+  /**
+   * The mute-failure regression PLA-224 was raised for. Before this, every
+   * adapter throw arrived as one house sentence, so "Todo ZZZ-999 not found"
+   * and "Employee dana not found" were indistinguishable to the model and the
+   * operator was told nothing. Revert `executionReason` to a constant and this
+   * fails.
+   */
+  it("carries the adapter's own reason instead of one house sentence", async () => {
+    const runtime = new TalkControlRuntime({
+      manifest: buildTalkControlManifest(),
+      execute: async () => { throw new Error("Todo ZZZ-999 not found"); },
+      verify: async () => ({ ok: true, evidence: {} }),
+    });
+
+    await expect(runtime.dispatch(call({ tool: "read_todo", arguments: JSON.stringify({ id: "ZZZ-999" }) })))
+      .resolves.toEqual({ ok: false, code: "execution-failed", error: "Todo ZZZ-999 not found" });
+  });
+
+  it("bounds an adapter reason so no single message can run away", async () => {
+    const runtime = new TalkControlRuntime({
+      manifest: buildTalkControlManifest(),
+      execute: async () => { throw new Error("x".repeat(5000)); },
+      verify: async () => ({ ok: true, evidence: {} }),
+    });
+
+    const result = await runtime.dispatch(call());
+    expect(result.ok).toBe(false);
+    expect((result as { error: string }).error).toHaveLength(300);
+  });
+
+  it("names the check that did not match and the evidence it found", async () => {
+    const runtime = new TalkControlRuntime({
+      manifest: buildTalkControlManifest(),
+      execute: async () => ({ data: {}, uiEffect: null }),
+      verify: async () => ({ ok: false, evidence: { id: "ABC-1", assignee: "someone-else" } }),
+    });
+
+    await expect(runtime.dispatch(call({ tool: "talk_assign_todo", arguments: JSON.stringify({ id: "ABC-1", assignee: "a-worker" }) })))
+      .resolves.toEqual({
+        ok: false,
+        code: "verification-failed",
+        error: "talk_assign_todo did not match its todo-assignment-reread check; found id=ABC-1, assignee=someone-else.",
+      });
+  });
+
+  it("names the tool a preflight refusal was about", async () => {
+    const runtime = new TalkControlRuntime({
+      manifest: buildTalkControlManifest(),
+      execute: async () => ({ data: {}, uiEffect: null }),
+      verify: async () => ({ ok: true, evidence: {} }),
+    });
+
+    await expect(runtime.dispatch(call({ tool: "talk_invent_todo" })))
+      .resolves.toMatchObject({ ok: false, code: "unknown-operation", error: "talk_invent_todo is not in the Talk manifest." });
+  });
 });

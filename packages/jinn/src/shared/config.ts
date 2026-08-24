@@ -3,6 +3,7 @@ import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
 import { applyLegacyFallbackMigration, validateEngineFallbackChains, validateEngineFallbackModelMaps } from "./engine-fallback.js";
 import type { JinnConfig } from "./types.js";
+import { todoRecoveryProblems } from "./todo-recovery-config.js";
 
 type ClaudeEngineConfig = JinnConfig["engines"]["claude"];
 
@@ -65,6 +66,7 @@ export function validateConfigShape(config: unknown): string[] {
       if (c.gateway.resumeInterruptedSessions !== undefined && typeof c.gateway.resumeInterruptedSessions !== "boolean") {
         problems.push(`gateway.resumeInterruptedSessions must be a boolean (got ${typeof c.gateway.resumeInterruptedSessions})`);
       }
+      problems.push(...todoRecoveryProblems(c.gateway.todoRecovery));
     }
   }
 
@@ -266,7 +268,7 @@ const CONFIG_TOP_LEVEL_KEY_SET: Record<keyof JinnConfig, true> = {
   jinn: true, gateway: true, engines: true, models: true, connectors: true,
   logging: true, mcp: true, plugins: true, budgets: true, sessions: true,
   cron: true, notifications: true, workflows: true, portal: true, context: true,
-  stt: true, talk: true, realtime: true, remotes: true,
+  stt: true, talk: true, realtime: true,
 };
 export const CONFIG_TOP_LEVEL_KEYS = Object.keys(CONFIG_TOP_LEVEL_KEY_SET);
 

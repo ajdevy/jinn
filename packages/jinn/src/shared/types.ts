@@ -652,16 +652,12 @@ export interface DiscordConnectorConfig {
   id?: string;
   /** Employee to handle messages from this connector instance */
   employee?: string;
-  botToken?: string;       // Make optional — not needed in proxy mode
+  botToken?: string;
   allowFrom?: string | string[];
   ignoreOldMessagesOnBoot?: boolean;
   guildId?: string;
   /** Only respond to messages in this channel */
   channelId?: string;
-  /** Route messages from specific channels to remote Jinn instances */
-  channelRouting?: Record<string, string>;
-  /** URL of the primary Jinn instance to proxy Discord I/O through (secondary/remote mode) */
-  proxyVia?: string;
 }
 
 export interface TelegramConnectorConfig {
@@ -697,7 +693,7 @@ export interface ConnectorInstance {
   /** Unique instance ID */
   id: string;
   /** Connector type */
-  type: "discord" | "discord-remote" | "slack" | "whatsapp" | "telegram";
+  type: "discord" | "slack" | "whatsapp" | "telegram";
   /** Employee to bind to this connector */
   employee?: string;
   /** Type-specific configuration */

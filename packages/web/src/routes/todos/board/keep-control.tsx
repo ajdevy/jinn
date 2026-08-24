@@ -4,9 +4,9 @@ import { departmentTitle } from "./board-switcher"
 
 /* ICI-1357 — keeping a Todo on Home, and saying whose work a kept Todo is.
  *
- * Home is only what the operator pinned (PLA-172), so both parts have to be
- * legible from a board they did not pin: the pin says "this can go on Home",
- * and the caption says whose work the kept one is.
+ * A pin is how anything the operator did not create reaches Home (PLA-230), so
+ * both parts have to be legible from a board they did not pin: the pin says
+ * "this can go on Home", and the caption says whose work the kept one is.
  *
  * Both parts are presentational — the mutation lives in use-board.ts with the
  * board's others, and reaches the card as a callback like every other action. */

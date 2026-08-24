@@ -4,6 +4,7 @@ import { decideWorkItemApprovalSync } from "../../work-items/approvals.js";
 import { getWorkItem } from "../../work-items/store.js";
 import { TalkApprovalRepository } from "../approval/repository.js";
 import { TalkApprovalService, type TodoApprovalSnapshot } from "../approval/service.js";
+import { requireBoundOperatorEvidence } from "./operator-evidence.js";
 import { TalkControlRefusal, type TalkControlAdapterContext, type TalkControlExecution } from "./types.js";
 
 function requiredText(args: Record<string, unknown>, key: string): string {
@@ -45,22 +46,12 @@ function approvalService(): TalkApprovalService {
   });
 }
 
-function requireApprovalEvidence(call: TalkControlAdapterContext): asserts call is TalkControlAdapterContext & {
-  browserInstanceId: string;
-  credentialGeneration: number;
-  providerTranscriptItemId: string;
-} {
-  if (!call.browserInstanceId || !call.credentialGeneration || !call.providerTranscriptItemId) {
-    throw new TalkControlRefusal("approval-evidence-required", "Voice approval requires bound final transcript evidence.");
-  }
-}
-
 export function executeVoiceApproval(
   operation: "prepare" | "commit",
   args: Record<string, unknown>,
   call: TalkControlAdapterContext,
 ): TalkControlExecution {
-  requireApprovalEvidence(call);
+  requireBoundOperatorEvidence(call, "approval-evidence-required", "Voice approval");
   const evidence = {
     talkSessionId: call.talkSessionId,
     browserInstanceId: call.browserInstanceId,
