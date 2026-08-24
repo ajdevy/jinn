@@ -174,7 +174,7 @@ function fixedLines(snapshot: PageSnapshot, instance: InstanceIdentity): string[
     // withholds ids on a chat page), and this one is stated as a handle so the
     // preamble's "speak names, not identifiers" still holds for what is said.
     if (snapshot.selection.kind === "chat session") {
-      lines.push(`Selected session id: ${clip(snapshot.selection.id, VALUE_CHARS)} — this is the id of the chat on screen. Pass it as the id argument to any tool that takes a session id, including reading this chat or sending into it. It is a handle to use, never something to say.`)
+      lines.push(`Selected session id: ${clip(snapshot.selection.id, VALUE_CHARS)}. Use as the id for session tools (read or send); a handle to use, never something to say.`)
     }
   }
   if ("version" in snapshot) lines.push(...semanticLines(snapshot as TalkScreenContext))

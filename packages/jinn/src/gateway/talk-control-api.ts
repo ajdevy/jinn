@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { TalkControlRuntime } from "../talk/control/runtime.js";
 import { operationByName } from "../talk/control/manifest.js";
-import type { TalkControlManifest } from "../talk/control/types.js";
+import type { TalkControlFailure, TalkControlManifest } from "../talk/control/types.js";
 import type { TalkSessionRegistry } from "../talk/session/registry.js";
 import { insertTalkMessage } from "../sessions/talk-message-store.js";
 import { updateSession } from "../sessions/registry.js";
@@ -155,7 +155,14 @@ export async function handleTalkControl(
   if (!body) return;
   const session = options.registry.get(id);
   if (!boundCredentialMatches(body, session)) {
-    options.send(res, 409, { ok: false, code: "credential-mismatch", error: "The control call does not match the active browser credential generation." });
+    const result: TalkControlFailure = {
+      ok: false,
+      code: "credential-mismatch",
+      error: "The control call does not match the active browser credential generation.",
+    };
+    logControlOutcome(id, body, result);
+    if (session) recordControlOutcome(session.sessionId, body, result);
+    options.send(res, 409, result);
     return;
   }
   const result = await options.runtime.dispatch({ talkSessionId: id, ...body, caller: options.caller });
