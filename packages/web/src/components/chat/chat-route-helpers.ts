@@ -73,6 +73,11 @@ export function sessionPath(id: string): string {
   return `/?session=${encodeURIComponent(id)}`
 }
 
+/** `sessionPath` made absolute, for handing to a new browser tab or the shell. */
+export function sessionUrl(id: string): string {
+  return new URL(sessionPath(id), window.location.href).toString()
+}
+
 /**
  * The mobile pane a chat load should open on: a URL-selected session (refresh,
  * deep link, direct open) lands in the THREAD; bare `/` lands on the LIST —
