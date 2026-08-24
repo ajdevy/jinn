@@ -91,7 +91,6 @@ describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
     const runs = await import("../../work-items/runs.js");
     const approvals = await import("../../work-items/approvals.js");
     const transitions = await import("../../work-items/transitions.js");
-    const recovery = await import("../todo-recovery.js");
     const rows = await import("../../work-items/recovery-rows.js");
     const db = dbModule.initDb();
 
@@ -113,9 +112,11 @@ describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
       request: "Land?", ref: `workflow:pipeline:${run.id}:gate`, target: "operator",
     });
     approvals.decideWorkItemApprovalSync({ id: item.id, decision: "approve", decidedBy: "operator" });
-    expect(recovery.closeApprovedLanded(item.id)).toBe(false);
+    expect(store.getWorkItem(item.id)!.status).toBe("in_review");
 
-    detect.detectTodoAnomalies({ persist: true, closeApprovedLanded: recovery.closeApprovedLanded });
+    detect.detectTodoAnomalies({ persist: true,
+      approvedLandingComplete: (todoId) => todoId === item.id,
+      closeApprovedLanded: () => false });
     expect(rows.getWorkItemRecovery(item.id)?.lane).toBe("manager");
 
     controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
