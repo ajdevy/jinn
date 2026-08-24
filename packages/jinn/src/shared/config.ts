@@ -3,6 +3,7 @@ import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
 import { applyLegacyFallbackMigration, validateEngineFallbackChains, validateEngineFallbackModelMaps } from "./engine-fallback.js";
 import type { JinnConfig } from "./types.js";
+import { todoRecoveryProblems } from "./todo-recovery-config.js";
 
 type ClaudeEngineConfig = JinnConfig["engines"]["claude"];
 
@@ -65,6 +66,7 @@ export function validateConfigShape(config: unknown): string[] {
       if (c.gateway.resumeInterruptedSessions !== undefined && typeof c.gateway.resumeInterruptedSessions !== "boolean") {
         problems.push(`gateway.resumeInterruptedSessions must be a boolean (got ${typeof c.gateway.resumeInterruptedSessions})`);
       }
+      problems.push(...todoRecoveryProblems(c.gateway.todoRecovery));
     }
   }
 

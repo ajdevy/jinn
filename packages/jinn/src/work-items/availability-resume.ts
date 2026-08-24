@@ -43,9 +43,10 @@ const AVAILABILITY_CLASSES = ['quota', 'rate-limit', 'provider-outage', 'network
 const RESUMABLE_STATUSES: readonly WorkItemStatus[] = ['assigned', 'executing', 'in_review', 'blocked'];
 
 /** Past this, a stalled Todo stopped being a clock problem: re-arming a day-old
- *  failure is resurrecting history rather than resuming it. A window longer than
- *  this — a weekly cap, now that engine health reports one as stated — ages the
- *  Todo out instead, which is a separate decision from this sweep's. */
+ *  failure is resurrecting history rather than resuming it. Measured from
+ *  `endedAt` when no engine named a reset, and from the named reset once it
+ *  has passed — so a weekly cap waits out its real window instead of aging
+ *  out at 24h (PLA-216). */
 const MAX_RESUMABLE_AGE_MS = 24 * 60 * 60_000;
 
 const DEFAULT_RESUME_INTERVAL_MS = 5 * 60_000;
@@ -120,9 +121,11 @@ function dueForResume(workItemId: string, now: Date): DueResume | undefined {
   if (attempts.some((attempt) => attempt.endedAt === null)) return undefined;
   const run = lastSettledRun(attempts);
   if (!run || !isAvailabilityFailure(run)) return undefined;
-  if (now.getTime() - Date.parse(run.endedAt) > MAX_RESUMABLE_AGE_MS) return undefined;
   if (alreadyResumed(workItemId, run.id)) return undefined;
   const reset = resolveReset(run, now);
+  const named = reset.source === "stated" || reset.source === "engine-health";
+  const ageFrom = named ? reset.at : Date.parse(run.endedAt);
+  if (now.getTime() - ageFrom > MAX_RESUMABLE_AGE_MS) return undefined;
   return reset.at > now.getTime() ? undefined : { run, reset };
 }
 

@@ -50,6 +50,9 @@ export interface JinnConfig {
     /** Nudge sessions this gateway's own restart interrupted to continue on the
      *  next boot. Default true; false leaves them interrupted for the operator. */
     resumeInterruptedSessions?: boolean;
+    /** Bounded Todo recovery (PLA-240). Unset = classify-only: lanes and
+     *  metrics, no automatic re-arm. `auto` is a reviewed production gate. */
+    todoRecovery?: { mode?: "off" | "classify-only" | "auto" };
     /** Opt-in: when set, POST /api/sessions reads the forwarded SSO identity
      *  from this request header (set by an auth proxy such as oauth2-proxy,
      *  Traefik forward-auth, or IAP) and persists it on the session. Accepts a
