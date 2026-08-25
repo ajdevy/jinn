@@ -35,11 +35,12 @@ import type {
  *   - record WHY a run settled failed
  *   - wake the routed employee when the run parks on their decision
  *   - send the work round again when that approver rejects WITH feedback
- *   - close a successful run after an operator-only gate supplied the review
+ *   - close a successful run after a reserved gate supplied the review
  *
  * Completion remains absent for every other path. Reaching a success End alone
- * is not a review; only a recorded operator-only approval supplies the human
- * authority to close without weakening the self-review rule.
+ * is not a review; only a recorded reserved approval (operator-only, or handed
+ * to the COO's lane) supplies the human authority to close without weakening
+ * the self-review rule.
  */
 
 /**
@@ -130,17 +131,17 @@ function gateRequest(request: string): string {
  * has to turn that into a session:
  *
  * Employee-routed gates wake that employee's most recent live session. Gates
- * routed to the virtual root, and gates reserved for the operator, stay on the
- * Todo board without waking a chat.
+ * routed to the virtual root, and gates a definition reserved for the operator
+ * or for the COO, stay on the Todo board without waking a chat.
  *
  * An errored session is skipped the same way a parent callback skips one.
  */
 function approverSession(
   target: string | null,
   kind: ApprovalTargetKind | null | undefined,
-  operatorOnly: boolean,
+  reserved: boolean,
 ) {
-  if (operatorOnly || kind !== "employee" || !target) return undefined;
+  if (reserved || kind !== "employee" || !target) return undefined;
   return listSessionsForGroup(target, 5, 0)
     .find((candidate) => candidate.status !== "error");
 }
@@ -153,12 +154,16 @@ function approverSession(
  */
 function notifyParked(input: {
   todoId: string; workflowId: string; runId: string; nodeId: string; request: string; ref: string;
+  cooDecidable?: boolean;
 }): void {
   const approval = currentApproval(input.todoId);
+  // Default routing hands an unrouted gate to the owner's manager, which a
+  // COO-decidable gate never names as its approver: telling that manager the
+  // decision is theirs would promise what both decide and escalate refuse.
   const session = approverSession(
     approval?.target ?? null,
     approval?.targetKind,
-    approval?.operatorOnly ?? false,
+    (approval?.operatorOnly ?? false) || input.cooDecidable === true,
   );
   if (!session) return;
 

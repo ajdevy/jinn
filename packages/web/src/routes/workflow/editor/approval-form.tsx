@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { Field, TextInput, fixedText, type FormProps } from "./inspector-fields"
+import { Field, PickerField, TextInput, fixedText, type FormProps } from "./inspector-fields"
 import type { WorkflowNodeOfType } from "./ports"
 
 type ApprovalConfig = WorkflowNodeOfType<"approval">["config"]
@@ -16,6 +16,38 @@ const MAX_CHOICE_LENGTH = 80
 
 function storedChoices(config: ApprovalConfig): string[] | null {
   return config.options ?? null
+}
+
+/* Who decides the gate: routed up the org hierarchy, handed to the COO's lane,
+   or reserved for the human operator. Three mutually exclusive states in the
+   schema, so they are one choice here rather than two switches that can
+   contradict each other. */
+type Decider = "routed" | "coo" | "operator"
+
+const DECIDERS: Record<Decider, { label: string; caption: string }> = {
+  routed: { label: "Routed up the org", caption: "This routes up the org hierarchy, so the COO can decide it." },
+  coo: { label: "The COO", caption: "Handed to the COO's own lane. No employee can decide it, and escalating it does not open it up." },
+  operator: { label: "Only the operator", caption: "Reserved for the human operator. No employee can decide it, not even the COO, and escalating it does not open it up." },
+}
+const DECIDER_OPTIONS = (Object.keys(DECIDERS) as Decider[]).map((value) => ({ value, label: DECIDERS[value].label }))
+
+function decider(config: ApprovalConfig): Decider {
+  if (config.operatorOnly === true) return "operator"
+  return config.decidableBy === "coo" ? "coo" : "routed"
+}
+
+function isDecider(value: string): value is Decider {
+  return value in DECIDERS
+}
+
+/** Reserving a gate and naming an approver contradict each other, and the
+ *  definition schema refuses both together — so a reservation clears the
+ *  approver rather than saving something the gateway would reject. */
+function withDecider(config: ApprovalConfig, next: Decider): ApprovalConfig {
+  const { approver: _approver, operatorOnly: _operatorOnly, decidableBy: _decidableBy, ...rest } = config
+  if (next === "operator") return { ...rest, operatorOnly: true }
+  if (next === "coo") return { ...rest, decidableBy: "coo" }
+  return rest
 }
 
 /** Empty clears the binding: an approver the schema never sees beats one it
@@ -162,7 +194,7 @@ function ChoicesSection({ config, update }: {
 export function ApprovalForm({ node, update }: FormProps<WorkflowNodeOfType<"approval">>) {
   const config = node.config
   const set = (next: ApprovalConfig) => update({ ...node, config: next })
-  const operatorOnly = config.operatorOnly === true
+  const decides = decider(config)
   return (
     <>
       <Field label="What needs approval?">
@@ -173,30 +205,16 @@ export function ApprovalForm({ node, update }: FormProps<WorkflowNodeOfType<"app
           placeholder="Describe the decision"
         />
       </Field>
-      <div className="flex items-center justify-between gap-[var(--space-3)]">
-        <label
-          htmlFor="approval-operator-only"
-          className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]"
-        >
-          Only the operator may decide
-        </label>
-        <Switch
-          id="approval-operator-only"
-          checked={operatorOnly}
-          // Mutually exclusive with an approver: naming one would contradict
-          // reserving the gate, and the definition schema refuses both together.
-          onCheckedChange={(next) => {
-            const { approver: _approver, operatorOnly: _operatorOnly, ...rest } = config
-            set(next ? { ...rest, operatorOnly: true } : rest)
-          }}
-        />
-      </div>
+      <PickerField
+        label="Who decides?"
+        value={decides}
+        onChange={(next) => { if (isDecider(next)) set(withDecider(config, next)) }}
+        options={DECIDER_OPTIONS}
+      />
       <p className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-        {operatorOnly
-          ? "Reserved for the human operator. No employee can decide it, not even the COO, and escalating it does not open it up."
-          : "Otherwise this routes up the org hierarchy, so the COO can decide it."}
+        {DECIDERS[decides].caption}
       </p>
-      {!operatorOnly && (
+      {decides === "routed" && (
         <Field label="Approver (optional)">
           <TextInput
             value={fixedText(config.approver)}

@@ -14,23 +14,68 @@ import {
 
 beforeAll(installInspectorDomPolyfills)
 
-describe("approval inspector operator-only gate", () => {
-  it("reserves the gate and drops any approver, since the two contradict", () => {
+describe("approval inspector who-decides gate", () => {
+  it("reserves the gate for the operator and drops any approver, since the two contradict", async () => {
     const store = renderApproval({ description: "Merge?", approver: { source: "fixed", value: "platform-lead" } })
 
-    fireEvent.click(screen.getByLabelText("Only the operator may decide"))
+    await choose("Who decides?", "Only the operator")
 
     expect(nodeConfig(store)).toEqual({ description: "Merge?", operatorOnly: true })
     expect(screen.queryByLabelText("Approver (optional)")).toBeNull()
+    expectValidApprovalConfig(nodeConfig(store))
   })
 
-  it("clears the flag entirely rather than writing operatorOnly: false", () => {
+  it("hands the gate to the COO and drops any approver, since the two contradict", async () => {
+    const store = renderApproval({ description: "Merge?", approver: { source: "fixed", value: "platform-lead" } })
+
+    await choose("Who decides?", "The COO")
+
+    expect(nodeConfig(store)).toEqual({ description: "Merge?", decidableBy: "coo" })
+    expect(screen.queryByLabelText("Approver (optional)")).toBeNull()
+    expectValidApprovalConfig(nodeConfig(store))
+  })
+
+  it("shows a COO gate as the COO's and leaves the field alone until it is changed", () => {
+    const store = renderApproval({ description: "Merge?", decidableBy: "coo" })
+
+    expect(screen.getByLabelText("Who decides?").textContent).toBe("The COO")
+    expect(screen.getByText("Handed to the COO's own lane. No employee can decide it, and escalating it does not open it up.")).toBeTruthy()
+    expect(screen.queryByLabelText("Approver (optional)")).toBeNull()
+    expect(nodeConfig(store)).toEqual({ description: "Merge?", decidableBy: "coo" })
+    expectValidApprovalConfig(nodeConfig(store))
+  })
+
+  it("clears the reservation entirely rather than writing operatorOnly: false", async () => {
     const store = renderApproval({ description: "Merge?", operatorOnly: true })
 
-    fireEvent.click(screen.getByLabelText("Only the operator may decide"))
+    await choose("Who decides?", "Routed up the org")
 
-    expect(nodeConfig(store)).not.toHaveProperty("operatorOnly")
+    expect(nodeConfig(store)).toEqual({ description: "Merge?" })
     expect(screen.getByLabelText("Approver (optional)")).toBeTruthy()
+  })
+
+  it("clears a COO gate entirely rather than leaving the field behind", async () => {
+    const store = renderApproval({ description: "Merge?", decidableBy: "coo" })
+
+    await choose("Who decides?", "Routed up the org")
+
+    expect(nodeConfig(store)).toEqual({ description: "Merge?" })
+  })
+
+  it("swaps a COO gate for the operator without keeping both", async () => {
+    const store = renderApproval({ description: "Merge?", decidableBy: "coo" })
+
+    await choose("Who decides?", "Only the operator")
+
+    expect(nodeConfig(store)).toEqual({ description: "Merge?", operatorOnly: true })
+  })
+
+  it("swaps an operator gate for the COO without keeping both", async () => {
+    const store = renderApproval({ description: "Merge?", operatorOnly: true })
+
+    await choose("Who decides?", "The COO")
+
+    expect(nodeConfig(store)).toEqual({ description: "Merge?", decidableBy: "coo" })
   })
 })
 

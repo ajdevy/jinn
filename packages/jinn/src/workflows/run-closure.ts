@@ -106,18 +106,21 @@ export async function landingShortfall(run: WorkflowRunDetail,
   return undefined;
 }
 
-/** The operator-only gate whose approval authorized this run to close its Todo. */
+/** The reserved gate whose approval authorized this run to close its Todo:
+ *  operator-only, or handed to the COO's lane. Both classes are a human saying
+ *  "this may land"; an ordinary routed gate is not, so it does not close. */
 function approvedGate(run: WorkflowRunDetail): WorkflowApprovalRecord | undefined {
   return run.approvals.find((approval) => {
     const authored = run.definition.nodes.find((node) => node.id === approval.nodeId);
     const runtime = run.nodeRuns.find((node) => node.nodeId === approval.nodeId);
-    return authored?.type === "approval" && authored.config.operatorOnly === true
+    return authored?.type === "approval"
+      && (authored.config.operatorOnly === true || authored.config.decidableBy === "coo")
       && runtime?.status === "completed" && approval.status === "approved"
       && approval.decidedBy !== undefined && approval.decidedAt !== undefined;
   });
 }
 
-/** Close the bound Todo of a run that completed behind an approved operator-only
+/** Close the bound Todo of a run that completed behind an approved reserved
  *  gate. Best-effort like every other Todo-side write from a run: the Todo may
  *  have been closed or deleted since the run started. */
 export function completeBoundTodo(lifecycle: WorkflowTodoLifecycle | undefined, run: WorkflowRunDetail): void {
