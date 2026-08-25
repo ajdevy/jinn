@@ -297,5 +297,4 @@ describe("AntigravityHeadlessEngine", () => {
       error: "Interrupted: requested by supervisor",
     });
   });
-
 });
