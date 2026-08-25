@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.32.0] - 2026-08-24
+
+### ✨ Features
+- **Quick capture turns a rough sentence into moving work.** A built-in Todo Shaper converts one typed or dictated thought into one structured Todo, while a live pipeline reports only facts the gateway can prove: capture, shaping, creation, dispatch and routing. Typed captures start immediately; dictated captures pause once so the transcript can be corrected before it spends money. The Dispatcher prefers a matching Workflow before falling back to an employee, claim conflicts never start duplicate work, and a capture that belongs on an existing Todo lands there as a successful dedupe instead of a failure.
+- **Todo recovery becomes visible without silently taking control.** A bounded classifier and quiet anomaly detector separate Attention into “Recovering automatically,” “Manager attention” and “Needs you,” keeping transient waits and recovery bookkeeping away from the operator-decision lane. The shipped default remains classify-only: it does not apply recovery, impersonate the operator or auto-start backlog work, and `mode=off` disables even the anomaly sweep.
+- **Talk can operate the Todo and chat journeys it describes.** Voice control can authoritatively read, create, edit, comment on, assign and move Todos; read a selected chat; and send a message into a named session. Writes that reach beyond the visible browser are bound to the operator’s live transcript and credential generation, successful effects are re-read, and refusals preserve the gateway’s real reason in speech, logs and transcript evidence instead of being narrated as success.
+- **Home now means pinned or operator-created.** Todos the operator created appear on Home without needing a second pin, while the dedicated pinned filter keeps its narrower meaning and board counts use the same union as the board itself.
+- **Fresh Grok turns stream as structured chat while they run.** Jinn attaches Grok’s transcript from the run directory before the terminal session id arrives, so live tool calls render as tool cards and reasoning-separated text keeps its paragraph seams instead of arriving as one glued block.
+
+### ⚡ Performance / Reliability
+- **The initial dashboard path stays within its performance budget.** Talk screen context and the plugin SDK barrel load only when their features are used, keeping the expanded control surface off first paint.
+- **Release gates cover the platforms that actually run each component.** Native shell Rust tests run on macOS instead of failing on Linux-only runners, Windows path/process cleanup cases are portable, and the aggregate gate again covers lint, unit tests, typecheck, Docker, end-to-end tests, coverage and the web bundle budget.
+
+### 🐛 Fixes
+- **Workflow-owned work resumes without losing its lane.** Rearming keeps the owning Workflow, labels and assignee; weekly-capped work waits for its real reset; and a stale failure end can no longer overwrite a live successor or an operator move.
+- **Engine configuration failures are diagnosable and retryable.** Antigravity’s print timeout now follows Jinn’s turn timeout and surfaces the CLI’s own recent diagnostic. Model ids are validated consistently during discovery, Settings edits, config loading and fallback swaps, so tab-separated labels cannot become model ids and an invalid-model exit is treated as a correctable configuration failure.
+- **Forced session reconciliation uses the normal completion contract.** A lost engine now settles with its real error, accounting, parent wake-up and Talk severity instead of emitting a hand-written success-shaped receipt.
+- **Plugin-created chats are visible in the sidebar.** Sessions spawned through the plugin host are no longer filtered out, and pinning them behaves like pinning any other chat.
+- **Dead cross-gateway surfaces are gone.** The unreachable Discord proxy connector, unauthenticated proxy routes, file-transfer route, and unsupported `remotes`, `proxyVia` and `channelRouting` config keys were removed instead of implying that cross-instance transfer was available.
+- **The mobile new-chat picker lets go when you leave.** Navigating away closes the grid picker instead of leaving it stuck over the next screen, and the header chip counts stay honest.
+
+### 🪄 Docs
+- **The Jinn Shell primitives have a concrete implementation contract.** The design specification now defines the responsive anatomy, interaction states, scroll ownership, editable-sheet semantics, mobile chrome clearance and Ledger-token use for the shared shell primitives.
+
 ## [0.31.0] - 2026-08-23
 
 ### ✨ Features

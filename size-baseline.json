@@ -201,7 +201,7 @@
       ]
     },
     "packages/jinn/src/engines/grok.ts": {
-      "lines": 791,
+      "lines": 790,
       "exempt": [
         "complexity",
         "max-depth",
@@ -324,7 +324,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5150,
+      "lines": 5146,
       "exempt": [
         "complexity",
         "max-depth",
@@ -601,7 +601,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 665,
+      "lines": 634,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1444,7 +1444,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1098,
+      "lines": 1075,
       "exempt": [
         "complexity"
       ]
@@ -1638,7 +1638,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 917,
+      "lines": 915,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1703,7 +1703,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 509,
+      "lines": 503,
       "exempt": [
         "complexity",
         "max-lines-per-function"

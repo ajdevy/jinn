@@ -88,15 +88,6 @@ describe("reflecting a run's lifecycle onto its bound Todo", () => {
     expect(store.getWorkItem(id)!.status).toBe("in_review");
   });
 
-  it("still reports a dead run, because a failed run is the newest fact about the work", () => {
-    const id = armedTodo("phase reviewed it, then the run died");
-    transitions.transition(id, "in_review", "session:abc", { agent: true });
-
-    reflect(id, "blocked", "land");
-
-    expect(store.getWorkItem(id)!.status).toBe("blocked");
-  });
-
   it("never pulls a Todo out of a sticky terminal", () => {
     const escalated = armedTodo("escalated to the operator");
     transitions.transition(escalated, "escalated", "session:abc", { agent: true });

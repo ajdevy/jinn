@@ -130,6 +130,14 @@ describe("validateConfigShape", () => {
     expect(problems.some((p) => p.includes("gateway.notesEnabled"))).toBe(true);
   });
 
+  it("accepts gateway.todoRecovery.mode and rejects unknown values", () => {
+    expect(validateConfigShape({ gateway: { todoRecovery: { mode: "classify-only" } }, engines: { claude: {} } })).toEqual([]);
+    expect(validateConfigShape({ gateway: { todoRecovery: { mode: "auto" } }, engines: { claude: {} } })).toEqual([]);
+    expect(validateConfigShape({ gateway: { todoRecovery: { mode: "off" } }, engines: { claude: {} } })).toEqual([]);
+    const problems = validateConfigShape({ gateway: { todoRecovery: { mode: "always" } }, engines: { claude: {} } });
+    expect(problems.some((p) => p.includes("gateway.todoRecovery.mode"))).toBe(true);
+  });
+
   it("accepts a boolean gateway.resumeInterruptedSessions flag and rejects other values", () => {
     expect(validateConfigShape({ gateway: { resumeInterruptedSessions: false }, engines: { claude: {} } })).toEqual([]);
     expect(validateConfigShape({ gateway: {}, engines: { claude: {} } })).toEqual([]);

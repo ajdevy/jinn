@@ -122,13 +122,14 @@ export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
 } from "../sessions/turn/text.js";
-import { decideJinnAttachment } from "../mcp/attachment.js";
+import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
 import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
+import { handleTodoCaptureApi } from "./todo-capture-api.js";
 import { handleSkillsApi } from "./skills-api.js";
 import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
@@ -964,6 +965,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && matchRoute("/api/sessions/:id/unarchive", pathname)) return "session unarchive";
   if (method === "POST" && matchRoute("/api/sessions/:id/reset", pathname)) return "session reset";
   if (method === "POST" && pathname === "/api/sessions/bulk-delete") return "session bulk delete";
+  if (method === "POST" && pathname === "/api/todo-captures") return "quick capture";
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
@@ -2897,23 +2899,16 @@ export async function handleApiRequest(
       // it exists to move a stuck Todo onto another engine, so it has to win.
       const dispatchEngineName = dispatchPrefs.preamble.engine ?? dispatcher.engine;
       const dispatchModel = dispatchPrefs.preamble.engine ? dispatchPrefs.preamble.model ?? undefined : dispatcher.model;
-      const attachment = decideJinnAttachment({
-        globalMcp: config.mcp,
-        employee: dispatcher,
-        engine: dispatchEngineName,
+      const preflight = preflightSystemEmployee({
+        employee: dispatcher, label: "Todo Dispatcher", settingLabel: "Dispatcher",
+        engineName: dispatchEngineName, globalMcp: config.mcp,
+        getEngine: (name) => context.sessionManager.getEngine(name),
       });
-      if (!attachment.attach) {
+      if (!preflight.ok) {
         claim.release();
-        return json(res, {
-          error: `Todo Dispatcher cannot run on engine "${dispatchEngineName}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
-        }, 409);
+        return json(res, { error: preflight.error }, preflight.status);
       }
-
-      const engine = context.sessionManager.getEngine(dispatchEngineName);
-      if (!engine) {
-        claim.release();
-        return json(res, { error: `engine "${dispatchEngineName}" not available; change the Dispatcher engine override and try again` }, 502);
-      }
+      const engine = preflight.engine;
 
       const prompt = dispatchPrefs.preamble.prefix + [
         `Dispatch Todo ${item.id}.`,
@@ -4525,6 +4520,7 @@ export async function handleApiRequest(
     }
 
     if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleTodoCaptureApi(req, res, { method, pathname, url }, context)) return;
     if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
     if (await handleSkillsApi(req, res, { method, pathname, url }, context)) return;
     if (await handlePluginsApi(req, res, { method, pathname, url }, context)) return;

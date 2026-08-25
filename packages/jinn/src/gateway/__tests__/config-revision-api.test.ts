@@ -123,8 +123,11 @@ beforeEach(() => {
   emit.mockClear();
 });
 
-afterAll(() => {
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+afterAll(async () => {
+  try { (await import("../../shared/db.js")).__closeDbForTest(); } catch { /* never opened */ }
+  try {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch { /* Windows can keep a handle past close; the suite already passed. */ }
 });
 
 describe("GET /api/config revision", () => {

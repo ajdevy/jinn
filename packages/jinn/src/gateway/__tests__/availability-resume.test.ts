@@ -46,8 +46,13 @@ function armedWorkflow(id: string, config: { label?: string; actor?: string } = 
 }
 
 /** A Todo the given workflow was driving when a quota window killed its attempt. */
-function parkedBy(workflowId: string | undefined, title: string, status: "executing" | "assigned" = "executing"): string {
-  const item = store.createWorkItem({ title, status });
+function parkedBy(
+  workflowId: string | undefined,
+  title: string,
+  status: "executing" | "assigned" = "executing",
+  extra: { assignee?: string; department?: string } = {},
+): string {
+  const item = store.createWorkItem({ title, status, ...extra });
   const run = runs.openWorkItemRun({ workItemId: item.id, sessionId: `s-${item.id}` });
   runs.closeWorkItemRun(run.id, { outcome: "rate_limited", endedAt: new Date(NOW.getTime() - 90 * 60_000).toISOString(), error: QUOTA });
   if (workflowId !== undefined) {
@@ -95,6 +100,22 @@ describe("resuming a Todo into its own trigger", () => {
     port.availabilityRearm(id, repository);
 
     expect(labels.getWorkItemLabels(id).map((label) => label.name)).toEqual(["build"]);
+  });
+
+  it("keeps extra labels and the assignee while restoring the arming label", () => {
+    labels.createLabel({ name: "urgent" });
+    armedWorkflow("resume-keeper", { label: "build", actor: "operator" });
+    const id = parkedBy("resume-keeper", "labelled and assigned", "executing", {
+      assignee: "platform-worker", department: "platform",
+    });
+    labels.setWorkItemLabels(id, ["urgent"], "operator");
+
+    port.availabilityRearm(id, repository);
+
+    expect(labels.getWorkItemLabels(id).map((label) => label.name).sort()).toEqual(["build", "urgent"]);
+    expect(store.getWorkItem(id)).toMatchObject({ assignee: "platform-worker", department: "platform" });
+    const move = store.listWorkItemEvents(id).filter((event) => event.kind === "status_change").at(-1);
+    expect(move?.actor).toBe("availability-resume");
   });
 });
 
