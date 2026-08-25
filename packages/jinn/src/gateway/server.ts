@@ -284,7 +284,7 @@ export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConn
     }
     seen.add(id);
     const connectorConfig: Record<string, unknown> = { ...raw, id };
-    // Speech-to-text is a global setting the telegram connector reads from its own config.
+    // Speech-to-text is global: this block is only the fallback if stt.json is unusable.
     if (type === "telegram") connectorConfig.stt = config.stt;
     instances.push({ id, type, employee: raw.employee as string | undefined, config: connectorConfig });
   };
