@@ -118,14 +118,25 @@ export function accentButtonViolations(source: string, relPath: string): string[
 }
 
 /**
- * A hatch answers for the sheet it sits on and no other: file-wide suppression
- * meant the second sheet added to an already-hatched file arrived unseen.
+ * One entry per unhatched sheet, not per file. Both suppressions used to answer
+ * file-wide — a hatch for everything under it, a `KNOWN_SHEETS` entry for
+ * everything in the file it names — so a second sheet added beside an
+ * already-answered-for one arrived unseen. Counting sheets instead means the
+ * second one shows up as a second entry the enumerated set cannot balance.
+ * A sheet is the `className` its signature sits in, so the several tokens one
+ * sheet spells itself with count once; outside a `className`, its line.
  */
 export function sheetHits(source: string, relPath: string): string[] {
+  const spans = classNameSpans(source)
+  const sheets = new Set<number>()
   for (const match of source.matchAll(new RegExp(SHEET_SIGNATURE, "g"))) {
-    if (!HATCH.test(lineAt(source, lineOf(source, match.index ?? 0)))) return [relPath]
+    const index = match.index ?? 0
+    const span = spans.find((candidate) => index >= candidate.start && index < candidate.end)
+    const firstLine = lineOf(source, span ? span.start : index)
+    if (hatchedBetween(source, firstLine, lineOf(source, span ? span.end : index))) continue
+    sheets.add(firstLine)
   }
-  return []
+  return Array.from(sheets, () => relPath)
 }
 
 describe("jinn shell contract", () => {
@@ -176,6 +187,19 @@ describe("jinn shell contract", () => {
       'const fresh = "rounded-t-[18px]"',
     ].join("\n")
     expect(sheetHits(source, "src/routes/new-sheet.tsx")).toEqual(["src/routes/new-sheet.tsx"])
+  })
+
+  // Enumeration is a suppression too: `KNOWN_SHEETS` accounts for one sheet per
+  // file it names, so a second one added beside it has to arrive as a second
+  // entry or the tree comparison balances and the gate says nothing.
+  it("rule 3 goes red on a second unhatched sheet in a file the enumerated set already covers", () => {
+    const source = [
+      'const shell = "animate-sheet-in"',
+      'export const second = "animate-sheet-in"',
+    ].join("\n")
+    const found = sheetHits(source, "src/routes/todos/quick-add/capture-bar.tsx")
+    expect(found).toHaveLength(2)
+    expect(found).not.toEqual([...KNOWN_SHEETS].filter((path) => found.includes(path)))
   })
 
   it("rule 1 is green on the migrated tree", () => {
