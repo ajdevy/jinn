@@ -1,19 +1,23 @@
 import { memo, useCallback, useMemo } from "react"
-import { Bell, Calendar, ChevronRight } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import type { Employee, WorkItemCompactWire, WorkItemOpenDetailWire, WorkItemTreeWire } from "@/lib/api"
-import { publicWorkItemReference, stateKeyOf } from "@/lib/todos"
-import { stripMarkdown } from "@/lib/strip-markdown"
+import { stateKeyOf } from "@/lib/todos"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { StateCircle } from "../state-glyph"
 import { escalationReasonLabel } from "../util"
 import { CardTree } from "./card-tree"
-import { CauseLine, hasStopLead, StopCauseLead, stopLeadKey } from "./stop-cause"
-import { KeepToggle, KeptCaption } from "./keep-control"
+import { hasStopLead, StopCauseLead, stopLeadKey } from "./stop-cause"
+import { KeepToggle } from "./keep-control"
 
-/* Todos v2 slice 6 — the board card (design-doc §3, states mock specimen 3).
- * Status is NEVER on the card — the column says it. Variant A adds one quiet,
- * markdown-free body preview so the board carries enough context to choose a
- * conversation. Mobile keeps the same preview under its compact title row. */
+/* ICI-1427 — the board card, Variant A: four rows, the same four on every card.
+ * ID + assignee, status glyph + title, priority + labels + roll-up, cost + due.
+ *
+ * Every row is unconditional, so a card's height is settled by its title alone
+ * and enrichment landing later cannot push the column around. The price, taken
+ * knowingly: the escalation reason, the approval bell and the "Working · 21m"
+ * line have no row of their own any more and live on the task page and in the
+ * Needs-you view. The status the column used to carry alone is now also on the
+ * card, as the glyph — it is what the lost red line escalated through. */
 
 export interface CardEnrichment {
   tree?: WorkItemTreeWire
@@ -36,7 +40,8 @@ export function rollupOf(tree: WorkItemTreeWire | undefined, rootStatus: string)
   return { closed, total }
 }
 
-/** The one-line why on blocked/escalated cards: the latest transition note. */
+/** The one-line why on blocked/escalated cards: the latest transition note. The
+ *  card face has no row for it since Variant A; the Needs-you view still does. */
 export function reasonOf(item: WorkItemCompactWire, detail: WorkItemOpenDetailWire | undefined): string | null {
   if (item.status !== "blocked" && item.status !== "escalated") return null
   const events = detail?.events ?? []
@@ -52,41 +57,12 @@ export function reasonOf(item: WorkItemCompactWire, detail: WorkItemOpenDetailWi
   return null
 }
 
-/** Elapsed label for the executing StateLine ("Working · 21m"). Only cards
- *  with a live session ref carry the line (the mock: PLA-18/ACM-41, not
- *  PLA-12) — the StateLine is delegation grammar about a session, not a
- *  generic "this column is executing" repeat. */
-export function workingSince(item: WorkItemCompactWire, detail: WorkItemOpenDetailWire | undefined): string | null {
-  if (item.status !== "executing" || !item.sessionRef) return null
-  const events = detail?.events ?? []
-  let startedAt: string | undefined
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].toStatus === "executing") {
-      startedAt = events[i].createdAt
-      break
-    }
-  }
-  const start = Date.parse(startedAt ?? item.updatedAt)
-  if (Number.isNaN(start)) return null
-  const mins = Math.max(0, Math.round((Date.now() - start) / 60_000))
-  if (mins < 60) return `${mins}m`
-  const hours = Math.floor(mins / 60)
-  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`
-}
-
-/** Vertical anatomy used by the column FLIP dependency. Enrichment may add a
- * body preview, state line, reason, or first footer after the column painted;
- * each bit tells the column to cushion cards below that growth. */
-export function cardLayoutKey(item: WorkItemCompactWire, enrichment: CardEnrichment | undefined): string {
-  const tree = enrichment?.tree
-  const detail = enrichment?.detail
-  const rollup = rollupOf(tree, item.status)
-  const spendUsd = tree?.spendUsd ?? 0
-  const body = stripMarkdown(tree?.root.body ?? "").trim().length > 0
-  const working = workingSince(item, detail) !== null
-  const reason = reasonOf(item, detail) !== null
-  const footer = !!item.assignee || !!rollup || (spendUsd > 0 && (!!item.dueAt || item.approvalState === "pending"))
-  return `${Number(body)}${Number(working)}${Number(reason)}${Number(footer)}${stopLeadKey(item)}`
+/** Vertical anatomy used by the column FLIP dependency. Variant A's four rows
+ *  all render unconditionally, so nothing enrichment brings — a cost, a set of
+ *  bars, a roll-up chip — can change a card's height any more. What is left is
+ *  the stop lead, and that arrives on the compact wire with the first paint. */
+export function cardLayoutKey(item: WorkItemCompactWire, _enrichment: CardEnrichment | undefined): string {
+  return stopLeadKey(item)
 }
 
 function formatDue(iso: string): string {
@@ -96,7 +72,8 @@ function formatDue(iso: string): string {
 }
 
 /** Priority bars (polish law 14: bars ride 0.5px high). 3=High strong bars,
- *  1=Low first-bar-only, 2=Medium hidden on desktop cards (the mock's rule).
+ *  1=Low first-bar-only. `muted` renders Medium too, which the board card wants:
+ *  a row that disappears at the commonest priority is a row that changes height.
  *  The wire has no urgent level (0..3, spec §3.1). */
 export function PriorityGlyph({ priority, muted = false }: { priority: number; muted?: boolean }) {
   if (priority === 2 && !muted) return null
@@ -157,17 +134,12 @@ export const BoardCard = memo(function BoardCard({
   const tree = enrichment?.tree
   const detail = enrichment?.detail
   const rollup = useMemo(() => rollupOf(tree, item.status), [tree, item.status])
-  const reason = reasonOf(item, detail)
-  const working = workingSince(item, detail)
   const priority = tree?.root.priority ?? detail?.workItem.priority ?? 2
   const spendUsd = tree?.spendUsd ?? 0
   const employee = item.assignee ? byName.get(item.assignee) : undefined
   const assigneeName = employee?.displayName ?? item.assignee
   const overdue = !!item.dueAt && Date.parse(item.dueAt) < Date.now()
-  const approvalPending = item.approvalState === "pending"
-  const sessionRefLabel = publicWorkItemReference(item.sessionRef?.ref ?? null)
   const addSubTask = useCallback((title: string) => onAddSubTask(item.id, title), [item.id, onAddSubTask])
-  const bodyPreview = stripMarkdown(tree?.root.body ?? "").replace(/\s*\n+\s*/g, " ")
 
   return (
     <article
@@ -183,134 +155,105 @@ export const BoardCard = memo(function BoardCard({
       onPointerDown={(e) => onLiftPointerDown?.(e, item)}
       className={[
         // A phone card never skips its render: an estimated height moved the container's scrollHeight 2721 → 3981 mid-commit and scroll anchoring chased it to an edge. Desktop keeps skipping, at a fixed intrinsic size rather than `auto`, which remembers each card's last rendered height and revises it mid-scroll (8129 → 6112).
-        "group focus-ring cursor-pointer select-none rounded-[var(--radius-lg)] px-[13px] py-3 outline-none transition-colors duration-150 [content-visibility:auto] [contain-intrinsic-size:83px] max-[700px]:[content-visibility:visible] max-[700px]:[contain-intrinsic-size:auto]",
+        "group focus-ring flex cursor-pointer select-none flex-col gap-2 rounded-[var(--radius-lg)] p-3 outline-none transition-colors duration-150 [content-visibility:auto] [contain-intrinsic-size:137px] max-[700px]:[content-visibility:visible] max-[700px]:[contain-intrinsic-size:auto]",
         ghost
           ? "bg-[var(--bg-tertiary)] shadow-[var(--shadow-overlay)]"
           : "bg-[var(--bg-secondary)] shadow-[var(--shadow-ambient),var(--shadow-subtle),var(--inset-shine)] hover:bg-[var(--bg-tertiary)]",
-        ghost
-          ? ""
-          : "max-[700px]:flex max-[700px]:flex-wrap max-[700px]:items-center max-[700px]:gap-2.5 max-[700px]:rounded-xl max-[700px]:bg-transparent max-[700px]:px-1.5 max-[700px]:py-3 max-[700px]:shadow-none max-[700px]:hover:bg-[var(--fill-quaternary)]",
+        ghost ? "" : "max-[700px]:rounded-xl max-[700px]:bg-transparent max-[700px]:shadow-none max-[700px]:hover:bg-[var(--fill-quaternary)]",
         dragging ? "opacity-0" : "",
       ].join(" ")}
     >
-      {/* Mobile lead: priority bars (always, muted at Medium) + status disc. */}
-      <span className="hidden max-[700px]:flex max-[700px]:items-center max-[700px]:gap-2.5">
-        <PriorityGlyph priority={priority} muted />
-        <StateCircle keyOf={stateKeyOf(item.status)} size={20} />
-      </span>
+      {hasStopLead(item) && <StopCauseLead item={item} />}
 
-      {/* Top row: priority · ID · due/approval right. Never status. */}
-      <div className="flex min-h-4 items-center gap-[7px] max-[700px]:hidden">
-        <PriorityGlyph priority={priority} />
+      {/* Row 1 — which Todo, and whose. The row is as tall as the ID's own line
+       *  rather than as tall as the avatar: centring 11px text inside a 20px
+       *  disc pushes it 6px below the inset the left edge sets, which is the
+       *  top-heaviness this face exists to fix. The disc overflows the row
+       *  evenly instead, so the ID's gap from the top reads as its gap from the
+       *  left. */}
+      <div className="flex h-3.5 items-center gap-2">
         <span
-          className="text-[calc(11px*var(--text-scale))] tracking-[.04em] text-[var(--text-tertiary)]"
+          className="leading-none tracking-[.04em] text-[calc(11px*var(--text-scale))] text-[var(--text-tertiary)]"
           style={{ fontFamily: "var(--font-code)" }}
         >
           {item.id}
         </span>
-        {approvalPending ? (
-          <span className="ml-auto flex items-center gap-1 text-[calc(11px*var(--text-scale))] font-medium text-[var(--accent)]">
-            <Bell size={11} aria-hidden /> Approval
-          </span>
-        ) : item.dueAt ? (
+        <span className="ml-auto flex items-center gap-1">
+          {/* Hover-revealed here alone: the resting face is a fixed grid, and a
+           *  pin at rest in the row the avatar owns competes with it on every
+           *  card. The list row and the task page still show it at rest. */}
+          {onKeep && !ghost && (
+            <KeepToggle
+              id={item.id}
+              kept={item.kept}
+              onToggle={onKeep}
+              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+            />
+          )}
+          {item.assignee && (
+            <span title={assigneeName ?? undefined} className="flex-none">
+              <EmployeeAvatar name={item.assignee} size={20} fontSize={11} className="bg-[var(--fill-secondary)]" />
+            </span>
+          )}
+        </span>
+      </div>
+
+      {/* Row 2 — the state, then the only primary ink on the card. */}
+      <div className="flex items-start gap-2">
+        <StateCircle keyOf={stateKeyOf(item.status)} size={16} className="mt-[2px] flex-none" />
+        <div className="line-clamp-2 min-w-0 text-[calc(15px*var(--text-scale))] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:line-clamp-1 max-[700px]:text-[calc(16px*var(--text-scale))]">
+          {item.title}
+        </div>
+      </div>
+
+      {/* Row 3 — priority, labels, roll-up. Fixed height so a chip arriving with
+       *  enrichment fills the row instead of growing it. */}
+      <div className="flex h-5 items-center gap-[5px] overflow-hidden">
+        <PriorityGlyph priority={priority} muted />
+        {item.labels?.map((label) => (
           <span
-            className={`ml-auto flex items-center gap-1 text-[calc(11px*var(--text-scale))] ${overdue ? "text-[var(--system-red)]" : "text-[var(--text-tertiary)]"}`}
+            key={label.id}
+            className="flex h-5 flex-none items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[calc(11px*var(--text-scale))] font-medium text-[var(--text-secondary)]"
           >
-            <Calendar size={11} aria-hidden />
+            <span className="size-[5px] rounded-full" style={{ background: label.color ?? "var(--text-quaternary)" }} />
+            {label.name}
+          </span>
+        ))}
+        {rollup && (
+          <button
+            type="button"
+            data-testid={`board-rollup-${item.id}`}
+            aria-expanded={expanded}
+            aria-label={`${rollup.closed} of ${rollup.total} sub-tasks done — ${expanded ? "collapse" : "expand"}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleTree(item.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="focus-ring flex h-5 flex-none items-center gap-1 rounded-[10px] bg-[var(--fill-tertiary)] py-0 pl-[5px] pr-2 text-[calc(11px*var(--text-scale))] font-medium tabular-nums text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
+          >
+            <ChevronRight
+              size={10}
+              aria-hidden
+              className={`text-[var(--text-quaternary)] transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+            />
+            {rollup.closed}/{rollup.total}
+          </button>
+        )}
+      </div>
+
+      {/* Row 4 — what it has cost, and when it is due. The cost renders at $0.00
+       *  too: a row that only some cards have is a row that changes heights. */}
+      <div className="flex items-center gap-2 text-[calc(11px*var(--text-scale))]">
+        <span className="tabular-nums text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)" }}>
+          ${spendUsd.toFixed(2)}
+        </span>
+        {item.dueAt && (
+          <span className={`ml-auto ${overdue ? "text-[var(--system-red)]" : "text-[var(--text-tertiary)]"}`}>
             {formatDue(item.dueAt)}
           </span>
-        ) : spendUsd > 0 ? (
-          <span className="ml-auto text-[calc(11px*var(--text-scale))] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)" }}>
-            ${spendUsd.toFixed(2)}
-          </span>
-        ) : null}
-        {onKeep && !ghost && <KeepToggle id={item.id} kept={item.kept} onToggle={onKeep} className="-mr-1 ml-auto only:ml-auto" />}
+        )}
       </div>
-
-      {hasStopLead(item) && <StopCauseLead item={item} className="mt-1.5 max-[700px]:order-first max-[700px]:mt-0 max-[700px]:basis-full" />}
-
-      {/* Title — the only primary ink on the card. 2-line clamp / 1-line mobile. */}
-      <div className="mt-1 line-clamp-2 text-[calc(15px*var(--text-scale))] font-medium leading-[1.3] text-[var(--text-primary)] max-[700px]:m-0 max-[700px]:line-clamp-1 max-[700px]:min-w-0 max-[700px]:flex-1 max-[700px]:text-[calc(16px*var(--text-scale))]">
-        {item.title}
-      </div>
-      <KeptCaption item={item} className="mt-1" />
-
-      {bodyPreview && (
-        <div className="mt-1.5 line-clamp-1 min-w-0 text-[calc(12.5px*var(--text-scale))] leading-[1.35] text-[var(--text-tertiary)] max-[700px]:ml-[50px] max-[700px]:mt-[-4px] max-[700px]:basis-full max-[700px]:pr-2">
-          {bodyPreview}
-        </div>
-      )}
-
-      {/* Labels: dot + name chips. */}
-      {(item.labels?.length ?? 0) > 0 && (
-        <div className="mt-2 flex flex-wrap gap-[5px] max-[700px]:hidden">
-          {item.labels!.map((label) => (
-            <span
-              key={label.id}
-              className="flex h-5 items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[calc(11px*var(--text-scale))] font-medium text-[var(--text-secondary)]"
-            >
-              <span
-                className="size-[5px] rounded-full"
-                style={{ background: label.color ?? "var(--text-quaternary)" }}
-              />
-              {label.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Executing StateLine — delegation grammar verbatim. */}
-      {working && (
-        <div className="mt-2 flex items-center gap-1.5 text-[calc(12px*var(--text-scale))] font-medium text-[var(--system-blue)] max-[700px]:hidden">
-          <span className="size-1.5 flex-none rounded-full bg-[var(--system-blue)] motion-safe:animate-[jinn-pulse_1.4s_ease-in-out_infinite]" aria-hidden />
-          <span className="whitespace-nowrap">Working · {working}</span>
-          {sessionRefLabel && (
-            <span className="truncate text-[calc(11px*var(--text-scale))] font-normal text-[var(--text-tertiary)]" style={{ fontFamily: "var(--font-code)" }}>
-              {sessionRefLabel}
-            </span>
-          )}
-        </div>
-      )}
-
-      {reason && <CauseLine status={item.status} reason={reason} />}
-
-      {/* Footer: assignee · roll-up · spend right. */}
-      {(assigneeName || rollup || (spendUsd > 0 && (item.dueAt || approvalPending))) && (
-        <div className="mt-2 flex items-center gap-2 max-[700px]:m-0 max-[700px]:gap-1.5">
-          {assigneeName && (
-            <span className="flex min-w-0 items-center gap-1.5 text-[calc(12px*var(--text-scale))] text-[var(--text-secondary)]">
-              <EmployeeAvatar name={item.assignee!} size={20} fontSize={11} className="bg-[var(--fill-secondary)]" />
-              <span className="truncate max-[700px]:hidden">{assigneeName}</span>
-            </span>
-          )}
-          {rollup && (
-            <button
-              type="button"
-              data-testid={`board-rollup-${item.id}`}
-              aria-expanded={expanded}
-              aria-label={`${rollup.closed} of ${rollup.total} sub-tasks done — ${expanded ? "collapse" : "expand"}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleTree(item.id)
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="focus-ring flex h-5 items-center gap-1 rounded-[10px] bg-[var(--fill-tertiary)] py-0 pl-[5px] pr-2 text-[calc(11px*var(--text-scale))] font-medium tabular-nums text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
-            >
-              <ChevronRight
-                size={10}
-                aria-hidden
-                className={`text-[var(--text-quaternary)] transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
-              />
-              {rollup.closed}/{rollup.total}
-            </button>
-          )}
-          {spendUsd > 0 && (item.dueAt || approvalPending) && (
-            <span className="ml-auto text-[calc(11px*var(--text-scale))] text-[var(--text-quaternary)] max-[700px]:hidden" style={{ fontFamily: "var(--font-code)" }}>
-              ${spendUsd.toFixed(2)}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* In-place tree tray. */}
       {expanded && tree && (

@@ -1623,7 +1623,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 874
+      "lines": 869
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 307,
@@ -1657,7 +1657,6 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"
