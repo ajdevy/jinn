@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Play } from "lucide-react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   ApiError,
   WorkflowValidationApiError,
@@ -207,7 +206,6 @@ function WorkflowSurface({ store }: { store: EditorStoreApi }) {
     [setParams],
   )
   const queryClient = useQueryClient()
-  useBreadcrumbs([{ label: "Workflows", href: "/workflow" }, { label: meta.title }])
 
   const reload = useCallback(async () => {
     const fresh = await api.getWorkflowDefinitionV2(meta.id)

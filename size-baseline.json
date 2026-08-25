@@ -1344,7 +1344,6 @@
       ]
     },
     "packages/web/src/components/pill-nav.tsx": {
-      "lines": 444,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1506,14 +1505,14 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 305,
+      "lines": 303,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 346,
+      "lines": 344,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1605,7 +1604,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1489,
+      "lines": 1487,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1833,7 +1832,7 @@
       "lines": 322
     },
     "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
-      "lines": 476
+      "lines": 475
     },
     "packages/web/src/routes/workflow/editor/edge.tsx": {
       "exempt": [

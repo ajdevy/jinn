@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Plus, Workflow } from "lucide-react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   ApiError,
   api,
@@ -82,7 +81,6 @@ function useShelf(): { shelf: Shelf; setShelf: (next: Shelf) => void } {
 }
 
 export default function WorkflowListPage() {
-  useBreadcrumbs([{ label: "Workflows" }])
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const { shelf, setShelf } = useShelf()

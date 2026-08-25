@@ -3,7 +3,6 @@ import { useEffect, useState } from "react"
 import { RotateCcw, Trash2, Check, Save, Loader2, Plus, EyeOff } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { useSettings } from "@/routes/settings-provider"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
 import { authFetch } from "@/lib/auth"
 import { useModelRegistry } from "@/hooks/use-model-registry"
@@ -44,7 +43,6 @@ import {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  useBreadcrumbs([{ label: 'Settings' }])
   const {
     settings,
     setAccentColor,

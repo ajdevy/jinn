@@ -10,7 +10,6 @@ import { describe, it, expect, vi } from "vitest"
 import { render } from "@testing-library/react"
 import type { EngineLimitsResponse } from "@/lib/api"
 
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => {} }))
 vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
