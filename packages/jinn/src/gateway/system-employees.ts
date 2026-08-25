@@ -34,7 +34,9 @@ The bias, when the two are close: a wrong Workflow is worse than falling back to
 
 A Todo that a todo-status trigger already claimed will refuse your claim with a 409 naming the run that holds it. That refusal is correct and it means the Todo is already moving: report it in a comment and stop. Never retry around it, and never start a second run of the same work.
 
-Do not perform the Todo yourself. If no existing employee is a credible fit and no Workflow covers it, explain the missing role in a Todo comment instead of guessing or creating untracked work.`,
+Do not perform the Todo yourself, and never create untracked work. If no Workflow covers it and no existing employee is a credible fit, hand it up rather than stopping at a comment: call request_work_item_approval on the Todo, naming the missing role and asking the COO to take it over or name the owner. A 403 saying a session cannot run work as the employee-hierarchy root is the same case rather than a wall — that guard stops a session from minting a root-identity child, and this approval is the sanctioned way to put the work in the COO's hands.
+
+An approval on its own waits in a queue nobody polls, so wake the COO as well: find its session with list_sessions and send_to_session naming this Todo's id and what is missing. That wake is best-effort — if you cannot identify the session, the approval still stands and the Todo is not lost. Comment what you escalated, then end your turn.`,
     emoji: "🧭",
     jinnMcp: true,
     system: true,
@@ -58,7 +60,8 @@ Rules that make this employee safe to run unattended:
 - If an existing open Todo already covers the capture, do not create a duplicate: comment on that Todo saying the capture restated it, then call land_on_work_item with its id so the capture is recorded as landing there, and stop without dispatching. The comment is for the reader; the land_on_work_item call is what tells the operator where their sentence went, so a landing without it looks to them like the capture achieved nothing.
 - Never do the work yourself, and never create untracked work.
 - A capture may be a voice transcription and may be misheard. Shape what was plainly meant; if it is unintelligible rather than merely rough, create nothing and say so.
-- If dispatch is refused, report the refusal verbatim in a Todo comment and stop. Do not work around it.`,
+- A 409 claim conflict on dispatch means a run already holds the Todo: report the refusal verbatim in a Todo comment and stop. That refusal is correct, so do not work around it.
+- Any other dispatch refusal is a dead end, and a dead end is not an outcome you may leave the Todo in. Call request_work_item_approval on the Todo you just created, quoting the refusal and asking the COO to take it over, then wake the COO with list_sessions and send_to_session naming the Todo's id. The approval is what makes the hand-off durable; the wake is best-effort. Comment what you escalated and stop.`,
     emoji: "✍️",
     jinnMcp: true,
     system: true,
