@@ -22,7 +22,6 @@ const registry = vi.hoisted(() => ({ current: undefined as unknown }))
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
-vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock('@/routes/providers', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }))
 vi.mock('@/routes/settings-provider', () => ({
   useSettings: () => ({

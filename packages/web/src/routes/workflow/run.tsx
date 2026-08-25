@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
 import { Link, useParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api, type WorkflowRunDetailWire } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { RunCanvas } from "./run-canvas"
@@ -35,11 +34,6 @@ export default function WorkflowRunPage() {
     },
     enabled: Boolean(id && runId),
   })
-  useBreadcrumbs([
-    { label: "Workflows", href: "/workflow" },
-    { label: query.data?.workflowTitle ?? id, href: `/workflow/${encodeURIComponent(id)}` },
-    { label: "Run" },
-  ])
 
   const detail = query.data
   /** Opening a node whose prompt the snapshot predates — a retry dispatched

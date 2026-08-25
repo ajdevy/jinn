@@ -39,7 +39,6 @@ vi.mock("@/lib/api", () => {
 vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
 import { WorkflowValidationApiError } from "@/lib/api"
 import { DND_MIME } from "../editor/palette"

@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest"
 import { isNavItemActive } from "../pill-nav"
 import { navigationFor } from "@/lib/nav"
 
-// The single active-route rule shared by the rail (retired), drawer, popover and
-// pill. Root "/" matches ONLY the exact chat root; every other item matches by
+// The single active-route rule shared by the nav rail and the mobile tab bar.
+// Root "/" matches ONLY the exact chat root; every other item matches by
 // path prefix so nested routes (e.g. /todos/123) keep their nav item lit.
 describe("isNavItemActive", () => {
   it("matches root only on the exact chat path", () => {

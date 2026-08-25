@@ -1,7 +1,6 @@
 import { Beaker, ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { OverduePill } from "./overdue-pill"
 import { useExperiments } from "./use-experiments"
 import type { Experiment } from "./types"
@@ -58,7 +57,6 @@ function ExperimentGroup({ label, experiments }: { label: string; experiments: E
 }
 
 export default function ExperimentsPage() {
-  useBreadcrumbs([{ label: "Experiments" }])
   const query = useExperiments()
   const experiments = query.data?.experiments ?? []
   const running = experiments.filter((experiment) => experiment.status === "running")

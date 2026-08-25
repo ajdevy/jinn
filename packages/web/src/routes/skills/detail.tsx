@@ -6,7 +6,6 @@ import { api } from "@/lib/api"
 import { extraFrontmatter, parseSkillMd } from "@/lib/skills"
 import { MarkdownView } from "@/components/markdown-view"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 
 /* A skill opens as a document, not a modal: large-title header (name +
@@ -45,7 +44,6 @@ function DetailSkeleton() {
 export default function SkillDetailPage() {
   const params = useParams<{ name: string }>()
   const name = params.name ? decodeURIComponent(params.name) : ""
-  useBreadcrumbs(useMemo(() => [{ label: "Skills", href: "/skills" }, { label: name }], [name]))
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { theme } = useTheme()

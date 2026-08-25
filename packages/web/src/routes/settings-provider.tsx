@@ -280,7 +280,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 export const useSettings = () => useContext(SettingsContext)
 
 /** Sets document.title from the portal name setting. One-time write per change —
- *  no MutationObserver (it raced with Next.js metadata / breadcrumb-context). */
+ *  no MutationObserver (it raced with the other writers of the title). */
 export function DocumentTitle() {
   const { settings } = useSettings()
 
