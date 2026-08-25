@@ -107,6 +107,8 @@ export interface TurnPlan {
   promptToRun: string;
   /** True when the prompt carries a sync transcript whose markers settle clears. */
   syncRequested: boolean;
+  /** True when the prompt carries messages an interrupt kept from the engine. */
+  carriedInterruptedPrompts: boolean;
   /** Built per model attempt, because a model fallback re-fingerprints context. */
   prepareContext: (model: string | undefined) => {
     fingerprint: string;

@@ -12,7 +12,11 @@ import {
 import { settleTurn, type SettleTurnInput } from "./completion.js";
 import type { EngineAttempt } from "./engine-run.js";
 import { withSyncMarkersCleared } from "./preflight.js";
-import { clearSupersededTurnMeta } from "./superseded.js";
+import {
+  clearSupersededTurnMeta,
+  retainUnseenInterruptedPrompt,
+  withUnseenInterruptedPromptsCleared,
+} from "./superseded.js";
 import { shouldPersistFinalAssistantMessage, turnDisplayText } from "./text.js";
 import type { TurnInput, TurnRun, TurnSurface } from "./types.js";
 
@@ -37,12 +41,22 @@ export async function settleRefusedTurn(
   await surface.reply(`⛔ ${error}`);
 }
 
+/** What the runner observed about how this turn ended, beyond its result. */
+export interface TurnVerdict {
+  quietPreempted: boolean;
+  streamedThrough: number;
+  /** A newer user message displaced this turn. */
+  superseded: boolean;
+  /** The engine got far enough to have this turn's prompt in its own transcript. */
+  enginePromptRead: boolean;
+}
+
 /** Settle a turn that reached the engine, whether or not its answer is wanted. */
 export async function settleAnsweredTurn(
   run: TurnRun,
   attempt: EngineAttempt,
   model: string | undefined,
-  verdict: { quietPreempted: boolean; streamedThrough: number },
+  verdict: TurnVerdict,
 ): Promise<void> {
   const sessionId = run.input.session.id;
   const { engineName } = run.plan;
@@ -55,10 +69,11 @@ export async function settleAnsweredTurn(
   }
 
   const settled = await settleTurn({
-    ...answeredReceipt(run, attempt, model, quietPreempted),
+    ...answeredReceipt(run, attempt, model, verdict),
     surface: run.surface,
   });
 
+  holdPromptTheEngineNeverRead(run, verdict);
   if (!quietPreempted && engineName === "claude") markTranscriptSyncedThrough(sessionId, result.sessionId);
   clearSupersededTurnMeta(sessionId);
   if (settled && displayText) await run.surface.reply(displayText);
@@ -70,13 +85,24 @@ export async function settleAnsweredTurn(
   );
 }
 
+/**
+ * A newer message can cut a turn off before the engine reads its prompt, which
+ * leaves the engine with no record of it at all. Hold it for the next turn to
+ * carry, or it is lost from the conversation the engine sees.
+ */
+function holdPromptTheEngineNeverRead(run: TurnRun, verdict: TurnVerdict): void {
+  if (!verdict.superseded || verdict.enginePromptRead) return;
+  retainUnseenInterruptedPrompt(run.input.session.id, run.input.prompt);
+}
+
 /** The receipt a turn that reached the engine writes, preempted or not. */
 function answeredReceipt(
   run: TurnRun,
   attempt: EngineAttempt,
   model: string | undefined,
-  quietPreempted: boolean,
+  verdict: TurnVerdict,
 ): Omit<SettleTurnInput, "surface"> {
+  const { quietPreempted } = verdict;
   const result = attempt.result;
   const answered = !quietPreempted && !result.error;
   return {
@@ -89,7 +115,7 @@ function answeredReceipt(
     durationMs: result.durationMs,
     accounting: result,
     ...(answered ? filedEngineSession(run, attempt, model) : {}),
-    fields: buildTerminalFields(run, result.contextTokens, run.plan.syncRequested && !quietPreempted),
+    fields: buildTerminalFields(run, result.contextTokens, verdict),
     employee: run.input.employee,
     // An interrupted turn stays silent upward: whoever interrupted it reports.
     notifyParent: !quietPreempted,
@@ -133,12 +159,18 @@ export async function settleThrownTurn(run: TurnRun, errMsg: string): Promise<vo
   await run.surface.reply(`Error: ${errMsg}`);
 }
 
-function buildTerminalFields(run: TurnRun, contextTokens: number | undefined, clearSyncMarkers: boolean): UpdateSessionFields {
+function buildTerminalFields(run: TurnRun, contextTokens: number | undefined, verdict: TurnVerdict): UpdateSessionFields {
   const fields: UpdateSessionFields = { ...run.terminalFields() };
   if (typeof contextTokens === "number") fields.lastContextTokens = contextTokens;
-  if (clearSyncMarkers) {
-    const meta = fields.transportMeta ?? getSession(run.input.session.id)?.transportMeta;
-    fields.transportMeta = withSyncMarkersCleared(meta) as UpdateSessionFields["transportMeta"];
+  const clearSyncMarkers = run.plan.syncRequested && !verdict.quietPreempted;
+  // The held prompts this turn put in front of the engine are owed no longer,
+  // and only the engine having read them settles that.
+  const clearCarriedPrompts = run.plan.carriedInterruptedPrompts && verdict.enginePromptRead;
+  if (clearSyncMarkers || clearCarriedPrompts) {
+    let meta: unknown = fields.transportMeta ?? getSession(run.input.session.id)?.transportMeta;
+    if (clearSyncMarkers) meta = withSyncMarkersCleared(meta);
+    if (clearCarriedPrompts) meta = withUnseenInterruptedPromptsCleared(meta);
+    fields.transportMeta = meta as UpdateSessionFields["transportMeta"];
   }
   return fields;
 }
