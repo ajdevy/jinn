@@ -11,12 +11,14 @@ type Runs = typeof import("../runs.js");
 type Rows = typeof import("../recovery-rows.js");
 type Controller = typeof import("../recovery-controller.js");
 type Claims = typeof import("../claims.js");
+type Recovery = typeof import("../recovery.js");
 
 let store: Store;
 let runs: Runs;
 let rows: Rows;
 let controller: Controller;
 let claims: Claims;
+let recovery: Recovery;
 let db: import("better-sqlite3").Database;
 
 beforeAll(async () => {
@@ -25,6 +27,7 @@ beforeAll(async () => {
   rows = await import("../recovery-rows.js");
   controller = await import("../recovery-controller.js");
   claims = await import("../claims.js");
+  recovery = await import("../recovery.js");
   db = (await import("../../shared/db.js")).initDb();
 });
 
@@ -134,18 +137,32 @@ describe("sweepTodoRecovery", () => {
     runs.closeWorkItemRun(run.id, { outcome: "completed", endedAt: new Date().toISOString() });
     rows.upsertWorkItemRecovery({
       workItemId: item.id,
-      incidentId: `anomaly:approved-landed-open:${item.id}`,
-      class: "code",
+      incidentId: run.id,
+      class: "operator",
       lane: "manager",
       reason: "approved landing is still open",
     });
 
     controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
 
-    expect(rows.getWorkItemRecovery(item.id)).toMatchObject({
-      lane: "manager",
-      incidentId: `anomaly:approved-landed-open:${item.id}`,
-    });
+    expect(rows.getWorkItemRecovery(item.id)).toMatchObject({ lane: "manager", incidentId: run.id });
     expect(store.listWorkItems({ needsAttentionFor: "operator" }).map((row) => row.id)).toContain(item.id);
+  });
+
+  it("stops re-arming after MAX_RECOVERY_ATTEMPTS and records the exhaustion", () => {
+    const { id } = parked("repeatedly failing build", "the build step exited with code 1");
+    const rearm: string[] = [];
+    const sweep = () => controller.sweepTodoRecovery({
+      mode: "auto",
+      rearm: (todoId) => { rearm.push(todoId); return { status: "assigned" }; },
+    });
+    sweep();
+    expect(rows.getWorkItemRecovery(id)?.attempts).toBe(1);
+    sweep();
+    expect(rows.getWorkItemRecovery(id)?.attempts).toBe(recovery.MAX_RECOVERY_ATTEMPTS);
+    sweep();
+    expect(rearm.filter((todoId) => todoId === id)).toHaveLength(recovery.MAX_RECOVERY_ATTEMPTS);
+    expect(store.listWorkItemEvents(id).some((event) => event.kind === "recovery_exhausted")).toBe(true);
+    expect(rows.getWorkItemRecovery(id)).toMatchObject({ lane: "manager", reason: "automatic repair attempts exhausted" });
   });
 });

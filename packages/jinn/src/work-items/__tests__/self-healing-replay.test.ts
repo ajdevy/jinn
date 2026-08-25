@@ -20,7 +20,6 @@ describe("historical incident replay — classifier", () => {
         error: "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z",
         endedAt: "2026-08-20T12:00:00.000Z",
       },
-      labels: ["build"],
     });
     expect(verdict).toMatchObject({ class: "transient", lane: "recovering" });
   });
@@ -34,7 +33,6 @@ describe("historical incident replay — classifier", () => {
         error: "the build step exited with code 1",
         endedAt: "2026-08-20T12:00:00.000Z",
       },
-      labels: ["build"],
     });
     expect(verdict).toMatchObject({ class: "code", lane: "manager" });
   });
@@ -48,7 +46,6 @@ describe("historical incident replay — classifier", () => {
         error: "independent review rejected the diff",
         endedAt: "2026-08-20T12:00:00.000Z",
       },
-      labels: ["build"],
       verifyMode: "thorough",
     });
     expect(verdict).toMatchObject({ class: "verification", lane: "manager" });
@@ -63,7 +60,6 @@ describe("historical incident replay — classifier", () => {
         error: "401 Unauthorized: invalid api key",
         endedAt: "2026-08-20T12:00:00.000Z",
       },
-      labels: ["build"],
     });
     expect(verdict).toMatchObject({ class: "security", lane: "manager" });
   });
@@ -72,7 +68,6 @@ describe("historical incident replay — classifier", () => {
     const verdict = classifyRecovery({
       todo: { id: "PLA-5", status: "in_review", assignee: "platform-worker", source: "session" },
       approval: { state: "pending", operatorOnly: true },
-      labels: ["build"],
     });
     expect(verdict).toMatchObject({ class: "operator", lane: "operator" });
   });
@@ -80,7 +75,6 @@ describe("historical incident replay — classifier", () => {
   it("ordinary backlog never classifies as recovering", () => {
     const verdict = classifyRecovery({
       todo: { id: "PLA-6", status: "backlog", assignee: null, source: "human" },
-      labels: [],
     });
     expect(verdict.lane).not.toBe("recovering");
     expect(verdict.class).toBe("operator");
@@ -96,10 +90,34 @@ describe("historical incident replay — classifier", () => {
         endedAt: "2026-08-20T12:00:00.000Z",
       },
       approval: { state: "approved", operatorOnly: false },
-      labels: ["build"],
     });
     expect(verdict).toMatchObject({ lane: "manager" });
     expect(verdict.lane).not.toBe("operator");
+  });
+
+  it("a pipeline Todo assigned with no run and no fresh attempt is recovering", () => {
+    const verdict = classifyRecovery({
+      todo: { id: "PLA-16", status: "assigned", assignee: "platform-worker", source: "workflow" },
+      lastRun: { id: "run_old", outcome: "completed", error: null, endedAt: "2026-08-20T12:00:00.000Z" },
+      owningWorkflowId: "pipeline",
+      now: new Date("2026-08-20T12:30:00.000Z"),
+    });
+    expect(verdict).toMatchObject({ class: "transient", lane: "recovering", reason: "assigned to a pipeline with no active run" });
+  });
+
+  it("execution past the 4h timeout with a dead session is manager, and the same run keeps it there while the session lives", () => {
+    const stalled = {
+      todo: { id: "PLA-17", status: "executing", assignee: "platform-worker", source: "workflow" },
+      openRun: { startedAt: "2026-08-20T12:00:00.000Z", sessionInFlight: false },
+      now: new Date("2026-08-20T17:00:00.000Z"),
+    };
+    expect(classifyRecovery(stalled)).toMatchObject({ class: "code", lane: "manager" });
+    expect(classifyRecovery({ ...stalled, openRun: { ...stalled.openRun, sessionInFlight: true } }).lane).toBe("operator");
+  });
+
+  it("an in_review Todo with no pending approval and no reviewer is manager, not Needs you", () => {
+    const verdict = classifyRecovery({ todo: { id: "PLA-18", status: "in_review", assignee: null, source: "workflow" } });
+    expect(verdict).toMatchObject({ lane: "manager", reason: "in review with no pending approval and no reviewer" });
   });
 });
 

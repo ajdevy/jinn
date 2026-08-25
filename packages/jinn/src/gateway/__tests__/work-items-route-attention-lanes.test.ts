@@ -41,8 +41,8 @@ describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
     const rows = await import("../../work-items/recovery-rows.js");
     rows.upsertWorkItemRecovery({
       workItemId: item.id,
-      incidentId: "anomaly:approved-landed-open",
-      class: "code",
+      incidentId: "run_landed",
+      class: "operator",
       lane: "manager",
       reason: "approved landing is still open",
     });
@@ -85,7 +85,7 @@ describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
     return res.body.workItems as Array<Record<string, unknown>>;
   }
 
-  it("QPR-4: refused-complete leftover survives detect then sweep into Manager attention", async () => {
+  it("QPR-4: refused-complete leftover survives the recovery tick into Manager attention", async () => {
     const detect = await import("../../work-items/anomaly-detect.js");
     const controller = await import("../../work-items/recovery-controller.js");
     const runs = await import("../../work-items/runs.js");
@@ -114,12 +114,10 @@ describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
     approvals.decideWorkItemApprovalSync({ id: item.id, decision: "approve", decidedBy: "operator" });
     expect(store.getWorkItem(item.id)!.status).toBe("in_review");
 
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
     detect.detectTodoAnomalies({ persist: true,
       approvedLandingComplete: (todoId) => todoId === item.id,
       closeApprovedLanded: () => false });
-    expect(rows.getWorkItemRecovery(item.id)?.lane).toBe("manager");
-
-    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
     expect(rows.getWorkItemRecovery(item.id)?.lane).toBe("manager");
 
     const feed = await attentionFeed();

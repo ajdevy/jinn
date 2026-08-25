@@ -88,6 +88,13 @@ function createWorkflowRun(todoId: string, state: "running" | "completed" | "fai
   return { workflowId: definition.id, runId: run.id };
 }
 
+function tick(mode: "classify-only" | "auto" = "classify-only"): void {
+  controller.sweepTodoRecovery({ mode, rearm: () => ({ status: "assigned" }) });
+  detect.detectTodoAnomalies({ persist: true,
+    approvedLandingComplete: (todoId) => recovery.approvedLandingComplete(todoId, workflowRepository),
+    closeApprovedLanded: (todoId) => recovery.closeApprovedLanded(todoId, workflowRepository) });
+}
+
 describe("closeApprovedLanded", () => {
   it("closes only when the exact approved Workflow run completed its success End", () => {
     const item = store.createWorkItem({
@@ -169,7 +176,7 @@ describe("closeApprovedLanded", () => {
     expect(recovery.closeApprovedLanded(item.id, workflowRepository)).toBe(false);
   });
 
-  it("keeps a refused open-child leftover on Manager attention across sweep-then-detect ticks", () => {
+  it("keeps a refused open-child leftover on Manager attention across repeated ticks", () => {
     const item = store.createWorkItem({
       title: "approved landing with open child", status: "assigned", assignee: "platform-worker",
     });
@@ -192,17 +199,45 @@ describe("closeApprovedLanded", () => {
     expect(recovery.closeApprovedLanded(item.id, workflowRepository)).toBe(false);
     expect(store.getWorkItem(item.id)!.status).toBe("in_review");
 
-    const tick = (): void => {
-      controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
-      detect.detectTodoAnomalies({ persist: true,
-        approvedLandingComplete: (todoId) => recovery.approvedLandingComplete(todoId, workflowRepository),
-        closeApprovedLanded: (todoId) => recovery.closeApprovedLanded(todoId, workflowRepository) });
-    };
     tick();
     tick();
 
     expect(store.getWorkItem(item.id)!.status).toBe("in_review");
     expect(rows.getWorkItemRecovery(item.id)).toMatchObject({ lane: "manager" });
     expect(store.listWorkItems({ needsAttentionFor: "operator" }).map((row) => row.id)).toContain(item.id);
+  });
+
+  it("keeps the classifier's verdict when the detector disagrees, across repeated ticks", () => {
+    const item = store.createWorkItem({
+      title: "failed pipeline attempt", status: "assigned", assignee: "platform-worker",
+    });
+    const sessionId = `s-disagree-${item.id}`;
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, work_item_id, created_at, last_activity)
+       VALUES (?, 'claude', 'cron', ?, 'idle', ?, ?, ?)`,
+    ).run(sessionId, `cron:${sessionId}`, item.id, new Date().toISOString(), new Date().toISOString());
+    const attempt = runs.openWorkItemRun({ workItemId: item.id, sessionId });
+    runs.closeWorkItemRun(attempt.id, {
+      outcome: "crashed", endedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+      error: "the build step exited with code 1",
+    });
+    store.appendWorkItemEvent({
+      workItemId: item.id, kind: "status_change", fromStatus: "backlog", toStatus: "assigned",
+      actor: "workflow:run", detail: { workflowId: "pipeline", runId: attempt.id }, versionEffect: "audit",
+    });
+    expect(detect.detectAnomalyFor(item.id)).toMatchObject({ kind: "assigned-without-run", lane: "recovering" });
+
+    tick();
+    const classified = rows.getWorkItemRecovery(item.id)!;
+    tick();
+    expect(rows.getWorkItemRecovery(item.id)).toEqual(classified);
+    expect(classified).toMatchObject({ class: "code", lane: "manager", attempts: 0, incidentId: attempt.id, reason: "the attempt failed in the work itself" });
+
+    tick("auto");
+    expect(rows.getWorkItemRecovery(item.id)).toMatchObject({ incidentId: attempt.id, attempts: 1 });
+    tick("auto");
+    expect(rows.getWorkItemRecovery(item.id)).toMatchObject({ incidentId: attempt.id, attempts: 2 });
+    expect(store.listWorkItemEvents(item.id)
+      .filter((event) => event.kind === "recovery_classified")).toHaveLength(1);
   });
 });

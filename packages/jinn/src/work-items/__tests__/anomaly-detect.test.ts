@@ -10,11 +10,15 @@ type Store = typeof import("../store.js");
 type Runs = typeof import("../runs.js");
 type Detect = typeof import("../anomaly-detect.js");
 type Approvals = typeof import("../approvals.js");
+type Controller = typeof import("../recovery-controller.js");
+type Rows = typeof import("../recovery-rows.js");
 
 let store: Store;
 let runs: Runs;
 let detect: Detect;
 let approvals: Approvals;
+let controller: Controller;
+let rows: Rows;
 let db: import("better-sqlite3").Database;
 
 beforeAll(async () => {
@@ -22,6 +26,8 @@ beforeAll(async () => {
   runs = await import("../runs.js");
   detect = await import("../anomaly-detect.js");
   approvals = await import("../approvals.js");
+  controller = await import("../recovery-controller.js");
+  rows = await import("../recovery-rows.js");
   db = (await import("../../shared/db.js")).initDb();
 });
 
@@ -109,6 +115,7 @@ describe("detectTodoAnomalies", () => {
     detect.detectTodoAnomalies({ persist: true,
       approvedLandingComplete: (todoId) => todoId === item.id,
       closeApprovedLanded: () => false });
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
     const hits = store.listWorkItems({ needsAttentionFor: "operator" }).map((row) => row.id);
     expect(hits).toContain(item.id);
   });
@@ -125,7 +132,7 @@ describe("detectTodoAnomalies", () => {
     expect(detect.detectAnomalyFor(item.id)).toBeUndefined();
   });
 
-  it("writes no anomaly rows when persist is off", () => {
+  it("never writes a recovery row, and skips the audit event when persist is off", () => {
     const item = store.createWorkItem({ title: "stuck assigned off", status: "assigned" });
     store.appendWorkItemEvent({
       workItemId: item.id, kind: "status_change", fromStatus: "backlog", toStatus: "assigned",
@@ -133,5 +140,8 @@ describe("detectTodoAnomalies", () => {
     });
     detect.detectTodoAnomalies({ persist: false });
     expect(store.listWorkItemEvents(item.id).some((event) => event.kind === "anomaly_observed")).toBe(false);
+    expect(rows.getWorkItemRecovery(item.id)).toBeUndefined();
+    expect(detect.detectTodoAnomalies({ persist: true }).some((row) => row.workItemId === item.id)).toBe(true);
+    expect(rows.getWorkItemRecovery(item.id)).toBeUndefined();
   });
 });
