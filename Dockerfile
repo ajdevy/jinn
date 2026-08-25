@@ -78,6 +78,9 @@ RUN git config --system --add safe.directory '*'
 ARG CLAUDE_CODE_VERSION=2.1.220
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
+ARG CODEX_CLI_VERSION=0.149.0
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
+
 # Without this the pin is defeatable: the CLI is installed root-owned but runs as
 # `node`, so the updater either warns every turn or relocates itself onto the
 # writable volume, where the drift then survives rebuilds. Unprefixed on purpose —
