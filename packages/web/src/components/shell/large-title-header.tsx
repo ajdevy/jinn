@@ -32,14 +32,17 @@ function TitleBar({ title, trailing }: { title: ReactNode; trailing: ReactNode }
       data-slot="large-title-bar"
       className="jinn-title-bar sticky z-20 grid min-h-11 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-2 bg-[var(--material-thick)] backdrop-blur"
     >
-      {/* The title centres in the space `trailing` leaves, not on the bar: `1fr`
-          floors a track at its own min-content, so the trailing track keeps its
-          width while the empty leading one collapses to 0 and the outer tracks
-          never match. Matching them wants the trailing width on the leading side,
-          which means measuring in JS or mirroring the buttons — neither is worth
-          it for a few pixels. What the shrinking title track does buy is
-          truncation against the buttons instead of a run underneath them, and the
-          bar is a constant 44px, so one line is all it gets.
+      {/* Three columns, and which of the two outer ones gives way decides where
+          the title sits. While the title fits, both `1fr` tracks take an equal
+          share and it is centred on the bar. Once it is long enough to eat the
+          free space, the empty leading track collapses first — `1fr` floors a
+          track at its own min-content, and an empty one's is 0 while the trailing
+          one's is its buttons — so the title shifts left (39px at 390px on a bar
+          carrying a 78px trailing control) and truncates against them rather than
+          running underneath. Holding the centre through that would mean the
+          trailing width on the leading side: JS measurement, or a mirrored copy
+          of the buttons. Neither is worth those 39px. The bar is a constant 44px,
+          so one line is all the title gets either way.
           `aria-hidden` because the real <h1> is still in the scroll flow above:
           announced, this copy would give the page a second heading. */}
       <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none col-start-2 truncate text-center lg:hidden", INLINE_TITLE_CLASS)}>
