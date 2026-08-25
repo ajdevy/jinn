@@ -122,7 +122,6 @@ export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
 } from "../sessions/turn/text.js";
-import { decideJinnAttachment } from "../mcp/attachment.js";
 import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
