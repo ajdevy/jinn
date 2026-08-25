@@ -5,10 +5,14 @@ import type { AuthLogger } from "./auth-flow-types.js";
 import { JINN_HOME } from "../../shared/paths.js";
 
 const STATE_DIR = path.join(JINN_HOME, "state", "telegram-auth-menu-owners");
+let testStateScope: string | undefined;
+
+export function setTelegramAuthMenuStateScope(scope?: string): void {
+  testStateScope = scope;
+}
 
 function stateDirectory(): string {
-  const scope = process.env.VITEST ? process.env.JINN_TELEGRAM_AUTH_TEST_SCOPE : undefined;
-  return scope ? path.join(STATE_DIR, scope) : STATE_DIR;
+  return testStateScope ? path.join(STATE_DIR, testStateScope) : STATE_DIR;
 }
 
 function ownerId(value: unknown): number | null {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { TelegramConnectorConfig } from "../../../shared/types.js";
 import { JINN_HOME } from "../../../shared/paths.js";
+import { setTelegramAuthMenuStateScope } from "../telegram-auth-menu-state.js";
 
 export { fs, path, JINN_HOME };
 
@@ -63,6 +64,7 @@ export function mockClaudeAuthStatus(loggedIn = false): void {
 
 export function resetAuthFixtures(scope = "default"): void {
   vi.clearAllMocks();
+  setTelegramAuthMenuStateScope(scope);
   process.env.JINN_TELEGRAM_AUTH_TEST_SCOPE = scope;
   mockExecFile.mockReset();
   mockClaudeAuthStatus();
