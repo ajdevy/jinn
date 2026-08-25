@@ -74,6 +74,7 @@ export interface AuthFlowManagerOptions {
     messageId: number | string,
   ) => void | Promise<void>;
   spawnPty: SpawnPty;
+  providerEnv?: Record<string, string>;
   verifyAuth?: (provider: AuthProvider) => Promise<boolean>;
   deleteSensitiveInputFromNonOwners?: boolean;
   verifyTimeoutSeconds?: number;
@@ -279,6 +280,7 @@ export class AuthFlowManager {
   private readonly send: AuthFlowManagerOptions["send"];
   private readonly deleteMessage: AuthFlowManagerOptions["deleteMessage"];
   private readonly spawnPty: SpawnPty;
+  private readonly providerEnv: Record<string, string>;
   private readonly verifyAuth: AuthFlowManagerOptions["verifyAuth"];
   private readonly deleteSensitiveInputFromNonOwners: boolean;
   private readonly verifyTimeoutSeconds: number;
@@ -302,6 +304,12 @@ export class AuthFlowManager {
     this.send = options.send;
     this.deleteMessage = options.deleteMessage;
     this.spawnPty = options.spawnPty;
+    this.providerEnv = options.providerEnv ?? {
+      PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      HOME: "/home/node",
+      CLAUDE_CONFIG_DIR: "/home/node/.claude",
+      CODEX_HOME: "/home/node/.codex",
+    };
     this.verifyAuth = options.verifyAuth;
     this.deleteSensitiveInputFromNonOwners =
       options.deleteSensitiveInputFromNonOwners === true;
@@ -482,14 +490,7 @@ export class AuthFlowManager {
         cols: 120,
         rows: 40,
         cwd: "/home/node",
-        env: {
-          PATH:
-            process.env.PATH ??
-            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-          HOME: "/home/node",
-          CLAUDE_CONFIG_DIR: "/home/node/.claude",
-          CODEX_HOME: "/home/node/.codex",
-        },
+        env: this.providerEnv,
       });
     } catch {
       await this.sendSafely(chatId, providerLabel(provider) + " authentication failed to start.");

@@ -35,9 +35,7 @@ import {
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 const AUTH_ENV = {
-  PATH:
-    process.env.PATH ??
-    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   HOME: "/home/node",
   CLAUDE_CONFIG_DIR: "/home/node/.claude",
   CODEX_HOME: "/home/node/.codex",
@@ -254,6 +252,7 @@ export class TelegramConnector implements Connector {
           await this.bot.deleteMessage(String(chatId), Number(messageId));
         },
         spawnPty: (file, args, options) => pty.spawn(file, args, options),
+        providerEnv: AUTH_ENV,
         verifyAuth: (provider) => this.verifyProviderAuth(provider),
         deleteSensitiveInputFromNonOwners: true,
         logger,
