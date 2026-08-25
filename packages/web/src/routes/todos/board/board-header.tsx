@@ -4,6 +4,22 @@ import type { DepartmentSummaryWire } from "@/lib/api"
 import type { BoardId } from "./board-route"
 import { BoardSwitcher } from "./board-switcher"
 
+type BoardCounts = {
+  isAttention: boolean
+  attentionCount: number
+  openCount: number
+  blockedTotal: number
+  escalatedTotal: number
+}
+
+type BoardHeaderProps = BoardCounts & {
+  board: BoardId
+  title: string
+  departments: DepartmentSummaryWire[] | undefined
+  deptPrefix: string | undefined
+  onQuickCapture: () => void
+}
+
 function Dot() {
   return <span aria-hidden className="size-[2.5px] rounded-full bg-[var(--text-quaternary)]" />
 }
@@ -30,66 +46,56 @@ function QuickCaptureButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-export function BoardHeader({
-  board,
-  title,
-  departments,
-  attentionCount,
+function BoardSubtitle({
+  isHome,
   deptPrefix,
   isAttention,
+  attentionCount,
   openCount,
   blockedTotal,
   escalatedTotal,
-  onQuickCapture,
-}: {
-  board: BoardId
-  title: string
-  departments: DepartmentSummaryWire[] | undefined
-  attentionCount: number
-  deptPrefix: string | undefined
-  isAttention: boolean
-  openCount: number
-  blockedTotal: number
-  escalatedTotal: number
-  onQuickCapture: () => void
-}) {
+}: BoardCounts & { isHome: boolean; deptPrefix: string | undefined }) {
+  return (
+    <>
+      {isHome && <p>The Todos you created or pinned.</p>}
+      <div className="flex items-center gap-2">
+        {deptPrefix && (
+          <>
+            <span className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)", letterSpacing: ".04em" }}>
+              {deptPrefix}
+            </span>
+            <Dot />
+          </>
+        )}
+        {isAttention ? (
+          <span>{attentionCount} waiting</span>
+        ) : (
+          <>
+            <span>{openCount} open</span>
+            {blockedTotal > 0 && (
+              <>
+                <Dot />
+                <span>{blockedTotal} blocked</span>
+              </>
+            )}
+            {escalatedTotal > 0 && (
+              <>
+                <Dot />
+                <span>{escalatedTotal} escalated</span>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+export function BoardHeader({ board, title, departments, deptPrefix, onQuickCapture, ...counts }: BoardHeaderProps) {
   return (
     <LargeTitleHeader
-      title={<BoardSwitcher board={board} title={title} departments={departments} attentionCount={attentionCount} />}
-      subtitle={
-        <>
-          {board.kind === "home" && <p>The Todos you created or pinned.</p>}
-          <div className="flex items-center gap-2">
-            {deptPrefix && (
-              <>
-                <span className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)", letterSpacing: ".04em" }}>
-                  {deptPrefix}
-                </span>
-                <Dot />
-              </>
-            )}
-            {isAttention ? (
-              <span>{attentionCount} waiting</span>
-            ) : (
-              <>
-                <span>{openCount} open</span>
-                {blockedTotal > 0 && (
-                  <>
-                    <Dot />
-                    <span>{blockedTotal} blocked</span>
-                  </>
-                )}
-                {escalatedTotal > 0 && (
-                  <>
-                    <Dot />
-                    <span>{escalatedTotal} escalated</span>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </>
-      }
+      title={<BoardSwitcher board={board} title={title} departments={departments} attentionCount={counts.attentionCount} />}
+      subtitle={<BoardSubtitle isHome={board.kind === "home"} deptPrefix={deptPrefix} {...counts} />}
       trailing={<QuickCaptureButton onClick={onQuickCapture} />}
     />
   )
