@@ -104,7 +104,9 @@ function answeredReceipt(
 ): Omit<SettleTurnInput, "surface"> {
   const { quietPreempted } = verdict;
   const result = attempt.result;
-  const answered = !quietPreempted && !result.error;
+  // A turn that failed on its own files nothing. A preempted one still files,
+  // because it may have minted the thread the interrupted message now lives in.
+  const filesEngineSession = quietPreempted || !result.error;
   return {
     sessionId: run.input.session.id,
     attemptToken: run.input.attemptToken,
@@ -114,7 +116,7 @@ function answeredReceipt(
     cost: result.cost,
     durationMs: result.durationMs,
     accounting: result,
-    ...(answered ? filedEngineSession(run, attempt, model) : {}),
+    ...(filesEngineSession ? filedEngineSession(run, attempt, model, quietPreempted) : {}),
     fields: buildTerminalFields(run, result.contextTokens, verdict),
     employee: run.input.employee,
     // An interrupted turn stays silent upward: whoever interrupted it reports.
@@ -123,16 +125,29 @@ function answeredReceipt(
 }
 
 /**
- * The engine session a successful turn files for the next resume. Falling back
- * to the id we resumed from keeps a turn that answered without echoing its own
- * session id from orphaning the engine session it actually used.
+ * The engine session this turn files for the next resume, if any.
+ *
+ * A turn that answered files the thread it used, falling back to the one it
+ * resumed from so a turn that answered without echoing its own session id does
+ * not orphan the engine session it actually used.
+ *
+ * A turn a newer message cut off files only a thread it MINTED. That thread
+ * holds whatever the engine recorded of the interrupted message, and nothing
+ * else will ever resume it — on a fresh session that is the whole of message
+ * one. The id it merely resumed from is already the successor's, and rewriting
+ * it here would stamp this turn's context fingerprint onto a refresh the engine
+ * never finished consuming.
  */
 function filedEngineSession(
   run: TurnRun,
   attempt: EngineAttempt,
   model: string | undefined,
+  quietPreempted: boolean,
 ): Pick<SettleTurnInput, "engineSession"> {
-  const nativeId = attempt.result.sessionId?.trim() || run.plan.resumeNativeId;
+  const echoed = attempt.result.sessionId?.trim();
+  const nativeId = quietPreempted
+    ? (echoed === run.plan.resumeNativeId ? undefined : echoed)
+    : (echoed || run.plan.resumeNativeId);
   if (!nativeId) return {};
   return {
     engineSession: {

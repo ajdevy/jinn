@@ -15,6 +15,8 @@ const { supersedeRunningTurn } = await import("../turn/superseded.js");
 
 const ENGINE = "claude";
 const THREAD = "engine-thread-1";
+/** The thread a fresh session's first turn mints on the engine. */
+const MINTED_THREAD = "engine-thread-minted";
 
 const silentSurface: TurnSurface = {
   started: async () => {},
@@ -74,6 +76,11 @@ function establishedSession(sourceRef: string): string {
   const created = reg.createSession({ engine: ENGINE, source: "web", sourceRef, model: "opus" });
   reg.recordEngineSessionId(created.id, ENGINE, THREAD, { model: "opus" });
   return created.id;
+}
+
+/** A brand-new session: its first turn is what mints the engine thread. */
+function freshSession(sourceRef: string): string {
+  return reg.createSession({ engine: ENGINE, source: "web", sourceRef, model: "opus" }).id;
 }
 
 describe("a message interrupted before the engine read it still reaches the engine", () => {
@@ -159,6 +166,27 @@ describe("a message interrupted before the engine read it still reaches the engi
     await runOne(engine, sessionId, "Hey");
     await runOne(engine, sessionId, "Ho");
 
+    expect(calls[1]!.prompt).toBe("Ho");
+  });
+
+  it("keeps the thread a newer message orphaned, so the next turn resumes it", async () => {
+    const sessionId = freshSession("web:fresh-minted-thread");
+    // The engine minted a thread and answered into it before the kill, so the
+    // interrupted message is recorded there and nowhere else.
+    const { engine, calls } = recordingEngine(async (opts, call) => {
+      if (call === 1) {
+        opts.onStream?.({ type: "text", content: "working on it" });
+        supersedeRunningTurn(reg.getSession(sessionId)!);
+        return { sessionId: MINTED_THREAD, result: "", error: "Interrupted by a new message" };
+      }
+      return answered("ok");
+    });
+
+    await runOne(engine, sessionId, "Hey");
+    await runOne(engine, sessionId, "Ho");
+
+    expect(calls[1]!.resumeSessionId).toBe(MINTED_THREAD);
+    // That thread already holds "Hey" — carrying it too would say it twice.
     expect(calls[1]!.prompt).toBe("Ho");
   });
 
