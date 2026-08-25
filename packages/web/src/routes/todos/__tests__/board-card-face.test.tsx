@@ -232,6 +232,26 @@ describe("the roll-up chip, from row 3", () => {
     expect(onOpen).not.toHaveBeenCalled()
   })
 
+  it("keeps its own width when a crowded row of labels has to give it back", () => {
+    // Three labels in a 240px column used to push the chip past the row's
+    // clipped edge: present in the DOM, zero pixels wide, impossible to click.
+    const crowded = compact({
+      ...item,
+      labels: ["alpha", "beta", "gamma"].map((name, i) => (
+        { id: `lbl_${i}`, name, color: null, department: null, createdAt: "2026-08-01" }
+      )),
+    })
+    const { card } = renderCard(crowded, { enrichment })
+    const chips = [...rowsOf(card)[2].querySelectorAll("span")]
+      .filter((el) => el.className.includes("rounded-[10px]"))
+    expect(chips).toHaveLength(3)
+    for (const chip of chips) {
+      expect(chip.className).toContain("min-w-0")
+      expect(chip.className).not.toContain("flex-none")
+    }
+    expect(screen.getByTestId("board-rollup-PLA-12").className).toContain("flex-none")
+  })
+
   it("expands the tray under the four rows, and collapses back to them", () => {
     const { card, rerender } = renderCard(item, { enrichment, expanded: true })
     expect(screen.getByTestId("board-card-tree")).toBeTruthy()

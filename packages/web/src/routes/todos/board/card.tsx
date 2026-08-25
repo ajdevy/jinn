@@ -207,16 +207,22 @@ export const BoardCard = memo(function BoardCard({
       </div>
 
       {/* Row 3 — priority, labels, roll-up. Fixed height so a chip arriving with
-       *  enrichment fills the row instead of growing it. */}
+       *  enrichment fills the row instead of growing it.
+       *
+       *  The labels are what yield when the row runs out of width, never the
+       *  roll-up: it is the only way into the sub-task tray from the board, and
+       *  a third label in a 240px column pushed it clean past the row's clipped
+       *  edge — still in the DOM, zero pixels wide, unclickable. Ornament
+       *  truncates; the control keeps its intrinsic width. */}
       <div className="flex h-5 items-center gap-[5px] overflow-hidden">
         <PriorityGlyph priority={priority} muted />
         {item.labels?.map((label) => (
           <span
             key={label.id}
-            className="flex h-5 flex-none items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[calc(11px*var(--text-scale))] font-medium text-[var(--text-secondary)]"
+            className="flex h-5 min-w-0 items-center gap-[5px] rounded-[10px] bg-[var(--fill-tertiary)] px-2 text-[calc(11px*var(--text-scale))] font-medium text-[var(--text-secondary)]"
           >
-            <span className="size-[5px] rounded-full" style={{ background: label.color ?? "var(--text-quaternary)" }} />
-            {label.name}
+            <span className="size-[5px] flex-none rounded-full" style={{ background: label.color ?? "var(--text-quaternary)" }} />
+            <span className="truncate">{label.name}</span>
           </span>
         ))}
         {rollup && (
