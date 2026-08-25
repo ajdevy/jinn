@@ -6,12 +6,9 @@ import { useGateway } from '@/hooks/use-gateway'
 import { hostNotificationSink } from './host-bridge'
 import { dispatchHostEvent } from './host-events'
 import { publishHostState } from './host-state'
-// The app has no use for the barrel — it exists for plugins to import — so
-// without this nothing in the bundle names `@jinn/plugin-sdk` and `vite build`
-// never resolves it. Naming it here, in the app's half of the host, means a
-// broken or deleted alias fails our own build rather than a stranger's first
-// plugin load.
-import '@jinn/plugin-sdk'
+// The `@jinn/plugin-sdk` barrel is named from `installPluginSdk()` as a
+// dynamic import, not here. A static import put Select/Menu and the floating
+// layer back on every dashboard's first paint.
 
 /**
  * A plugin backend's `host.notify` arrives as a frame, because a backend has no

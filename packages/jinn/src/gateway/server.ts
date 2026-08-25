@@ -43,6 +43,7 @@ import { firstOperatorCommentAfter } from "../work-items/comments.js";
 import { watchTodoReplies } from "./todo-reply-sweep.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
+import { deciderAuthority } from "./workflow-decider-authority.js";
 import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
@@ -50,7 +51,7 @@ import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
 import { isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
-import { startAvailabilityResumes } from "./availability-resume.js";
+import { startTodoSweeps } from "./todo-sweeps.js";
 import { createGatewayRequestHandler } from "./request-handler.js";
 import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
 import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
@@ -283,7 +284,7 @@ export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConn
     }
     seen.add(id);
     const connectorConfig: Record<string, unknown> = { ...raw, id };
-    // Speech-to-text is a global setting the telegram connector reads from its own config.
+    // Speech-to-text is global: this block is only the fallback if stt.json is unusable.
     if (type === "telegram") connectorConfig.stt = config.stt;
     instances.push({ id, type, employee: raw.employee as string | undefined, config: connectorConfig });
   };
@@ -889,7 +890,7 @@ export async function startGateway(
 
   // Todos ledger truth-keeping: derive status from linked-session evidence so a mid-process settle lands without a boot (GRS-021a), and resume a Todo parked on a provider window that has since reopened (PLA-153).
   const stopWorkItemReconciler = startWorkItemReconciler();
-  const stopAvailabilityResumes = startAvailabilityResumes(workflowRepository);
+  const stopTodoSweeps = startTodoSweeps(workflowRepository);
 
   // A todo-status trigger's label filter reads the Todo when its event DRAINS rather than when it moved, so a label landing after the move re-opens the drain too.
   const drainTodoTriggers = (): void => { void workflowService.recover(new Date().toISOString())
@@ -899,22 +900,21 @@ export async function startGateway(
 
   const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
-  // The other half of the Todo-first approval loop: a gate decided on the Todo
-  // resolves the workflow node that mirrored it, carrying the picked option.
+  // The other half of the Todo-first approval loop: a gate decided on the Todo resolves the workflow node that mirrored it, carrying the picked option and the authority the run's own reserved gates check.
   setTodoApprovalDecisionListener(({ approval, decision, decidedBy }) => {
     const origin = parseTodoApprovalRef(approval.ref);
     if (!origin) return;
     const run = workflowRepository.getRun(origin.workflowId, origin.runId);
     if (!run) return;
     void workflowService.decideApproval({ ...origin, decision, decidedBy, expectedRevision: run.revision,
-      ...(approval.choice ? { choice: approval.choice } : {}),
+      decidedByAuthority: deciderAuthority(decidedBy), ...(approval.choice ? { choice: approval.choice } : {}),
       ...(approval.note ? { reason: approval.note } : {}) }).catch((error) => {
       logger.warn(`Workflow approval mirror-back failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
 
   const cronJobs = loadJobs();
-  startScheduler(cronJobs, sessionManager, config, connectorMap, emit);
+  startScheduler(cronJobs, { sessionManager, getConfig: () => currentConfig, connectors: connectorMap, emit });
   logger.info(`Loaded ${cronJobs.length} cron job(s)`);
 
   // Resolve web UI directory — bundled into dist/web/ by postbuild script
@@ -1201,7 +1201,7 @@ export async function startGateway(
     logger.info("Gateway cleanup starting...");
 
     // Stop the periodic sweeps before we start marking sessions interrupted below — a mid-shutdown sweep must not race the teardown.
-    stopStatusReconciler(); stopWorkItemReconciler(); stopAvailabilityResumes(); stopHeartbeatScheduler();
+    stopStatusReconciler(); stopWorkItemReconciler(); stopTodoSweeps(); stopHeartbeatScheduler();
     backgroundRefreshes.stop();
     workflowService.dispose(); workflowDatabase.close();
 

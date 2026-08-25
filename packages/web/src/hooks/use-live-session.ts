@@ -244,9 +244,9 @@ export function isRestingSnapshot(snapshot: LiveSessionSnapshot, now = Date.now(
 
 /**
  * Drop a session's cached snapshot. Called from the chat page's gateway
- * subscription when a session changes while no pane for it is mounted
- * (completed / stopped / errored / renamed / deleted) — the next revisit then
- * takes the cold-fetch path instead of trusting a stale snapshot.
+ * subscription when a session changes while no pane for it is mounted — started,
+ * completed, stopped, errored, renamed, deleted — so the next revisit takes the
+ * cold-fetch path instead of trusting a stale snapshot.
  */
 export function invalidateLiveSessionSnapshot(id: string) {
   liveSessionSnapshotCache.delete(id)

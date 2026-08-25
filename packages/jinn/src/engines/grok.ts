@@ -9,6 +9,17 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
 import { prepareGrokProjectMcpConfig, cleanupGrokProjectMcpConfig, grokJinnSessionEnv, type GrokMcpAttachHandle } from "./grok-mcp.js";
+import {
+  asRecord,
+  compactText,
+  extractError,
+  isReasoningType,
+  planStatusFromGrokUpdate,
+  safeJsonSnippet,
+  stringField,
+  stripReasoningMarkup,
+  toolNameFromGrokUpdate,
+} from "./grok-json.js";
 
 export const GROK_SESSIONS_DIR = path.join(os.homedir(), ".grok", "sessions");
 
@@ -28,6 +39,8 @@ export interface GrokParsedLine {
   error?: string;
   terminal?: boolean;
   contextTokens?: number;
+  /** A reasoning event: its payload stays dropped, but it marks the end of an answer block. */
+  reasoning?: boolean;
 }
 
 export function grokCliFlags(flags: string[] | undefined): string[] {
@@ -57,23 +70,27 @@ function walkFiles(dir: string, out: string[] = []): string[] {
   let entries: fs.Dirent[];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const entry of entries) {
-    const p = `${dir}/${entry.name}`;
+    const p = path.join(dir, entry.name);
     if (entry.isDirectory()) walkFiles(p, out);
     else if (entry.isFile()) out.push(p);
   }
   return out;
 }
 
+const GROK_TRANSCRIPT_NAMES = ["updates.jsonl", "chat_history.jsonl", "events.jsonl"];
+
 function isGrokTranscriptFile(file: string): boolean {
-  return file.endsWith("/updates.jsonl") || file.endsWith("/chat_history.jsonl") || file.endsWith("/events.jsonl");
+  return GROK_TRANSCRIPT_NAMES.includes(path.basename(file));
+}
+
+function isGrokUpdatesFile(file: string): boolean {
+  return path.basename(file) === "updates.jsonl";
 }
 
 function sortGrokTranscriptFiles(files: string[]): string[] {
   const rank = (file: string) => {
-    if (file.endsWith("/updates.jsonl")) return 0;
-    if (file.endsWith("/chat_history.jsonl")) return 1;
-    if (file.endsWith("/events.jsonl")) return 2;
-    return 3;
+    const index = GROK_TRANSCRIPT_NAMES.indexOf(path.basename(file));
+    return index === -1 ? GROK_TRANSCRIPT_NAMES.length : index;
   };
   return files.filter(isGrokTranscriptFile).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
@@ -110,32 +127,22 @@ function parseSessionIdFromFile(filePath: string): string | undefined {
   return undefined;
 }
 
+/** Grok files a session under `<sessions>/<url-encoded absolute cwd>/<session-uuid>/`,
+ *  so a run's own transcript is discoverable from its cwd alone — before grok has
+ *  revealed any session id. */
+function grokCwdSessionsRoots(cwd: string | undefined, root = GROK_SESSIONS_DIR): string[] {
+  if (!cwd) return [];
+  const variants = new Set<string>([path.resolve(cwd)]);
+  try { variants.add(fs.realpathSync(cwd)); } catch { /* cwd may not exist yet */ }
+  return [...variants].map((dir) => path.join(root, encodeURIComponent(dir)));
+}
+
+function fileUnderCwdSessions(file: string, roots: string[]): boolean {
+  return roots.some((sessionRoot) => file === sessionRoot || file.startsWith(sessionRoot + path.sep));
+}
+
 function transcriptMatchesSession(filePath: string, sessionId: string): boolean {
   return filePath.includes(sessionId) || parseSessionIdFromFile(filePath) === sessionId;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function isReasoningType(value: unknown): boolean {
-  const type = String(value ?? "").toLowerCase();
-  return type.includes("thought") || type.includes("thinking") || type.includes("reasoning") || type.includes("chain_of_thought");
-}
-
-function stringField(obj: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return undefined;
-}
-
-function stripReasoningMarkup(text: string): string {
-  return text
-    .replace(/<\s*(thinking|reasoning|thought)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
 }
 
 function textFromContent(value: unknown): string {
@@ -170,38 +177,6 @@ function textFromUnknown(value: unknown): string {
   return direct ? stripReasoningMarkup(direct) : textFromContent(obj.content);
 }
 
-function compactText(text: string, max = 500): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
-}
-
-function safeJsonSnippet(value: unknown, max = 200): string | undefined {
-  if (value === undefined) return undefined;
-  try {
-    return compactText(JSON.stringify(value), max);
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizeGrokToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined;
-  if (/^[A-Z][A-Za-z0-9]*$/.test(name)) {
-    return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-  }
-  return name;
-}
-
-function toolNameFromGrokUpdate(update: Record<string, unknown>): string | undefined {
-  const rawInput = asRecord(update.rawInput);
-  const rawOutput = asRecord(update.rawOutput);
-  return normalizeGrokToolName(
-    stringField(rawInput ?? {}, ["variant", "tool", "toolName", "name"]) ??
-    stringField(rawOutput ?? {}, ["type", "variant", "tool", "toolName", "name"]) ??
-    stringField(update, ["toolName", "tool_name", "name", "title", "kind"]),
-  );
-}
-
 function toolResultTextFromGrokUpdate(update: Record<string, unknown>): string {
   const contentText = textFromUnknown(update.content);
   if (contentText) return compactText(contentText);
@@ -209,19 +184,6 @@ function toolResultTextFromGrokUpdate(update: Record<string, unknown>): string {
   if (rawOutputText) return compactText(rawOutputText);
   const status = stringField(update, ["status", "type", "outcome"]);
   return status ? compactText(status) : "Done";
-}
-
-function planStatusFromGrokUpdate(update: Record<string, unknown>): string | undefined {
-  const entries = Array.isArray(update.entries) ? update.entries : [];
-  const parsed = entries
-    .map((entry) => asRecord(entry))
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
-  const active =
-    parsed.find((entry) => String(entry.status ?? "").toLowerCase() === "in_progress") ??
-    parsed.find((entry) => String(entry.status ?? "").toLowerCase() === "pending") ??
-    parsed[parsed.length - 1];
-  const text = active ? stringField(active, ["content", "title", "task"]) : undefined;
-  return text ? `Plan: ${compactText(text, 240)}` : undefined;
 }
 
 function extractText(obj: Record<string, unknown>, eventType: string, terminal: boolean): { text: string; snapshot: boolean } {
@@ -245,17 +207,6 @@ function extractText(obj: Record<string, unknown>, eventType: string, terminal: 
     : stringField(obj, ["text", "content"]);
   if (!directText) return { text: "", snapshot: true };
   return { text: directText, snapshot: !eventType.includes("delta") && !eventType.includes("chunk") };
-}
-
-function extractError(obj: Record<string, unknown>): string | undefined {
-  const err = obj.error;
-  if (typeof err === "string" && err.trim()) return err;
-  const errObj = asRecord(err);
-  if (errObj) {
-    const msg = stringField(errObj, ["message", "error", "detail"]);
-    if (msg) return msg;
-  }
-  return stringField(obj, ["errorMessage", "message", "detail"]);
 }
 
 function extractContextTokens(obj: Record<string, unknown>): number | undefined {
@@ -316,7 +267,7 @@ export function parseGrokJsonLine(line: string): GrokParsedLine | null {
       // entirely (no placeholder line): the pre-token spinner covers the reasoning
       // stretch, while tool cards (transcript) and the live answer text (stdout)
       // provide the real mid-turn activity the user wants to see.
-      return { deltas, sessionId: nestedSessionId, terminal: false, contextTokens };
+      return { deltas, sessionId: nestedSessionId, terminal: false, contextTokens, reasoning: true };
     }
     if (updateType === "tool_call") {
       const toolName = update ? toolNameFromGrokUpdate(update) : undefined;
@@ -412,7 +363,7 @@ export function parseGrokJsonLine(line: string): GrokParsedLine | null {
   if (isReasoningType(eventType)) {
     // Raw reasoning chunk — never displayed (same contract as agent_thought_chunk).
     // Dropped entirely; no placeholder status line.
-    return { deltas, sessionId, terminal, contextTokens };
+    return { deltas, sessionId, terminal, contextTokens, reasoning: true };
   }
 
   if (eventType === "text") {
@@ -466,8 +417,11 @@ export function parseGrokJsonLine(line: string): GrokParsedLine | null {
  * twice — and `resultText` is accumulated from stdout only. The canonical result is
  * reconciled against the streamed text at completion by identity (see
  * use-live-session `session:completed`), so a transcript `tool_use` that lands after
- * the streamed answer no longer renders a duplicate bubble. Tool lifecycle + context
- * stream live from the transcript. Reasoning is already dropped by `parseGrokJsonLine`.
+ * the streamed answer no longer renders a duplicate bubble. That identity holds per
+ * ROW, not per turn: a tool card closes the current text row, so `resultText` restarts
+ * there too and stays equal to the last streamed row rather than to the whole turn.
+ * Tool lifecycle + context stream live from the transcript. Reasoning is already
+ * dropped by `parseGrokJsonLine`.
  */
 export function grokVisibleDeltas(deltas: StreamDelta[], source: "stdout" | "transcript"): StreamDelta[] {
   return deltas.filter((delta) => {
@@ -564,9 +518,11 @@ export class GrokEngine implements InterruptibleEngine {
       let resolvedSessionFromStdout = Boolean(opts.resumeSessionId);
       let transcriptTailer: TranscriptTailer | undefined;
       let transcriptDiscover: NodeJS.Timeout | undefined;
+      let attachedTranscriptSessionId: string | undefined;
+      let blockBreakPending = false;
 
       const expectedTranscriptSessionId = () =>
-        opts.resumeSessionId || (resolvedSessionFromStdout ? resolvedSessionId : undefined);
+        opts.resumeSessionId || (resolvedSessionFromStdout ? resolvedSessionId : attachedTranscriptSessionId);
 
       const stopTranscriptWatch = () => {
         if (transcriptDiscover) {
@@ -605,6 +561,16 @@ export class GrokEngine implements InterruptibleEngine {
         });
       };
 
+      // Re-open the paragraph the reasoning run closed; codex.ts:648 does the same
+      // between its adjacent message blocks. Both the streamed delta and resultText
+      // carry the break, so the two stay identical for the completion reconcile.
+      const withBlockBoundary = (delta: StreamDelta): StreamDelta => {
+        if (delta.type !== "text" || !blockBreakPending) return delta;
+        blockBreakPending = false;
+        if (resultText.endsWith("\n") || delta.content.startsWith("\n")) return delta;
+        return { ...delta, content: `\n\n${delta.content}` };
+      };
+
       const handleParsed = (parsed: GrokParsedLine | null) => {
         if (!parsed) return;
         if (parsed.sessionId) {
@@ -613,15 +579,19 @@ export class GrokEngine implements InterruptibleEngine {
         }
         if (parsed.contextTokens) lastContextTokens = parsed.contextTokens;
         if (parsed.error) turnError = parsed.error;
+        // Grok streams the answer as bare chunks with no block marker, so a reasoning
+        // run between two chunks is the only end-of-block signal stdout carries.
+        if (parsed.reasoning && resultText) blockBreakPending = true;
         // Accumulate answer text into resultText (the single authoritative result)
         // AND stream it live (grokVisibleDeltas forwards stdout text). The two are
         // identical, so the FE reconciles them by identity at completion — no
         // duplicate bubble. See grokVisibleDeltas.
-        for (const delta of parsed.deltas) {
+        const deltas = parsed.deltas.map(withBlockBoundary);
+        for (const delta of deltas) {
           if (delta.type === "text") resultText += delta.content;
           if (delta.type === "text_snapshot") resultText = delta.content;
         }
-        for (const delta of grokVisibleDeltas(parsed.deltas, "stdout")) opts.onStream?.(delta);
+        for (const delta of grokVisibleDeltas(deltas, "stdout")) opts.onStream?.(delta);
         if (parsed.doneText) resultText = parsed.doneText;
         if (parsed.terminal) settleOnTerminal();
       };
@@ -633,12 +603,21 @@ export class GrokEngine implements InterruptibleEngine {
           logger.warn(`Ignoring Grok transcript event for session ${parsed.sessionId}; expected ${expected}`);
           return;
         }
-        if (parsed.sessionId && !expected) return;
+        if (parsed.sessionId && !expected) attachedTranscriptSessionId = parsed.sessionId;
         if (parsed.contextTokens) lastContextTokens = parsed.contextTokens;
         // Tool lifecycle updates only appear in the transcript; mirror them (plus
         // context) live. Answer text is left to stdout/resultText — grokVisibleDeltas
         // drops it here so it is never emitted twice.
-        for (const delta of grokVisibleDeltas(parsed.deltas, "transcript")) opts.onStream?.(delta);
+        for (const delta of grokVisibleDeltas(parsed.deltas, "transcript")) {
+          // A tool card closes the current text row, so resultText restarts with it
+          // (see grokVisibleDeltas): the text before the card is already its own
+          // persisted row, and repeating it inside the final message renders twice.
+          if (delta.type === "tool_use") {
+            resultText = "";
+            blockBreakPending = false;
+          }
+          opts.onStream?.(delta);
+        }
       };
 
       const attachTranscriptTail = (filePath: string, offset: number) => {
@@ -651,23 +630,43 @@ export class GrokEngine implements InterruptibleEngine {
         );
       };
 
+      // A fresh turn learns its session id only from grok's `end` line, which settles
+      // the turn in the same tick — so waiting for one meant the tail never attached
+      // and no tool card ever reached the UI. The cwd is enough to find our own
+      // transcript before then, because grok keys the directory by it.
+      const cwdSessionsRoots = grokCwdSessionsRoots(opts.cwd);
       transcriptDiscover = setInterval(() => {
         if (transcriptTailer) return;
         const expected = expectedTranscriptSessionId();
-        if (!expected) return;
         const current = listTranscriptStats();
         const candidates = sortGrokTranscriptFiles(
           [...current.entries()]
             .filter(([file, stat]) => {
               const prev = transcriptBaseline.get(file);
-              return (!prev || stat.mtimeMs > prev.mtimeMs || stat.size > prev.size) &&
-                transcriptMatchesSession(file, expected);
+              if (prev && stat.mtimeMs <= prev.mtimeMs && stat.size <= prev.size) return false;
+              if (expected) return transcriptMatchesSession(file, expected);
+              // `updates.jsonl` only: it is the one file carrying the tool lifecycle,
+              // and grok writes it seconds AFTER chat_history.jsonl/events.jsonl appear
+              // in the same directory — attaching to whichever landed first bought a
+              // tail with no tool events in it at all. Match both resolve() and
+              // realpath() encodings: grok keys the dir by the real cwd (`/tmp` is
+              // `/private/tmp` on macOS).
+              return !prev && isGrokUpdatesFile(file) && fileUnderCwdSessions(file, cwdSessionsRoots);
             })
             .map(([file]) => file),
         );
         const first = candidates[0];
         if (!first) return;
+        // Without a session id, "appeared under our cwd after the spawn" is all that
+        // identifies the transcript — and two concurrent turns in one cwd both match.
+        // Refuse the ambiguous attach and wait for a unique candidate, as
+        // grok-interactive.ts:305-313 already does for the same race.
+        if (!expected && new Set(candidates.map((file) => path.dirname(file))).size > 1) {
+          logger.warn(`Ambiguous fresh Grok transcripts under ${cwdSessionsRoots.join(" | ")}; waiting for a unique candidate`);
+          return;
+        }
         const prev = transcriptBaseline.get(first);
+        attachedTranscriptSessionId ??= parseSessionIdFromFile(first);
         attachTranscriptTail(first, prev?.size ?? 0);
         if (transcriptDiscover) {
           clearInterval(transcriptDiscover);

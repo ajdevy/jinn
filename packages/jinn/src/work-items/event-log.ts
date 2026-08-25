@@ -41,7 +41,11 @@ export type WorkItemEventKind =
   | 'claim_expired'
   | 'respawn_guard_held'
   | 'availability_resumed'
-  | 'kept_changed';
+  | 'kept_changed'
+  | 'recovery_classified'
+  | 'recovery_attempted'
+  | 'recovery_exhausted'
+  | 'anomaly_observed';
 
 /** Actor recorded on the reconciler's own derived writes. */
 export const RECONCILER_ACTOR = 'reconciler';

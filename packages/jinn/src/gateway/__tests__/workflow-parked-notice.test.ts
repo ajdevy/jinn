@@ -36,10 +36,10 @@ function parkedTodo(title: string, target?: string | null, operatorOnly = false)
   return id;
 }
 
-function notifyParked(todoId: string): void {
+function notifyParked(todoId: string, cooDecidable = false): void {
   surface.workflowTodoApprovals(() => {}).notifyParked({
     todoId, workflowId: "jinn-build", runId: "run_abc", nodeId: "land-approval",
-    request: GATE, ref: "workflow:jinn-build:run_abc:land-approval",
+    request: GATE, ref: "workflow:jinn-build:run_abc:land-approval", cooDecidable,
   });
 }
 
@@ -123,6 +123,21 @@ describe("parked-gate session notifications", () => {
     const id = parkedTodo("operator decides the merge gate", "a-lead", true);
 
     notifyParked(id);
+
+    expect(pendingDeliveries()).toEqual([]);
+  });
+
+  // Default Todo routing hands an unrouted gate to the owner's manager, so
+  // without the class a COO-decidable gate wakes an employee whom both the
+  // decide and the escalate route then refuse.
+  it("does not wake the routed manager for a COO-decidable gate", () => {
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, employee, created_at, last_activity)
+       VALUES ('sess-manager', 'claude', 'web', 'web:manager', 'idle', 'a-lead', '2026-07-30T09:00:00.000Z', '2026-07-30T09:00:00.000Z')`,
+    ).run();
+    const id = parkedTodo("the COO decides the merge gate", "a-lead");
+
+    notifyParked(id, true);
 
     expect(pendingDeliveries()).toEqual([]);
   });

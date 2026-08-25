@@ -48,6 +48,7 @@ vi.mock('@/routes/auth-provider', () => ({ AuthProvider: passThrough, AuthGate: 
 vi.mock('@/routes/settings-provider', () => ({
   SettingsProvider: passThrough,
   DocumentTitle: () => null,
+  useSettings: () => ({ settings: { talkOrb: false } }),
 }))
 vi.mock('@/hooks/use-gateway', () => ({
   GatewayProvider: passThrough,

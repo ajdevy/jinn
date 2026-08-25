@@ -122,13 +122,14 @@ export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
 } from "../sessions/turn/text.js";
-import { decideJinnAttachment } from "../mcp/attachment.js";
+import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
 import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
+import { handleTodoCaptureApi } from "./todo-capture-api.js";
 import { handleSkillsApi } from "./skills-api.js";
 import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
@@ -235,8 +236,8 @@ import {
   escalateApproval,
   requestApproval,
 } from "../work-items/approvals.js";
-import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
-import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
+import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget, type ApprovalDecisionAuthorityOptions } from "./approval-authority.js";
+import { approvalGateClass } from "./workflow-todo-binding.js";
 import { orgRegistry } from "./org-registry.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
@@ -938,12 +939,12 @@ function rejectUnverifiedIdentifiedApiCaller(req: HttpRequest, res: ServerRespon
   return true;
 }
 
-/** A gate is reserved for the human operator either because the Todo approval
- *  was requested that way, or because it mirrors a workflow Approval node the
- *  definition declared operator-only. Both decision surfaces read this one
- *  answer, so escalating cannot open a path that deciding refuses. */
-function approvalReservedForOperator(item: WorkItem, service: WorkflowService | undefined): boolean {
-  return currentApproval(item.id)?.operatorOnly === true || approvalIsOperatorOnly(item, service);
+/** Who this Todo's pending gate is reserved for: the human operator (the Todo asked for it, or the
+ *  workflow node it mirrors declared it), or the COO's own lane. Both decision surfaces read this
+ *  one answer, so escalating cannot open a path that deciding refuses. */
+function approvalReservation(item: WorkItem, service: WorkflowService | undefined): Pick<ApprovalDecisionAuthorityOptions, "operatorOnly" | "cooDecidable"> {
+  const gate = approvalGateClass(item, service);
+  return { operatorOnly: currentApproval(item.id)?.operatorOnly === true || gate === "operator", cooDecidable: gate === "coo" };
 }
 
 function operatorOnlyControlPlaneRoute(method: string, pathname: string): string | null {
@@ -964,6 +965,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && matchRoute("/api/sessions/:id/unarchive", pathname)) return "session unarchive";
   if (method === "POST" && matchRoute("/api/sessions/:id/reset", pathname)) return "session reset";
   if (method === "POST" && pathname === "/api/sessions/bulk-delete") return "session bulk delete";
+  if (method === "POST" && pathname === "/api/todo-captures") return "quick capture";
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
@@ -2897,23 +2899,16 @@ export async function handleApiRequest(
       // it exists to move a stuck Todo onto another engine, so it has to win.
       const dispatchEngineName = dispatchPrefs.preamble.engine ?? dispatcher.engine;
       const dispatchModel = dispatchPrefs.preamble.engine ? dispatchPrefs.preamble.model ?? undefined : dispatcher.model;
-      const attachment = decideJinnAttachment({
-        globalMcp: config.mcp,
-        employee: dispatcher,
-        engine: dispatchEngineName,
+      const preflight = preflightSystemEmployee({
+        employee: dispatcher, label: "Todo Dispatcher", settingLabel: "Dispatcher",
+        engineName: dispatchEngineName, globalMcp: config.mcp,
+        getEngine: (name) => context.sessionManager.getEngine(name),
       });
-      if (!attachment.attach) {
+      if (!preflight.ok) {
         claim.release();
-        return json(res, {
-          error: `Todo Dispatcher cannot run on engine "${dispatchEngineName}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
-        }, 409);
+        return json(res, { error: preflight.error }, preflight.status);
       }
-
-      const engine = context.sessionManager.getEngine(dispatchEngineName);
-      if (!engine) {
-        claim.release();
-        return json(res, { error: `engine "${dispatchEngineName}" not available; change the Dispatcher engine override and try again` }, 502);
-      }
+      const engine = preflight.engine;
 
       const prompt = dispatchPrefs.preamble.prefix + [
         `Dispatch Todo ${item.id}.`,
@@ -3560,7 +3555,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
 
@@ -3599,7 +3594,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
       const body = (parsed.body ?? {}) as { reason?: unknown };
@@ -4525,6 +4520,7 @@ export async function handleApiRequest(
     }
 
     if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleTodoCaptureApi(req, res, { method, pathname, url }, context)) return;
     if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
     if (await handleSkillsApi(req, res, { method, pathname, url }, context)) return;
     if (await handlePluginsApi(req, res, { method, pathname, url }, context)) return;

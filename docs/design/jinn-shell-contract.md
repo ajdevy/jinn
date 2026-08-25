@@ -31,9 +31,14 @@ descendant's first layout effect sees the real element or `null` and
 re-runs. The scaffold never calls `scrollTo`, never writes `scrollTop`, and
 never restores on route change.
 
-`scroll="external"` is the Todos board's escape: two permanently-mounted
-scrollports, so the scaffold creates no scroll box and the header degrades
-to its non-collapsing large-title state.
+`scroll="external"` is for a route that owns its scrollports — the Todos
+board mounts two of them permanently. The scaffold then creates no scroll
+box, and **the header does not collapse**. That is the rule for externally
+scrolled routes, not a degradation: the collapse timeline reads the nearest
+block scroller, and a bar sitting above two sibling scrollports would have to
+pick one and be wrong about the other. So `/todos` keeps its large title at
+every scroll position, by contract, and `page-scaffold.test.tsx` and
+`large-title-header.test.tsx` hold it there.
 
 Below `lg`, bottom padding and the FAB offset both derive from
 `--tab-bar-height`. At `lg` and up, padding is `lg:pb-10` and the FAB does
@@ -56,7 +61,8 @@ The `<header>` is `display: contents`, so the bar's containing block is the
 scrollport and not the header's own box — a sticky box cannot leave the block
 it lives in, and the header's box ends just under the subtitle.
 
-Collapse is CSS-only: `animation-timeline: scroll(nearest block)` on
+Collapse is CSS-only, and only where `PageScaffold` owns the scrollport:
+`animation-timeline: scroll(nearest block)` on
 `.jinn-large-title` / `.jinn-inline-title`. No scroll listener, no
 `IntersectionObserver`, no collapsed `useState`. Unsupported engines and
 `prefers-reduced-motion: reduce` take the permanently-inline fallback.
@@ -79,7 +85,11 @@ on both.
 1. **No large title outside the primitive.** `--text-large-title` in a
    route source.
 2. **No hand-rolled page-level accent button.** `bg-[var(--accent)]`
-   together with `text-[var(--accent-contrast)]` on the same line.
+   together with `text-[var(--accent-contrast)]` anywhere inside one
+   `className` attribute — the whole attribute span, however many lines
+   prettier broke the class list over, because where the wrap falls is a
+   width decision and not a design one. A pair written outside any
+   `className` falls back to its own line.
 3. **No new bottom sheet outside the enumerated set.** `Sheet` has not
    shipped yet (PLA-194). The rule enumerates the existing bottom-sheet
    implementations and fails if a new file matches the signature.

@@ -141,16 +141,9 @@ function subscribeToPluginEvents(
 export interface JinnPlugin {
   /** Stable slug. It becomes the `plugin:<id>` source and the id namespace. */
   id: string
-  /** Human name for the settings list. Defaults to `id`. */
+  /** Human name. Checked for type when present; `/settings/plugins` labels a
+   *  plugin from its manifest, so nothing in the app reads this one today. */
   name?: string
-  /**
-   * Accepted for shape and then ignored. Enablement is the operator's decision
-   * alone (`.plans/plugins.md` §8): a value the plugin ships that flipped it on
-   * would be the plugin opting itself in. The field is validated rather than
-   * dropped so an author who writes it gets told, instead of watching it do
-   * nothing.
-   */
-  defaultEnabled?: boolean
   /** Called once per activation; wire contributions through `ctx`. */
   register: (ctx: PluginContext) => void
 }

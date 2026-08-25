@@ -139,10 +139,12 @@ const readTreeFilters: FilterReader = (url, filter) => {
   return undefined;
 };
 
-/** ICI-1357: the operator's Home board scope. Mirrors `rootsOnly` — a boolean
- *  flag is either asserted or absent, so there is no unusable value to reject. */
-const readKeptFilter: FilterReader = (url, filter) => {
+/** ICI-1357 `kept` and PLA-230 `home`, the board scopes. Both mirror
+ *  `rootsOnly` — a boolean flag is either asserted or absent, so there is no
+ *  unusable value to reject. */
+const readBoardScopeFilters: FilterReader = (url, filter) => {
   if (readCleanSearchParam(url, 'kept') === 'true') filter.kept = true;
+  if (readCleanSearchParam(url, 'home') === 'true') filter.home = true;
   return undefined;
 };
 
@@ -175,7 +177,7 @@ const readWindowFilters: FilterReader = (url, filter) => {
 };
 
 const FILTER_READERS: readonly FilterReader[] = [
-  readEnumFilters, readNameFilters, readTextFilter, readTreeFilters, readKeptFilter, readLabelFilter, readWindowFilters,
+  readEnumFilters, readNameFilters, readTextFilter, readTreeFilters, readBoardScopeFilters, readLabelFilter, readWindowFilters,
 ];
 
 export function readWorkItemQueryParams(url: URL): { ok: true; value: WorkItemQueryParams } | { ok: false; error: string } {

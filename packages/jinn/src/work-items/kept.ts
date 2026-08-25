@@ -5,10 +5,12 @@ import { CREATE_META_TABLE } from "../sessions/migrate.js";
  *
  *  Home used to be `created_by = 'operator'`, so a Todo an agent raised was
  *  reachable only from its department board. Keeping is the operator's gesture
- *  for "follow this one", and it is the only thing that puts a Todo on Home —
- *  PLA-172 removed the auto-keep on create, because `created_by = 'operator'`
- *  is every caller holding the gateway credential rather than the operator's
- *  own hand, and Home filled up with work they never asked to follow.
+ *  for "follow this one" — PLA-172 removed the auto-keep on create, because
+ *  `created_by = 'operator'` is every caller holding the gateway credential
+ *  rather than the operator's own hand, and Home filled up with work they never
+ *  asked to follow. Since PLA-230 a pin is no longer the only thing on Home:
+ *  the operator's own Todos join it as a term in `HOME_SCOPE_SQL`, read at
+ *  query time, so nothing writes to the kept set on their behalf.
  *
  *  Additive, never a column on `work_items`: the exact-shape verifier refuses
  *  any drift in an existing table, so a new table is the only extension a
@@ -27,10 +29,14 @@ CREATE TABLE IF NOT EXISTS work_item_kept (
   kept_at      TEXT NOT NULL
 )`;
 
-/** The Home board's whole scope, as a correlated EXISTS that the list query
- *  AND-composes like any other filter. It lives here so the table's one reader
- *  in SQL sits with the table. */
+/** Kept, as a correlated EXISTS that the list query AND-composes like any other
+ *  filter. It lives here so the table's one reader in SQL sits with the table. */
 export const KEPT_EXISTS_SQL = "EXISTS (SELECT 1 FROM work_item_kept k WHERE k.work_item_id = work_items.id)";
+
+/** The Home board's whole scope (PLA-230): what the operator pinned, plus what
+ *  they created. Parenthesised as one term so the OR survives AND-composition
+ *  with every other filter the board sends. */
+export const HOME_SCOPE_SQL = `(${KEPT_EXISTS_SQL} OR work_items.created_by = 'operator')`;
 
 /** Keep a Todo; true when it was not already kept. Idempotent, and keeping a
  *  kept Todo leaves the original `kept_at` alone, so Home does not reshuffle

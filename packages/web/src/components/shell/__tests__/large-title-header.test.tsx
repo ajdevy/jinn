@@ -36,14 +36,18 @@ describe("LargeTitleHeader", () => {
     expect(screen.getByRole("button", { name: "Rescan" })).toBeTruthy()
   })
 
-  it("scroll=external degrades to the large title with no collapse layers", () => {
-    render(
+  // Non-collapse is the rule for an externally scrolled route, not a shortfall
+  // of one — see the `scroll="external"` clause in
+  // docs/design/jinn-shell-contract.md.
+  it("scroll=external keeps the large title: no inline bar, no scaffold scroll box", () => {
+    const { container } = render(
       <PageScaffold scroll="external" header={<LargeTitleHeader title="Todos" />}>
         <div />
       </PageScaffold>,
     )
     expect(document.querySelector(".jinn-large-title")).toBeTruthy()
     expect(document.querySelector(".jinn-inline-title")).toBeNull()
+    expect(container.querySelector("[data-scrollable]")).toBeNull()
   })
 
   it("sticky bar uses material with no hairline class", () => {

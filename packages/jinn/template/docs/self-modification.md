@@ -17,7 +17,7 @@
 The gateway uses chokidar to watch for changes:
 
 - **config.yaml** → Parse YAML, validate schema, reload gateway configuration (port, engines, connectors, logging)
-- **cron/jobs.json** → Cancel all scheduled jobs, parse JSON, validate schema, reschedule enabled jobs
+- **cron/jobs.json** → Parse JSON, validate each job, reschedule the valid ones (an invalid job is skipped with a warning, not allowed to block the rest)
 - **org/\*\*/\*.yaml** → Rebuild the employee registry from all persona and department YAML files
 
 Changes take effect immediately. No restart required.

@@ -25,17 +25,23 @@ function Subtitle({ children }: { children: ReactNode }) {
 }
 
 /** The chrome the large title collapses into: page-wide material, the inline
- *  title centred in it, and whatever the route puts on the trailing side. */
+ *  title, and whatever the route puts on the trailing side. */
 function TitleBar({ title, trailing }: { title: ReactNode; trailing: ReactNode }) {
   return (
     <div
       data-slot="large-title-bar"
       className="jinn-title-bar sticky z-20 grid min-h-11 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-2 bg-[var(--material-thick)] backdrop-blur"
     >
-      {/* Three columns with matched outer tracks: the title stays centred on the
-          bar rather than on the space `trailing` leaves over, and because its own
-          track can shrink to nothing it truncates against the button instead of
-          running under it. The bar is a constant 44px, so one line is all it gets. */}
+      {/* The title centres in the space `trailing` leaves, not on the bar: `1fr`
+          floors a track at its own min-content, so the trailing track keeps its
+          width while the empty leading one collapses to 0 and the outer tracks
+          never match. Matching them wants the trailing width on the leading side,
+          which means measuring in JS or mirroring the buttons — neither is worth
+          it for a few pixels. What the shrinking title track does buy is
+          truncation against the buttons instead of a run underneath them, and the
+          bar is a constant 44px, so one line is all it gets.
+          `aria-hidden` because the real <h1> is still in the scroll flow above:
+          announced, this copy would give the page a second heading. */}
       <div aria-hidden="true" className={cn("jinn-inline-title pointer-events-none col-start-2 truncate text-center lg:hidden", INLINE_TITLE_CLASS)}>
         {typeof title === "string" ? title : null}
       </div>

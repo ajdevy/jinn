@@ -72,8 +72,13 @@ export async function choose(label: string, option: string) {
  * fails one of them is a definition the gateway would refuse to save. */
 
 export function expectValidApprovalConfig(config: Record<string, unknown>) {
-  expect(Object.keys(config).every((key) => ["description", "approver", "operatorOnly", "options"].includes(key))).toBe(true)
+  expect(Object.keys(config).every((key) => ["description", "approver", "operatorOnly", "decidableBy", "options"].includes(key))).toBe(true)
   expect(typeof config.description).toBe("string")
+  // The three reservations are mutually exclusive in the schema.
+  if ("decidableBy" in config) {
+    expect(config.decidableBy).toBe("coo")
+    expect("operatorOnly" in config || "approver" in config).toBe(false)
+  }
   if (!("options" in config)) return
   const options = config.options as unknown
   expect(Array.isArray(options)).toBe(true)

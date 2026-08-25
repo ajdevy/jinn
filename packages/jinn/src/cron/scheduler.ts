@@ -11,23 +11,24 @@ import type { GatewayEmit } from "../shared/gateway-events.js";
 import { loadJobs, saveJobs } from "./jobs.js";
 import { validateCronSchedule } from "./validation.js";
 
+type SchedulerDeps = {
+  sessionManager: SessionManager;
+  getConfig: () => JinnConfig;
+  connectors: Map<string, Connector>;
+  emit?: GatewayEmit;
+};
+
 let tasks: cron.ScheduledTask[] = [];
-let currentSessionManager: SessionManager;
-let currentConfig: JinnConfig;
-let currentConnectors: Map<string, Connector>;
-let currentEmit: GatewayEmit | undefined;
-export function startScheduler(
-  jobs: CronJob[],
-  sessionManager: SessionManager,
-  config: JinnConfig,
-  connectors: Map<string, Connector>,
-  emit?: GatewayEmit,
-): void {
-  currentSessionManager = sessionManager;
-  currentConfig = config;
-  currentConnectors = connectors;
-  currentEmit = emit;
+let deps: SchedulerDeps;
+
+export function startScheduler(jobs: CronJob[], schedulerDeps: SchedulerDeps): void {
+  deps = schedulerDeps;
+  reloadScheduler(jobs);
+}
+
+export function reloadScheduler(jobs: CronJob[]): { scheduled: number; skipped: number } {
   const started: cron.ScheduledTask[] = [];
+  let skipped = 0;
   for (const job of jobs) {
     if (!job.enabled) continue;
     try {
@@ -36,32 +37,13 @@ export function startScheduler(
       started.push(task);
       logger.info(`Scheduled cron job "${job.name}" (${job.schedule})`);
     } catch (err) {
-      logger.warn(`Skipping invalid cron job "${job.name}" at boot: ${err instanceof Error ? err.message : err}`);
+      skipped += 1;
+      logger.warn(`Skipping invalid cron job "${job.name}": ${err instanceof Error ? err.message : err}`);
     }
   }
   for (const task of tasks) task.stop();
   tasks = started;
-}
-
-export function reloadScheduler(jobs: CronJob[]): boolean {
-  const replacements: cron.ScheduledTask[] = [];
-  try {
-    for (const job of jobs) {
-      if (!job.enabled) continue;
-      replacements.push(createTask(job));
-    }
-    for (const task of replacements) task.start();
-  } catch (err) {
-    for (const task of replacements) task.stop();
-    logger.warn(`Cron reload rejected; keeping existing scheduler: ${err instanceof Error ? err.message : err}`);
-    return false;
-  }
-  for (const task of tasks) task.stop();
-  tasks = replacements;
-  for (const job of jobs) {
-    if (job.enabled) logger.info(`Scheduled cron job "${job.name}" (${job.schedule})`);
-  }
-  return true;
+  return { scheduled: started.length, skipped };
 }
 
 export function stopScheduler(): void {
@@ -83,7 +65,7 @@ function createTask(job: CronJob): cron.ScheduledTask {
       // (not recomputed inside runCronJob) and names the same session/work-item/link
       // on any re-invocation of this fire (GRS-003b-1).
       const fireIso = new Date().toISOString();
-      runCronJob(job, currentSessionManager, currentConfig, currentConnectors, { fireIso, emit: currentEmit }).catch((err) => {
+      runCronJob(job, deps.sessionManager, deps.getConfig(), deps.connectors, { fireIso, emit: deps.emit }).catch((err) => {
         logger.error(`Cron job "${job.name}" crashed: ${err instanceof Error ? err.message : err}`);
       });
     },
@@ -98,7 +80,7 @@ export async function triggerCronJob(idOrName: string): Promise<CronJob | undefi
   // run-now (api.ts), it passes NO `fireIso`. Each manual trigger is a fresh fire
   // (runner defaults to a new per-call ISO). Only the scheduled TICK carries a
   // deterministic per-fire identity (GRS-003b-1).
-  await runCronJob(job, currentSessionManager, currentConfig, currentConnectors, { emit: currentEmit });
+  await runCronJob(job, deps.sessionManager, deps.getConfig(), deps.connectors, { emit: deps.emit });
   return job;
 }
 

@@ -89,7 +89,7 @@
       "lines": 341
     },
     "packages/jinn/src/connectors/telegram/index.ts": {
-      "lines": 459,
+      "lines": 458,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -201,7 +201,7 @@
       ]
     },
     "packages/jinn/src/engines/grok.ts": {
-      "lines": 791,
+      "lines": 790,
       "exempt": [
         "complexity",
         "max-depth",
@@ -324,7 +324,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5150,
+      "lines": 5146,
       "exempt": [
         "complexity",
         "max-depth",
@@ -601,7 +601,7 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 665,
+      "lines": 634,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1008,7 +1008,7 @@
       ]
     },
     "packages/jinn/src/workflows/service.ts": {
-      "lines": 482,
+      "lines": 480,
       "exempt": [
         "complexity",
         "max-depth"
@@ -1241,7 +1241,7 @@
       ]
     },
     "packages/web/src/components/chat/thread-peek.tsx": {
-      "lines": 403,
+      "lines": 364,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1444,7 +1444,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1098,
+      "lines": 1075,
       "exempt": [
         "complexity"
       ]
@@ -1702,7 +1702,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 509,
+      "lines": 503,
       "exempt": [
         "complexity",
         "max-lines-per-function"

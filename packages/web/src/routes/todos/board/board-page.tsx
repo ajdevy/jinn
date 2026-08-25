@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom"
 import { ListFilter, Plus } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
-import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { PrimaryAction } from "@/components/shell/primary-action"
 import { ApiError, type WorkItemCompactWire, type WorkItemStatusWire } from "@/lib/api"
@@ -31,12 +30,14 @@ import { FilterBar } from "../filter-bar"
 import { TodoFilterSheet } from "../todo-filter-sheet"
 import { NeedsYouView } from "../needs-you-view"
 import { NewTodoDialog } from "../new-todo-dialog"
+import { QuickCaptureBar } from "../quick-add/capture-bar"
+import { BoardHeader } from "./board-header"
 import { TodoList } from "../list/todo-list"
 import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
 import { FilteredEmptyCard, HomeEmptyCard } from "./board-empty"
 import { BoardColumn, DragSlot } from "./column"
 import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail"
-import { BoardSwitcher, departmentTitle } from "./board-switcher"
+import { departmentTitle } from "./board-switcher"
 import { boardDetailIds, useBoardData, useBoardRank, useBoardTransition, useBoardTrees, useCreateSubTask, useKeepWorkItem } from "./use-board"
 import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
@@ -375,6 +376,7 @@ export default function TodoBoardPage() {
 
   // ── Page chrome state ───────────────────────────────────────────────────────
   const [creating, setCreating] = useState<null | { department?: string; askAssignee?: boolean }>(null)
+  const [capturing, setCapturing] = useState(false)
   // A URL naming a closed status asked for closed work — never one tap short.
   const closedFilter = CLOSED_STATUSES.some((status) => status === filters.status)
   const [closedOpen, setClosedOpen] = useState(closedFilter)
@@ -453,8 +455,8 @@ export default function TodoBoardPage() {
   // Filtered-empty (states mock §6): zero visible items with filters/search
   // set always offers the way back. An unfiltered empty board celebrates
   // quietly — the columns and their quick-adds ARE the empty state — except
-  // Home, which is empty until the operator pins something and so has to name
-  // the gesture rather than look broken (PLA-172).
+  // Home, which is empty until the operator creates or pins something and so
+  // has to name those gestures rather than look broken (PLA-230).
   const filterCount = activeFilterCount(filters) + (filters.q ? 1 : 0)
   const boardEmpty = !data.isLoading && visibleItemCount(filters.status, itemsByStatus) === 0
   const filteredEmpty = boardEmpty && filterCount > 0
@@ -541,46 +543,21 @@ export default function TodoBoardPage() {
       <PageScaffold
         scroll="external"
         header={
-          <LargeTitleHeader
-            title={<BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />}
-            subtitle={
-              <>
-                {board.kind === "home" && <p>The Todos you pinned.</p>}
-                <div className="flex items-center gap-2">
-                  {deptSummary && (
-                    <>
-                      <span className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)", letterSpacing: ".04em" }}>
-                        {deptSummary.prefix}
-                      </span>
-                      <Dot />
-                    </>
-                  )}
-                  {isAttention ? (
-                    <span>{needsYou.length} waiting</span>
-                  ) : (
-                    <>
-                      <span>
-                        {filters.due
-                          ? PIPELINE_STATUSES.reduce((sum, s) => sum + (itemsByStatus[s]?.length ?? 0), 0)
-                          : data.openTotal} open
-                      </span>
-                      {blockedTotal > 0 && (
-                        <>
-                          <Dot />
-                          <span>{blockedTotal} blocked</span>
-                        </>
-                      )}
-                      {escalatedTotal > 0 && (
-                        <>
-                          <Dot />
-                          <span>{escalatedTotal} escalated</span>
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              </>
+          <BoardHeader
+            board={board}
+            title={title}
+            departments={departments.data}
+            attentionCount={needsYou.length}
+            deptPrefix={deptSummary?.prefix}
+            isAttention={isAttention}
+            openCount={
+              filters.due
+                ? PIPELINE_STATUSES.reduce((sum, s) => sum + (itemsByStatus[s]?.length ?? 0), 0)
+                : data.openTotal
             }
+            blockedTotal={blockedTotal}
+            escalatedTotal={escalatedTotal}
+            onQuickCapture={() => setCapturing(true)}
           />
         }
         primaryAction={
@@ -785,6 +762,8 @@ export default function TodoBoardPage() {
       )}
       <span ref={liveRef} aria-live="polite" className="sr-only" />
 
+      {capturing && <QuickCaptureBar onClose={() => setCapturing(false)} />}
+
       {creating && (
         <NewTodoDialog
           onClose={() => setCreating(null)}
@@ -817,9 +796,6 @@ export default function TodoBoardPage() {
   )
 }
 
-function Dot() {
-  return <span aria-hidden className="size-[2.5px] rounded-full bg-[var(--text-quaternary)]" />
-}
 
 /** The grouped-list skeleton (mobile/inbox loading) — moved here from the
  *  retired legacy list's group module at the stage-C cutover. */

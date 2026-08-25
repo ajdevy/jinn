@@ -29,7 +29,11 @@ describe("PageScaffold", () => {
     expect(scroll?.textContent).toContain("Body")
   })
 
-  it("scroll=external renders no scaffold scroll box", () => {
+  // The route owns its scrollports, so the scaffold builds none — and with no
+  // scrollport of its own there is nothing for the collapse timeline to read.
+  // A permanent large title is the contract for `scroll="external"`, not a
+  // degradation: `/todos` is not expected to collapse.
+  it("scroll=external builds no scroll box, and so no collapsed title bar", () => {
     const { container } = render(
       <PageScaffold scroll="external" header={<LargeTitleHeader title="Todos" />}>
         <div data-testid="page-scroller" data-scrollable />
@@ -40,6 +44,7 @@ describe("PageScaffold", () => {
     expect(scrollables).toHaveLength(1)
     expect(scrollables[0].getAttribute("data-testid")).toBe("page-scroller")
     expect(container.querySelector(".jinn-large-title")).toBeTruthy()
+    expect(container.querySelector(".jinn-inline-title")).toBeNull()
   })
 
   it("publishes the scroll node through state so a descendant sees it after commit", async () => {

@@ -6,6 +6,7 @@ import { addComment } from "../work-items/comments.js";
 import {
   getWorkItem,
   isBlockDeclared,
+  listWorkItemEvents,
   WORKFLOW_RUN_ACTOR,
   type ApprovalTargetKind,
   type WorkItemStatus,
@@ -35,11 +36,12 @@ import type {
  *   - record WHY a run settled failed
  *   - wake the routed employee when the run parks on their decision
  *   - send the work round again when that approver rejects WITH feedback
- *   - close a successful run after an operator-only gate supplied the review
+ *   - close a successful run after a reserved gate supplied the review
  *
  * Completion remains absent for every other path. Reaching a success End alone
- * is not a review; only a recorded operator-only approval supplies the human
- * authority to close without weakening the self-review rule.
+ * is not a review; only a recorded reserved approval (operator-only, or handed
+ * to the COO's lane) supplies the human authority to close without weakening
+ * the self-review rule.
  */
 
 /**
@@ -52,13 +54,38 @@ import type {
  *     has already said something more specific and keeps it.
  *   - `in_review` yields to a DECLARED block: a phase that blocked with a real
  *     reason says more than "a decision is pending".
- *   - `blocked` always writes. A run that died is the newest and most
- *     consequential fact about the work, and leaving the board on a phase's
- *     optimistic `in_review` is the exact lie this surface exists to stop.
+ *   - `blocked` writes only while THIS run still owns the board. A successor
+ *     round, an availability resume, or an operator/employee move is a newer
+ *     fact; stomping it back to blocked is the false-state PLA-221 exists to
+ *     stop. A quiet Todo this run itself left executing or in_review still
+ *     blocks, as before.
  */
-function mayReflect(status: WorkflowRunReflection, current: WorkItemStatus, todoId: string): boolean {
+function latestRunAttribution(todoId: string): { runId?: string; resume?: boolean } {
+  const last = listWorkItemEvents(todoId).filter((event) => event.kind === "status_change").at(-1);
+  const detail = last?.detail ?? {};
+  return {
+    runId: typeof detail.runId === "string" ? detail.runId : undefined,
+    resume: detail.availabilityResume === true || detail.recoveryResume === true,
+  };
+}
+
+function mayReflect(
+  status: WorkflowRunReflection,
+  current: WorkItemStatus,
+  todoId: string,
+  runId: string,
+): boolean {
   if (status === "executing") return current === "backlog" || current === "assigned";
   if (status === "in_review") return !(current === "blocked" && isBlockDeclared(todoId));
+  if (status === "blocked") {
+    if (current === "done" || current === "cancelled" || current === "escalated") return false;
+    const successor = current === "assigned" || current === "executing" || current === "in_review";
+    if (!successor) return true;
+    const last = latestRunAttribution(todoId);
+    if (last.resume) return false;
+    if (last.runId === undefined) return false;
+    return last.runId === runId;
+  }
   return true;
 }
 
@@ -66,7 +93,7 @@ function reflect(input: {
   todoId: string; status: WorkflowRunReflection; workflowId: string; runId: string; nodeId: string;
 }): void {
   const item = getWorkItem(input.todoId);
-  if (!item || !mayReflect(input.status, item.status, input.todoId)) return;
+  if (!item || !mayReflect(input.status, item.status, input.todoId, input.runId)) return;
   // `declared: false` keeps this out of the declaration lane: the reconciler's
   // provenance checks read it, so a reflected status stays re-derivable instead of
   // freezing the Todo. A dead run blocks `transient`: one recurring problem, not two.
@@ -130,17 +157,17 @@ function gateRequest(request: string): string {
  * has to turn that into a session:
  *
  * Employee-routed gates wake that employee's most recent live session. Gates
- * routed to the virtual root, and gates reserved for the operator, stay on the
- * Todo board without waking a chat.
+ * routed to the virtual root, and gates a definition reserved for the operator
+ * or for the COO, stay on the Todo board without waking a chat.
  *
  * An errored session is skipped the same way a parent callback skips one.
  */
 function approverSession(
   target: string | null,
   kind: ApprovalTargetKind | null | undefined,
-  operatorOnly: boolean,
+  reserved: boolean,
 ) {
-  if (operatorOnly || kind !== "employee" || !target) return undefined;
+  if (reserved || kind !== "employee" || !target) return undefined;
   return listSessionsForGroup(target, 5, 0)
     .find((candidate) => candidate.status !== "error");
 }
@@ -153,12 +180,16 @@ function approverSession(
  */
 function notifyParked(input: {
   todoId: string; workflowId: string; runId: string; nodeId: string; request: string; ref: string;
+  cooDecidable?: boolean;
 }): void {
   const approval = currentApproval(input.todoId);
+  // Default routing hands an unrouted gate to the owner's manager, which a
+  // COO-decidable gate never names as its approver: telling that manager the
+  // decision is theirs would promise what both decide and escalate refuse.
   const session = approverSession(
     approval?.target ?? null,
     approval?.targetKind,
-    approval?.operatorOnly ?? false,
+    (approval?.operatorOnly ?? false) || input.cooDecidable === true,
   );
   if (!session) return;
 

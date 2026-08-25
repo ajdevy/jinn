@@ -1,0 +1,162 @@
+import { describe, expect, it } from "vitest";
+import { api, ctx, dbModule, makeReq, makeRes, store, toolHeaders, reg } from "./helpers/work-items-route-harness.js";
+
+/**
+ * PLA-240 data contract: Attention/list grouping is fed only from
+ * GET /api/work-items?needsAttentionFor=me. Recovering leftovers must be in
+ * that feed with attentionLane=recovering so the UI can split them out of
+ * Needs you.
+ */
+describe("GET /api/work-items?needsAttentionFor=me attention lanes", () => {
+  it("returns a recovering blocked Todo with attentionLane recovering, including for the COO who is not the assignee", async () => {
+    const coo = reg.createSession({ engine: "codex", source: "web", sourceRef: "coo-lanes", title: "coo", employee: "coo" });
+    const item = store.createWorkItem({
+      title: "quota parked build", status: "blocked", assignee: "platform-worker",
+    });
+    const rows = await import("../../work-items/recovery-rows.js");
+    rows.upsertWorkItemRecovery({
+      workItemId: item.id,
+      incidentId: "run_old",
+      class: "transient",
+      lane: "recovering",
+      reason: "provider availability",
+    });
+
+    const res = makeRes();
+    await api.handleApiRequest(
+      makeReq("GET", "/api/work-items?needsAttentionFor=me&limit=50", undefined, toolHeaders(coo.id)),
+      res.res,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    const row = (res.body.workItems as Array<Record<string, unknown>>).find((entry) => entry.id === item.id);
+    expect(row).toMatchObject({ id: item.id, status: "blocked", attentionLane: "recovering" });
+  });
+
+  it("returns a manager-lane in_review leftover that is not a pending approval", async () => {
+    const coo = reg.createSession({ engine: "codex", source: "web", sourceRef: "coo-mgr", title: "coo", employee: "coo" });
+    const item = store.createWorkItem({
+      title: "approved landing leftover", status: "in_review", assignee: "platform-worker",
+    });
+    const rows = await import("../../work-items/recovery-rows.js");
+    rows.upsertWorkItemRecovery({
+      workItemId: item.id,
+      incidentId: "run_landed",
+      class: "operator",
+      lane: "manager",
+      reason: "approved landing is still open",
+    });
+
+    const res = makeRes();
+    await api.handleApiRequest(
+      makeReq("GET", "/api/work-items?needsAttentionFor=me&limit=50", undefined, toolHeaders(coo.id)),
+      res.res,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    const row = (res.body.workItems as Array<Record<string, unknown>>).find((entry) => entry.id === item.id);
+    expect(row).toMatchObject({ id: item.id, status: "in_review", attentionLane: "manager" });
+  });
+
+  /**
+   * Dashboard contract from packages/web: deriveNeedsYou keeps recovering/manager
+   * lanes, then grouping splits Recovering automatically / Manager attention / Needs you.
+   */
+  function dashboardGroups(feed: Array<Record<string, unknown>>) {
+    const kept = feed.filter((item) =>
+      item.attentionLane === "recovering" || item.attentionLane === "manager"
+      || item.approvalState === "pending" || item.status === "escalated" || item.status === "blocked");
+    return {
+      recovering: kept.filter((item) => item.attentionLane === "recovering").map((item) => item.id),
+      manager: kept.filter((item) => item.attentionLane === "manager").map((item) => item.id),
+      needsYou: kept.filter((item) => item.attentionLane !== "recovering" && item.attentionLane !== "manager").map((item) => item.id),
+    };
+  }
+
+  async function attentionFeed() {
+    const coo = reg.createSession({ engine: "codex", source: "web", sourceRef: `coo-${Date.now()}`, title: "coo", employee: "coo" });
+    const res = makeRes();
+    await api.handleApiRequest(
+      makeReq("GET", "/api/work-items?needsAttentionFor=me&limit=50", undefined, toolHeaders(coo.id)),
+      res.res,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    return res.body.workItems as Array<Record<string, unknown>>;
+  }
+
+  it("QPR-4: refused-complete leftover survives the recovery tick into Manager attention", async () => {
+    const detect = await import("../../work-items/anomaly-detect.js");
+    const controller = await import("../../work-items/recovery-controller.js");
+    const runs = await import("../../work-items/runs.js");
+    const approvals = await import("../../work-items/approvals.js");
+    const transitions = await import("../../work-items/transitions.js");
+    const rows = await import("../../work-items/recovery-rows.js");
+    const db = dbModule.initDb();
+
+    const item = store.createWorkItem({
+      title: "QPR-4 refused landing", status: "assigned", assignee: "platform-worker",
+    });
+    transitions.transition(item.id, "in_review", "session:worker", { agent: true });
+    store.createWorkItem({
+      title: "open child leftover", parentId: item.id, status: "assigned", assignee: "platform-worker",
+    });
+    const sessionId = `s-qpr4-${item.id}`;
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, work_item_id, created_at, last_activity)
+       VALUES (?, 'claude', 'cron', ?, 'idle', ?, ?, ?)`,
+    ).run(sessionId, `cron:${sessionId}`, item.id, new Date().toISOString(), new Date().toISOString());
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId });
+    runs.closeWorkItemRun(run.id, { outcome: "completed", endedAt: new Date().toISOString() });
+    approvals.requestApproval(item.id, {
+      request: "Land?", ref: `workflow:pipeline:${run.id}:gate`, target: "operator",
+    });
+    approvals.decideWorkItemApprovalSync({ id: item.id, decision: "approve", decidedBy: "operator" });
+    expect(store.getWorkItem(item.id)!.status).toBe("in_review");
+
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
+    detect.detectTodoAnomalies({ persist: true,
+      approvedLandingComplete: (todoId) => todoId === item.id,
+      closeApprovedLanded: () => false });
+    expect(rows.getWorkItemRecovery(item.id)?.lane).toBe("manager");
+
+    const feed = await attentionFeed();
+    const compact = feed.find((entry) => entry.id === item.id);
+    expect(compact).toMatchObject({ id: item.id, status: "in_review", attentionLane: "manager" });
+    const groups = dashboardGroups(feed);
+    expect(groups.manager).toContain(item.id);
+    expect(groups.needsYou).not.toContain(item.id);
+  });
+
+  it("QPR-1: recovering leftover survives sweep into Recovering automatically, not Needs you", async () => {
+    const controller = await import("../../work-items/recovery-controller.js");
+    const runs = await import("../../work-items/runs.js");
+    const db = dbModule.initDb();
+
+    const item = store.createWorkItem({
+      title: "QPR-1 quota parked", status: "blocked", assignee: "platform-worker",
+    });
+    const sessionId = `s-qpr1-${item.id}`;
+    db.prepare(
+      `INSERT INTO sessions (id, engine, source, source_ref, status, work_item_id, created_at, last_activity)
+       VALUES (?, 'claude', 'cron', ?, 'idle', ?, ?, ?)`,
+    ).run(sessionId, `cron:${sessionId}`, item.id, new Date().toISOString(), new Date().toISOString());
+    const run = runs.openWorkItemRun({ workItemId: item.id, sessionId });
+    runs.closeWorkItemRun(run.id, {
+      outcome: "rate_limited", endedAt: new Date().toISOString(),
+      error: "Usage limit exceeded; try again at 2026-08-27T12:00:00.000Z",
+    });
+    store.appendWorkItemEvent({
+      workItemId: item.id, kind: "status_change", fromStatus: "assigned", toStatus: "blocked",
+      actor: "workflow:run", detail: { workflowId: "pipeline", runId: run.id }, versionEffect: "audit",
+    });
+
+    controller.sweepTodoRecovery({ mode: "classify-only", rearm: () => ({ status: "assigned" }) });
+    const feed = await attentionFeed();
+    const compact = feed.find((entry) => entry.id === item.id);
+    expect(compact).toMatchObject({ id: item.id, attentionLane: "recovering" });
+    const groups = dashboardGroups(feed);
+    expect(groups.recovering).toContain(item.id);
+    expect(groups.needsYou).not.toContain(item.id);
+  });
+});

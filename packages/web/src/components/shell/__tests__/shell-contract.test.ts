@@ -16,6 +16,7 @@ const SHEET_SIGNATURE = /animate-sheet-in|rounded-t-\[var\(--radius-2xl\)\]|roun
 const KNOWN_SHEETS = new Set([
   "src/routes/todos/new-todo-dialog.tsx",
   "src/routes/todos/pickers/picker-shell.tsx",
+  "src/routes/todos/quick-add/capture-bar.tsx",
   "src/routes/todos/todo-filter-sheet.tsx",
   "src/routes/workflow/editor/inspector.tsx",
   "src/routes/workflow/editor/palette.tsx",
