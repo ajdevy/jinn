@@ -4,8 +4,8 @@ import { classifyEngineFailureText, hasEngineFailureClass } from "../shared/engi
  * Bounded recovery classification (PLA-240).
  *
  * A verdict here is not an action. The controller decides whether to re-arm,
- * route, or leave the Todo on Needs you. Classification must be pure: the
- * replay suite feeds it historical incidents with no database of their own.
+ * route, or leave the Todo on Needs you. The open run, the approval and the
+ * clock arrive as inputs, so the replay suite can feed it history with no DB.
  */
 
 export const RECOVERY_CLASSES = [
@@ -22,6 +22,13 @@ export type AttentionLane = (typeof ATTENTION_LANES)[number];
 
 export const TODO_RECOVERY_ACTOR = "todo-recovery";
 export const MAX_RECOVERY_ATTEMPTS = 2;
+export const EXECUTION_TIMEOUT_MS = 4 * 60 * 60_000;
+const FRESH_RUN_MS = 15 * 60_000;
+
+/** A pipeline between runs, not a stalled one. */
+export function runIsFresh(endedAt: string | null | undefined, now: number): boolean {
+  return endedAt ? now - Date.parse(endedAt) < FRESH_RUN_MS : false;
+}
 
 /** Generic fallback: classifyRecovery found no specific incident. */
 export const GENERIC_OPERATOR_REASON = "no safe automatic recovery is known";
@@ -31,11 +38,12 @@ export function isGenericOperatorFallback(verdict: RecoveryClassification): bool
 }
 
 /**
- * One `work_item_recovery` row is shared by the detector and the sweep.
+ * The recovery sweep is the only writer of a Todo's `work_item_recovery` row,
+ * so successive verdicts on it are all this guard has to reconcile.
  * A later generic operator fallback cannot downgrade an unresolved specific
- * lane (manager / recovering). Specific verdicts (failure class, leftover
- * manager, pending routed approval, operator-only authority) may replace.
- * Terminal status means the prior condition resolved.
+ * lane (manager / recovering). Specific verdicts (failure class, stalled run
+ * or assignment, leftover manager, routed approval, operator-only) may
+ * replace. Terminal status means the prior condition resolved.
  */
 export function mayReplaceRecoveryLane(
   prior: { lane: AttentionLane } | undefined,
@@ -58,11 +66,11 @@ export interface RecoveryClassification {
 export interface RecoveryIncidentInput {
   todo: { id: string; status: string; assignee: string | null; source: string };
   lastRun?: { id: string; outcome: string; error: string | null; endedAt: string | null };
-  openRun?: boolean;
+  openRun?: { startedAt: string; sessionInFlight: boolean };
   approval?: { state: string; operatorOnly: boolean };
-  labels: string[];
   verifyMode?: "trust" | "verify" | "thorough";
   owningWorkflowId?: string;
+  now?: Date;
 }
 
 const AVAILABILITY_CLASSES = ["quota", "rate-limit", "provider-outage", "network"] as const;
@@ -98,14 +106,30 @@ function classifyFromFailure(input: RecoveryIncidentInput): RecoveryClassificati
   return undefined;
 }
 
-function classifyLeftover(input: RecoveryIncidentInput): RecoveryClassification | undefined {
-  if (input.approval?.state === "pending") {
-    return { class: "operator", lane: "manager", reason: "a routed approval is waiting on an employee, not the operator" };
+function classifyStalled(input: RecoveryIncidentInput, status: string, now: number): RecoveryClassification | undefined {
+  const open = input.openRun;
+  if (status === "executing" && open && !open.sessionInFlight && now - Date.parse(open.startedAt) > EXECUTION_TIMEOUT_MS) {
+    return { class: "code", lane: "manager", reason: "execution has outlived the 4h timeout without an in-flight session to speak for it" };
   }
-  if (input.todo.status === "in_review" && input.approval?.state === "approved" && input.lastRun?.outcome === "completed") {
-    return { class: "operator", lane: "manager", reason: "approved landing is still open" };
+  if (status === "assigned" && input.owningWorkflowId && !open && !runIsFresh(input.lastRun?.endedAt, now)) {
+    return { class: "transient", lane: "recovering", reason: "assigned to a pipeline with no active run" };
   }
   return undefined;
+}
+
+function classifyLeftover(input: RecoveryIncidentInput, now: number): RecoveryClassification | undefined {
+  const state = input.approval?.state;
+  const status = input.todo.status;
+  if (state === "pending") {
+    return { class: "operator", lane: "manager", reason: "a routed approval is waiting on an employee, not the operator" };
+  }
+  if (status === "in_review" && state === "approved" && input.lastRun?.outcome === "completed") {
+    return { class: "operator", lane: "manager", reason: "approved landing is still open" };
+  }
+  if (status === "in_review" && !input.todo.assignee) {
+    return { class: "operator", lane: "manager", reason: "in review with no pending approval and no reviewer" };
+  }
+  return classifyStalled(input, status, now);
 }
 
 export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassification {
@@ -117,7 +141,7 @@ export function classifyRecovery(input: RecoveryIncidentInput): RecoveryClassifi
   }
   const fromFailure = classifyFromFailure(input);
   if (fromFailure) return verdict(input, fromFailure);
-  const leftover = classifyLeftover(input);
+  const leftover = classifyLeftover(input, (input.now ?? new Date()).getTime());
   if (leftover) return verdict(input, leftover);
   return verdict(input, { class: "operator", lane: "operator", reason: GENERIC_OPERATOR_REASON });
 }

@@ -1,15 +1,11 @@
 import { currentApproval } from "./approval-rows.js";
 import { listWorkItemEvents } from "./event-log.js";
-import { classifyWorkItem } from "./recovery-controller.js";
-import { getWorkItemRecovery, upsertWorkItemRecovery } from "./recovery-rows.js";
-import {
-  TODO_RECOVERY_ACTOR,
-  type AttentionLane,
-} from "./recovery.js";
+import { classifyWorkItem, sessionInFlight } from "./recovery-controller.js";
+import { getWorkItemRecovery } from "./recovery-rows.js";
+import { EXECUTION_TIMEOUT_MS, runIsFresh, TODO_RECOVERY_ACTOR, type AttentionLane } from "./recovery.js";
 import { listWorkItemRuns } from "./runs.js";
 import { appendWorkItemEvent, getWorkItem, listWorkItems, type WorkItem } from "./store.js";
 import { owningWorkflowId } from "./workflow-ownership.js";
-import { initDb } from "../shared/db.js";
 
 export const ANOMALY_KINDS = [
   "assigned-without-run",
@@ -27,34 +23,12 @@ export interface TodoAnomaly {
   reason: string;
 }
 
-const EXECUTION_TIMEOUT_MS = 4 * 60 * 60_000;
-const FRESH_RUN_MS = 15 * 60_000;
-
-function alreadyObserved(workItemId: string, kind: AnomalyKind): boolean {
-  return listWorkItemEvents(workItemId).some((event) =>
-    event.kind === "anomaly_observed" && event.detail?.kind === kind);
-}
-
-function note(item: WorkItem, anomaly: TodoAnomaly, now: Date): void {
-  const incidentId = `anomaly:${anomaly.kind}:${item.id}`;
-  const prior = getWorkItemRecovery(item.id);
-  if (prior?.lane !== anomaly.lane || prior.incidentId !== incidentId) {
-    upsertWorkItemRecovery({
-      workItemId: item.id,
-      incidentId,
-      class: anomaly.lane === "recovering" ? "transient" : anomaly.lane === "manager" ? "code" : "operator",
-      lane: anomaly.lane,
-      reason: anomaly.reason,
-      now,
-    });
-  }
-  if (alreadyObserved(item.id, anomaly.kind)) return;
+/** One `anomaly_observed` per Todo per kind: the audit records the lie, not the tick. */
+function observe(item: WorkItem, anomaly: TodoAnomaly): void {
+  if (listWorkItemEvents(item.id).some((e) => e.kind === "anomaly_observed" && e.detail?.kind === anomaly.kind)) return;
   appendWorkItemEvent({
-    workItemId: item.id,
-    kind: "anomaly_observed",
-    actor: TODO_RECOVERY_ACTOR,
-    detail: { kind: anomaly.kind, lane: anomaly.lane, reason: anomaly.reason },
-    versionEffect: "audit",
+    workItemId: item.id, kind: "anomaly_observed", actor: TODO_RECOVERY_ACTOR,
+    detail: { kind: anomaly.kind, lane: anomaly.lane, reason: anomaly.reason }, versionEffect: "audit",
   });
 }
 
@@ -63,22 +37,15 @@ function assignedWithoutRun(item: WorkItem, now: Date): TodoAnomaly | undefined 
   const runs = listWorkItemRuns(item.id);
   if (runs.some((run) => run.endedAt === null)) return undefined;
   const last = [...runs].reverse().find((run) => run.endedAt !== null);
-  if (last?.endedAt && now.getTime() - Date.parse(last.endedAt) < FRESH_RUN_MS) return undefined;
+  if (runIsFresh(last?.endedAt, now.getTime())) return undefined;
   return { workItemId: item.id, kind: "assigned-without-run", lane: "recovering", reason: "assigned to a pipeline with no active run" };
-}
-
-function sessionInFlight(sessionId: string): boolean {
-  const row = initDb().prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId) as { status: string } | undefined;
-  return row?.status === "running" || row?.status === "waiting";
 }
 
 function executionTimeout(item: WorkItem, now: Date): TodoAnomaly | undefined {
   if (item.status !== "executing") return undefined;
   const open = listWorkItemRuns(item.id).find((run) => run.endedAt === null);
-  if (!open) return undefined;
-  if (sessionInFlight(open.sessionId)) return undefined;
-  const started = Date.parse(open.startedAt);
-  if (!Number.isFinite(started) || now.getTime() - started <= EXECUTION_TIMEOUT_MS) return undefined;
+  if (!open || sessionInFlight(open.sessionId)) return undefined;
+  if (!(now.getTime() - Date.parse(open.startedAt) > EXECUTION_TIMEOUT_MS)) return undefined;
   return { workItemId: item.id, kind: "execution-timeout", lane: "manager", reason: "execution has outlived the 4h timeout without an in-flight session to speak for it" };
 }
 
@@ -101,14 +68,14 @@ function blockedWithoutRecovery(item: WorkItem): TodoAnomaly | undefined {
   return { workItemId: item.id, kind: "blocked-without-recovery", lane: verdict.lane, reason: "blocked with no recovery row" };
 }
 
-function inspect(item: WorkItem, now: Date,
-  approvedLandingComplete?: (todoId: string) => boolean): TodoAnomaly | undefined {
+function inspect(item: WorkItem, now: Date, approvedLandingComplete?: (todoId: string) => boolean): TodoAnomaly | undefined {
   return assignedWithoutRun(item, now) ?? executionTimeout(item, now)
     ?? reviewAnomaly(item, approvedLandingComplete) ?? blockedWithoutRecovery(item);
 }
 
 export interface DetectTodoAnomaliesInput {
   now?: Date;
+  /** When false, detect without appending the `anomaly_observed` audit event. */
   persist?: boolean;
   /** Exact Workflow-run proof that the approved landing completed. */
   approvedLandingComplete?: (todoId: string) => boolean;
@@ -119,7 +86,8 @@ export interface DetectTodoAnomaliesInput {
 
 /**
  * Quiet detector. Returns the leftover lies on the board. A healthy board
- * returns []. Never creates a Todo or a session.
+ * returns []. Never creates a Todo, a session, or a recovery row — the sweep
+ * owns that row; this only appends the audit trail.
  */
 export function detectTodoAnomalies(input: DetectTodoAnomaliesInput = {}): TodoAnomaly[] {
   const now = input.now ?? new Date();
@@ -134,7 +102,7 @@ export function detectTodoAnomalies(input: DetectTodoAnomaliesInput = {}): TodoA
         continue;
       }
       found.push(anomaly);
-      if (persist) note(item, anomaly, now);
+      if (persist) observe(item, anomaly);
     }
   }
   return found;

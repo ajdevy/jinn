@@ -1,6 +1,5 @@
 import { currentApproval } from "./approval-rows.js";
 import { claimWorkItem, releaseWorkItemClaim, type ClaimWorkItemResult } from "./claims.js";
-import { getWorkItemLabels } from "./labels.js";
 import { getWorkItemRecovery, upsertWorkItemRecovery } from "./recovery-rows.js";
 import {
   classifyRecovery,
@@ -12,6 +11,7 @@ import {
 import { listWorkItemRuns } from "./runs.js";
 import { appendWorkItemEvent, listWorkItems, type WorkItem } from "./store.js";
 import { owningWorkflowId } from "./workflow-ownership.js";
+import { initDb } from "../shared/db.js";
 import type { AvailabilityRearmResult } from "./availability-resume.js";
 
 export type TodoRecoveryMode = "off" | "classify-only" | "auto";
@@ -35,22 +35,28 @@ export function todoRecoveryMode(raw: string | undefined): TodoRecoveryMode {
   return raw === "off" || raw === "auto" || raw === "classify-only" ? raw : "classify-only";
 }
 
-export function classifyWorkItem(item: WorkItem): RecoveryClassification {
+export function sessionInFlight(sessionId: string): boolean {
+  const row = initDb().prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId) as { status: string } | undefined;
+  return row?.status === "running" || row?.status === "waiting";
+}
+
+export function classifyWorkItem(item: WorkItem, now = new Date()): RecoveryClassification {
   const runs = listWorkItemRuns(item.id);
   const last = [...runs].reverse().find((run) => run.endedAt !== null);
+  const open = runs.find((run) => run.endedAt === null);
   const approval = currentApproval(item.id);
   return classifyRecovery({
     todo: { id: item.id, status: item.status, assignee: item.assignee, source: item.source },
     lastRun: last
       ? { id: last.id, outcome: last.outcome ?? "crashed", error: last.error, endedAt: last.endedAt }
       : undefined,
-    openRun: runs.some((run) => run.endedAt === null),
+    openRun: open ? { startedAt: open.startedAt, sessionInFlight: sessionInFlight(open.sessionId) } : undefined,
     approval: approval
       ? { state: approval.state, operatorOnly: approval.operatorOnly }
       : undefined,
-    labels: getWorkItemLabels(item.id).map((label) => label.name),
     verifyMode: item.verifyPolicy?.mode,
     owningWorkflowId: owningWorkflowId(item.id),
+    now,
   });
 }
 
@@ -114,12 +120,12 @@ function applyCodeRepair(item: WorkItem, deps: RecoveryApplyDeps, lastRunId: str
 }
 
 /**
- * One pass over open Todos. Classify-only writes lanes and audit; auto additionally
- * re-arms code failures (transients stay with the availability sweep so the two
- * never double-start a run). Backlog is never listed.
+ * One pass over open Todos, and the only writer of `work_item_recovery`.
+ * Classify-only writes lanes and audit; auto additionally re-arms code failures
+ * (transients stay with the availability sweep). Backlog is never listed.
  */
 function recoverOne(item: WorkItem, deps: RecoveryApplyDeps, now: Date): { classified: boolean; applied: boolean } {
-  const verdict = classifyWorkItem(item);
+  const verdict = classifyWorkItem(item, now);
   const lastRunId = [...listWorkItemRuns(item.id)].reverse().find((run) => run.endedAt !== null)?.id;
   const before = getWorkItemRecovery(item.id);
   recordClassified(item, verdict, lastRunId, now);
