@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "version": "0.33.0",
+  "baseVersion": "0.32.0",
+  "generatedFrom": {
+    "baseRef": "v0.32.0",
+    "headRef": "WORKTREE"
+  },
+  "files": [
+    {
+      "path": "docs/connectors.md",
+      "operation": "modify",
+      "baseSha256": "b439377e3feda09132cd4b92a3044ab6d61d4d578734ae551d0601f68943dcb2",
+      "targetSha256": "709f47d03f7d7815a5b8ebdb80d5ef1305de027a84f13f3a6a2659a2c2cbc434",
+      "basePayload": "files/base/docs/connectors.md",
+      "targetPayload": "files/target/docs/connectors.md"
+    }
+  ]
+}

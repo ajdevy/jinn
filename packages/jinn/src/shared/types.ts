@@ -1,5 +1,7 @@
 export type StreamDeltaType = "text" | "text_snapshot" | "tool_use" | "tool_result" | "status" | "error" | "context" | "block";
+
 export type { CompanyChangedEvent } from "./gateway-events.js";
+
 export type {
   Experiment,
   ExperimentMetric,
@@ -9,7 +11,6 @@ export type {
 } from "./gateway-events.js";
 
 export type { NoteDocument, NoteFolder, NoteStoreResult, NoteSummary } from "./note-types.js";
-import type { TelegramAuthConfig } from "./telegram-config-types.js";
 
 /** Generous but bounded body size for durable communication-card metadata. */
 export const STRUCTURED_MESSAGE_BODY_MAX_CHARS = 16_000;
@@ -666,8 +667,7 @@ export interface TelegramConnectorConfig {
   employee?: string;
   botToken: string;
   allowFrom?: number[];
-  ignoreOldMessagesOnBoot?: boolean;
-  telegramAuth?: TelegramAuthConfig;
+  ignoreOldMessagesOnBoot?: boolean; telegramAuth?: { enabled?: boolean; ownerUserIds?: number[]; flowTtlSeconds?: number };
   /** Speech-to-text settings forwarded from top-level `config.stt` */
   stt?: {
     enabled?: boolean;

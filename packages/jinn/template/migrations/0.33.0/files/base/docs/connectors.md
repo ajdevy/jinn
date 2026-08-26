@@ -26,46 +26,6 @@ interface IncomingMessage {
 }
 ```
 
-## Telegram Provider Authentication
-
-Provider authentication from Telegram is opt-in. Add `telegramAuth` under the
-Telegram connector to enable it:
-
-```yaml
-connectors:
-  telegram:
-    botToken: ...
-    allowFrom:
-      - 123456789
-    telegramAuth:
-      enabled: true
-      ownerUserIds:
-        - 123456789
-      flowTtlSeconds: 600
-```
-
-Every `ownerUserIds` entry must also appear in `allowFrom`. Invalid or
-non-allow-listed owner IDs are ignored. Authentication commands are accepted
-only in private chats and only from configured owners. With `telegramAuth`
-absent or disabled, Telegram messages follow the normal connector path.
-
-The supported commands are:
-
-- `/auth_claude` — start Claude authentication.
-- `/auth_codex` — start Codex device authentication.
-- `/auth_status` — show the current Claude and Codex authentication status.
-- `/auth_cancel` — stop active authentication flows.
-- `/auth_input <code>` — send a short device code to the active flow. Codes
-  contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
-  accepted.
-
-The space forms (`/auth claude`, `/auth codex`, `/auth status`,
-`/auth cancel`, and `/auth input <code>`) are also supported. Secret-bearing
-auth input is deleted best-effort after receipt. The CLI uses the gateway's
-normal working directory and environment, so native npm/Homebrew installs use
-their normal provider credential locations and Docker uses the paths configured
-by the image.
-
 ## Slack Connector
 
 Uses `@slack/bolt` with Socket Mode (no public URL required).

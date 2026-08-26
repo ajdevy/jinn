@@ -1,4 +1,4 @@
-import TelegramBot, { type Message as TelegramMessage, type SendMessageParams } from "node-telegram-bot-api";
+import TelegramBot, { type SendMessageParams } from "node-telegram-bot-api";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,17 +14,18 @@ import type {
   TelegramConnectorConfig,
 } from "../../shared/types.js";
 import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
-import { formatResponse } from "./format.js";
+import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
 import { TMP_DIR } from "../../shared/paths.js";
-import { TelegramAuthIntegration } from "./telegram-auth-integration.js";
-import { sendTelegramMessage } from "./telegram-send.js";
+import { createTelegramAuth, type TelegramAuth } from "./auth.js";
 import {
   transcribe as sttTranscribe,
   resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
+
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
+
 export class TelegramConnector implements Connector {
   name = "telegram";
   id: string;
@@ -36,17 +37,19 @@ export class TelegramConnector implements Connector {
   private started = false;
   private lastError: string | null = null;
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
   private readonly capabilities: ConnectorCapabilities = {
     threading: false,
     messageEdits: true,
     reactions: false,
     attachments: true,
   };
+
   private readonly sttConfig?: TelegramConnectorConfig["stt"];
-  private readonly authIntegration: TelegramAuthIntegration;
+  private readonly auth?: TelegramAuth;
   private sttChain: Promise<unknown> = Promise.resolve();
   private sttPending = 0;
-  private messageListener: ((telegramMsg: TelegramMessage) => void) | null = null;
+
   constructor(config: TelegramConnectorConfig) {
     this.id = config.id || "telegram";
     this.bot = new TelegramBot(config.botToken, { polling: false });
@@ -56,16 +59,9 @@ export class TelegramConnector implements Connector {
         ? new Set(config.allowFrom)
         : null;
     this.sttConfig = config.stt;
-    this.authIntegration = new TelegramAuthIntegration({
-      botToken: config.botToken,
-      connectorId: this.id,
-      allowFrom: this.allowedUsers,
-      telegramAuth: config.telegramAuth,
-      send: async (chatId, text) => { await this.safeSend(String(chatId), text, {}, false); },
-      deleteMessage: async (chatId, messageId) => { await this.bot.deleteMessage(String(chatId), Number(messageId)); },
-      logger,
-    });
+    if (config.telegramAuth?.enabled === true) this.auth = createTelegramAuth(this.bot, config.telegramAuth, this.allowedUsers);
   }
+
   async start(): Promise<void> {
     try {
       const me = await this.bot.getMe();
@@ -73,19 +69,21 @@ export class TelegramConnector implements Connector {
       this.bot.startPolling();
       this.started = true;
       this.lastError = null;
-      this.authIntegration.start();
+      this.auth?.start();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
       logger.error(`[telegram] Failed to start: ${msg}`);
       return;
     }
-    this.messageListener = async (telegramMsg) => {
+
+    this.bot.on("message", async (telegramMsg) => {
       // Skip bot messages
       if (telegramMsg.from?.is_bot) {
         logger.debug("[telegram] Skipping bot message");
         return;
       }
+
       if (
         this.ignoreOldMessagesOnBoot &&
         isOldTelegramMessage(telegramMsg.date, this.bootTimeMs)
@@ -93,15 +91,8 @@ export class TelegramConnector implements Connector {
         logger.debug(`[telegram] Ignoring old message ${telegramMsg.message_id}`);
         return;
       }
+
       const userId = telegramMsg.from?.id;
-      if (this.allowedUsers) {
-        if (userId === undefined || !this.allowedUsers.has(userId)) {
-          logger.debug(
-            `[telegram] Ignoring message from unauthorized user ${userId}`,
-          );
-          return;
-        }
-      }
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
       const replyContext = buildReplyContext(telegramMsg);
 
@@ -111,14 +102,17 @@ export class TelegramConnector implements Connector {
       let messageText: string =
         (telegramMsg as any).text || (telegramMsg as any).caption || "";
 
-      this.authIntegration.ensureMenu();
-      if (await this.authIntegration.handle({
-        userId: userId ?? "",
-        chatType: telegramMsg.chat.type,
-        chatId: telegramMsg.chat.id,
-        messageId: telegramMsg.message_id,
-        text: messageText,
-      })) return;
+      if (await this.auth?.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, messageText)) return;
+
+      if (this.allowedUsers) {
+        if (userId === undefined || !this.allowedUsers.has(userId)) {
+          logger.debug(
+            `[telegram] Ignoring message from unauthorized user ${userId}`,
+          );
+          return;
+        }
+      }
+
       if (!this.handler) {
         logger.debug("[telegram] No handler registered, dropping message");
         return;
@@ -333,8 +327,7 @@ export class TelegramConnector implements Connector {
       };
 
       this.handler(msg);
-    };
-    this.bot.on("message", this.messageListener);
+    });
   }
 
   async stop(): Promise<void> {
@@ -342,8 +335,7 @@ export class TelegramConnector implements Connector {
       clearInterval(interval);
     }
     this.typingIntervals.clear();
-    await this.authIntegration.stop();
-    if (this.messageListener) { this.bot.removeListener?.("message", this.messageListener); this.messageListener = null; }
+    this.auth?.stop();
     await this.bot.stopPolling();
     this.started = false;
     logger.info("[telegram] Connector stopped");
@@ -373,9 +365,25 @@ export class TelegramConnector implements Connector {
     chatId: string,
     text: string,
     opts: SendMessageOptions = {},
-    markdown = true,
   ): Promise<string | undefined> {
-    return sendTelegramMessage(this.bot, chatId, text, { ...opts, markdown, logger });
+    try {
+      const result = await this.bot.sendMessage(chatId, text, {
+        parse_mode: "Markdown",
+        ...opts,
+      });
+      return String(result.message_id);
+    } catch (err) {
+      // On parse error, retry without Markdown formatting. Strip the markers we
+      // added during conversion so users don't see literal asterisks/underscores.
+      logger.warn(`[telegram] Send failed with Markdown, retrying as plain text: ${err}`);
+      try {
+        const result = await this.bot.sendMessage(chatId, stripTelegramMarkdown(text), opts);
+        return String(result.message_id);
+      } catch (retryErr) {
+        logger.error(`[telegram] Send failed: ${retryErr}`);
+        throw retryErr;
+      }
+    }
   }
 
   async sendMessage(target: Target, text: string): Promise<string | undefined> {
