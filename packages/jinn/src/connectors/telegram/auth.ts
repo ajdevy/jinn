@@ -92,7 +92,7 @@ export class TelegramAuth {
     if (command.kind === "status") return this.status(owner, message.chatId, warning);
     if (command.kind === "cancel") return this.cancel(owner, message.chatId, warning);
     if (command.kind !== "input") return;
-    return this.writeCode(owner, command.code, message.chatId, warning);
+    return this.writeCode(owner, command, message.chatId, warning);
   }
 
   async status(owner: number, chatId: AuthChatId, warning = ""): Promise<void> {
@@ -144,7 +144,7 @@ export class TelegramAuth {
     };
     this.active.set(key, flow);
     this.attach(flow);
-    await this.safeSend(chatId, `${PROVIDERS[provider].label} authentication started. Follow the instructions below. If the CLI asks you to paste a code, send it with /auth_input <code>.`, warning);
+    await this.safeSend(chatId, `${PROVIDERS[provider].label} authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input; only its one-time code is passed to the CLI.`, warning);
   }
 
   private attach(flow: ActiveFlow): void {
@@ -220,15 +220,17 @@ export class TelegramAuth {
     await this.safeSend(chatId, "Authentication cancelled.", warning);
   }
 
-  private async writeCode(owner: number, code: string, chatId: AuthChatId, warning: string): Promise<void> {
+  private async writeCode(owner: number, input: Extract<AuthCommand, { kind: "input" }>, chatId: AuthChatId, warning: string): Promise<void> {
     const flows = [...this.active.values()].filter((flow) => flow.ownerId === owner);
     if (flows.length === 0) {
       await this.safeSend(chatId, "No authentication flow is active.", warning);
     } else if (flows.length > 1) {
       await this.safeSend(chatId, "Authentication input is ambiguous while multiple providers are active.", warning);
+    } else if (input.source === "claude-callback" && flows[0].provider !== "claude") {
+      await this.safeSend(chatId, "A Claude callback URL can only be used with /auth_claude.", warning);
     } else {
       try {
-        flows[0].pty.write(`${code}\r`);
+        flows[0].pty.write(`${input.code}\r`);
         if (warning) await this.safeSend(chatId, warning);
       } catch {
         this.logger.warn?.("[telegram-auth] failed to write authentication input");

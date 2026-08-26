@@ -78,8 +78,16 @@ describe("TelegramAuth", () => {
     expect(parseAuthCommand("/auth claude")).toEqual({ kind: "start", provider: "claude" });
     expect(parseAuthCommand("/auth_codex@jinn_bot")).toEqual({ kind: "start", provider: "codex" });
     expect(parseAuthCommand("/auth status")).toEqual({ kind: "status" });
-    expect(parseAuthCommand("/auth_input AB12-CD34")).toEqual({ kind: "input", code: "AB12-CD34" });
+    expect(parseAuthCommand("/auth_input AB12-CD34")).toEqual({ kind: "input", code: "AB12-CD34", source: "short-code" });
     expect(parseAuthCommand("/auth input ab12-cd34")).toEqual({ kind: "rejected" });
+    const claudeCode = "Ab".repeat(24);
+    expect(parseAuthCommand(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`)).toEqual({
+      kind: "input",
+      code: claudeCode,
+      source: "claude-callback",
+    });
+    expect(parseAuthCommand(`/auth_input ${claudeCode}`)).toEqual({ kind: "rejected" });
+    expect(parseAuthCommand(`/auth_input https://example.com/callback?code=${claudeCode}&state=state_1234567890123456`)).toEqual({ kind: "rejected" });
     expect(parseAuthCommand("/auth_token=secret")).toEqual({ kind: "rejected" });
     expect(parseAuthCommand("hello")).toBeNull();
     expect(isAuthCommandPrefix("/auth_notes: secret")).toBe(true);
@@ -144,6 +152,20 @@ describe("TelegramAuth", () => {
     expect(harness.pty.write).toHaveBeenCalledOnce();
     expect(harness.pty.write).toHaveBeenCalledWith("AB12-CD34\r");
     expect(harness.send).toHaveBeenCalledWith(123, expect.stringContaining("private"));
+  });
+
+  it("extracts only a Claude code from a loopback callback URL", async () => {
+    const claude = makeHarness();
+    const claudeCode = "Ab".repeat(24);
+    await claude.auth.handle(message("/auth_claude"));
+    await claude.auth.handle(message(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`));
+    expect(claude.pty.write).toHaveBeenCalledWith(`${claudeCode}\r`);
+
+    const codex = makeHarness();
+    await codex.auth.handle(message("/auth_codex"));
+    await codex.auth.handle(message(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`));
+    expect(codex.pty.write).not.toHaveBeenCalled();
+    expect(codex.send).toHaveBeenLastCalledWith(123, expect.stringContaining("only be used with /auth_claude"));
   });
 
   it("forwards each discovered URL and code once without retaining split UTF-8 bytes", async () => {

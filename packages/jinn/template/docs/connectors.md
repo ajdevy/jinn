@@ -57,7 +57,9 @@ The supported commands are:
 - `/auth_cancel` — stop active authentication flows.
 - `/auth_input <code>` — send a short device code to the active flow. Codes
   contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
-  accepted.
+  accepted. For Claude, if the browser returns a loopback
+  `http://localhost:<port>/callback?...` URL, the full URL may be sent here;
+  Jinn extracts only its one-time alphanumeric `code` when `state` is present.
 
 The space forms (`/auth claude`, `/auth codex`, `/auth status`,
 `/auth cancel`, and `/auth input <code>`) are also supported. Secret-bearing

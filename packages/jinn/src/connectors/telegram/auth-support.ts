@@ -42,13 +42,18 @@ export interface ActiveFlow {
 }
 export type Verification = { verified: boolean; timedOut: boolean };
 export type ProviderState = "authenticated" | "not authenticated" | "status unavailable" | "verification timed out";
+export type AuthInputSource = "short-code" | "claude-callback";
 export type AuthCommand =
   | { kind: "start"; provider: AuthProvider }
-  | { kind: "status" } | { kind: "cancel" } | { kind: "input"; code: string } | { kind: "rejected" };
+  | { kind: "status" } | { kind: "cancel" }
+  | { kind: "input"; code: string; source: AuthInputSource }
+  | { kind: "rejected" };
 
 export const DEFAULT_FLOW_TTL_SECONDS = 600;
 export const MAX_DISCOVERY_TAIL_BYTES = 4096;
 const CODE_PATTERN = /^[A-Z0-9](?:[A-Z0-9-]{2,30}[A-Z0-9])$/;
+const CLAUDE_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9]{40,128}$/;
+const CALLBACK_STATE_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
 const ANSI_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const DISCOVERY_CODE_PATTERN = /(?:device[\s_]code|user[\s_]code|code)\s*[:=]?\s*([A-Z0-9][A-Z0-9-]{3,31})(?![A-Z0-9-])/gi;
 const AUTH_PREFIX_PATTERN = /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:[\s=:]|$)/i;
@@ -77,14 +82,28 @@ function parseLegacyCommand(normalized: string): AuthCommand | null {
   if (!legacy) return null;
   const args = legacy[1]?.trim().split(/\s+/) ?? [];
   if (args.length === 1) return LEGACY_COMMANDS[args[0].toLowerCase()] ?? { kind: "rejected" };
-  return args.length === 2 && args[0].toLowerCase() === "input" && isAuthCode(args[1]) ? { kind: "input", code: args[1] } : { kind: "rejected" };
+  return args.length === 2 && args[0].toLowerCase() === "input" ? parseAuthInput(args[1]) ?? { kind: "rejected" } : { kind: "rejected" };
 }
 function menuCommand(action: string, value: string | undefined): AuthCommand {
-  if (action === "input") return value && isAuthCode(value) ? { kind: "input", code: value } : { kind: "rejected" };
+  if (action === "input") return value ? parseAuthInput(value) ?? { kind: "rejected" } : { kind: "rejected" };
   const command = MENU_COMMANDS[action];
   return command && value === undefined ? command : { kind: "rejected" };
 }
+function parseAuthInput(value: string): AuthCommand | null {
+  if (isAuthCode(value)) return { kind: "input", code: value, source: "short-code" };
+  const callbackCode = parseClaudeCallbackCode(value);
+  return callbackCode ? { kind: "input", code: callbackCode, source: "claude-callback" } : null;
+}
 function isAuthCode(value: string): boolean { return CODE_PATTERN.test(value); }
+function parseClaudeCallbackCode(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(host) || url.pathname !== "/callback") return null;
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  return code && state && CLAUDE_CALLBACK_CODE_PATTERN.test(code) && CALLBACK_STATE_PATTERN.test(state) ? code : null;
+}
 export function ownerId(value: number | string): number | null {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isSafeInteger(numeric) && numeric > 0 ? numeric : null;
