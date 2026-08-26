@@ -350,6 +350,12 @@ export class TelegramConnector implements Connector {
 
       this.handler(msg);
     });
+
+    if (this.authManager) {
+      void this.authManager.notifyIfNoProviderAuthenticated().catch(() => {
+        logger.warn("[telegram] Startup authentication status check failed");
+      });
+    }
   }
 
   async stop(): Promise<void> {

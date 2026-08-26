@@ -4,6 +4,7 @@ import {
   type AuthCommand,
   type AuthFlowManagerOptions,
   type AuthMessage,
+  AUTH_PROVIDERS,
   AUTH_PREFIX_PATTERN,
   SENSITIVE_INPUT_PATTERN,
   defaultClock,
@@ -30,12 +31,15 @@ export class AuthFlowManager {
   private readonly runtime: AuthFlowRuntime;
   private readonly send: AuthFlowManagerOptions["send"];
   private readonly deleteMessage: AuthFlowManagerOptions["deleteMessage"];
+  private readonly getAuthStatus: AuthFlowManagerOptions["getAuthStatus"];
   private readonly logger: AuthFlowManagerOptions["logger"];
+  private startupNotificationSent = false;
 
   constructor(options: AuthFlowManagerOptions) {
     this.ownerUserIds = new Set(options.ownerUserIds);
     this.send = options.send;
     this.deleteMessage = options.deleteMessage;
+    this.getAuthStatus = options.getAuthStatus;
     this.logger = options.logger;
     this.runtime = new AuthFlowRuntime({
       ...options,
@@ -71,6 +75,38 @@ export class AuthFlowManager {
 
   stop(): void {
     this.runtime.stop();
+  }
+
+  async notifyIfNoProviderAuthenticated(): Promise<void> {
+    if (
+      this.startupNotificationSent ||
+      this.ownerUserIds.size === 0 ||
+      !this.getAuthStatus
+    ) {
+      return;
+    }
+    this.startupNotificationSent = true;
+
+    const authenticated = await Promise.all(
+      AUTH_PROVIDERS.map(async (provider) => {
+        try {
+          return await this.getAuthStatus?.(provider);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    if (authenticated.some(Boolean)) return;
+
+    const prompt = [
+      "Neither Claude nor Codex is authenticated.",
+      "Please authenticate at least one:",
+      "/auth claude",
+      "/auth codex",
+    ].join("\n");
+    await Promise.all(
+      [...this.ownerUserIds].map((ownerId) => this.sendSafely(ownerId, prompt)),
+    );
   }
 
   private canonicalOwnerId(userId: number | string): number | null {

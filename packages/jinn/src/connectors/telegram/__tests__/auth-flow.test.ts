@@ -109,6 +109,41 @@ describe("Telegram auth flow", () => {
     ]);
   });
 
+  it("prompts every owner to authenticate at least one provider when neither is authenticated", async () => {
+    const { manager, sends } = createManager({
+      ownerUserIds: [67890, 11111],
+      getAuthStatus: vi.fn(async () => false),
+    });
+
+    await manager.notifyIfNoProviderAuthenticated();
+    await manager.notifyIfNoProviderAuthenticated();
+
+    expect(sends).toEqual([
+      [
+        "Neither Claude nor Codex is authenticated.",
+        "Please authenticate at least one:",
+        "/auth claude",
+        "/auth codex",
+      ].join("\n"),
+      [
+        "Neither Claude nor Codex is authenticated.",
+        "Please authenticate at least one:",
+        "/auth claude",
+        "/auth codex",
+      ].join("\n"),
+    ]);
+  });
+
+  it("does not prompt when a provider is already authenticated", async () => {
+    const getAuthStatus = vi.fn(async (provider: AuthProvider) => provider === "codex");
+    const { manager, sends } = createManager({ getAuthStatus });
+
+    await manager.notifyIfNoProviderAuthenticated();
+
+    expect(getAuthStatus).toHaveBeenCalledTimes(2);
+    expect(sends).toEqual([]);
+  });
+
   it("reports authenticated provider states without login prompts", async () => {
     const { manager, sends } = createManager({
       getAuthStatus: vi.fn(async (provider) => provider === "claude"),

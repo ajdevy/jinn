@@ -1,18 +1,27 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockSendMessage = vi.fn().mockResolvedValue({ message_id: 1 });
+const mockGetMe = vi.fn().mockResolvedValue({ id: 999, username: "test_bot" });
+const mockStartPolling = vi.fn();
+const mockOn = vi.fn();
+const mockExecFile = vi.fn();
+const mockSpawn = vi.fn();
 
 vi.mock("node-telegram-bot-api", () => {
   const MockBot = vi.fn(function (this: any) {
     this.sendMessage = mockSendMessage;
+    this.getMe = mockGetMe;
+    this.startPolling = mockStartPolling;
+    this.on = mockOn;
   });
   return { default: MockBot };
 });
 
 vi.mock("node-pty", () => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-  spawn: vi.fn(),
+  execFile: mockExecFile,
+  spawn: mockSpawn,
 }));
 
 const { TelegramConnector } = await import("../index.js");
@@ -37,8 +46,41 @@ function connector(ownerUserIds = [67890], allowFrom = ownerUserIds) {
   });
 }
 
+function configureUnauthenticatedProviders(): void {
+  mockExecFile.mockImplementation((_file, _args, _options, callback) => {
+    callback(new Error("not authenticated"), "", "");
+  });
+  mockSpawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("close", 1));
+    return child;
+  });
+}
+
 describe("TelegramConnector authentication prompts", () => {
-  beforeEach(() => mockSendMessage.mockClear());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetMe.mockResolvedValue({ id: 999, username: "test_bot" });
+  });
+
+  it("notifies the owner at startup when neither provider is authenticated", async () => {
+    configureUnauthenticatedProviders();
+
+    await connector().start();
+
+    await vi.waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "67890",
+        [
+          "Neither Claude nor Codex is authenticated.",
+          "Please authenticate at least one:",
+          "/auth claude",
+          "/auth codex",
+        ].join("\n"),
+        { parse_mode: "Markdown" },
+      );
+    });
+  });
 
   it("offers the owner login commands after provider authentication failure", async () => {
     await connector().replyMessage(
