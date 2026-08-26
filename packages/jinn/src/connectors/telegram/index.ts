@@ -92,10 +92,7 @@ export class TelegramConnector implements Connector {
         return;
       }
 
-      if (!this.auth && !this.handler) {
-        logger.debug("[telegram] No handler registered, dropping message");
-        return;
-      }
+      if (!this.auth && !this.handler) return void logger.debug("[telegram] No handler registered, dropping message");
 
       const userId = telegramMsg.from?.id;
       if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, (telegramMsg as any).text || (telegramMsg as any).caption || "")) return;
@@ -109,10 +106,7 @@ export class TelegramConnector implements Connector {
         }
       }
 
-      if (!this.handler) {
-        logger.debug("[telegram] No handler registered, dropping message");
-        return;
-      }
+      if (!this.handler) return void logger.debug("[telegram] No handler registered, dropping message");
 
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
       const replyContext = buildReplyContext(telegramMsg);
