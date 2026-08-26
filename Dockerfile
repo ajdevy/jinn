@@ -108,7 +108,7 @@ RUN chmod 0755 /usr/local/bin/jinn-entrypoint /usr/local/bin/jinn-healthcheck
 # The symlink is the net under CLAUDE_CONFIG_DIR below — a release that stops honouring
 # it writes ~/.claude.json, which the next rebuild discards. Linked after the chown and
 # chowned with -h, because the target does not exist until Claude Code first runs.
-RUN mkdir -p /home/node/.jinn /home/node/.claude /work \
+RUN mkdir -p /home/node/.jinn /home/node/.claude /home/node/.codex /work \
   && chown -R node:node /home/node /work \
   && ln -s /home/node/.claude/.claude.json /home/node/.claude.json \
   && chown -h node:node /home/node/.claude.json
@@ -125,6 +125,7 @@ WORKDIR /home/node
 # which sits in the container layer and is discarded by every rebuild along with
 # the user's MCP servers, project trust and onboarding state.
 ENV CLAUDE_CONFIG_DIR=/home/node/.claude
+ENV CODEX_HOME=/home/node/.codex
 
 # Publish to the host's loopback only. The dashboard authenticates with a shared
 # gateway token, so a routable interface would put agent control on the network.

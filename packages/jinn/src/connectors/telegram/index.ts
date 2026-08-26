@@ -93,16 +93,7 @@ export class TelegramConnector implements Connector {
       }
 
       const userId = telegramMsg.from?.id;
-      const sessionKey = deriveSessionKey(telegramMsg, this.id);
-      const replyContext = buildReplyContext(telegramMsg);
-
-      const username =
-        telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
-
-      let messageText: string =
-        (telegramMsg as any).text || (telegramMsg as any).caption || "";
-
-      if (await this.auth?.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, messageText)) return;
+      if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, (telegramMsg as any).text || (telegramMsg as any).caption || "")) return;
 
       if (this.allowedUsers) {
         if (userId === undefined || !this.allowedUsers.has(userId)) {
@@ -117,6 +108,15 @@ export class TelegramConnector implements Connector {
         logger.debug("[telegram] No handler registered, dropping message");
         return;
       }
+
+      const sessionKey = deriveSessionKey(telegramMsg, this.id);
+      const replyContext = buildReplyContext(telegramMsg);
+
+      const username =
+        telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
+
+      let messageText: string =
+        (telegramMsg as any).text || (telegramMsg as any).caption || "";
 
       // File attachments: download via bot token and push to msg.attachments.
       // sessions/manager.ts pulls localPath and engines auto-inject
