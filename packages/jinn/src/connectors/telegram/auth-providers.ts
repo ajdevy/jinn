@@ -11,6 +11,7 @@ export type RunCommand = (
   file: string,
   args: readonly string[],
   timeoutMs: number,
+  env?: NodeJS.ProcessEnv,
 ) => Promise<CommandResult>;
 
 const STATUS_TIMEOUT_MS = 15_000;
@@ -19,6 +20,7 @@ export function runCommand(
   file: string,
   args: readonly string[],
   timeoutMs: number,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     nodeExecFile(
@@ -26,7 +28,7 @@ export function runCommand(
       [...args],
       {
         cwd: process.cwd(),
-        env: process.env,
+        env,
         encoding: "utf8",
         maxBuffer: 256 * 1024,
         timeout: timeoutMs,

@@ -16,21 +16,23 @@ export function createTelegramAuth(
   bot: ConnectorAuthBot,
   config: { ownerUserIds?: readonly number[]; flowTtlSeconds?: number },
   allowFrom: ReadonlySet<number> | null,
+  env: NodeJS.ProcessEnv = process.env,
 ): TelegramAuth {
   return new TelegramAuth({
     bot,
     ownerUserIds: config.ownerUserIds ?? [],
     allowFrom,
+    env,
     flowTtlSeconds: config.flowTtlSeconds,
     send: async (chatId, text) => { await bot.sendMessage(String(chatId), text); },
     deleteMessage: async (chatId, messageId) => { await bot.deleteMessage(String(chatId), Number(messageId)); },
     logger,
   });
 }
-
 export class TelegramAuth {
   private readonly bot: AuthBot;
   private readonly owners: ReadonlySet<number>;
+  private readonly env: NodeJS.ProcessEnv;
   private readonly sendMessage: TelegramAuthOptions["send"];
   private readonly deleteMessage: TelegramAuthOptions["deleteMessage"];
   private readonly spawnPty: SpawnPty;
@@ -41,10 +43,10 @@ export class TelegramAuth {
   private readonly active = new Map<string, ActiveFlow>();
   private readonly pending = new Set<ActiveFlow>();
   private readonly generations = new Map<string, number>();
-
   constructor(options: TelegramAuthOptions) {
     this.bot = options.bot;
     this.owners = new Set(resolveOwnerIds(options.ownerUserIds, options.allowFrom, options.logger));
+    this.env = options.env;
     this.sendMessage = options.send;
     this.deleteMessage = options.deleteMessage;
     this.spawnPty = options.spawnPty ?? DEFAULT_SPAWN_PTY;
@@ -54,7 +56,6 @@ export class TelegramAuth {
     const ttl = options.flowTtlSeconds && options.flowTtlSeconds > 0 ? options.flowTtlSeconds : DEFAULT_FLOW_TTL_SECONDS;
     this.flowTtlMs = ttl * 1000;
   }
-
   start(): void {
     for (const owner of this.owners) {
       void Promise.resolve().then(() => this.bot.setMyCommands(AUTH_MENU_COMMANDS, { scope: { type: "chat", chat_id: owner } })).catch(() => {
@@ -62,7 +63,6 @@ export class TelegramAuth {
       });
     }
   }
-
   async handle(message: AuthMessage): Promise<boolean> {
     const raw = message.text.trim();
     if (!isAuthCommandPrefix(raw)) return false;
@@ -123,7 +123,7 @@ export class TelegramAuth {
         cols: 120,
         rows: 40,
         cwd: process.cwd(),
-        env: process.env,
+        env: this.env,
       });
     } catch {
       this.logger.error?.("[telegram-auth] failed to start provider process");

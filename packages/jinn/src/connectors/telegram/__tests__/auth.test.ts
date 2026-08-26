@@ -46,6 +46,7 @@ function makeHarness(options: { ownerUserIds?: readonly number[] } = {}) {
     bot: { setMyCommands },
     ownerUserIds: options.ownerUserIds ?? [67890],
     allowFrom: new Set([67890]),
+    env: process.env,
     send,
     deleteMessage,
     spawnPty,

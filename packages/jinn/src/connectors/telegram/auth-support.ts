@@ -25,6 +25,7 @@ export interface TelegramAuthOptions {
   bot: AuthBot;
   ownerUserIds: readonly number[];
   allowFrom: ReadonlySet<number> | null;
+  env: NodeJS.ProcessEnv;
   flowTtlSeconds?: number;
   send: (chatId: AuthChatId, text: string) => void | Promise<void>;
   deleteMessage: (chatId: AuthChatId, messageId: number | string) => void | Promise<void>;
