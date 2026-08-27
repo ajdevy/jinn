@@ -6,6 +6,7 @@ import {
   materializeTemplateBytes,
   type TemplateMaterializationInputs,
 } from "../shared/template-materialization.js"
+import { matchesReceiptlessRetiredSkill, receiptlessRetiredSkillNames } from "./receiptless-retired-skills.js"
 import { stampVersionInYaml } from "./version-marker.js"
 
 /** The names Jinn shipped the last time it synced. The template alone says which
@@ -123,11 +124,12 @@ function plannedWrite(context: PlanContext, name: string, templateSkillDir: stri
   return isUpToDate(destination, bytes) ? null : { destination, bytes }
 }
 
-function planRetiredSkills(plan: SyncPlan, context: PlanContext, shipped: string[], previous: string[]): void {
-  for (const name of previous) {
+function planRetiredSkills(plan: SyncPlan, context: PlanContext, shipped: string[], previous: string[] | null): void {
+  for (const name of previous ?? receiptlessRetiredSkillNames()) {
     if (shipped.includes(name)) continue
     const dir = resolveSkillPath(context.skillsRoot, name)
     if (!fs.existsSync(dir)) continue
+    if (previous === null && !matchesReceiptlessRetiredSkill(dir, name, context.inputs)) continue
     // Unlink a symlinked skill dir rather than walking it: its target is not ours to delete.
     if (!fs.lstatSync(dir).isSymbolicLink()) {
       for (const relative of listFilesRecursive(dir)) plan.deletions.push(path.join(dir, relative))
@@ -138,12 +140,12 @@ function planRetiredSkills(plan: SyncPlan, context: PlanContext, shipped: string
 }
 
 function applyPlan(plan: SyncPlan, backup: BackupWriter): void {
+  const changing = new Set([...plan.deletions, ...plan.writes.map((write) => write.destination)])
+  for (const destination of changing) backup.capture(destination)
   for (const destination of plan.deletions) {
-    backup.capture(destination)
     fs.rmSync(destination, { force: true })
   }
   for (const { destination, bytes } of plan.writes) {
-    backup.capture(destination)
     fs.mkdirSync(path.dirname(destination), { recursive: true })
     // Never write through a link: the instance must own the file, not point at it.
     fs.rmSync(destination, { force: true })
@@ -254,11 +256,11 @@ function seedSkillsIndex(home: string, templateDir: string): void {
 /** No receipt is a first run. A receipt that exists but will not read is not: it is the
  *  record deciding what gets deleted, so it refuses rather than quietly reading as empty
  *  and then overwriting the only evidence of what went wrong. */
-function readReceipt(home: string): string[] {
+function readReceipt(home: string): string[] | null {
   const receiptPath = path.join(home, RECEIPT_FILE)
   let raw: string
   try { raw = fs.readFileSync(receiptPath, "utf8") } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw new Error(`cannot read ${RECEIPT_FILE}: ${error instanceof Error ? error.message : String(error)}`)
   }
   let parsed: unknown
