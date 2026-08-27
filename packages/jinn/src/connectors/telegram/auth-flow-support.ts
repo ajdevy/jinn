@@ -23,6 +23,7 @@ import { isAuthCode, parseAuthInput } from "./auth-flow-input.js";
 export const AUTH_PROVIDERS = ["claude", "codex"] as const satisfies readonly AuthProvider[];
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
+const STANDALONE_DEVICE_CODE_PATTERN = /^[A-Z0-9](?:[A-Z0-9-]{7})[A-Z0-9]$/;
 export const AUTH_PREFIX_PATTERN =
   /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:[\s=:]|$)/i;
 export const SENSITIVE_INPUT_PATTERN =
@@ -37,6 +38,12 @@ export const defaultClock: AuthClock = {
 
 function providerLabel(provider: AuthProvider): string {
   return provider === "claude" ? "Claude" : "Codex";
+}
+
+export function authenticationInstructions(provider: AuthProvider): string {
+  return provider === "codex"
+    ? "Codex authentication started. Follow the instructions below. Send the 9-character code shown by Codex with /auth_input <code>."
+    : "Claude authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude shows a browser code as code#state, send it with /auth_input <code#state>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input.";
 }
 
 export function parseAuthCommand(text: string): AuthCommand | null {
@@ -172,7 +179,16 @@ export function extractDiscovery(text: string): { url?: string; code?: string } 
     normalized.match(
       /(?:device\s+code|user\s+code|code)\s*[:=]?\s*([A-Z0-9][A-Z0-9-]{3,31})\b/i,
     ) ?? normalized.match(/(?:device_code|user_code)=([A-Z0-9][A-Z0-9-]{3,31})\b/i);
-  const code = codeMatch?.[1] && isAuthCode(codeMatch[1]) ? codeMatch[1] : undefined;
+  const code =
+    codeMatch?.[1] && isAuthCode(codeMatch[1])
+      ? codeMatch[1]
+      : normalized
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(
+            (line) =>
+              STANDALONE_DEVICE_CODE_PATTERN.test(line) && isAuthCode(line),
+          );
 
   return { url, code };
 }

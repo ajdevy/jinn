@@ -10,6 +10,7 @@ import {
   type AuthClock,
   appendBoundedText,
   appendOutput,
+  authenticationInstructions,
   createFlow,
   discoveryLines,
   extractDiscovery,
@@ -73,10 +74,7 @@ export class AuthFlowLifecycle {
     const flow = createFlow({ ownerId, key, provider, chatId, pty });
     this.activeFlows.set(key, flow);
     this.attachFlowHandlers(flow);
-    await this.sendSafely(
-      chatId,
-      this.label(provider) + " authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude shows a browser code as code#state, send it with /auth_input <code#state>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input.",
-    );
+    await this.sendSafely(chatId, authenticationInstructions(provider));
   }
   async status(ownerId: number): Promise<string> {
     const activeProviders = [...this.activeFlows.values()]

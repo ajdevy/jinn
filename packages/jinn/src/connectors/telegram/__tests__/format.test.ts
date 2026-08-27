@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownToTelegram, formatResponse } from "../format.js";
+import { markdownToTelegram, formatResponse, stripTelegramMarkdown } from "../format.js";
 
 describe("markdownToTelegram", () => {
   describe("headings", () => {
@@ -95,5 +95,14 @@ describe("formatResponse", () => {
   it("applies markdown conversion before chunking", () => {
     const result = formatResponse("## Hello");
     expect(result).toEqual(["*Hello*"]);
+  });
+});
+
+describe("stripTelegramMarkdown", () => {
+  it("preserves OAuth query parameter names in the plain-text fallback", () => {
+    const url =
+      "https://claude.ai/oauth/authorize?client_id=client123&redirect_uri=http%3A%2F%2Flocalhost%3A54321%2Fcallback&state=state123";
+
+    expect(stripTelegramMarkdown(`Continue authentication:\n${url}`)).toContain(url);
   });
 });

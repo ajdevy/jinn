@@ -1,6 +1,7 @@
 import { convertOutsideCode, formatAndChunk } from "../shared/format.js";
 
 const TELEGRAM_MAX_LENGTH = 4096;
+const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gi;
 
 /**
  * Convert standard markdown to Telegram Markdown format.
@@ -32,12 +33,19 @@ export function markdownToTelegram(text: string): string {
  * so users don't see literal formatting characters.
  */
 export function stripTelegramMarkdown(text: string): string {
-  return convertOutsideCode(text, (segment) =>
-    segment
+  return convertOutsideCode(text, (segment) => {
+    const urls: string[] = [];
+    const protectedSegment = segment.replace(URL_PATTERN, (url) => {
+      const placeholder = `\x00URL${urls.length}\x00`;
+      urls.push(url);
+      return placeholder;
+    });
+    const stripped = protectedSegment
       .replace(/\*(.+?)\*/g, "$1")
       .replace(/_(.+?)_/g, "$1")
-      .replace(/~(.+?)~/g, "$1"),
-  );
+      .replace(/~(.+?)~/g, "$1");
+    return stripped.replace(/\x00URL(\d+)\x00/g, (_match, index) => urls[Number(index)]);
+  });
 }
 
 /**

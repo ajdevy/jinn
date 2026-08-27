@@ -7,6 +7,7 @@ import {
   type AuthPty,
   type SpawnPty,
 } from "../auth-flow.js";
+import { extractDiscovery } from "../auth-flow-support.js";
 
 function createPty(): AuthPty {
   return {
@@ -117,6 +118,24 @@ describe("Telegram auth flow", () => {
     expect(safe).not.toContain("secret-state");
     expect(safe).not.toContain("AB12-CD34");
     expect(safe).not.toContain("eyJsecret");
+  });
+
+  it("extracts a standalone Codex device code", () => {
+    expect(
+      extractDiscovery(
+        "Enter this one-time code (expires in 15 minutes)\nAB12CD345\nContinue only if you started this login in Codex.",
+      ).code,
+    ).toBe("AB12CD345");
+  });
+
+  it("uses Codex-specific authentication instructions", async () => {
+    const { manager, sends } = createManager();
+
+    await manager.handleMessage(authMessage("/auth_codex"));
+
+    expect(sends.at(-1)).toContain("Codex authentication started.");
+    expect(sends.at(-1)).toContain("code shown by Codex");
+    expect(sends.at(-1)).not.toContain("If Claude");
   });
 
   it("offers login commands for unauthenticated provider status", async () => {
