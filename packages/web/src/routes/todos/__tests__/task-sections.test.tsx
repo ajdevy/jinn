@@ -295,36 +295,36 @@ describe("attachments + activity", () => {
     expect(within(dialog).getByLabelText("Play result.mp4")).toBeTruthy()
   })
 
-  it("lists item-level rows only and uploads through the multipart lane", async () => {
-    const rows: WorkItemAttachmentWire[] = [
-      { id: "wia_1", workItemId: "PLA-12", commentId: null, filename: "checkout-flow.png", mime: "image/png", bytes: 240 * 1024, sha256: "a", storagePath: "/x", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-      { id: "wia_2", workItemId: "PLA-12", commentId: "wic_1", filename: "region-matrix.csv", mime: "text/csv", bytes: 4096, sha256: "b", storagePath: "/y", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-      { id: "wia_3", workItemId: "PLA-12", commentId: null, filename: "release-notes.pdf", mime: "application/pdf", bytes: 8192, sha256: "c", storagePath: "/z", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-    ]
+  it("chips item-level attachments under the description, uploads, and removes by id", async () => {
     getWorkItem.mockResolvedValue(detailOf(full("PLA-12")))
-    listWorkItemAttachments.mockResolvedValue({ attachments: rows })
-    uploadWorkItemAttachment.mockResolvedValue(rows[0])
+    listWorkItemAttachments.mockResolvedValue({ attachments: [
+      imageAttachment("wia_1", "checkout-flow.png"),
+      imageAttachment("wia_2", "region-matrix.csv", "wic_1"),
+      { ...imageAttachment("wia_3", "release-notes.pdf"), mime: "application/pdf" },
+    ] })
     renderTask()
 
-    await screen.findByTestId("task-attachments")
-    const tile = await screen.findByTestId("attachment-tile-wia_1")
-    expect(tile.getAttribute("aria-label")).toBe("Preview checkout-flow.png")
-    const caption = screen.getByTestId("attachment-caption-wia_1")
-    expect(caption.className).toContain("absolute")
-    expect(caption.className).toContain("opacity-0")
-    expect(caption.className).toContain("[@media(hover:hover)]:group-hover/tile:opacity-100")
-    expect(caption.className).toContain("group-focus-within/tile:opacity-100")
-    expect(caption.textContent).toContain("checkout-flow.png")
-    expect(caption.textContent).toContain("240 KB")
-    const fileRow = screen.getByTestId("attachment-row-wia_3")
-    expect(fileRow.textContent).toContain("release-notes.pdf")
-    expect(fileRow.textContent).toContain("8 KB")
-    // The comment-level row stays out of the item section.
-    expect(screen.queryByTestId("attachment-row-wia_2")).toBeNull()
-
+    const row = await screen.findByTestId("task-attachments")
+    expect(screen.getByTestId("task-body").compareDocumentPosition(row)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(row.compareDocumentPosition(await screen.findByTestId("task-subtasks"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.getByTestId("attachment-caption-wia_1").textContent).toBe("checkout-flow.png")
+    expect(screen.getByTestId("attachment-chip-wia_3").textContent).toBe("release-notes.pdf")
+    // The comment-level attachment stays out of the item row.
+    expect(screen.queryByTestId("attachment-tile-wia_2")).toBeNull()
     const file = new File(["bytes"], "spec.md", { type: "text/markdown" })
     fireEvent.change(screen.getByTestId("attachment-file-input"), { target: { files: [file] } })
     await waitFor(() => expect(uploadWorkItemAttachment).toHaveBeenCalledWith("PLA-12", file))
+    fireEvent.click(screen.getByTestId("attachment-remove-wia_3"))
+    await waitFor(() => expect(deleteWorkItemAttachment).toHaveBeenCalledWith("PLA-12", "wia_3"))
+  })
+
+  it("renders the paperclip alone when nothing is attached to the Todo", async () => {
+    getWorkItem.mockResolvedValue(detailOf(full("PLA-12")))
+    renderTask()
+    const row = await screen.findByTestId("task-attachments")
+    expect(within(row).getByTestId("attachment-add").getAttribute("aria-label")).toBe("Attach a file")
+    expect(row.textContent).toBe("")
+    expect(screen.queryByTestId("attachment-strip")).toBeNull()
   })
 
   it("fetches the thumbnail variant for an image tile and the full original for the lightbox", async () => {

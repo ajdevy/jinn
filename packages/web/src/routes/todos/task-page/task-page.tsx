@@ -441,6 +441,11 @@ export default function TaskPage() {
 
               {item && (
                 <>
+                  <AttachmentsSection
+                    attachments={attachments.files}
+                    onUpload={(files) => attachments.upload.mutate(files)}
+                    onRemove={(attachment) => attachments.remove.mutate(attachment)}
+                  />
                   <SubTasksSection
                     node={itemNode}
                     parentDepth={item.depth ?? 0}
@@ -451,12 +456,6 @@ export default function TaskPage() {
                     onChildStatus={(childId, status, cascade) => childStatus.mutate({ childId, status, cascade })}
                     onChildAssign={(childId, assignee) => childAssign.mutate({ childId, assignee })}
                     onAddSubTask={(nextTitle) => addSubTask.mutate(nextTitle)}
-                  />
-                  <AttachmentsSection
-                    attachments={attachments.files}
-                    byName={byName}
-                    onUpload={(files) => attachments.upload.mutate(files)}
-                    onRemove={(attachment) => attachments.remove.mutate(attachment)}
                   />
                   <RunsSection runs={detail?.runs ?? []} />
                 </>
