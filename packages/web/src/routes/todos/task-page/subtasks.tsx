@@ -1,20 +1,15 @@
 import { useState } from "react"
-import { ArrowUpRight, Plus, UserRound } from "lucide-react"
+import { ChevronDown, Plus } from "lucide-react"
 import type { Employee, WorkItemStatusWire, WorkItemTreeNodeWire } from "@/lib/api"
-import { STATUS_LABEL, stateKeyOf } from "@/lib/todos"
-import { closeGateCounts, legalTargets } from "@/lib/legal-targets"
-import { EmployeeAvatar } from "@/components/ui/employee-avatar"
-import { StateCircle, StatusCircle } from "../state-glyph"
-import { PickerPopover, PickerRow } from "../pickers/picker-shell"
-import { AssigneePickerContent } from "../pickers/picker-contents"
+import { PendingSubTaskRow, SubTaskRow } from "./subtask-row"
+import { PENDING_SUBTASK_PREFIX } from "./use-subtask-mutations"
 
 /* Todos v2 slice 6 — the task page's sub-tasks section (design-doc §7.2.8,
- * mock task-detail.html): kicker with "N of M done", 3px green progress, rows
- * clean at rest that GROW quick actions on hover (round-2 redline) — the disc
- * gains a 3px halo and opens the legal-states popover FOR THAT CHILD, and two
- * 26px icon buttons fade in (assign, open). Touch: actions always visible.
- * Depth cap: the add row simply doesn't exist at depth 3. A Todo with no
- * children shows no section at all (ICI-1435). */
+ * mock task-detail.html). ICI-1437 gives the group Linear's shape: the header
+ * is a disclosure carrying the subtree count and the `+`, and the `+` opens an
+ * inline field at the BOTTOM of the list rather than a dialog. The header
+ * survives an empty list, so `+` stays reachable on a Todo with no children.
+ * Depth cap: no `+` and no field at depth 3 — the caption explains instead. */
 
 const DEPTH_CAP = 3
 
@@ -58,202 +53,143 @@ export function SubTasksSection({
   // too); the rows list direct children — deeper levels wear "N sub" badges.
   const { total, done } = subtreeCounts(node)
   const atCap = parentDepth >= DEPTH_CAP
+  const [expanded, setExpanded] = useState(true)
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState("")
   const [openFor, setOpenFor] = useState<{ id: string; kind: "status" | "assign" } | null>(null)
 
-  if (children.length === 0) return null
+  // At the cap an empty group can offer nothing at all, so it stays out of the
+  // document entirely rather than heading a list nobody can add to.
+  if (children.length === 0 && atCap) return null
 
-  const submit = () => {
-    const text = title.trim()
+  const closeField = () => {
     setTitle("")
     setAdding(false)
-    if (text) onAddSubTask(text)
+  }
+  /** Creates when there is something to create, and says whether it did — the
+   *  field stays open after Enter so the next sub-task can follow straight on. */
+  const create = () => {
+    const text = title.trim()
+    if (!text) return false
+    setTitle("")
+    onAddSubTask(text)
+    return true
   }
 
   return (
     <section data-testid="task-subtasks">
-      <div
-        className="mb-3 mt-8 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)]"
-        style={{ fontFamily: "var(--font-code)" }}
-      >
-        Sub-tasks
-        <span className="text-[11px] font-normal normal-case tracking-[.02em] text-[var(--text-quaternary)]">
-          {done} of {total} done
-        </span>
-      </div>
-
-      <div className="mb-2 flex items-center gap-2.5">
-        <span className="h-[3px] w-full max-w-[220px] overflow-hidden rounded-[2px] bg-[var(--fill-secondary)]" aria-hidden>
-          <span
-            className="block h-full rounded-[2px] bg-[var(--system-green)] transition-[width] duration-300"
-            style={{ width: `${total > 0 ? Math.round((done / total) * 100) : 0}%` }}
-            data-testid="subtasks-progress"
+      <div className="mb-3 mt-8 flex min-h-[34px] items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          data-testid="subtasks-toggle"
+          onClick={() => {
+            if (expanded) closeField()
+            setExpanded(!expanded)
+          }}
+          className="focus-ring -ml-1.5 flex min-h-[34px] min-w-0 items-center gap-2 rounded-[var(--radius-sm)] px-1.5 text-left text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)] outline-none"
+          style={{ fontFamily: "var(--font-code)" }}
+        >
+          <ChevronDown
+            size={13}
+            aria-hidden
+            className={`flex-none text-[var(--text-quaternary)] transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
           />
-        </span>
-      </div>
-      <div>
-        {children.map((child) => {
-          const closed = child.status === "done" || child.status === "cancelled"
-          const kids = (child.children ?? []).length
-          const picking = openFor?.id === child.id ? openFor.kind : null
-          return (
-            <div
-              key={child.id}
-              data-testid={`subtask-row-${child.id}`}
-              className="group/sub relative -mx-2.5 flex min-h-[38px] items-center gap-[9px] rounded-[10px] px-2.5 py-[5px] text-[14.5px] hover:bg-[var(--fill-quaternary)]"
+          Sub-tasks
+          <span
+            data-testid="subtasks-count"
+            className="font-normal tabular-nums tracking-[.02em] text-[var(--text-tertiary)]"
+          >
+            {total}
+          </span>
+          {done > 0 && (
+            <span
+              data-testid="subtasks-done"
+              className="ml-1 font-normal normal-case tracking-[.02em] text-[var(--text-quaternary)]"
             >
-              {/* The disc IS a control: halo on hover, opens that child's
-                  legal-states popover. */}
-              <button
-                type="button"
-                aria-label={`Change status of ${child.id} (${STATUS_LABEL[child.status]})`}
-                data-testid={`subtask-status-${child.id}`}
-                onClick={() => setOpenFor(picking === "status" ? null : { id: child.id, kind: "status" })}
-                className="focus-ring mr-[5px] flex-none rounded-full outline-none transition-shadow duration-120 group-hover/sub:shadow-[0_0_0_3px_var(--fill-secondary)]"
-              >
-                <StateCircle keyOf={stateKeyOf(child.status)} size={16} />
-              </button>
-              <span
-                className="flex-none text-[11px] text-[var(--text-quaternary)]"
-                style={{ fontFamily: "var(--font-code)", letterSpacing: ".04em" }}
-              >
-                {child.id}
-              </span>
-              <button
-                type="button"
-                onClick={() => onOpenChild(child.id)}
-                className={`focus-ring min-w-0 flex-1 truncate text-left outline-none ${
-                  closed ? "font-normal text-[var(--text-tertiary)]" : "font-medium text-[var(--text-primary)]"
-                }`}
-              >
-                {child.title}
-              </button>
-              {kids > 0 && (
-                <span className="flex-none text-[11px] tabular-nums text-[var(--text-quaternary)]">
-                  {kids} sub{kids === 1 ? "" : "s"}
-                </span>
-              )}
-              {child.assignee && (
-                <EmployeeAvatar name={child.assignee} size={18} fontSize={10} className="flex-none bg-[var(--fill-secondary)]" />
-              )}
-              {/* Quick actions: hidden at rest, fade in on hover; always
-                  visible on touch (no hover there). */}
-              <span
-                className={`flex flex-none gap-0.5 transition-opacity duration-120 ${
-                  mobile ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/sub:opacity-100"
-                }`}
-              >
-                <button
-                  type="button"
-                  aria-label={`Assign ${child.id}`}
-                  data-testid={`subtask-assign-${child.id}`}
-                  onClick={() => setOpenFor(picking === "assign" ? null : { id: child.id, kind: "assign" })}
-                  className="focus-ring grid size-[26px] place-items-center rounded-lg text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
-                >
-                  <UserRound size={14} strokeWidth={2} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Open ${child.id}`}
-                  data-testid={`subtask-open-${child.id}`}
-                  onClick={() => onOpenChild(child.id)}
-                  className="focus-ring grid size-[26px] place-items-center rounded-lg text-[var(--text-tertiary)] outline-none hover:bg-[var(--fill-tertiary)] hover:text-[var(--text-secondary)]"
-                >
-                  <ArrowUpRight size={14} strokeWidth={2} aria-hidden />
-                </button>
-              </span>
-
-              {picking === "status" && (
-                <PickerPopover
-                  label={`Status of ${child.id}`}
-                  onClose={() => setOpenFor(null)}
-                  testId={`subtask-status-picker-${child.id}`}
-                >
-                  <PickerRow
-                    glyph={<StatusCircle status={child.status} size={18} />}
-                    label={STATUS_LABEL[child.status]}
-                    checked
-                    onSelect={() => setOpenFor(null)}
-                  />
-                  {legalTargets(child.status, closeGateCounts(child))
-                    .filter((target) => target.status !== child.status)
-                    .map((target) => (
-                      <PickerRow
-                        key={target.status}
-                        glyph={<StatusCircle status={target.status} size={18} />}
-                        label={STATUS_LABEL[target.status]}
-                        disabled={target.gated}
-                        reason={target.reason}
-                        sub={target.gated ? undefined : target.reason}
-                        onSelect={() => {
-                          onChildStatus(child.id, target.status, target.cascade)
-                          setOpenFor(null)
-                        }}
-                        testId={`subtask-status-option-${target.status}`}
-                      />
-                    ))}
-                </PickerPopover>
-              )}
-              {picking === "assign" && (
-                <PickerPopover
-                  label={`Assign ${child.id}`}
-                  onClose={() => setOpenFor(null)}
-                  autoFocusFirst={false}
-                  testId={`subtask-assign-picker-${child.id}`}
-                >
-                  <AssigneePickerContent
-                    detail={{ workItem: child, spendUsd: 0, events: [] }}
-                    employees={employees}
-                    onDone={() => setOpenFor(null)}
-                    commit={(assignee) => {
-                      if (assignee) onChildAssign(child.id, assignee)
-                    }}
-                  />
-                </PickerPopover>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {!atCap ? (
-        adding ? (
-          <div className="-mx-2.5 flex min-h-9 items-center px-2.5 py-[5px]">
-            <Plus size={12} strokeWidth={2.2} aria-hidden className="mr-4 flex-none text-[var(--text-quaternary)]" />
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit()
-                if (e.key === "Escape") {
-                  setTitle("")
-                  setAdding(false)
-                }
-              }}
-              onBlur={submit}
-              placeholder="Sub-task title"
-              aria-label="New sub-task title"
-              data-testid="subtask-add-input"
-              className="min-w-0 flex-1 bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]"
-            />
-          </div>
-        ) : (
+              {done} of {total} done
+            </span>
+          )}
+        </button>
+        {!atCap && (
           <button
             type="button"
+            aria-label="Add sub-task"
             data-testid="subtask-add"
-            onClick={() => setAdding(true)}
-            className="focus-ring -mx-2.5 flex min-h-9 w-[calc(100%+20px)] items-center rounded-[10px] px-2.5 text-left text-[13.5px] font-medium text-[var(--text-quaternary)] outline-none transition-colors hover:bg-[var(--fill-quaternary)] hover:text-[var(--text-secondary)]"
+            onClick={() => {
+              setExpanded(true)
+              setAdding(true)
+            }}
+            className="focus-ring grid size-9 flex-none place-items-center rounded-full text-[var(--text-quaternary)] outline-none transition-[background-color,color,scale] duration-150 hover:bg-[var(--fill-secondary)] hover:text-[var(--text-secondary)] active:scale-[0.96]"
           >
-            <Plus size={12} strokeWidth={2.2} aria-hidden className="mr-4" />
-            Add sub-task
+            <Plus size={15} strokeWidth={2.2} aria-hidden />
           </button>
-        )
-      ) : (
-        <p className="py-1 text-[12px] text-[var(--text-quaternary)]" data-testid="subtask-depth-cap">
-          Deepest level — sub-tasks nest three levels.
-        </p>
+        )}
+      </div>
+
+      {expanded && (
+        <>
+          {total > 0 && (
+            <div className="mb-2 flex items-center gap-2.5">
+              <span className="h-[3px] w-full max-w-[220px] overflow-hidden rounded-[2px] bg-[var(--fill-secondary)]" aria-hidden>
+                <span
+                  className="block h-full rounded-[2px] bg-[var(--system-green)] transition-[width] duration-300"
+                  style={{ width: `${Math.round((done / total) * 100)}%` }}
+                  data-testid="subtasks-progress"
+                />
+              </span>
+            </div>
+          )}
+          <div data-testid="subtask-list">
+            {children.map((child) =>
+              child.id.startsWith(PENDING_SUBTASK_PREFIX) ? (
+                <PendingSubTaskRow key={child.id} title={child.title} />
+              ) : (
+                <SubTaskRow
+                  key={child.id}
+                  child={child}
+                  employees={employees}
+                  mobile={mobile}
+                  picking={openFor?.id === child.id ? openFor.kind : null}
+                  onPick={(kind) => setOpenFor(kind ? { id: child.id, kind } : null)}
+                  onOpenChild={onOpenChild}
+                  onChildStatus={onChildStatus}
+                  onChildAssign={onChildAssign}
+                />
+              ),
+            )}
+            {adding && (
+              <div
+                data-testid="subtask-add-row"
+                className="-mx-2.5 flex min-h-9 items-center px-2.5 py-[5px] motion-safe:animate-capture-step-in"
+              >
+                <Plus size={12} strokeWidth={2.2} aria-hidden className="mr-4 flex-none text-[var(--text-quaternary)]" />
+                <input
+                  autoFocus
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !create()) closeField()
+                    if (e.key === "Escape") closeField()
+                  }}
+                  onBlur={() => {
+                    create()
+                    closeField()
+                  }}
+                  placeholder="Sub-task title"
+                  aria-label="New sub-task title"
+                  data-testid="subtask-add-input"
+                  className="min-w-0 flex-1 bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]"
+                />
+              </div>
+            )}
+          </div>
+          {atCap && (
+            <p className="py-1 text-[12px] text-[var(--text-quaternary)]" data-testid="subtask-depth-cap">
+              Deepest level — sub-tasks nest three levels.
+            </p>
+          )}
+        </>
       )}
     </section>
   )

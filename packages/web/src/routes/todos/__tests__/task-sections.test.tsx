@@ -183,8 +183,7 @@ describe("sub-tasks", () => {
     setWorkItemStatus.mockResolvedValue({ workItem: full("PLA-16", { status: "executing" }), escalated: false })
     renderTask()
 
-    const section = await screen.findByTestId("task-subtasks")
-    await waitFor(() => expect(section.textContent).toContain("1 of 3 done"))
+    await waitFor(() => expect(screen.getByTestId("subtasks-done").textContent).toBe("1 of 3 done"))
     expect(screen.getByTestId("subtasks-progress").style.width).toBe("33%")
 
     fireEvent.click(await screen.findByTestId("subtask-status-PLA-16"))
@@ -204,16 +203,18 @@ describe("sub-tasks", () => {
     await waitFor(() => expect(assignWorkItem).toHaveBeenCalledWith("PLA-16", "mason"))
   })
 
-  it("adds a sub-task through the quiet add row (parentId carries)", async () => {
+  it("adds a sub-task from the header's +, and the row is in the list before the gateway answers", async () => {
     withChildren()
-    createWorkItem.mockResolvedValue({ workItem: full("PLA-23", { parentId: "PLA-12" }) })
+    let settle: (value: unknown) => void = () => {}
+    createWorkItem.mockImplementation(() => new Promise((resolve) => (settle = resolve)))
     renderTask()
-
     fireEvent.click(await screen.findByTestId("subtask-add"))
     const input = screen.getByTestId("subtask-add-input")
     fireEvent.change(input, { target: { value: "E-mail receipts" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(createWorkItem).toHaveBeenCalledWith({ title: "E-mail receipts", parentId: "PLA-12" }))
+    expect((await screen.findByTestId("subtask-pending-row")).textContent).toContain("E-mail receipts")
+    expect(createWorkItem).toHaveBeenCalledWith({ title: "E-mail receipts", parentId: "PLA-12" })
+    await act(async () => settle({ workItem: full("PLA-23", { parentId: "PLA-12" }) }))
   })
 
   it("the add row simply doesn't exist at the depth cap — the caption explains", async () => {
@@ -224,8 +225,7 @@ describe("sub-tasks", () => {
 
     await screen.findByTestId("task-title")
     await waitFor(() => expect(screen.queryByTestId("subtask-add")).toBeNull())
-    // The item's node is absent from the stub tree, so it has no children and
-    // the section is suppressed outright, cap or not.
+    // No node in the stub tree, so no children — and a childless group at the cap can offer nothing, so it stays out.
   })
 })
 

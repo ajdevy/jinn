@@ -5,7 +5,6 @@ import {
   api,
   ApiError,
   type WorkItemDetailWire,
-  type WorkItemStatusWire,
   type WorkItemTreeNodeWire,
 } from "@/lib/api"
 import { operatorSafeTodoError } from "@/lib/todos"
@@ -26,6 +25,7 @@ import { ChipCluster } from "./chip-cluster"
 import { useTaskPickers } from "./use-task-pickers"
 import { BodyEditor } from "./body-editor"
 import { SubTasksSection } from "./subtasks"
+import { useSubTaskMutations } from "./use-subtask-mutations"
 import { AttachmentsSection } from "./attachments"
 import { useTaskAttachments } from "./use-task-attachments"
 import { RunsSection } from "./runs"
@@ -200,27 +200,7 @@ export default function TaskPage() {
     },
     onError: failWith("Couldn't start the Dispatcher"),
   })
-  const invalidateTree = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ["work-item-tree"] })
-    void qc.invalidateQueries({ queryKey: ["work-items"] })
-    if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
-  }, [qc, id])
-  const childStatus = useMutation({
-    mutationFn: ({ childId, status, cascade }: { childId: string; status: WorkItemStatusWire; cascade?: boolean }) =>
-      cascade ? api.setWorkItemStatus(childId, status, undefined, undefined, { cascade }) : api.setWorkItemStatus(childId, status),
-    onError: failWith("The gateway refused the move"),
-    onSettled: invalidateTree,
-  })
-  const childAssign = useMutation({
-    mutationFn: ({ childId, assignee }: { childId: string; assignee: string }) => api.assignWorkItem(childId, assignee),
-    onError: failWith("Couldn't assign the sub-task"),
-    onSettled: invalidateTree,
-  })
-  const addSubTask = useMutation({
-    mutationFn: (title: string) => api.createWorkItem({ title, parentId: id! }),
-    onError: failWith("Failed to add the sub-task"),
-    onSettled: invalidateTree,
-  })
+  const { childStatus, childAssign, addSubTask } = useSubTaskMutations({ id, rootId, failWith })
   const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith })
 
   const commitBannerReason = useCallback(
