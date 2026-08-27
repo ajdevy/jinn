@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import * as pty from "node-pty";
 import type {
   Attachment,
   Connector,
@@ -15,7 +14,7 @@ import type {
   TelegramConnectorConfig,
 } from "../../shared/types.js";
 import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
-import { stripTelegramMarkdown } from "./format.js";
+import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
 import { TMP_DIR } from "../../shared/paths.js";
 import {
@@ -23,31 +22,22 @@ import {
   resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
-import { AuthFlowManager } from "./auth-flow.js";
-import {
-  createTelegramAuthManager,
-  handleTelegramAuthMessage,
-} from "./auth-connector.js";
-import {
-  editTelegramMessage,
-  replyTelegramMessage,
-  sendTelegramMessage,
-  setTelegramTypingStatus,
-} from "./output.js";
+
+import { createTelegramAuth, type TelegramAuth } from "./auth.js";
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
+
 export class TelegramConnector implements Connector {
   name = "telegram";
   id: string;
   private bot: TelegramBot;
   private handler: ((msg: IncomingMessage) => void) | null = null;
   private readonly allowedUsers: Set<number> | null;
-  private readonly authOwnerUserIds: ReadonlySet<number>;
   private readonly ignoreOldMessagesOnBoot: boolean;
   private readonly bootTimeMs = Date.now();
   private started = false;
   private lastError: string | null = null;
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
-  private readonly authManager?: AuthFlowManager;
+  private readonly auth?: TelegramAuth;
 
   private readonly capabilities: ConnectorCapabilities = {
     threading: false,
@@ -68,17 +58,9 @@ export class TelegramConnector implements Connector {
       config.allowFrom && config.allowFrom.length > 0
         ? new Set(config.allowFrom)
         : null;
-    this.authOwnerUserIds = new Set(config.telegramAuth?.ownerUserIds ?? []);
     this.sttConfig = config.stt;
     if (config.telegramAuth?.enabled === true) {
-      this.authManager = createTelegramAuthManager(config.telegramAuth, {
-        send: async (chatId, text) => {
-          await this.bot.sendMessage(String(chatId), text);
-        },
-        deleteMessage: (chatId, messageId) =>
-          (this.bot as any).deleteMessage(String(chatId), Number(messageId)),
-        spawnPty: (file, args, options) => pty.spawn(file, args, options),
-      });
+      this.auth = createTelegramAuth(this.bot, config.telegramAuth, this.allowedUsers);
     }
   }
 
@@ -89,6 +71,7 @@ export class TelegramConnector implements Connector {
       this.bot.startPolling();
       this.started = true;
       this.lastError = null;
+      this.auth?.start();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
@@ -103,7 +86,10 @@ export class TelegramConnector implements Connector {
         return;
       }
 
-      if (!this.authManager && !this.handler) return void logger.debug("[telegram] No handler registered, dropping message");
+      if (!this.auth && !this.handler) {
+        logger.debug("[telegram] No handler registered, dropping message");
+        return;
+      }
       if (
         this.ignoreOldMessagesOnBoot &&
         isOldTelegramMessage(telegramMsg.date, this.bootTimeMs)
@@ -113,6 +99,11 @@ export class TelegramConnector implements Connector {
       }
 
       const userId = telegramMsg.from?.id;
+      const rawMessageText = this.auth
+        ? messageTextFromTelegram(telegramMsg)
+        : undefined;
+      if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, rawMessageText ?? "")) return;
+
       if (this.allowedUsers) {
         if (userId === undefined || !this.allowedUsers.has(userId)) {
           logger.debug(
@@ -120,11 +111,6 @@ export class TelegramConnector implements Connector {
           );
           return;
         }
-      }
-
-      const rawMessageText = messageTextFromTelegram(telegramMsg);
-      if (await handleTelegramAuthMessage(this.authManager, telegramMsg, userId, rawMessageText)) {
-        return;
       }
 
       if (!this.handler) {
@@ -138,7 +124,8 @@ export class TelegramConnector implements Connector {
       const username =
         telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
 
-      let messageText = rawMessageText;
+      let messageText: string =
+        rawMessageText ?? messageTextFromTelegram(telegramMsg);
 
       // File attachments: download via bot token and push to msg.attachments.
       // sessions/manager.ts pulls localPath and engines auto-inject
@@ -353,7 +340,7 @@ export class TelegramConnector implements Connector {
   }
 
   async stop(): Promise<void> {
-    this.authManager?.stop();
+    this.auth?.stop();
     for (const interval of this.typingIntervals.values()) {
       clearInterval(interval);
     }
@@ -409,23 +396,57 @@ export class TelegramConnector implements Connector {
   }
 
   async sendMessage(target: Target, text: string): Promise<string | undefined> {
-    return sendTelegramMessage(target, text, (chatId, message, opts) =>
-      this.safeSend(chatId, message, opts),
-    );
+    if (!text || !text.trim()) return undefined;
+    const chunks = formatResponse(text);
+    let lastMessageId: string | undefined;
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      const id = await this.safeSend(target.channel, chunk);
+      if (id) lastMessageId = id;
+    }
+    return lastMessageId;
   }
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
-    return replyTelegramMessage(
-      target,
-      text,
-      this.authManager,
-      this.authOwnerUserIds,
-      (chatId, message, opts) => this.safeSend(chatId, message, opts),
-    );
+    if (!text || !text.trim()) return undefined;
+    const replyText = this.auth?.decorateReply(target.replyContext, text) ?? text;
+    const replyToId =
+      target.replyContext?.messageId != null
+        ? Number(target.replyContext.messageId)
+        : undefined;
+    const opts: SendMessageOptions = {};
+    if (replyToId) {
+      opts.reply_parameters = { message_id: replyToId };
+    }
+    const chunks = formatResponse(replyText);
+    let lastMessageId: string | undefined;
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      const id = await this.safeSend(target.channel, chunk, opts);
+      if (id) lastMessageId = id;
+    }
+    return lastMessageId;
   }
 
   async setTypingStatus(channelId: string, _threadTs: string | undefined, status: string): Promise<void> {
-    return setTelegramTypingStatus(this.bot, this.typingIntervals, channelId, status);
+    const existing = this.typingIntervals.get(channelId);
+    if (existing) {
+      clearInterval(existing);
+      this.typingIntervals.delete(channelId);
+    }
+    if (!status) return;
+    try {
+      await this.bot.sendChatAction(channelId, "typing");
+      // Telegram typing expires after ~5s — refresh every 4s
+      const interval = setInterval(async () => {
+        try {
+          await this.bot.sendChatAction(channelId, "typing");
+        } catch { /* non-fatal */ }
+      }, 4_000);
+      this.typingIntervals.set(channelId, interval);
+    } catch {
+      // non-fatal
+    }
   }
 
   async addReaction(_target: Target, _emoji: string): Promise<void> {
@@ -437,7 +458,16 @@ export class TelegramConnector implements Connector {
   }
 
   async editMessage(target: Target, text: string): Promise<void> {
-    return editTelegramMessage(this.bot, target, text);
+    if (!target.messageTs) return;
+    if (!text || !text.trim()) return;
+    // Apply the same markdown conversion as sends; edits are single-message,
+    // so keep only the first chunk (truncated to the platform limit).
+    const [converted] = formatResponse(text);
+    await this.bot.editMessageText(converted, {
+      chat_id: target.channel,
+      message_id: Number(target.messageTs),
+      parse_mode: "Markdown",
+    });
   }
 
   onMessage(handler: (msg: IncomingMessage) => void): void {

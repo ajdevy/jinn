@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 
 import { classifyGateway, parsePsDump, planProcessReap } from "../reap/gateways.mjs"
 import { buildContext, mapPidsToHomes } from "../reap/protected.mjs"
-import { spawnSignallableChild } from "./reap-process-fixture.mjs"
+
 const REAP = fileURLToPath(new URL("../reap-sandboxes.mjs", import.meta.url))
 
 const TEMP = os.tmpdir()
@@ -232,8 +232,8 @@ test("a bare run signals nothing; --apply reaps what this run owns and nothing e
   const root = fs.mkdtempSync(path.join(TEMP, "reap-cli-"))
   const home = path.join(root, ".jinn")
   const sandbox = fs.mkdtempSync(path.join(TEMP, "jinn-sandbox-"))
-  const victim = spawnSignallableChild()
-  const worker = spawnSignallableChild()
+  const victim = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
+  const worker = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" })
   // Reparented to PID 1, named like a test worker, sitting under the worktrees
   // root — and belonging to nobody. This run removes no worktree, so there is
   // nothing to own it and it must come through untouched.

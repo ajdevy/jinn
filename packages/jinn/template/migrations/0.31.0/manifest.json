@@ -8,14 +8,6 @@
   },
   "files": [
     {
-      "path": "docs/connectors.md",
-      "operation": "modify",
-      "baseSha256": "b439377e3feda09132cd4b92a3044ab6d61d4d578734ae551d0601f68943dcb2",
-      "targetSha256": "7400864eb4f5d8722486ee4402a4ca73cb2896a888bde5ed86d7915c516da8c1",
-      "basePayload": "files/base/docs/connectors.md",
-      "targetPayload": "files/target/docs/connectors.md"
-    },
-    {
       "path": "skills.json",
       "operation": "modify",
       "baseSha256": "cf58fab1d118c0190d81287e8876489a447a271f6cd282f71f6f33355122998a",

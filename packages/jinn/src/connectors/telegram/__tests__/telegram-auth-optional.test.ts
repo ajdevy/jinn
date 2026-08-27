@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 const mockGetMe = vi.fn().mockResolvedValue({ id: 999, username: "test_bot" });
 const mockStartPolling = vi.fn();
 const mockStopPolling = vi.fn().mockResolvedValue(undefined);
+const mockSetMyCommands = vi.fn().mockResolvedValue(undefined);
+const mockDeleteMessage = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
 const mockDebug = vi.fn();
 
@@ -13,6 +15,8 @@ vi.mock("node-telegram-bot-api", () => {
     this.getMe = mockGetMe;
     this.startPolling = mockStartPolling;
     this.stopPolling = mockStopPolling;
+    this.setMyCommands = mockSetMyCommands;
+    this.deleteMessage = mockDeleteMessage;
     this.on = mockOn;
   });
   return { default: MockBot };
@@ -68,5 +72,25 @@ describe("TelegramConnector optional Telegram auth", () => {
 
     expect(mockDebug).toHaveBeenCalledWith("[telegram] No handler registered, dropping message");
     expect(mockDebug).not.toHaveBeenCalledWith(expect.stringContaining("unauthorized user"));
+  });
+
+  it("scrubs a non-owner auth payload before the normal allowFrom gate", async () => {
+    const connector = new TelegramConnector({
+      botToken: "123456:ABC-DEF",
+      allowFrom: [67890],
+      telegramAuth: { enabled: true, ownerUserIds: [67890] },
+    });
+    await connector.start();
+    const listener = mockOn.mock.calls.at(-1)?.[1] as (message: unknown) => Promise<void>;
+
+    await listener({
+      message_id: 44,
+      chat: { id: 12345, type: "private" },
+      from: { id: 99999, is_bot: false },
+      date: Math.floor(Date.now() / 1000) + 10,
+      text: "/auth_input AB12CD345",
+    });
+
+    expect(mockDeleteMessage).toHaveBeenCalledWith("12345", 44);
   });
 });
