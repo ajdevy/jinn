@@ -200,7 +200,7 @@ export default function TaskPage() {
     },
     onError: failWith("Couldn't start the Dispatcher"),
   })
-  const { childStatus, childAssign, addSubTask } = useSubTaskMutations({ id, rootId, failWith })
+  const { childStatus, childAssign, addSubTask } = useSubTaskMutations({ id, rootId, item, failWith })
   const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith })
 
   const commitBannerReason = useCallback(
