@@ -73,7 +73,7 @@ export class TelegramConnector implements Connector {
     if (config.telegramAuth?.enabled === true) {
       this.authManager = createTelegramAuthManager(config.telegramAuth, {
         send: async (chatId, text) => {
-          await this.safeSend(String(chatId), text);
+          await this.bot.sendMessage(String(chatId), text);
         },
         deleteMessage: (chatId, messageId) =>
           (this.bot as any).deleteMessage(String(chatId), Number(messageId)),
