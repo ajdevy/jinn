@@ -853,7 +853,7 @@ function BoardSkeleton() {
     <div className="flex min-h-full items-start gap-3 px-10 pb-8 pt-5" data-testid="board-skeleton" aria-hidden>
       {cardsPerColumn.map((cards, column) => (
         <div key={column} className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 px-[13px] pb-2.5 pt-0.5">
+          <div className="flex items-center gap-2 px-[11px] pb-2.5 pt-0.5">
             <span className="size-5 rounded-full bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
             <span className="h-3 w-[74px] rounded-[6px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
           </div>
