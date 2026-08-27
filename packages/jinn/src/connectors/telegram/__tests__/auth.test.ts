@@ -83,7 +83,7 @@ describe("TelegramAuth", () => {
     const claudeCode = "Ab".repeat(24);
     expect(parseAuthCommand(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`)).toEqual({
       kind: "input",
-      code: claudeCode,
+      code: `${claudeCode}#state_1234567890123456`,
       source: "claude-callback",
     });
     expect(parseAuthCommand(`/auth_input ${claudeCode}`)).toEqual({ kind: "rejected" });
@@ -92,6 +92,22 @@ describe("TelegramAuth", () => {
     expect(parseAuthCommand("hello")).toBeNull();
     expect(isAuthCommandPrefix("/auth_notes: secret")).toBe(true);
     expect(isAuthCommandPrefix("/authentication status")).toBe(false);
+  });
+
+  it("preserves Claude's code and state from the browser callback", () => {
+    const code = "Ab".repeat(24);
+    const state = "state_1234567890123456";
+
+    expect(parseAuthCommand(`/auth_input ${code}#${state}`)).toEqual({
+      kind: "input",
+      code: `${code}#${state}`,
+      source: "claude-callback",
+    });
+    expect(parseAuthCommand(`/auth_input http://localhost:58741/callback?code=${code}&state=${state}`)).toEqual({
+      kind: "input",
+      code: `${code}#${state}`,
+      source: "claude-callback",
+    });
   });
 
   it("uses the provider table for both login status commands", async () => {
@@ -154,12 +170,13 @@ describe("TelegramAuth", () => {
     expect(harness.send).toHaveBeenCalledWith(123, expect.stringContaining("private"));
   });
 
-  it("extracts only a Claude code from a loopback callback URL", async () => {
+  it("passes Claude's code and state from the browser callback URL", async () => {
     const claude = makeHarness();
     const claudeCode = "Ab".repeat(24);
+    const state = "state_1234567890123456";
     await claude.auth.handle(message("/auth_claude"));
-    await claude.auth.handle(message(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`));
-    expect(claude.pty.write).toHaveBeenCalledWith(`${claudeCode}\r`);
+    await claude.auth.handle(message(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=${state}`));
+    expect(claude.pty.write).toHaveBeenCalledWith(`${claudeCode}#${state}\r`);
 
     const codex = makeHarness();
     await codex.auth.handle(message("/auth_codex"));

@@ -54,6 +54,7 @@ export const MAX_DISCOVERY_TAIL_BYTES = 4096;
 const CODE_PATTERN = /^[A-Z0-9](?:[A-Z0-9-]{2,30}[A-Z0-9])$/;
 const CLAUDE_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9]{40,128}$/;
 const CALLBACK_STATE_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
+const CLAUDE_CALLBACK_INPUT_PATTERN = /^[A-Za-z0-9]{40,128}#[A-Za-z0-9_-]{16,256}$/;
 const ANSI_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const DISCOVERY_CODE_PATTERN = /(?:device[\s_]code|user[\s_]code|code)\s*[:=]?\s*([A-Z0-9][A-Z0-9-]{3,31})(?![A-Z0-9-])/gi;
 const AUTH_PREFIX_PATTERN = /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:[\s=:]|$)/i;
@@ -96,13 +97,14 @@ function parseAuthInput(value: string): AuthCommand | null {
 }
 function isAuthCode(value: string): boolean { return CODE_PATTERN.test(value); }
 function parseClaudeCallbackCode(value: string): string | null {
+  if (CLAUDE_CALLBACK_INPUT_PATTERN.test(value)) return value;
   let url: URL;
   try { url = new URL(value); } catch { return null; }
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(host) || url.pathname !== "/callback") return null;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  return code && state && CLAUDE_CALLBACK_CODE_PATTERN.test(code) && CALLBACK_STATE_PATTERN.test(state) ? code : null;
+  return code && state && CLAUDE_CALLBACK_CODE_PATTERN.test(code) && CALLBACK_STATE_PATTERN.test(state) ? `${code}#${state}` : null;
 }
 export function ownerId(value: number | string): number | null {
   const numeric = typeof value === "number" ? value : Number(value);

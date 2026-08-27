@@ -59,7 +59,9 @@ The supported commands are:
   contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
   accepted. For Claude, if the browser returns a loopback
   `http://localhost:<port>/callback?...` URL, the full URL may be sent here;
-  Jinn extracts only its one-time alphanumeric `code` when `state` is present.
+  Jinn extracts its one-time `code#state` value when both fields are present.
+  The browser may show that `code#state` value directly; send it with the same
+  `/auth_input` command.
 
 The space forms (`/auth claude`, `/auth codex`, `/auth status`,
 `/auth cancel`, and `/auth input <code>`) are also supported. Secret-bearing

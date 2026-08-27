@@ -143,7 +143,7 @@ export class TelegramAuth {
     };
     this.active.set(key, flow);
     this.attach(flow);
-    await this.safeSend(chatId, `${PROVIDERS[provider].label} authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input; only its one-time code is passed to the CLI.`, warning);
+    await this.safeSend(chatId, `${PROVIDERS[provider].label} authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude shows a browser code in the form code#state, send it with /auth_input <code#state>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input; its one-time code#state value is passed to the CLI.`, warning);
   }
 
   private attach(flow: ActiveFlow): void {
