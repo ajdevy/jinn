@@ -55,13 +55,12 @@ The supported commands are:
 - `/auth_codex` — start Codex device authentication.
 - `/auth_status` — show the current Claude and Codex authentication status.
 - `/auth_cancel` — stop active authentication flows.
-- `/auth_input <code>` — send a short device code to the active flow. Codes
+- `/auth_input <code>` — explicit input form retained for compatibility. Codes
   contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
-  accepted. For Claude, if the browser returns a loopback
-  `http://localhost:<port>/callback?...` URL, the full URL may be sent here;
-  Jinn extracts its one-time `code#state` value when both fields are present.
-  The browser may show that `code#state` value directly; send it with the same
-  `/auth_input` command.
+  accepted. While one flow is active, the code or Claude loopback
+  `http://localhost:<port>/callback?...` URL may also be sent as a standalone
+  message. Jinn extracts Claude's one-time `code#state` value when both fields
+  are present.
 
 The space forms (`/auth claude`, `/auth codex`, `/auth status`,
 `/auth cancel`, and `/auth input <code>`) are also supported. Secret-bearing

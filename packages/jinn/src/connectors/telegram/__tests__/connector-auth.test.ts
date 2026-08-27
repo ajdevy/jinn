@@ -55,7 +55,9 @@ describe("TelegramConnector authentication prompts", () => {
 
     expect(mockSendMessage).toHaveBeenCalledWith(
       "12345",
-      expect.stringContaining("use /auth_claude or /auth_codex to sign in."),
+      expect.stringContaining(
+        "Check `/auth_status`, then use `/auth_claude` or `/auth_codex` to sign in.",
+      ),
       expect.objectContaining({
         parse_mode: "Markdown",
         reply_parameters: { message_id: 42 },

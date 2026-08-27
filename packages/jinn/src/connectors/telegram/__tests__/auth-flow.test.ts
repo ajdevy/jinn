@@ -91,21 +91,24 @@ describe("Telegram auth flow", () => {
     expect(parseAuthCommand("hello")).toBeNull();
   });
 
-  it("forwards Claude callback code and state intact", async () => {
+  it("accepts standalone Claude codes and callback values", async () => {
     const pty = createPty();
     const spawnPty = vi.fn(() => pty) as SpawnPty;
-    const { manager, deletes } = createManager({ spawnPty });
+    const { manager, deletes, sends } = createManager({ spawnPty });
     const code = "CODEabcdefghijklmnopqrstuvwxyz1234567890";
     const state = "state_1234567890123456";
 
     await manager.handleMessage(authMessage("/auth_claude"));
-    await manager.handleMessage(authMessage(`/auth_input ${code}#${state}`));
+    expect(sends.at(-1)).not.toContain("/auth_input");
+    await manager.handleMessage(authMessage("AB12CD345"));
+    expect(pty.write).toHaveBeenLastCalledWith("AB12CD345\r");
+    await manager.handleMessage(authMessage(`${code}#${state}`));
 
     expect(pty.write).toHaveBeenCalledWith(`${code}#${state}\r`);
     expect(deletes).toContainEqual([12345, 42]);
 
     await manager.handleMessage(
-      authMessage(`/auth_input http://localhost:58741/callback?code=${code}&state=${state}`),
+      authMessage(`http://localhost:58741/callback?code=${code}&state=${state}`),
     );
     expect(pty.write).toHaveBeenLastCalledWith(`${code}#${state}\r`);
   });

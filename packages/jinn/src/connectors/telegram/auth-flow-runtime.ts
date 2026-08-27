@@ -24,6 +24,10 @@ export class AuthFlowRuntime {
     await this.send(chatId, text);
   }
 
+  hasActiveFlow(ownerId: number): boolean {
+    return this.lifecycle.hasActiveFlow(ownerId);
+  }
+
   async cancel(ownerId: number, chatId: AuthChatId): Promise<void> {
     const result = this.lifecycle.cancel(ownerId);
     await this.send(

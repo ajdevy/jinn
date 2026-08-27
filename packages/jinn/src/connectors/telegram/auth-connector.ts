@@ -12,7 +12,7 @@ import {
 const AUTH_VERIFY_TIMEOUT_MS = 15_000;
 const AUTH_KILL_GRACE_MS = 2_000;
 const AUTH_LOGIN_PROMPT =
-  "Provider authentication is required. Check /auth_status, then use /auth_claude or /auth_codex to sign in.";
+  "Provider authentication is required. Check `/auth_status`, then use `/auth_claude` or `/auth_codex` to sign in.";
 const AUTHENTICATION_FAILURE_PATTERN =
   /\binteractive turn failed:\s*authentication_failed\b|\b(?:claude|codex)(?:\s+cli)?\s+(?:authentication failed|is not authenticated|is not logged in)\b|\b(?:codex|claude)\s+(?:login required|login needed)\b/i;
 const AUTH_VERIFY_ENV = {

@@ -4,11 +4,11 @@ import {
   type AuthCommand,
   type AuthFlowManagerOptions,
   type AuthMessage,
-  AUTH_PREFIX_PATTERN,
   SENSITIVE_INPUT_PATTERN,
   defaultClock,
   parseAuthCommand,
 } from "./auth-flow-support.js";
+import { parseAuthInput } from "./auth-flow-input.js";
 
 export {
   parseAuthCommand,
@@ -46,10 +46,9 @@ export class AuthFlowManager {
 
   async handleMessage(message: AuthMessage): Promise<boolean> {
     const rawText = message.text.trim();
-    if (!AUTH_PREFIX_PATTERN.test(rawText)) return false;
-
     const command = parseAuthCommand(message.text);
     const ownerId = this.canonicalOwnerId(message.userId);
+    if (!command) return this.handleStandaloneInput(message, ownerId, rawText);
     if (ownerId === null) return true;
 
     if (SENSITIVE_INPUT_PATTERN.test(rawText)) {
@@ -60,10 +59,6 @@ export class AuthFlowManager {
         message.chatId,
         "Authentication commands are available only in a private chat.",
       );
-      return true;
-    }
-    if (!command) {
-      await this.sendSafely(message.chatId, "Unsupported authentication command.");
       return true;
     }
     await this.dispatchCommand(ownerId, command, message.chatId);
@@ -79,6 +74,26 @@ export class AuthFlowManager {
     return Number.isSafeInteger(numericId) && this.ownerUserIds.has(numericId)
       ? numericId
       : null;
+  }
+
+  private async handleStandaloneInput(
+    message: AuthMessage,
+    ownerId: number | null,
+    rawText: string,
+  ): Promise<boolean> {
+    if (ownerId === null || !this.runtime.hasActiveFlow(ownerId)) return false;
+    const input = parseAuthInput(rawText);
+    if (!input) return false;
+    await this.deleteMessageSafely(message);
+    if (message.chatType !== "private") {
+      await this.sendSafely(
+        message.chatId,
+        "Authentication commands are available only in a private chat.",
+      );
+      return true;
+    }
+    await this.dispatchCommand(ownerId, input, message.chatId);
+    return true;
   }
 
   private async dispatchCommand(

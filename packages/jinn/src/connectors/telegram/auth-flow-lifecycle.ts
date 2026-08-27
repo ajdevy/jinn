@@ -89,6 +89,9 @@ export class AuthFlowLifecycle {
     );
     return statusLines(activeProviders, statuses).join("\n");
   }
+  hasActiveFlow(ownerId: number): boolean {
+    return [...this.activeFlows.values()].some((flow) => flow.ownerId === ownerId);
+  }
   cancel(ownerId: number): "none" | "cancelled" {
     const activeFlows = [...this.activeFlows.values()].filter(
       (flow) => flow.ownerId === ownerId,
