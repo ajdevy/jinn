@@ -122,7 +122,7 @@ describeHostedArea("the task page", {
   area: AREAS.todoDetailSections,
   variant: "pane",
   renderHost: renderTaskPage,
-  findHostContent: async () => screen.findByTestId("task-runs"),
+  findHostContent: async () => screen.findByTestId("task-subtasks"),
 })
 
 let dispose: (() => void) | null = null
@@ -132,16 +132,19 @@ afterEach(() => {
   dispose = null
 })
 
-it("puts a contributed section in the page body, after Runs and before Activity", async () => {
+it("puts a contributed section in the page body, after Sub-tasks and before Activity", async () => {
   dispose = contributeProbes(AREAS.todoDetailSections, [{ id: "widget" }])
 
   await renderTaskPage()
 
   const contributed = screen.getByTestId("probe-widget")
-  const runs = await screen.findByTestId("task-runs")
+  const subtasks = await screen.findByTestId("task-subtasks")
   const activity = await screen.findByTestId("task-activity")
 
-  expect(contributed.closest("main")).toBe(runs.closest("main"))
-  expect(runs.compareDocumentPosition(contributed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(contributed.closest("main")).toBe(subtasks.closest("main"))
+  expect(subtasks.compareDocumentPosition(contributed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(contributed.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  // Activity closes the document: nothing renders after it inside <main>.
+  expect(activity.parentElement?.tagName).toBe("MAIN")
+  expect(activity.nextElementSibling).toBeNull()
 })

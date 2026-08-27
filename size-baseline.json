@@ -1731,7 +1731,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/activity.tsx": {
-      "lines": 601,
+      "lines": 556,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1792,7 +1792,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/task-page.tsx": {
-      "lines": 588,
+      "lines": 586,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",

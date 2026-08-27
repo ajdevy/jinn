@@ -28,7 +28,6 @@ import { SubTasksSection } from "./subtasks"
 import { useSubTaskMutations } from "./use-subtask-mutations"
 import { AttachmentsSection } from "./attachments"
 import { useTaskAttachments } from "./use-task-attachments"
-import { RunsSection } from "./runs"
 import { ActivitySection } from "./activity"
 import { TaskEmpty, TaskPageSkeleton } from "./task-page-fallbacks"
 import { Slot } from "@/contrib/slot"
@@ -457,7 +456,6 @@ export default function TaskPage() {
                     onChildAssign={(childId, assignee) => childAssign.mutate({ childId, assignee })}
                     onAddSubTask={(nextTitle) => addSubTask.mutate(nextTitle)}
                   />
-                  <RunsSection runs={detail?.runs ?? []} />
                 </>
               )}
 
