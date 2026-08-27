@@ -24,6 +24,7 @@ import {
 } from "../../stt/stt.js";
 
 import { createTelegramAuth, type TelegramAuth } from "./auth.js";
+import { scrubUnauthorizedTelegramAuth } from "./auth-message.js";
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 
 export class TelegramConnector implements Connector {
@@ -104,23 +105,10 @@ export class TelegramConnector implements Connector {
         : undefined;
       const allowedUser = !this.allowedUsers
         || (userId !== undefined && this.allowedUsers.has(userId));
-      if (this.auth && !allowedUser) {
-        await this.auth.scrubExplicitPayload({
-          userId: userId ?? "",
-          chatType: telegramMsg.chat.type,
-          chatId: telegramMsg.chat.id,
-          messageId: telegramMsg.message_id,
-          text: rawMessageText ?? "",
-        });
-      }
-
-      if (this.allowedUsers) {
-        if (userId === undefined || !this.allowedUsers.has(userId)) {
-          logger.debug(
-            `[telegram] Ignoring message from unauthorized user ${userId}`,
-          );
-          return;
-        }
+      if (!allowedUser) {
+        await scrubUnauthorizedTelegramAuth(this.auth, telegramMsg, rawMessageText ?? "");
+        logger.debug(`[telegram] Ignoring message from unauthorized user ${userId}`);
+        return;
       }
 
       if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, rawMessageText ?? "")) return;
