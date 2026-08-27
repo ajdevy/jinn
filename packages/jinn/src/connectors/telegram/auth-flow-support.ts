@@ -3,6 +3,7 @@ export {
   type AuthClock,
   type AuthCommand,
   type AuthFlowManagerOptions,
+  type AuthInputSource,
   type AuthLogger,
   type AuthMessage,
   type AuthProvider,
@@ -17,14 +18,15 @@ import type {
   AuthProvider,
   AuthPty,
 } from "./auth-flow-types.js";
+import { isAuthCode, parseAuthInput } from "./auth-flow-input.js";
 
 export const AUTH_PROVIDERS = ["claude", "codex"] as const satisfies readonly AuthProvider[];
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
-const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{3,31}$/;
-export const AUTH_PREFIX_PATTERN = /^\/auth(?:@[A-Za-z0-9_]+)?(?:\s|$)/i;
+export const AUTH_PREFIX_PATTERN =
+  /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:[\s=:]|$)/i;
 export const SENSITIVE_INPUT_PATTERN =
-  /^\/auth(?:@[A-Za-z0-9_]+)?\s+(?:input|token|access[-_]token|refresh[-_]token|oauth[-_]token|api[-_]key|apikey)\b/i;
+  /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:\s+\S|[=:]\s*\S)/i;
 const ANSI_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
 export const defaultClock: AuthClock = {
@@ -33,36 +35,50 @@ export const defaultClock: AuthClock = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-function isAuthCode(value: string): boolean {
-  return CODE_PATTERN.test(value);
-}
-
 function providerLabel(provider: AuthProvider): string {
   return provider === "claude" ? "Claude" : "Codex";
 }
 
 export function parseAuthCommand(text: string): AuthCommand | null {
   const normalized = text.trim();
-  if (!normalized || /\r|\n/.test(normalized)) {
+  if (!normalized || !AUTH_PREFIX_PATTERN.test(normalized)) {
     return null;
   }
-
-  const match = normalized.match(/^\/auth(?:@[A-Za-z0-9_]+)?(?:\s+(.+))?$/i);
-  if (!match) {
-    return null;
+  if (/\r|\n/.test(normalized)) {
+    return { kind: "rejected" };
   }
-
-  return parseAuthArgs(match[1]?.trim().split(/\s+/) ?? []);
+  return parseMenuCommand(normalized) ?? parseLegacyCommand(normalized) ?? { kind: "rejected" };
 }
 
-function parseAuthArgs(args: string[]): AuthCommand {
-  if (args.length === 1) {
-    return parseSingleArgCommand(args[0].toLowerCase());
-  }
-  if (args.length === 2 && args[0].toLowerCase() === "input" && isAuthCode(args[1])) {
-    return { kind: "input", code: args[1] };
+function parseMenuCommand(normalized: string): AuthCommand | null {
+  const menu = normalized.match(
+    /^\/auth_([a-z-]+)(?:@[A-Za-z0-9_]+)?(?:(?:\s+|[=:]\s*)(\S+))?$/i,
+  );
+  return menu ? menuCommand(menu[1].toLowerCase(), menu[2]) : null;
+}
+
+function parseLegacyCommand(normalized: string): AuthCommand | null {
+  const legacy = normalized.match(/^\/auth(?:@[A-Za-z0-9_]+)?(?:\s+(.+))?$/i);
+  if (!legacy) return null;
+  const args = legacy[1]?.trim().split(/\s+/) ?? [];
+  if (args.length === 1) return parseSingleArgCommand(args[0].toLowerCase());
+  if (args.length === 2 && args[0].toLowerCase() === "input") {
+    return parseAuthInput(args[1]) ?? { kind: "rejected" };
   }
   return { kind: "rejected" };
+}
+
+function menuCommand(action: string, value: string | undefined): AuthCommand {
+  if (action === "input") {
+    return value ? parseAuthInput(value) ?? { kind: "rejected" } : { kind: "rejected" };
+  }
+  const command = {
+    claude: { kind: "start", provider: "claude" },
+    codex: { kind: "start", provider: "codex" },
+    status: { kind: "status" },
+    cancel: { kind: "cancel" },
+  }[action] as AuthCommand | undefined;
+  return command && value === undefined ? command : { kind: "rejected" };
 }
 
 function parseSingleArgCommand(action: string): AuthCommand {
@@ -246,5 +262,5 @@ export function statusLine(provider: AuthProvider, authenticated: boolean): stri
   const label = providerLabel(provider);
   return authenticated
     ? label + " is authenticated."
-    : label + " is not authenticated. Use /auth " + provider + " to sign in.";
+    : label + " is not authenticated. Use /auth_" + provider + " to sign in.";
 }

@@ -34,7 +34,6 @@ import {
   sendTelegramMessage,
   setTelegramTypingStatus,
 } from "./output.js";
-
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 export class TelegramConnector implements Connector {
   name = "telegram";
@@ -104,6 +103,7 @@ export class TelegramConnector implements Connector {
         return;
       }
 
+      if (!this.authManager && !this.handler) return void logger.debug("[telegram] No handler registered, dropping message");
       if (
         this.ignoreOldMessagesOnBoot &&
         isOldTelegramMessage(telegramMsg.date, this.bootTimeMs)

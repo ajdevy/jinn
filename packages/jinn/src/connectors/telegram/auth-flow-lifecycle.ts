@@ -3,6 +3,7 @@ import {
   type ActiveFlow,
   type AuthChatId,
   type AuthFlowManagerOptions,
+  type AuthInputSource,
   type AuthLogger,
   type AuthProvider,
   type AuthPty,
@@ -74,7 +75,7 @@ export class AuthFlowLifecycle {
     this.attachFlowHandlers(flow);
     await this.sendSafely(
       chatId,
-      this.label(provider) + " authentication started. Follow the instructions below.",
+      this.label(provider) + " authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude shows a browser code as code#state, send it with /auth_input <code#state>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input.",
     );
   }
   async status(ownerId: number): Promise<string> {
@@ -102,12 +103,13 @@ export class AuthFlowLifecycle {
     this.invalidatePendingVerifications(undefined, ownerId);
     return "cancelled";
   }
-  input(ownerId: number, code: string): "none" | "ambiguous" | "written" | "failed" {
+  input(ownerId: number, code: string, source: AuthInputSource): "none" | "ambiguous" | "wrongProvider" | "written" | "failed" {
     const flows = [...this.activeFlows.values()].filter(
       (flow) => flow.ownerId === ownerId,
     );
     if (flows.length === 0) return "none";
     if (flows.length > 1) return "ambiguous";
+    if (source === "claude-callback" && flows[0].provider !== "claude") return "wrongProvider";
     try {
       flows[0].pty.write(code + "\r");
       return "written";

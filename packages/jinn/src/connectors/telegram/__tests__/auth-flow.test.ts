@@ -79,9 +79,34 @@ describe("Telegram auth flow", () => {
     expect(parseAuthCommand("/auth codex")).toEqual({ kind: "start", provider: "codex" });
     expect(parseAuthCommand("/auth status")).toEqual({ kind: "status" });
     expect(parseAuthCommand("/auth cancel")).toEqual({ kind: "cancel" });
-    expect(parseAuthCommand("/auth input AB12-CD34")).toEqual({ kind: "input", code: "AB12-CD34" });
+    expect(parseAuthCommand("/auth input AB12-CD34")).toEqual({ kind: "input", code: "AB12-CD34", source: "short-code" });
+    expect(parseAuthCommand("/auth_claude")).toEqual({ kind: "start", provider: "claude" });
+    expect(parseAuthCommand("/auth_input CODEabcdefghijklmnopqrstuvwxyz1234567890#state_1234567890123456")).toEqual({
+      kind: "input",
+      code: "CODEabcdefghijklmnopqrstuvwxyz1234567890#state_1234567890123456",
+      source: "claude-callback",
+    });
     expect(parseAuthCommand("/auth token never-accepted")).toEqual({ kind: "rejected" });
     expect(parseAuthCommand("hello")).toBeNull();
+  });
+
+  it("forwards Claude callback code and state intact", async () => {
+    const pty = createPty();
+    const spawnPty = vi.fn(() => pty) as SpawnPty;
+    const { manager, deletes } = createManager({ spawnPty });
+    const code = "CODEabcdefghijklmnopqrstuvwxyz1234567890";
+    const state = "state_1234567890123456";
+
+    await manager.handleMessage(authMessage("/auth_claude"));
+    await manager.handleMessage(authMessage(`/auth_input ${code}#${state}`));
+
+    expect(pty.write).toHaveBeenCalledWith(`${code}#${state}\r`);
+    expect(deletes).toContainEqual([12345, 42]);
+
+    await manager.handleMessage(
+      authMessage(`/auth_input http://localhost:58741/callback?code=${code}&state=${state}`),
+    );
+    expect(pty.write).toHaveBeenLastCalledWith(`${code}#${state}\r`);
   });
 
   it("redacts URLs, bearer-like values, and one-time codes from log text", () => {
@@ -103,8 +128,8 @@ describe("Telegram auth flow", () => {
 
     expect(sends).toEqual([
       [
-        "Claude is not authenticated. Use /auth claude to sign in.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Claude is not authenticated. Use /auth_claude to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     ]);
   });
@@ -119,7 +144,7 @@ describe("Telegram auth flow", () => {
     expect(sends).toEqual([
       [
         "Claude is authenticated.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     ]);
   });
@@ -136,16 +161,14 @@ describe("Telegram auth flow", () => {
     });
 
     const status = manager.handleMessage(authMessage("/auth status"));
-    await Promise.resolve();
-
-    expect(calls).toEqual(["claude", "codex"]);
+    await vi.waitFor(() => expect(calls).toEqual(["claude", "codex"]));
     claude.resolve(true);
     codex.resolve(false);
     await status;
     expect(sends).toEqual([
       [
         "Claude is authenticated.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     ]);
   });
@@ -156,14 +179,14 @@ describe("Telegram auth flow", () => {
     });
 
     const status = manager.handleMessage(authMessage("/auth status"));
-    await Promise.resolve();
+    await vi.waitFor(() => expect(timers).toHaveLength(2));
     timers.splice(0).forEach((timer) => timer());
     await status;
 
     expect(sends).toEqual([
       [
-        "Claude is not authenticated. Use /auth claude to sign in.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Claude is not authenticated. Use /auth_claude to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     ]);
   });
@@ -183,8 +206,8 @@ describe("Telegram auth flow", () => {
 
     expect(sends.at(-1)).toBe(
       [
-        "Claude is not authenticated. Use /auth claude to sign in.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Claude is not authenticated. Use /auth_claude to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     );
   });
@@ -204,8 +227,8 @@ describe("Telegram auth flow", () => {
     expect(sends.at(-1)).toBe(
       [
         "Active authentication flows: Claude.",
-        "Claude is not authenticated. Use /auth claude to sign in.",
-        "Codex is not authenticated. Use /auth codex to sign in.",
+        "Claude is not authenticated. Use /auth_claude to sign in.",
+        "Codex is not authenticated. Use /auth_codex to sign in.",
       ].join("\n"),
     );
   });

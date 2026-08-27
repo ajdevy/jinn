@@ -1,10 +1,12 @@
 export type AuthProvider = "claude" | "codex";
 
+export type AuthInputSource = "short-code" | "claude-callback";
+
 export type AuthCommand =
   | { kind: "start"; provider: AuthProvider }
   | { kind: "status" }
   | { kind: "cancel" }
-  | { kind: "input"; code: string }
+  | { kind: "input"; code: string; source: AuthInputSource }
   | { kind: "rejected" };
 
 export type AuthChatId = number | string;

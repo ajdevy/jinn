@@ -24,14 +24,15 @@ are not an authentication boundary. Replace the example ID with your own.
 
 Supported private-chat commands:
 
-- `/auth claude` starts `claude auth login --claudeai`.
-- `/auth codex` starts `codex login --device-auth`.
-- `/auth status` reports active flows and each provider's authenticated state.
-  If a provider is not authenticated, the reply includes the matching login
-  command, for example `/auth claude` or `/auth codex`.
-- `/auth cancel` stops active authentication flows.
-- `/auth input <one-time-code>` sends a short one-time code to the active flow
-  and deletes the Telegram message best-effort.
+- `/auth_claude` starts Claude authentication.
+- `/auth_codex` starts Codex device authentication.
+- `/auth_status` reports active flows and each provider's authenticated state.
+- `/auth_cancel` stops active authentication flows.
+- `/auth_input <code>` sends a short one-time code to the active flow and
+  deletes the Telegram message best-effort. For Claude, a loopback callback URL
+  or the browser's direct `code#state` value is accepted and forwarded intact.
+- The space forms (`/auth claude`, `/auth codex`, `/auth status`,
+  `/auth cancel`, and `/auth input <code>`) are also supported.
 
 Auth commands are intercepted before normal session routing, attachments, and
 speech-to-text handling. They are not delivered to the normal message handler.

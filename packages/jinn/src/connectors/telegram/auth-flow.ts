@@ -17,6 +17,7 @@ export {
   type AuthClock,
   type AuthCommand,
   type AuthFlowManagerOptions,
+  type AuthInputSource,
   type AuthLogger,
   type AuthMessage,
   type AuthProvider,
@@ -96,7 +97,7 @@ export class AuthFlowManager {
         await this.runtime.cancel(ownerId, chatId);
         return;
       case "input":
-        await this.runtime.input(ownerId, command.code, chatId);
+        await this.runtime.input(ownerId, command.code, command.source, chatId);
         return;
       case "rejected":
         await this.sendSafely(

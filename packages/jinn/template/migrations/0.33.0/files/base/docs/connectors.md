@@ -26,50 +26,6 @@ interface IncomingMessage {
 }
 ```
 
-## Telegram Provider Authentication
-
-Provider authentication from Telegram is opt-in. Add `telegramAuth` under the
-Telegram connector to enable it:
-
-```yaml
-connectors:
-  telegram:
-    botToken: ...
-    allowFrom:
-      - 123456789
-    telegramAuth:
-      enabled: true
-      ownerUserIds:
-        - 123456789
-      flowTtlSeconds: 600
-```
-
-Every `ownerUserIds` entry must also appear in `allowFrom`. Invalid or
-non-allow-listed owner IDs are ignored. Authentication commands are accepted
-only in private chats and only from configured owners. With `telegramAuth`
-absent or disabled, Telegram messages follow the normal connector path.
-
-The supported commands are:
-
-- `/auth_claude` — start Claude authentication.
-- `/auth_codex` — start Codex device authentication.
-- `/auth_status` — show the current Claude and Codex authentication status.
-- `/auth_cancel` — stop active authentication flows.
-- `/auth_input <code>` — send a short device code to the active flow. Codes
-  contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
-  accepted. For Claude, if the browser returns a loopback
-  `http://localhost:<port>/callback?...` URL, the full URL may be sent here;
-  Jinn extracts its one-time `code#state` value when both fields are present.
-  The browser may show that `code#state` value directly; send it with the same
-  `/auth_input` command.
-
-The space forms (`/auth claude`, `/auth codex`, `/auth status`,
-`/auth cancel`, and `/auth input <code>`) are also supported. Secret-bearing
-auth input is deleted best-effort after receipt. The CLI uses the gateway's
-normal working directory and environment, so native npm/Homebrew installs use
-their normal provider credential locations and Docker uses the paths configured
-by the image.
-
 ## Slack Connector
 
 Uses `@slack/bolt` with Socket Mode (no public URL required).
@@ -138,45 +94,6 @@ Connector ids are what the rest of the gateway addresses:
 - the `## Available connectors` list in every session's context
 - `POST /api/connectors/reload`, which stops every running connector and restarts it
   from the current `config.yaml` — regardless of which form declared it
-
-## Telegram Authentication
-
-Telegram auth commands are disabled unless the Telegram connector config enables
-them explicitly:
-
-```yaml
-connectors:
-  telegram:
-    botToken: ...
-    allowFrom:
-      - 123456789
-    telegramAuth:
-      enabled: true
-      ownerUserIds:
-        - 123456789
-      flowTtlSeconds: 600
-```
-
-`ownerUserIds` must contain numeric Telegram user IDs. It does not replace the
-normal `allowFrom` gate; keep both restricted to the intended owner. Usernames
-are not an authentication boundary. Replace the example ID with your own.
-
-Supported private-chat commands:
-
-- `/auth claude` starts `claude auth login --claudeai`.
-- `/auth codex` starts `codex login --device-auth`.
-- `/auth status` reports active flows and each provider's authenticated state.
-  If a provider is not authenticated, the reply includes the matching login
-  command, for example `/auth claude` or `/auth codex`.
-- `/auth cancel` stops active authentication flows.
-- `/auth input <one-time-code>` sends a short one-time code to the active flow
-  and deletes the Telegram message best-effort.
-
-Auth commands are intercepted before normal session routing, attachments, and
-speech-to-text handling. They are not delivered to the normal message handler.
-The connector does not accept provider tokens, add HTTP endpoints, or proxy
-arbitrary callbacks. Post-exit verification runs only fixed status commands and
-reports generic success or failure.
 
 ## Future Connectors
 

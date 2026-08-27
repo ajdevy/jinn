@@ -1,6 +1,7 @@
 import {
   type AuthChatId,
   type AuthFlowManagerOptions,
+  type AuthInputSource,
   type AuthProvider,
 } from "./auth-flow-support.js";
 import { AuthFlowLifecycle } from "./auth-flow-lifecycle.js";
@@ -33,11 +34,12 @@ export class AuthFlowRuntime {
     );
   }
 
-  async input(ownerId: number, code: string, chatId: AuthChatId): Promise<void> {
-    const result = this.lifecycle.input(ownerId, code);
+  async input(ownerId: number, code: string, source: AuthInputSource, chatId: AuthChatId): Promise<void> {
+    const result = this.lifecycle.input(ownerId, code, source);
     const message = {
       none: "No authentication flow is active.",
       ambiguous: "Authentication input is ambiguous while multiple providers are active.",
+      wrongProvider: "A Claude callback can only be used with /auth_claude.",
       failed: "Authentication input failed.",
       written: undefined,
     }[result];
