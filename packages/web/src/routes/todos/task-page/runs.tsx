@@ -8,7 +8,8 @@ import { formatRelativeTime } from "../util"
  * pulsing blue dot, "Running", no outcome word) because it has not reported an
  * outcome and the section must not invent one. The handoff below a row is the
  * evidence a reviewer reads; it shows the fields the attempt actually filled
- * in and stays silent about the rest. */
+ * in and stays silent about the rest. A Todo nobody has attempted has no
+ * ledger to show, so the section is absent rather than empty (ICI-1435). */
 
 const OUTCOME_LABEL: Record<WorkItemRunOutcomeWire, string> = {
   completed: "Completed",
@@ -38,6 +39,7 @@ const NOTE_FIELDS: Array<{ key: "verification" | "retryNotes" | "residualRisk"; 
 ]
 
 export function RunsSection({ runs }: { runs: WorkItemRunWire[] }) {
+  if (runs.length === 0) return null
   return (
     <section data-testid="task-runs">
       <div
@@ -46,13 +48,9 @@ export function RunsSection({ runs }: { runs: WorkItemRunWire[] }) {
       >
         Runs
       </div>
-      {runs.length === 0 ? (
-        <p data-testid="runs-empty" className="flex min-h-9 items-center text-[13.5px] text-[var(--text-quaternary)]">
-          No attempts yet.
-        </p>
-      ) : (
-        runs.map((run) => <RunRow key={run.id} run={run} />)
-      )}
+      {runs.map((run) => (
+        <RunRow key={run.id} run={run} />
+      ))}
     </section>
   )
 }

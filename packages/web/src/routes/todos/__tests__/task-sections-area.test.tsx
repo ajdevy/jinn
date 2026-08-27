@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import type { WorkItemFullWire } from "@/lib/api"
+import type { WorkItemFullWire, WorkItemRunWire } from "@/lib/api"
 import { AREAS } from "@/contrib/types"
 import { contributeProbes, describeHostedArea } from "@/contrib/__tests__/hosted-area"
 import TaskPage from "../task-page/task-page"
@@ -76,9 +76,23 @@ const ITEM = {
   closedAt: null,
 } as unknown as WorkItemFullWire
 
+/** The contributed area is anchored after Runs, and a Todo nobody has attempted
+ *  renders no Runs section to sit after — so the fixture carries one attempt. */
+const RUN = {
+  id: "wir_000000000001",
+  workItemId: "PLA-12",
+  sessionId: "session-1",
+  startedAt: "2026-07-22T08:00:00.000Z",
+  endedAt: "2026-07-22T08:40:00.000Z",
+  outcome: "completed",
+  summary: null,
+  handoff: {},
+  error: null,
+} as unknown as WorkItemRunWire
+
 beforeEach(() => {
   vi.clearAllMocks()
-  getWorkItem.mockResolvedValue({ workItem: ITEM, spendUsd: 0, events: [], runs: [] })
+  getWorkItem.mockResolvedValue({ workItem: ITEM, spendUsd: 0, events: [], runs: [RUN] })
   getWorkItemTree.mockResolvedValue({ tree: { root: { ...ITEM, children: [] }, totals: {}, spendUsd: 0 } })
   getOrg.mockResolvedValue({
     departments: ["platform"],

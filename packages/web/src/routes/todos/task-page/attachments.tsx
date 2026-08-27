@@ -9,7 +9,8 @@ import { AttachmentTile, isImageMime, useAttachmentPreview } from "./attachment-
  * preview, everything else keeps the inset row (26px type glyph, filename,
  * `size · who · when`), hover × to remove, `+ Attach a file` through the
  * multipart route. Item-level only — comment-level attachments render as chips
- * inside the activity feed. */
+ * inside the activity feed, and a Todo carrying none renders no section at
+ * all (ICI-1435). */
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -37,11 +38,14 @@ export function AttachmentsSection({
   const inputRef = useRef<HTMLInputElement>(null)
   const preview = useAttachmentPreview()
   const itemLevel = attachments.filter((attachment) => attachment.commentId === null)
-  const images = itemLevel.filter((attachment) => preview.canPreview(attachment))
-  const rows = itemLevel.filter((attachment) => !preview.canPreview(attachment))
 
   const metaOf = (attachment: WorkItemAttachmentWire) =>
     `${formatBytes(attachment.bytes)} · ${uploaderLabel(attachment.uploadedBy, byName)} · ${formatRelativeTime(attachment.createdAt)}`
+
+  if (itemLevel.length === 0) return null
+
+  const images = itemLevel.filter((attachment) => preview.canPreview(attachment))
+  const rows = itemLevel.filter((attachment) => !preview.canPreview(attachment))
 
   return (
     <section data-testid="task-attachments">

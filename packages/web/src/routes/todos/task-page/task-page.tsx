@@ -5,8 +5,6 @@ import {
   api,
   ApiError,
   type WorkItemDetailWire,
-  type WorkItemRelationKindWire,
-  type WorkItemRelationWire,
   type WorkItemStatusWire,
   type WorkItemTreeNodeWire,
 } from "@/lib/api"
@@ -27,9 +25,7 @@ import { PropsRail } from "./props-rail"
 import { ChipCluster } from "./chip-cluster"
 import { useTaskPickers } from "./use-task-pickers"
 import { BodyEditor } from "./body-editor"
-import { AcceptanceChecklist } from "./acceptance"
 import { SubTasksSection } from "./subtasks"
-import { RelationsSection } from "./relations"
 import { AttachmentsSection } from "./attachments"
 import { useTaskAttachments } from "./use-task-attachments"
 import { RunsSection } from "./runs"
@@ -189,7 +185,7 @@ export default function TaskPage() {
     announce,
   })
 
-  // ── Section mutations (sub-tasks, relations; attachments have their own hook) ──
+  // ── Section mutations (sub-tasks; attachments have their own hook) ──
   const qc = useQueryClient()
   const failWith = useCallback(
     (fallback: string) => (error: unknown) =>
@@ -223,20 +219,6 @@ export default function TaskPage() {
   const addSubTask = useMutation({
     mutationFn: (title: string) => api.createWorkItem({ title, parentId: id! }),
     onError: failWith("Failed to add the sub-task"),
-    onSettled: invalidateTree,
-  })
-  const addRelation = useMutation({
-    mutationFn: ({ srcId, kind, dstId }: { srcId: string; kind: WorkItemRelationKindWire; dstId: string }) =>
-      api.addWorkItemRelation(srcId, kind, dstId),
-    onError: failWith("Couldn't add the relation"),
-    onSettled: invalidateTree,
-  })
-  const removeRelation = useMutation({
-    mutationFn: (relation: WorkItemRelationWire) =>
-      relation.direction === "in"
-        ? api.removeWorkItemRelation(relation.other.id, relation.kind, id!)
-        : api.removeWorkItemRelation(id!, relation.kind, relation.other.id),
-    onError: failWith("Couldn't remove the relation"),
     onSettled: invalidateTree,
   })
   const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith })
@@ -478,22 +460,6 @@ export default function TaskPage() {
               </div>
 
               {item && (
-                <section className="mt-2">
-                  <div
-                    className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)]"
-                    style={{ fontFamily: "var(--font-code)" }}
-                  >
-                    Acceptance
-                  </div>
-                  <AcceptanceChecklist
-                    acceptance={item.acceptance}
-                    editable
-                    onCommit={(next) => pickers.patchField({ acceptance: next })}
-                  />
-                </section>
-              )}
-
-              {item && (
                 <>
                   <SubTasksSection
                     node={itemNode}
@@ -505,12 +471,6 @@ export default function TaskPage() {
                     onChildStatus={(childId, status, cascade) => childStatus.mutate({ childId, status, cascade })}
                     onChildAssign={(childId, assignee) => childAssign.mutate({ childId, assignee })}
                     onAddSubTask={(nextTitle) => addSubTask.mutate(nextTitle)}
-                  />
-                  <RelationsSection
-                    id={item.id}
-                    relations={detail?.relations ?? []}
-                    onAdd={(srcId, kind, dstId) => addRelation.mutate({ srcId, kind, dstId })}
-                    onRemove={(relation) => removeRelation.mutate(relation)}
                   />
                   <AttachmentsSection
                     attachments={attachments.files}

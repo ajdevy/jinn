@@ -5,8 +5,8 @@ import { RunsSection } from "../task-page/runs"
 
 /* ICI-728 — the run ledger's read surface: one row per attempt with its
  * outcome and the handoff a reviewer reads, an OPEN attempt that reads as
- * in-flight instead of borrowing an outcome it never reported, and the quiet
- * empty state a Todo nobody has attempted yet gets. */
+ * in-flight instead of borrowing an outcome it never reported, and no section
+ * at all for a Todo nobody has attempted yet (ICI-1435). */
 
 const SETTLED_LABELS = ["Completed", "Blocked", "Crashed", "Timed out", "Abandoned"]
 
@@ -83,10 +83,9 @@ describe("run ledger section", () => {
     expect(screen.queryByTestId("run-handoff-wir_00000000open")).toBeNull()
   })
 
-  it("shows the quiet empty state when a Todo has never been attempted", () => {
+  it("renders nothing at all when a Todo has never been attempted", () => {
     render(<RunsSection runs={[]} />)
 
-    expect(screen.getByTestId("runs-empty").textContent).toBe("No attempts yet.")
-    expect(screen.getByTestId("task-runs").querySelector('[data-testid^="run-row-"]')).toBeNull()
+    expect(screen.queryByTestId("task-runs")).toBeNull()
   })
 })

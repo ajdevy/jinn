@@ -6,19 +6,21 @@ import type {
   WorkItemAttachmentWire,
   WorkItemDetailWire,
   WorkItemFullWire,
+  WorkItemRelationWire,
   WorkItemTreeNodeWire,
 } from "@/lib/api"
 import { ActivitySection } from "../task-page/activity"
+import { RelationsSection } from "../task-page/relations"
 import TaskPage from "../task-page/task-page"
 import { comment, event } from "./fixtures/task-wire"
 
-/* Todos v2 slice 6 — the task page sections (design-doc §7.2.8–11):
- * sub-tasks with hover quick actions (child status popover through the SAME
- * legality module, assign, open, add-row absent at the depth cap), relations
- * over three wire kinds with the blocked-by direction swap, attachments
- * through the multipart lane, and the merged activity feed (folds of ≥3
- * machine events, comments never collapse, composer attaches pending files to
- * the comment it sends). */
+/* Todos v2 slice 6 — the task page sections (design-doc §7.2.8–11): sub-tasks
+ * with hover quick actions (child status popover through the SAME legality
+ * module, assign, open, add-row absent at the depth cap), attachments through
+ * the multipart lane, and the merged activity feed (folds of ≥3 machine
+ * events, comments never collapse, composer attaches pending files to the
+ * comment it sends). Relations left the page in ICI-1435; the blocked-by swap
+ * is now asserted against the component. */
 
 vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock("@/routes/settings-provider", () => ({ useSettings: () => ({ settings: { employeeOverrides: {} } }) }))
@@ -222,48 +224,46 @@ describe("sub-tasks", () => {
 
     await screen.findByTestId("task-title")
     await waitFor(() => expect(screen.queryByTestId("subtask-add")).toBeNull())
-    // The item's node is absent from the stub tree → the empty section is
-    // suppressed entirely at the cap (no add affordance to explain).
+    // The item's node is absent from the stub tree, so it has no children and
+    // the section is suppressed outright, cap or not.
   })
 })
 
 describe("relations", () => {
-  it("renders display kinds (Blocks tinted, incoming blocks as Blocked by) and removes with the direction swap", async () => {
-    const item = full("PLA-12")
-    getWorkItem.mockResolvedValue(detailOf(item, {
-      relations: [
-        { kind: "blocks", direction: "out", other: { id: "MKT-7", title: "Store launch campaign", status: "backlog" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" },
-        { kind: "blocks", direction: "in", other: { id: "PLA-9", title: "Vendor keys", status: "blocked" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" },
-      ],
-    }))
-    removeWorkItemRelation.mockResolvedValue({ removed: true })
-    renderTask()
+  const outgoing: WorkItemRelationWire = { kind: "blocks", direction: "out", other: { id: "MKT-7", title: "Store launch campaign", status: "backlog" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" }
+  const incoming: WorkItemRelationWire = { kind: "blocks", direction: "in", other: { id: "PLA-9", title: "Vendor keys", status: "blocked" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" }
 
-    const out = await screen.findByTestId("relation-row-MKT-7")
-    expect(out.textContent).toContain("Blocks")
-    const incoming = screen.getByTestId("relation-row-PLA-9")
-    expect(incoming.textContent).toContain("Blocked by")
+  it("reads an outgoing blocks edge as Blocks, an incoming one as Blocked by, and hands the relation back whole on remove", () => {
+    const onRemove = vi.fn()
+    render(<RelationsSection id="PLA-12" relations={[outgoing, incoming]} onAdd={vi.fn()} onRemove={onRemove} />)
+
+    expect(screen.getByTestId("relation-row-MKT-7").textContent).toContain("Blocks")
+    expect(screen.getByTestId("relation-row-PLA-9").textContent).toContain("Blocked by")
 
     fireEvent.click(screen.getByTestId("relation-remove-PLA-9"))
-    // Incoming edge lives on the OTHER item: srcId swaps.
-    await waitFor(() => expect(removeWorkItemRelation).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+    // Which item owns an incoming edge is the caller's call, so the row hands
+    // the relation back whole rather than a pre-swapped pair.
+    expect(onRemove).toHaveBeenCalledWith(incoming)
   })
 
   it("adds a relation from search; 'Blocked by' writes the edge on the other item", async () => {
-    getWorkItem.mockResolvedValue(detailOf(full("PLA-12"), { relations: [] }))
-    searchWorkItems.mockResolvedValue({
-      workItems: [{ ...full("PLA-9"), status: "backlog" }],
-      total: 1,
-      nextOffset: null,
-    })
-    addWorkItemRelation.mockResolvedValue({ relation: {} })
-    renderTask()
+    searchWorkItems.mockResolvedValue({ workItems: [{ ...full("PLA-9"), status: "backlog" }], total: 1, nextOffset: null })
+    const onAdd = vi.fn()
+    render(<RelationsSection id="PLA-12" relations={[]} onAdd={onAdd} onRemove={vi.fn()} />)
 
-    fireEvent.click(await screen.findByTestId("relation-add"))
+    fireEvent.click(screen.getByTestId("relation-add"))
     fireEvent.click(screen.getByTestId("relation-kind-blocked-by"))
     fireEvent.change(screen.getByTestId("relation-search"), { target: { value: "vendor" } })
     fireEvent.click(await screen.findByTestId("relation-result-PLA-9"))
-    await waitFor(() => expect(addWorkItemRelation).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+  })
+
+  it("stays out of the task page even for a Todo that has relations", async () => {
+    getWorkItem.mockResolvedValue(detailOf(full("PLA-12"), { relations: [outgoing] }))
+    renderTask()
+
+    await screen.findByTestId("task-title")
+    expect(screen.queryByTestId("task-relations")).toBeNull()
   })
 })
 
