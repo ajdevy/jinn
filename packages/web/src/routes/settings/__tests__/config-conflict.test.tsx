@@ -57,11 +57,12 @@ function conflict() {
 
 async function renderSettings() {
   render(<MemoryRouter><SettingsPage /></MemoryRouter>)
-  await screen.findByRole('button', { name: 'Save Config' })
+  await screen.findByRole('switch', { name: 'Interrupt on new message' })
 }
 
-function saveConfig() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
+/** There is no Save button: making an edit is what asks for a write. */
+function editConfig() {
+  fireEvent.click(screen.getByRole('switch', { name: 'Interrupt on new message' }))
 }
 
 beforeEach(() => {
@@ -78,7 +79,7 @@ beforeEach(() => {
 describe('config revision', () => {
   it('sends the revision it loaded with, so the gateway can judge staleness', async () => {
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalled())
     expect(apiMocks.updateConfig.mock.calls[0][1]).toBe('rev-1')
@@ -89,7 +90,7 @@ describe('a hand edit under an open page', () => {
   it('renders a conflict notice instead of the generic failure, and does not retry', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(conflict())
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     expect(await screen.findByText(NOTICE)).toBeTruthy()
     // Not the error toast every other failure gets.
@@ -101,7 +102,7 @@ describe('a hand edit under an open page', () => {
   it('reloads the file the operator actually edited, and clears the notice', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(conflict())
     await renderSettings()
-    saveConfig()
+    editConfig()
     await screen.findByText(NOTICE)
 
     apiMocks.getConfig.mockResolvedValue({ config: { logging: { level: 'debug' } }, revision: 'rev-2' })
@@ -109,7 +110,7 @@ describe('a hand edit under an open page', () => {
 
     await waitFor(() => expect(screen.queryByText(NOTICE)).toBeNull())
     // Saving again carries the revision the reload adopted, so it lands.
-    saveConfig()
+    editConfig()
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalledTimes(2))
     expect(apiMocks.updateConfig.mock.calls[1][1]).toBe('rev-2')
     expect((apiMocks.updateConfig.mock.calls[1][0] as any).logging.level).toBe('debug')
@@ -118,7 +119,7 @@ describe('a hand edit under an open page', () => {
   it('still shows the ordinary failure message for every other rejection', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(new Error('Invalid config: engines.claude.fallback[0] "nope"'))
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     expect(await screen.findByText(/Failed to save: Invalid config/)).toBeTruthy()
     expect(screen.queryByText(NOTICE)).toBeNull()

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../../page'
 
 /* The Engine Fallbacks section as the operator drives it: chains are edited into the
- * page's config state and land on the wire through the page's own Save Config
+ * page's config state and land on the wire through the page's own write path
  * button, so every assertion here is about what `api.updateConfig` receives. */
 
 const apiMocks = vi.hoisted(() => ({
@@ -53,7 +53,7 @@ function engine(name: string, available: boolean, defaultModel: string, health?:
 
 async function renderSettings() {
   render(<MemoryRouter><SettingsPage /></MemoryRouter>)
-  await screen.findByRole('button', { name: 'Save Config' })
+  await screen.findByRole('switch', { name: 'Interrupt on new message' })
 }
 
 /** The chain rows on one card, in the order they are rendered. */
@@ -62,8 +62,8 @@ function chainRows(engineName: string): string[] {
   return Array.from(card.querySelectorAll('[data-chain-row]')).map((row) => row.getAttribute('data-chain-row')!)
 }
 
+/** Settings save themselves; what a test waits for is the write. */
 async function save() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalled())
   return apiMocks.updateConfig.mock.calls[0][0] as Record<string, any>
 }
@@ -178,7 +178,6 @@ describe('Engine Fallbacks section', () => {
       target: { value: 'grok' },
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
     expect(await screen.findByText(/Failed to save: engines\.claude\.fallback\[0\]/)).toBeTruthy()
     expect(chainRows('claude')).toEqual(['codex', 'grok'])
   })

@@ -209,7 +209,7 @@ interface SttSection {
 
 /**
  * Everything the STT section does that is not markup. It owns its own state and
- * saves immediately rather than joining the page's Save Config, because these
+ * saves through its own endpoint rather than the page's config write, because these
  * are `/api/stt/*` routes rather than part of the gateway config document.
  */
 function useSttSection(): SttSection {

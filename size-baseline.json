@@ -324,7 +324,7 @@
       ]
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5146,
+      "lines": 5145,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1603,7 +1603,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1479,
+      "lines": 1427,
       "exempt": [
         "complexity",
         "max-lines-per-function"

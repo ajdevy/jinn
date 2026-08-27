@@ -47,11 +47,11 @@ function card(name: string): HTMLElement {
 
 async function renderSettings() {
   render(<MemoryRouter><SettingsPage /></MemoryRouter>)
-  await screen.findByRole('button', { name: 'Save Config' })
+  await screen.findByRole('switch', { name: 'Interrupt on new message' })
 }
 
+/** Settings save themselves; what a test waits for is the write. */
 async function save() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalled())
   return apiMocks.updateConfig.mock.calls[0][0] as Record<string, any>
 }
@@ -182,7 +182,9 @@ describe('an entry the substitute stopped serving', () => {
       'engines.claude.fallbackModelMap["claude-opus-5"] maps to "gpt-5.6-sol", which engine "grok" does not serve',
     )).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
+    // Any edit now asks for a write, and this document is the one that cannot have one.
+    fireEvent.click(screen.getByRole('switch', { name: 'Interrupt on new message' }))
+
     expect(await screen.findByText(/Cannot save: engines\.claude\.fallbackModelMap/)).toBeTruthy()
     // Refused before the wire, not by the gateway after a round trip.
     expect(apiMocks.updateConfig).not.toHaveBeenCalled()

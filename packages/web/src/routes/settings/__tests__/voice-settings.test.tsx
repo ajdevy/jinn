@@ -73,8 +73,9 @@ function renderSettings() {
   )
 }
 
+/** There is no Save button: an edit is what asks for a write. */
 function save() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Interrupt on new message' }))
 }
 
 beforeEach(() => {

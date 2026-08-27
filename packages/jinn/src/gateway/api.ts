@@ -85,7 +85,7 @@ export {
 import { forkEngineSession } from "../sessions/fork.js";
 import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
-import { deepMerge, sanitizeConfigForApi } from "./config-payload.js";
+import { configDocumentForApi, deepMerge } from "./config-payload.js";
 export { isSensitiveConfigKey, sanitizeConfigForApi } from "./config-payload.js";
 import {
   CONFIG_CONFLICT_BODY,
@@ -4568,11 +4568,10 @@ export async function handleApiRequest(
 
     // GET /api/config
     if (method === "GET" && pathname === "/api/config") {
-      const config = context.getConfig();
       // The revision comes off the FILE, not off this in-memory config: the file is
       // what a PUT deep-merges into, so the file is what a conflict is about.
       res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
-      return json(res, sanitizeConfigForApi(config));
+      return json(res, configDocumentForApi(context.getConfig(), CONFIG_TOP_LEVEL_KEYS));
     }
 
     // PUT /api/config

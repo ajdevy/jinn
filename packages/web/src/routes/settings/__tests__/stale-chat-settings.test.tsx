@@ -92,7 +92,6 @@ describe('Settings stale chat controls', () => {
     expect(idleMinutes.hasAttribute('disabled')).toBe(false)
     fireEvent.change(tokenThreshold, { target: { value: '450000' } })
     fireEvent.change(idleMinutes, { target: { value: '90' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
 
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       sessions: {
