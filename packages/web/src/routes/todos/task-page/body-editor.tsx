@@ -10,6 +10,27 @@ const LiveBodyEditor = lazy(async () => {
 
 export { BODY_PLACEHOLDER }
 
+/* The collapsed cut edge. A mask fades the text out by alpha instead of painting
+ * a gradient down to a background colour, so it stays correct over the body
+ * wrapper's hover and focus-within fill: a colour scrim would read as a
+ * mismatched rectangle the moment that tint appeared behind it. */
+const BODY_FADE_MASK = "linear-gradient(to bottom, #000 calc(100% - 64px), transparent 100%)"
+
+/* The clamped box's inline style, or nothing at all when the body fits under the
+ * clamp and renders exactly as an uncollapsed one always has.
+ *
+ * Expanded rests at the measured height rather than releasing the bound, because
+ * that height is what the transition animates between — and the observer keeps it
+ * current, so later growth is never trapped. The 8px absorbs sub-pixel rounding
+ * on the last line so expanding cannot leave a hairline clipped. */
+function clampStyle(clamped: boolean, fullHeight: number): React.CSSProperties {
+  return {
+    maxHeight: clamped ? BODY_CLAMP_PX : fullHeight + 8,
+    maskImage: clamped ? BODY_FADE_MASK : undefined,
+    WebkitMaskImage: clamped ? BODY_FADE_MASK : undefined,
+  }
+}
+
 /* The read view's own full height, re-read whenever the body reflows.
  * scrollHeight reports it through the clamp, so collapsing never feeds back into
  * the measurement. It is 0 until the first measurement lands, which reads as
@@ -91,16 +112,7 @@ export function BodyEditor({
               ? " relative overflow-hidden transition-[max-height] duration-300 ease-[var(--ease-smooth)] motion-reduce:transition-none"
               : ""
           }`}
-          style={
-            collapsible
-              ? // Expanded rests at the measured height rather than releasing the
-                // bound, because that height is what the transition animates
-                // between — and the observer keeps it current, so later growth is
-                // never trapped. The 8px absorbs sub-pixel rounding on the last
-                // line so expanding cannot leave a hairline clipped.
-                { maxHeight: clamped ? BODY_CLAMP_PX : fullHeight + 8 }
-              : undefined
-          }
+          style={collapsible ? clampStyle(clamped, fullHeight) : undefined}
           onClick={() => setEditing(true)}
           onKeyDown={(event) => {
             if (event.key === "Enter") setEditing(true)
@@ -112,12 +124,12 @@ export function BodyEditor({
               aria-hidden
               data-testid="task-body-scrim"
               onClick={(event) => {
-                // The scrim sits inside the click-to-edit region, so the fade has
+                // The band sits inside the click-to-edit region, so the fade has
                 // to claim its own click to mean "reveal" and not "edit".
                 event.stopPropagation()
                 setExpanded(true)
               }}
-              className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent to-[var(--bg)]"
+              className="absolute inset-x-0 bottom-0 h-16"
             />
           )}
         </div>

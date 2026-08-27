@@ -58,6 +58,23 @@ describe("the Todo body collapse", () => {
     expect(screen.getByTestId("task-body-scrim")).toBeTruthy()
   })
 
+  it("expands from the fade itself without opening the editor", () => {
+    measureAt(BODY_CLAMP_PX + 200)
+    renderBody(LONG_BODY)
+
+    fireEvent.click(screen.getByTestId("task-body-scrim"))
+
+    // The fade lives inside the click-to-edit region, so it has to swallow its
+    // own click: reaching the editor here would mean the reader tapped to reveal
+    // and got a cursor instead.
+    const read = screen.getByTestId("task-body-read")
+    expect(read.style.maxHeight).not.toBe(`${BODY_CLAMP_PX}px`)
+    expect(screen.queryByTestId("task-body-scrim")).toBeNull()
+    expect(screen.getByTestId("task-body-toggle").textContent).toContain("Show less")
+    expect(screen.queryByTestId("task-body-loading")).toBeNull()
+    expect(document.querySelector("[contenteditable=true]")).toBeNull()
+  })
+
   it("leaves a body that fits exactly as it renders today", () => {
     measureAt(BODY_CLAMP_PX)
     const { container } = renderBody(SHORT_BODY)
