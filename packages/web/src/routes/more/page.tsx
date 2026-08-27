@@ -3,7 +3,6 @@ import { ChevronRight, Sun, Moon, Palette, type LucideIcon } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { useTheme } from "@/routes/providers"
 import { THEMES, type ThemeId } from "@/lib/themes"
 import type { NavItem } from "@/lib/nav"
@@ -120,7 +119,6 @@ function AppearanceRow() {
 }
 
 export default function MorePage() {
-  useBreadcrumbs([{ label: "More" }])
   const { data: features } = useFeatures()
   // Subscribed, not a module-time snapshot: this list is the phone's only route
   // to an overflow destination, so a sidebar.nav row from a plugin enabled after

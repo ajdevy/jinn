@@ -5,7 +5,6 @@ import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useSettings } from "@/routes/settings-provider"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
 import { authFetch } from "@/lib/auth"
 import { useModelRegistry } from "@/hooks/use-model-registry"
@@ -46,7 +45,6 @@ import {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  useBreadcrumbs([{ label: 'Settings' }])
   const {
     settings,
     setAccentColor,

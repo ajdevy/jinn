@@ -1344,7 +1344,6 @@
       ]
     },
     "packages/web/src/components/pill-nav.tsx": {
-      "lines": 444,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1512,7 +1511,7 @@
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 338,
+      "lines": 336,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1604,7 +1603,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1481,
+      "lines": 1479,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1622,7 +1621,7 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 874
+      "lines": 869
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
       "lines": 307,
@@ -1656,7 +1655,6 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1832,7 +1830,7 @@
       "lines": 322
     },
     "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
-      "lines": 476
+      "lines": 475
     },
     "packages/web/src/routes/workflow/editor/edge.tsx": {
       "exempt": [

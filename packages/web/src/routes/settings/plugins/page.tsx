@@ -1,9 +1,7 @@
-import { useMemo } from "react"
 import { RefreshCw } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { PluginList } from "./plugin-list"
 import {
   useInventoryFollowsDisk,
@@ -62,7 +60,6 @@ function ActionError({ error }: { error: Error }) {
 }
 
 export default function PluginsSettingsPage() {
-  useBreadcrumbs(useMemo(() => [{ label: "Settings", href: "/settings" }, { label: "Plugins" }], []))
   const inventory = usePluginInventory()
   const toggle = useTogglePlugin()
   const reveal = useRevealPlugin()

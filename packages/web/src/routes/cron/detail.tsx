@@ -12,7 +12,6 @@ import {
 import { PageLayout } from "@/components/page-layout"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { CronJobHeader } from "./detail-header"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import {
   displayNameOf,
@@ -61,7 +60,6 @@ function OverviewRow({ label, children }: { label: string; children: React.React
 export default function CronDetailPage() {
   const params = useParams<{ id: string }>()
   const id = params.id ? decodeURIComponent(params.id) : ""
-  useBreadcrumbs(useMemo(() => [{ label: "Cron", href: "/cron" }, { label: id }], [id]))
   const navigate = useNavigate()
   const qc = useQueryClient()
   const now = useMemo(() => new Date(), [])

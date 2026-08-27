@@ -7,7 +7,6 @@ import { agoLabel, describeCron, formatNextRun, nextCronDate } from "@/lib/cron-
 import { PageLayout } from "@/components/page-layout"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { CronListHeader } from "./list-header"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { WeeklySchedule } from "@/components/crons/weekly-schedule"
 import {
@@ -122,7 +121,6 @@ export function CronRow({
 }
 
 export default function CronPage() {
-  useBreadcrumbs([{ label: "Cron" }])
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { lens, setLens, filter, setFilter } = useCronViewParams()

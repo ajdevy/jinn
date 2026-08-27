@@ -6,7 +6,6 @@ import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { EmployeeChip } from "@/components/ui/employee-chip"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
 import { ConcludeDialog } from "./conclude-dialog"
 import { OverduePill } from "./overdue-pill"
@@ -113,7 +112,6 @@ export default function ExperimentDetailPage() {
   const query = useExperiment(id)
   const experiment = query.data?.experiment
   const [openDialog, setOpenDialog] = useState<OpenDialog>(null)
-  useBreadcrumbs([{ label: "Experiments", href: "/experiments" }, { label: experiment?.name ?? "Experiment" }])
 
   return (
     <PageLayout>

@@ -6,7 +6,6 @@ import type {
 import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { Skeleton } from "@/components/ui/skeleton"
 import { deriveFreshness, useEngineLimits, type FreshnessKind } from "./use-engine-limits"
 
@@ -189,7 +188,6 @@ function EngineCard({ engine, now }: { engine: EngineLimitEngineSnapshot; now: n
 }
 
 export default function LimitsPage() {
-  useBreadcrumbs([{ label: 'Limits' }])
   const { data, phase, refreshing, error, now, refresh } = useEngineLimits()
 
   return (

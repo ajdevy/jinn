@@ -7,7 +7,6 @@ import { filterSkills, type SkillSummary } from "@/lib/skills"
 import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 
 /* Skills as a calm grouped-inset list (the Todos idiom): ONE --bg-secondary
  * container carrying the page's only card shadow, flat hoverable rows inside.
@@ -57,7 +56,6 @@ function ListSkeleton() {
 }
 
 export default function SkillsPage() {
-  useBreadcrumbs([{ label: "Skills" }])
   const navigate = useNavigate()
   const [query, setQuery] = useState("")
 

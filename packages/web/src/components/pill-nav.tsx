@@ -1,11 +1,8 @@
-import { useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import { type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { Link, useLocation } from "react-router-dom"
-import { Menu, Sun, Moon, Palette, PanelLeft } from "lucide-react"
-import { useTheme } from "@/routes/providers"
+import { PanelLeft } from "lucide-react"
 import { useSettings } from "@/routes/settings-provider"
-import { THEMES, type ThemeId } from "@/lib/themes"
 import { useNavigation } from "@/lib/use-navigation"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { cn } from "@/lib/utils"
 import { useFeatures } from "@/hooks/use-features"
 import { prefetchRoute } from "@/lib/route-prefetch"
@@ -27,7 +24,6 @@ const PILL_MATERIAL =
 // The cross-page pill system and the chat header pills share this primitive; the
 // nav popover reuses the EXACT same material, only the radius differs.
 export const PILL_CLASS = `pointer-events-auto inline-flex items-center gap-0.5 rounded-full p-1 ${PILL_MATERIAL}`
-const POPOVER_CLASS = `rounded-[var(--radius-lg)] ${PILL_MATERIAL}`
 
 export function PillButton({
   onClick,
@@ -68,80 +64,9 @@ export function PillButton({
 // in-surface list⇄nav swap, so the nav links read identically everywhere.
 // ---------------------------------------------------------------------------
 
-/** The single active-route rule used across the rail, drawer, popover and pill. */
+/** The single active-route rule used across the nav rail and the mobile tab bar. */
 export function isNavItemActive(href: string, pathname: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href)
-}
-
-export function NavList({
-  pathname,
-  onNavigate,
-}: {
-  pathname: string
-  onNavigate?: () => void
-}) {
-  const { data: features } = useFeatures()
-  const navItems = useNavigation(features?.notesEnabled === true).items
-  return (
-    <div className="flex flex-col gap-0.5 p-1.5">
-      {navItems.map((item) => {
-        const isActive = isNavItemActive(item.href, pathname)
-        const Icon = item.icon
-        return (
-          <Link
-            key={item.href}
-            to={item.href} viewTransition
-            onClick={onNavigate}
-            onPointerEnter={() => prefetchRoute(item.href)}
-            onFocus={() => prefetchRoute(item.href)}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "flex h-10 items-center gap-3 rounded-[10px] px-3 text-[length:var(--text-subheadline)] transition-colors",
-              isActive
-                ? "bg-[var(--fill-secondary)] font-[var(--weight-semibold)] text-[var(--text-primary)]"
-                : "text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]",
-            )}
-          >
-            <Icon size={18} className="shrink-0" />
-            {item.label}
-          </Link>
-        )
-      })}
-    </div>
-  )
-}
-
-function ThemeIcon({ theme }: { theme: ThemeId }) {
-  if (theme === "light") return <Sun size={18} />
-  if (theme === "dark") return <Moon size={18} />
-  return <Palette size={18} />
-}
-
-/** Footer for compact nav surfaces. Workspace switching lives in the status bar
- *  and in the mobile More screen, so this remains a focused theme row. */
-export function NavFooter() {
-  const { theme, setTheme } = useTheme()
-
-  function cycleTheme() {
-    const ids = THEMES.map((t) => t.id)
-    const idx = ids.indexOf(theme)
-    setTheme(ids[(idx + 1) % ids.length])
-  }
-
-  return (
-    <div className="flex flex-col gap-0.5 p-1.5 pt-0">
-      <button
-        onClick={cycleTheme}
-        aria-label={`Theme: ${theme}. Click to cycle.`}
-        className="flex h-10 w-full items-center gap-3 rounded-[10px] px-3 text-[length:var(--text-subheadline)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
-      >
-        <span className="shrink-0">
-          <ThemeIcon theme={theme} />
-        </span>
-        <span className="capitalize">{theme}</span>
-      </button>
-    </div>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -337,108 +262,5 @@ export function NavRibbon({
         ))}
       </nav>
     </div>
-  )
-}
-
-/** Frosted nav popover anchored under the left pill — non-chat pages reach the
- *  global nav here (the chat route swaps its left surface in place instead). */
-export function NavPopover({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const pathname = useLocation().pathname
-  if (!open) return null
-  return (
-    <>
-      {/* Click-away scrim (transparent — the popover floats over content). */}
-      <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
-      <div
-        className={cn(
-          "absolute left-[max(var(--safe-left),12px)] top-[calc(max(var(--safe-top),12px)+46px)] z-50 w-[244px] lg:left-4 lg:top-[52px]",
-          POPOVER_CLASS,
-        )}
-        style={{ animation: "pillNavIn var(--duration-fast) var(--ease-smooth)" }}
-        role="menu"
-      >
-        <NavList pathname={pathname} onNavigate={onClose} />
-        <div className="mx-2 h-px bg-[var(--separator)]" />
-        <NavFooter />
-      </div>
-      <style>{`
-        @keyframes pillNavIn {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// PillNav — the pinned two-pill page chrome rendered by PageLayout for every
-// non-chat route. LEFT pill = nav button (opens the popover) + route icon +
-// page title (from the breadcrumb provider). RIGHT pill = page actions, and is
-// absent entirely when a page has none (clean corner).
-// ---------------------------------------------------------------------------
-
-export function PillNav({ actions }: { actions?: ReactNode }) {
-  const pathname = useLocation().pathname
-  const { items } = useBreadcrumbs()
-  const { settings } = useSettings()
-  // Default brand mark carries U+FE0F so the genie always renders as a COLOR
-  // emoji (never a text-presentation glyph that would inherit the slot's text
-  // color and look faded — see the brand-mark color note below).
-  const emoji = settings.portalEmoji ?? "\u{1F9DE}\u{FE0F}"
-  const [navOpen, setNavOpen] = useState(false)
-  const { data: features } = useFeatures()
-  const navItems = useNavigation(features?.notesEnabled === true).items
-
-  const title = items[0]?.label ?? ""
-  const navItem = navItems.find((n) => isNavItemActive(n.href, pathname))
-  const RouteIcon = navItem?.icon
-
-  return (
-    <>
-      {/* LEFT pill — nav button + route icon + page title. */}
-      <div className="pointer-events-none absolute left-[max(var(--safe-left),12px)] top-[max(var(--safe-top),12px)] z-40 lg:left-4 lg:top-4">
-        <div className={cn(PILL_CLASS, "group/brand")}>
-          <PillButton
-            onClick={() => setNavOpen((o) => !o)}
-            title="Menu"
-            ariaLabel="Open navigation"
-            ariaExpanded={navOpen}
-          >
-            {/* Brand-anchor: the portal logo is the constant at rest on desktop,
-                cross-fading to the hamburger on hover (mirrors the chat ribbon's
-                logo→toggle top slot). Mobile has no hover, so it always shows the
-                hamburger — the nav popover must stay one tap away. */}
-            <span className="relative flex size-[17px] items-center justify-center">
-              <span
-                aria-hidden
-                className="absolute inset-0 hidden items-center justify-center text-[14px] leading-none text-[var(--text-primary)] [font-variant-emoji:emoji] transition-opacity duration-150 lg:flex lg:group-hover/brand:opacity-0"
-              >
-                {emoji}
-              </span>
-              <Menu
-                size={17}
-                className="transition-opacity duration-150 lg:opacity-0 lg:group-hover/brand:opacity-100"
-              />
-            </span>
-          </PillButton>
-          {title && (
-            <span className="flex select-none items-center gap-1.5 pl-0.5 pr-2.5 text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
-              {RouteIcon && <RouteIcon size={15} className="shrink-0 text-[var(--text-tertiary)]" />}
-              <span className="truncate max-w-[42vw]">{title}</span>
-            </span>
-          )}
-        </div>
-      </div>
-
-      <NavPopover open={navOpen} onClose={() => setNavOpen(false)} />
-
-      {/* RIGHT pill — only when the page provides actions. */}
-      {actions && (
-        <div className="pointer-events-none absolute right-[max(var(--safe-right),12px)] top-[max(var(--safe-top),12px)] z-40 lg:right-4 lg:top-4">
-          <div className={PILL_CLASS}>{actions}</div>
-        </div>
-      )}
-    </>
   )
 }

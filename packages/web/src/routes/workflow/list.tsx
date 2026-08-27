@@ -6,7 +6,6 @@ import { PageLayout } from "@/components/page-layout"
 import { LargeTitleHeader } from "@/components/shell/large-title-header"
 import { PageScaffold } from "@/components/shell/page-scaffold"
 import { PrimaryAction } from "@/components/shell/primary-action"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   ApiError,
   api,
@@ -85,7 +84,6 @@ function useShelf(): { shelf: Shelf; setShelf: (next: Shelf) => void } {
 }
 
 export default function WorkflowListPage() {
-  useBreadcrumbs([{ label: "Workflows" }])
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const { shelf, setShelf } = useShelf()

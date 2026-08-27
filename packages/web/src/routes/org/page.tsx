@@ -5,7 +5,6 @@ import type { Employee, OrgData, OrgHierarchy } from "@/lib/api";
 import { EmployeeDetail } from "@/components/org/employee-detail";
 import { PageLayout } from "@/components/page-layout";
 import { useSettings } from "@/routes/settings-provider";
-import { useBreadcrumbs } from "@/context/breadcrumb-context";
 
 const OrgMap = lazy(() =>
   import("@/components/org/org-map").then((m) => ({ default: m.OrgMap })),
@@ -18,7 +17,6 @@ const OrgMapFallback = (
 );
 
 export default function OrgPage() {
-  useBreadcrumbs([{ label: 'Organization' }])
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [hierarchy, setHierarchy] = useState<OrgHierarchy | undefined>();
   const [loading, setLoading] = useState(true);
