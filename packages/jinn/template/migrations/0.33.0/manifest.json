@@ -11,7 +11,7 @@
       "path": "docs/connectors.md",
       "operation": "modify",
       "baseSha256": "b439377e3feda09132cd4b92a3044ab6d61d4d578734ae551d0601f68943dcb2",
-      "targetSha256": "4b319163af94d9cb31772e83bf9ac562627630071d069fa66d8bdff9bed74e8b",
+      "targetSha256": "942d72dd919e3ea20bf7e45650cee676e4f5470b78b9e7ea0ce67731acab7596",
       "basePayload": "files/base/docs/connectors.md",
       "targetPayload": "files/target/docs/connectors.md"
     }

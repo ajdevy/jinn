@@ -198,7 +198,7 @@ describe("TelegramAuth", () => {
     await codex.auth.handle(message("/auth_codex"));
     await codex.auth.handle(message(`/auth_input http://localhost:58741/callback?code=${claudeCode}&state=state_1234567890123456`));
     expect(codex.pty.write).not.toHaveBeenCalled();
-    expect(codex.send).toHaveBeenLastCalledWith(123, expect.stringContaining("only be used with /auth_claude"));
+    expect(codex.send).toHaveBeenLastCalledWith(123, expect.stringContaining("A Codex callback URL is not valid here"));
   });
 
   it("forwards each discovered URL and code once without retaining split UTF-8 bytes", async () => {

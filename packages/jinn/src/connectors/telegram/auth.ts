@@ -157,10 +157,7 @@ export class TelegramAuth {
     const flow: ActiveFlow = { key, generation, ownerId: owner, provider, chatId, pty: child, discoveryTail: "", urlSent: false, codeSent: false, invalidated: false };
     this.active.set(key, flow);
     this.attach(flow);
-    const instructions = provider === "codex"
-      ? "Codex authentication started. The bot will send the 9-character device code below; enter it in the browser. If it does not appear, send the code here."
-      : "Claude authentication started. Follow the instructions below. Send the device code here. If Claude shows a browser value as code#state, send that here. If Claude redirects to a localhost /callback URL, send the full URL here.";
-    await this.safeSend(chatId, instructions, warning);
+    await this.safeSend(chatId, PROVIDERS[provider].instructions, warning);
   }
 
   private attach(flow: ActiveFlow): void {
@@ -215,7 +212,8 @@ export class TelegramAuth {
     const flows = [...this.active.values()].filter((flow) => flow.ownerId === owner);
     if (flows.length === 0) { await this.safeSend(chatId, "No authentication flow is active.", warning); return; }
     if (flows.length > 1) { await this.safeSend(chatId, "Authentication input is ambiguous while multiple providers are active.", warning); return; }
-    if (input.source === "claude-callback" && flows[0].provider !== "claude") { await this.safeSend(chatId, "A Claude callback URL can only be used with /auth_claude.", warning); return; }
+    const provider = PROVIDERS[flows[0].provider];
+    if (!provider.acceptedInputSources.includes(input.source)) { await this.safeSend(chatId, provider.invalidInputMessage, warning); return; }
     try { flows[0].pty.write(`${input.code}\r`); if (warning) await this.safeSend(chatId, warning); }
     catch { this.logger.warn?.("[telegram-auth] failed to write authentication input"); await this.safeSend(chatId, "Authentication input failed.", warning); }
   }

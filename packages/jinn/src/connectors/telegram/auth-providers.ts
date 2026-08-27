@@ -1,4 +1,5 @@
 import { execFile as nodeExecFile } from "node:child_process";
+import type { AuthInputSource } from "./auth-support.js";
 
 export type AuthProvider = "claude" | "codex";
 
@@ -47,6 +48,9 @@ export function runCommand(
 export interface ProviderDefinition {
   label: string;
   login: readonly [file: string, args: readonly string[]];
+  instructions: string;
+  acceptedInputSources: readonly AuthInputSource[];
+  invalidInputMessage: string;
   status(run: RunCommand): Promise<boolean>;
 }
 
@@ -54,6 +58,9 @@ export const PROVIDERS: Record<AuthProvider, ProviderDefinition> = {
   claude: {
     label: "Claude",
     login: ["claude", ["auth", "login", "--claudeai"]],
+    instructions: "Claude authentication started. Follow the instructions below. Send the device code here. If Claude shows a browser value as code#state, send that here. If Claude redirects to a localhost /callback URL, send the full URL here.",
+    acceptedInputSources: ["short-code", "claude-callback"],
+    invalidInputMessage: "A Claude callback URL can only be used with /auth_claude.",
     async status(run) {
       const result = await run("claude", ["auth", "status", "--json"], STATUS_TIMEOUT_MS);
       if (result.exitCode !== 0) return false;
@@ -65,6 +72,9 @@ export const PROVIDERS: Record<AuthProvider, ProviderDefinition> = {
   codex: {
     label: "Codex",
     login: ["codex", ["login", "--device-auth"]],
+    instructions: "Codex authentication started. The bot will send the 9-character device code below; enter it in the browser. If it does not appear, send the code here.",
+    acceptedInputSources: ["short-code"],
+    invalidInputMessage: "A Codex callback URL is not valid here. Send the 9-character device code shown in the browser.",
     async status(run) {
       return (await run("codex", ["login", "status"], STATUS_TIMEOUT_MS)).exitCode === 0;
     },
