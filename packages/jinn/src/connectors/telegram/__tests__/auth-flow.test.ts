@@ -128,13 +128,49 @@ describe("Telegram auth flow", () => {
     ).toBe("AB12CD345");
   });
 
+  it("extracts a Codex device code across terminal redraws", () => {
+    expect(
+      extractDiscovery(
+        "Enter this one-time code (expires in 15 minutes)\rAB12CD345\rContinue only if you started this login in Codex.",
+      ).code,
+    ).toBe("AB12CD345");
+  });
+
+  it("sends the Codex device code found in terminal redraws", async () => {
+    let onData: ((data: string) => void) | undefined;
+    const pty: AuthPty = {
+      write: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn((handler: (data: string) => void) => {
+        onData = handler;
+      }),
+      onExit: vi.fn(),
+    };
+    const { manager, sends } = createManager({
+      spawnPty: vi.fn(() => pty) as SpawnPty,
+    });
+
+    await manager.handleMessage(authMessage("/auth_codex"));
+    onData?.(
+      "https://auth.openai.com/codex/device\rEnter this one-time code (expires in 15 minutes)\rAB12CD345\rContinue only if you started this login in Codex.",
+    );
+
+    await vi.waitFor(() =>
+      expect(sends).toContain(
+        "Continue authentication:\nhttps://auth.openai.com/codex/device\nDevice code: AB12CD345",
+      ),
+    );
+  });
+
   it("uses Codex-specific authentication instructions", async () => {
     const { manager, sends } = createManager();
 
     await manager.handleMessage(authMessage("/auth_codex"));
 
     expect(sends.at(-1)).toContain("Codex authentication started.");
-    expect(sends.at(-1)).toContain("code shown by Codex");
+    expect(sends.at(-1)).toContain("The bot will send the 9-character device code");
+    expect(sends.at(-1)).toContain("enter it in the browser");
+    expect(sends.at(-1)).not.toContain("/auth_input");
     expect(sends.at(-1)).not.toContain("If Claude");
   });
 

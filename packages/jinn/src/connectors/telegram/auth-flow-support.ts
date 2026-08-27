@@ -42,7 +42,7 @@ function providerLabel(provider: AuthProvider): string {
 
 export function authenticationInstructions(provider: AuthProvider): string {
   return provider === "codex"
-    ? "Codex authentication started. Follow the instructions below. Send the 9-character code shown by Codex with /auth_input <code>."
+    ? "Codex authentication started. The bot will send the 9-character device code below; enter it in the browser. Do not send the Codex device code back to the bot."
     : "Claude authentication started. Follow the instructions below. Send a short device code with /auth_input <code>. If Claude shows a browser code as code#state, send it with /auth_input <code#state>. If Claude redirects to a localhost /callback URL, send that full URL with /auth_input.";
 }
 
@@ -171,7 +171,7 @@ export function redactAuthOutput(text: string): string {
 }
 
 export function extractDiscovery(text: string): { url?: string; code?: string } {
-  const normalized = text.replace(ANSI_PATTERN, "");
+  const normalized = text.replace(ANSI_PATTERN, "").replace(/\r/g, "\n");
   const urlMatch = normalized.match(/https:\/\/[^\s"'<>\x60]+/i);
   const url = urlMatch?.[0]?.replace(/[.,!?;:)\]}]+$/g, "");
 
