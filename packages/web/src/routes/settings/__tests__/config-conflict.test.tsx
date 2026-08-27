@@ -3,6 +3,7 @@ import type React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../page'
+import { CONFIG_COMMIT_DEBOUNCE_MS } from '../use-config-commit'
 
 /* Somebody hand-edited config.yaml while this page was open. The page must say so
  * and stop, rather than PUT the document it read before the edit existed. */
@@ -83,6 +84,28 @@ describe('config revision', () => {
 
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalled())
     expect(apiMocks.updateConfig.mock.calls[0][1]).toBe('rev-1')
+  })
+})
+
+/** Long enough that a queued write, if one survived, would have gone out. */
+function afterTheWindow() {
+  return new Promise((resolve) => setTimeout(resolve, CONFIG_COMMIT_DEBOUNCE_MS + 200))
+}
+
+describe('a reload with an edit still queued', () => {
+  it('drops the queued edit rather than sending it under the revision the reload adopted', async () => {
+    await renderSettings()
+    editConfig()
+
+    // The file moved on, and the operator reloads inside the debounce window.
+    apiMocks.getConfig.mockResolvedValue({ config: { logging: { level: 'error' } }, revision: 'rev-2' })
+    const reloads = screen.getAllByRole('button', { name: 'Reload' })
+    fireEvent.click(reloads[reloads.length - 1])
+    await waitFor(() => expect(apiMocks.getConfig).toHaveBeenCalledTimes(2))
+
+    // Sending it now would pass the staleness check and overwrite what the reload fetched.
+    await afterTheWindow()
+    expect(apiMocks.updateConfig).not.toHaveBeenCalled()
   })
 })
 

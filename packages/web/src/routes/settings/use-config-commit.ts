@@ -116,8 +116,16 @@ export function useConfigCommit(options: ConfigCommitOptions) {
     [flush],
   )
 
-  /** The revision the page has just read: what the next write is based on. */
+  /**
+   * The revision the page has just read: what the next write is based on. Anything
+   * still queued was built on the document that read replaced, so it is dropped with
+   * it — sending it now would carry the fresh revision straight past the staleness
+   * check and overwrite the very edit the reload went to fetch.
+   */
   const adoptRevision = useCallback((next: string) => {
+    if (queue.current.timer) clearTimeout(queue.current.timer)
+    queue.current.timer = null
+    queue.current.pending = null
     queue.current.revision = next
   }, [])
 

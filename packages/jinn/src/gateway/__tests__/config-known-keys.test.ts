@@ -258,7 +258,7 @@ describe("a config.yaml carrying a key this build does not declare", () => {
     currentConfig = { ...baseConfig(), sessions: { interruptOnNewMessage: true } } as JinnConfig;
     fs.writeFileSync(
       path.join(jinnHome, "config.yaml"),
-      yaml.dump({ ...currentConfig, remotes: { peer: { url: "http://peer.invalid:7777" } } }),
+      yaml.dump({ ...currentConfig, remotes: { peer: { url: "http://peer.invalid/" } } }),
     );
     currentConfig = yaml.load(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")) as JinnConfig;
   });
@@ -286,6 +286,6 @@ describe("a config.yaml carrying a key this build does not declare", () => {
     const fetched = await call("GET", "/api/config");
 
     expect((await call("PUT", "/api/config", fetched.body)).status).toBe(200);
-    expect(savedConfig().remotes).toEqual({ peer: { url: "http://peer.invalid:7777" } });
+    expect(savedConfig().remotes).toEqual({ peer: { url: "http://peer.invalid/" } });
   });
 });
