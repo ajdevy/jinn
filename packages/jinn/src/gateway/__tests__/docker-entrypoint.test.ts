@@ -152,7 +152,7 @@ describe.skipIf(process.platform === "win32")("Docker entrypoint runtime cleanup
     const source = fs.readFileSync(dockerfile, "utf-8");
     const compose = fs.readFileSync(composeFile, "utf-8");
 
-    expect(source).toContain("/home/node/.codex");
+    expect(source).toMatch(/RUN mkdir -p [^\n]*\/home\/node\/\.codex[^\n]*\/work/);
     expect(source).toContain("ENV CODEX_HOME=/home/node/.codex");
     expect(compose).toContain("- jinn-codex:/home/node/.codex");
     expect(compose).toContain("  jinn-codex:");

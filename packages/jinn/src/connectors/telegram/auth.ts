@@ -2,7 +2,7 @@ import { PROVIDERS, runCommand, type AuthProvider, type RunCommand } from "./aut
 import { logger } from "../../shared/logger.js";
 import {
   AUTH_MENU_COMMANDS, AUTH_PAYLOAD_PATTERN, CLOCK, DEFAULT_FLOW_TTL_SECONDS, DEFAULT_SPAWN_PTY,
-  appendUtf8Tail, extractDiscovery, flowKey, ownerId, parseAuthCommand,
+  appendUtf8Tail, extractDiscovery, flowKey, isCallbackUrlShape, ownerId, parseAuthCommand,
   parseAuthInput, resolveOwnerIds, type ActiveFlow, type AuthBot, type AuthChatId, type AuthClock,
   type AuthCommand, type AuthLogger, type AuthMessage, type AuthPty, type ProviderState,
   type SpawnPty, type TelegramAuthOptions,
@@ -22,11 +22,16 @@ export function createTelegramAuth(
   config: { ownerUserIds?: readonly number[]; flowTtlSeconds?: number },
   allowFrom: ReadonlySet<number> | null,
   env: NodeJS.ProcessEnv = process.env,
-): TelegramAuth {
+): TelegramAuth | undefined {
+  const ownerUserIds = resolveOwnerIds(config.ownerUserIds ?? [], allowFrom, logger);
+  if (ownerUserIds.length === 0) {
+    logger.error?.("[telegram-auth] enabled but no owner user IDs resolved");
+    return undefined;
+  }
   return new TelegramAuth({
     bot,
-    ownerUserIds: config.ownerUserIds ?? [],
-    allowFrom,
+    ownerUserIds,
+    allowFrom: null,
     env,
     flowTtlSeconds: config.flowTtlSeconds,
     send: async (chatId, text) => { await bot.sendMessage(String(chatId), text); },
@@ -49,6 +54,7 @@ export class TelegramAuth {
   private readonly active = new Map<string, ActiveFlow>();
   private readonly pending = new Set<ActiveFlow>();
   private readonly generations = new Map<string, number>();
+  private stopped = false;
 
   constructor(options: TelegramAuthOptions) {
     this.bot = options.bot;
@@ -64,6 +70,7 @@ export class TelegramAuth {
   }
 
   start(): void {
+    if (this.stopped) return;
     for (const owner of this.owners) {
       void Promise.resolve()
         .then(() => this.bot.setMyCommands(AUTH_MENU_COMMANDS, { scope: { type: "chat", chat_id: owner } }))
@@ -78,7 +85,7 @@ export class TelegramAuth {
     const id = ownerId(message.userId);
     if (!command && input && !this.hasActiveFlow(id)) return false;
     const owner = id !== null && this.owners.has(id);
-    const sensitive = Boolean(input) || AUTH_PAYLOAD_PATTERN.test(raw);
+    const sensitive = Boolean(input) || AUTH_PAYLOAD_PATTERN.test(raw) || isCallbackUrlShape(raw);
     const warning = await this.scrub(message, sensitive, owner);
 
     return command
@@ -137,6 +144,7 @@ export class TelegramAuth {
   }
 
   stop(): void {
+    this.stopped = true;
     for (const flow of this.active.values()) this.clear(flow, true);
     for (const flow of this.pending) flow.invalidated = true;
     this.pending.clear();
@@ -150,6 +158,7 @@ export class TelegramAuth {
   }
 
   private async startFlow(owner: number, provider: AuthProvider, chatId: AuthChatId, warning: string): Promise<void> {
+    if (this.stopped) return;
     const key = flowKey(owner, provider);
     const generation = (this.generations.get(key) ?? 0) + 1;
     this.generations.set(key, generation);
@@ -168,6 +177,7 @@ export class TelegramAuth {
     this.active.set(key, flow);
     this.attach(flow);
     await this.safeSend(chatId, PROVIDERS[provider].instructions, warning);
+    if (this.stopped && this.active.get(key) === flow) this.clear(flow, true);
   }
 
   private attach(flow: ActiveFlow): void {
@@ -175,8 +185,7 @@ export class TelegramAuth {
       if (!this.isCurrent(flow)) return;
       flow.discoveryTail = appendUtf8Tail(flow.discoveryTail, chunk);
       const discovery = extractDiscovery(flow.discoveryTail);
-      if (discovery.url && !flow.discoveredUrl) flow.discoveredUrl = discovery.url;
-      if (discovery.code && !flow.discoveredCode) flow.discoveredCode = discovery.code;
+      this.updateDiscovery(flow, discovery);
       const lines = this.discoveryLines(flow);
       if (lines.length > 1) void this.safeSend(flow.chatId, lines.join("\n"));
     });
@@ -188,6 +197,7 @@ export class TelegramAuth {
 
   private async finish(flow: ActiveFlow, exitCode: number): Promise<void> {
     if (!this.isCurrentGeneration(flow)) return;
+    this.updateDiscovery(flow, extractDiscovery(flow.discoveryTail, true));
     const lines = this.discoveryLines(flow);
     if (lines.length > 1) await this.safeSend(flow.chatId, lines.join("\n"));
     this.detach(flow, false);
@@ -233,6 +243,17 @@ export class TelegramAuth {
     if (flow.discoveredUrl && !flow.urlSent) { flow.urlSent = true; lines.push(flow.discoveredUrl); }
     if (flow.discoveredCode && !flow.codeSent) { flow.codeSent = true; lines.push(`Device code: ${flow.discoveredCode}`); }
     return lines;
+  }
+
+  private updateDiscovery(flow: ActiveFlow, discovery: { url?: string; code?: string }): void {
+    if (discovery.url && discovery.url !== flow.discoveredUrl) {
+      flow.discoveredUrl = discovery.url;
+      flow.urlSent = false;
+    }
+    if (discovery.code && discovery.code !== flow.discoveredCode) {
+      flow.discoveredCode = discovery.code;
+      flow.codeSent = false;
+    }
   }
 
   private timeout(flow: ActiveFlow): void {

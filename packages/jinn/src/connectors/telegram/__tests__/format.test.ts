@@ -105,4 +105,11 @@ describe("stripTelegramMarkdown", () => {
 
     expect(stripTelegramMarkdown(`Continue authentication:\n${url}`)).toContain(url);
   });
+
+  it("keeps markdown delimiters outside URLs and preserves unknown placeholders", () => {
+    const url = "https://github.com/jinn/jinn/releases/tag/v0.33.0";
+    expect(stripTelegramMarkdown(`**Release notes: ${url}**`)).toBe(`Release notes: ${url}`);
+    expect(stripTelegramMarkdown(`*x ${url}*`)).toBe(`x ${url}`);
+    expect(stripTelegramMarkdown("\x00URL0\x00")).toBe("\x00URL0\x00");
+  });
 });

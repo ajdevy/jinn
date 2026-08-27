@@ -45,12 +45,14 @@ export type AuthCommand =
 
 export const DEFAULT_FLOW_TTL_SECONDS = 600;
 export const MAX_DISCOVERY_TAIL_BYTES = 4096;
-const CODE_PATTERN = /^[A-Z0-9](?:[A-Z0-9-]{2,30}[A-Z0-9])$/;
-const CLAUDE_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9]{40,128}$/;
+const CODE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4,5}$/;
+const CLAUDE_CALLBACK_CODE_PATTERN = /^[A-Za-z0-9_-]{40,128}$/;
 const CALLBACK_STATE_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
-const CLAUDE_CALLBACK_INPUT_PATTERN = /^[A-Za-z0-9]{40,128}#[A-Za-z0-9_-]{16,256}$/;
+const CLAUDE_CALLBACK_INPUT_PATTERN = /^[A-Za-z0-9_-]{40,128}#[A-Za-z0-9_-]{16,256}$/;
 const ANSI_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const DISCOVERY_CODE_PATTERN = /(?:device[\s_]code|user[\s_]code|code)\s*[:=]?\s*([A-Z0-9][A-Z0-9-]{3,31})(?![A-Z0-9-])/gi;
+const CALLBACK_URL_SHAPE_PATTERN = /^https?:\/\/[^\s"'<>]+\/callback(?:[?#\s]|$)/i;
+const DISCOVERY_URL_PATTERN = /https:\/\/[^\s"'<>\x60]+(?=\s)/gi;
+const DISCOVERY_CODE_PATTERN = /(?:device[\s_-]*code|user[\s_-]*code|one-time\s+code|verification\s+code|authentication\s+code|access\s+code)[\s\S]{0,120}?([A-Z0-9]{4}-[A-Z0-9]{4,5})(?=\s)/gi;
 const AUTH_PREFIX_PATTERN = /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:[\s=:]|$)/i;
 export const AUTH_PAYLOAD_PATTERN = /^\/auth(?:_[a-z0-9-]+(?:@[A-Za-z0-9_]+)?|@[A-Za-z0-9_]+)?(?:\s+\S|[=:]\s*\S)/i;
 export const CLOCK: AuthClock = { now: () => Date.now(), setTimeout: (handler, delayMs) => setTimeout(handler, delayMs), clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) };
@@ -89,6 +91,10 @@ export function parseAuthInput(value: string): AuthCommand | null {
   return callbackCode ? { kind: "input", code: callbackCode, source: "claude-callback" } : null;
 }
 function isAuthCode(value: string): boolean { return CODE_PATTERN.test(value); }
+export function isCallbackUrlShape(value: string): boolean {
+  try { return new URL(value).pathname === "/callback"; }
+  catch { return CALLBACK_URL_SHAPE_PATTERN.test(value); }
+}
 function parseClaudeCallbackCode(value: string): string | null {
   if (CLAUDE_CALLBACK_INPUT_PATTERN.test(value)) return value;
   let url: URL;
@@ -116,12 +122,14 @@ export function appendUtf8Tail(current: string, data: string): string {
   while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
   return bytes.subarray(start).toString("utf8");
 }
-export function extractDiscovery(text: string): { url?: string; code?: string } {
-  const normalized = text.replace(ANSI_PATTERN, "").replace(/\r/g, "\n");
-  const url = normalized.match(/https:\/\/[^\s"'<>`]+/i)?.[0]?.replace(/[.,!?;:)\]}]+$/g, "");
+export function extractDiscovery(text: string, final = false): { url?: string; code?: string } {
+  const normalized = text.replace(ANSI_PATTERN, "").replace(/\r\n?/g, "\n");
+  const source = final ? normalized + "\n" : normalized;
+  const urls = [...source.matchAll(DISCOVERY_URL_PATTERN)];
+  const url = urls.at(-1)?.[0]?.replace(/[.,!?;:)\]}]+$/g, "");
+  const codeSource = source.replace(DISCOVERY_URL_PATTERN, " ");
   let code: string | undefined;
-  for (const match of normalized.matchAll(DISCOVERY_CODE_PATTERN)) if (isAuthCode(match[1])) { code = match[1]; break; }
-  if (!code) code = normalized.split("\n").map((line) => line.trim()).find((line) => isAuthCode(line));
+  for (const match of codeSource.matchAll(DISCOVERY_CODE_PATTERN)) if (isAuthCode(match[1])) code = match[1];
   return { url, code };
 }
 export function flowKey(owner: number, provider: AuthProvider): string { return `${owner}:${provider}`; }

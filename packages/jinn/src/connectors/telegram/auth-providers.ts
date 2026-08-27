@@ -35,10 +35,10 @@ export function runCommand(
         timeout: timeoutMs,
       },
       (error, stdout) => {
-        const failure = error as (Error & { status?: unknown }) | null;
+        const failure = error as (Error & { code?: unknown; status?: unknown }) | null;
         resolve({
           stdout: String(stdout ?? ""),
-          exitCode: !failure ? 0 : typeof failure.status === "number" ? failure.status : 1,
+          exitCode: !failure ? 0 : typeof failure.code === "number" ? failure.code : typeof failure.status === "number" ? failure.status : 1,
         });
       },
     );

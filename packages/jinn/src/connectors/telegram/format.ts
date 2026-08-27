@@ -38,14 +38,17 @@ export function stripTelegramMarkdown(text: string): string {
     const urls: string[] = [];
     const protectedSegment = segment.replace(URL_PATTERN, (url) => {
       const placeholder = `\x00URL${urls.length}\x00`;
-      urls.push(url);
-      return placeholder;
+      const suffix = url.match(/[*_~]+$/)?.[0] ?? "";
+      const safeUrl = suffix ? url.slice(0, -suffix.length) : url;
+      urls.push(safeUrl);
+      return `${placeholder}${suffix}`;
     });
     const stripped = protectedSegment
+      .replace(/\*\*(.+?)\*\*/g, "$1")
       .replace(/\*(.+?)\*/g, "$1")
       .replace(/_(.+?)_/g, "$1")
       .replace(/~(.+?)~/g, "$1");
-    return stripped.replace(/\x00URL(\d+)\x00/g, (_match, index) => urls[Number(index)]);
+    return stripped.replace(/\x00URL(\d+)\x00/g, (match, index) => urls[Number(index)] ?? match);
   });
 }
 

@@ -7,6 +7,7 @@ const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockSetMyCommands = vi.fn().mockResolvedValue(undefined);
 const mockDeleteMessage = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
+const mockError = vi.fn();
 const mockDebug = vi.fn();
 
 vi.mock("node-telegram-bot-api", () => {
@@ -23,7 +24,7 @@ vi.mock("node-telegram-bot-api", () => {
 });
 
 vi.mock("../../../shared/logger.js", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), debug: mockDebug, error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), debug: mockDebug, error: mockError },
 }));
 
 const { TelegramConnector } = await import("../index.js");
@@ -111,18 +112,31 @@ describe("TelegramConnector optional Telegram auth", () => {
       chat: { id: 12345, type: "private" },
       from: { id: 99999, is_bot: false },
       date: Math.floor(Date.now() / 1000) + 10,
-      text: "TESTING",
+      text: "ABCD-EFGH",
     });
     await listener({
       message_id: 46,
       chat: { id: 12345, type: "private" },
       from: { id: 67890, is_bot: false },
       date: Math.floor(Date.now() / 1000) + 10,
-      text: "HELLO-WORLD",
+      text: "WXYZ-1234",
     });
 
     expect(mockDeleteMessage).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].text).toBe("HELLO-WORLD");
+    expect(handler.mock.calls[0][0].text).toBe("WXYZ-1234");
+  });
+
+  it("disables auth when no configured owner survives allowFrom", async () => {
+    mockError.mockClear();
+    mockSetMyCommands.mockClear();
+    const connector = new TelegramConnector({
+      botToken: "123456:ABC-DEF",
+      allowFrom: [67890],
+      telegramAuth: { enabled: true, ownerUserIds: [99999] },
+    });
+    await connector.start();
+    expect(mockSetMyCommands).not.toHaveBeenCalled();
+    expect(mockError).toHaveBeenCalledWith(expect.stringContaining("no owner user IDs"));
   });
 });

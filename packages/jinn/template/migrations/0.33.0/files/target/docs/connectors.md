@@ -48,6 +48,7 @@ Every `ownerUserIds` entry must also appear in `allowFrom`. Invalid or
 non-allow-listed owner IDs are ignored. Authentication commands are accepted
 only in private chats and only from configured owners. With `telegramAuth`
 absent or disabled, Telegram messages follow the normal connector path.
+If no configured owner remains after that filtering, authentication stays disabled.
 
 The supported commands are:
 
@@ -56,8 +57,8 @@ The supported commands are:
 - `/auth_status` — show the current Claude and Codex authentication status.
 - `/auth_cancel` — stop active authentication flows.
 - `/auth_input <code>` — explicit input form retained for compatibility. Codes
-  contain 4–32 uppercase letters, digits, and hyphens; provider tokens are not
-  accepted. While one flow is active, the code or Claude loopback
+  match `AAAA-BBBB` or `AAAA-BBBBB`; provider tokens are not accepted. While one
+  flow is active, the code or Claude loopback
   `http://localhost:<port>/callback?...` URL may also be sent as a standalone
   message. Jinn extracts Claude's one-time `code#state` value when both fields
   are present.

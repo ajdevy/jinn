@@ -11,7 +11,7 @@ import {
   type AuthPty,
   type AuthSpawnOptions,
 } from "../auth.js";
-import type { RunCommand } from "../auth-providers.js";
+import { runCommand, type RunCommand } from "../auth-providers.js";
 
 function makePty(): AuthPty & { emitData(data: string): void; emitExit(exitCode: number): void } {
   let dataHandler: ((data: string) => void) | undefined;
@@ -90,6 +90,8 @@ describe("TelegramAuth", () => {
     });
     expect(parseAuthCommand(`/auth_input ${claudeCode}`)).toEqual({ kind: "rejected" });
     expect(parseAuthCommand(`/auth_input https://example.com/callback?code=${claudeCode}&state=state_1234567890123456`)).toEqual({ kind: "rejected" });
+    expect(parseAuthCommand("/auth_input DONE")).toEqual({ kind: "rejected" });
+    expect(parseAuthCommand("/auth_input README")).toEqual({ kind: "rejected" });
     expect(parseAuthCommand("/auth_token=secret")).toEqual({ kind: "rejected" });
     expect(parseAuthCommand("hello")).toBeNull();
     expect(isAuthCommandPrefix("/auth_notes: secret")).toBe(true);
@@ -99,6 +101,7 @@ describe("TelegramAuth", () => {
   it("preserves Claude's code and state from the browser callback", () => {
     const code = "Ab".repeat(24);
     const state = "state_1234567890123456";
+    const mixedCode = "Ab-_".repeat(12);
 
     expect(parseAuthCommand(`/auth_input ${code}#${state}`)).toEqual({
       kind: "input",
@@ -109,6 +112,9 @@ describe("TelegramAuth", () => {
       kind: "input",
       code: `${code}#${state}`,
       source: "claude-callback",
+    });
+    expect(parseAuthCommand(`/auth_input ${mixedCode}#${state}`)).toEqual({
+      kind: "input", code: `${mixedCode}#${state}`, source: "claude-callback",
     });
   });
 
@@ -123,6 +129,10 @@ describe("TelegramAuth", () => {
 
   it("extracts hyphenated device codes and preserves UTF-8 tail boundaries", () => {
     expect(extractDiscovery("Enter this one-time code (expires in 15 minutes)\nFHI3-TCJKF\n").code).toBe("FHI3-TCJKF");
+    expect(extractDiscovery("warning\nABCD-EFGH\n").code).toBeUndefined();
+    expect(extractDiscovery("Visit https://docs.example/help\nOpen https://auth.example/device\n").url).toBe("https://auth.example/device");
+    expect(extractDiscovery("https://example.test/?code=ABCD-EFGH\n").code).toBeUndefined();
+    expect(extractDiscovery("Open https://auth.example/device").url).toBeUndefined();
     expect(appendUtf8Tail("", `Ж${"x".repeat(4095)}`)).not.toContain("\ufffd");
   });
 
@@ -207,11 +217,55 @@ describe("TelegramAuth", () => {
     harness.send.mockClear();
     harness.pty.emitData("Open https://auth.openai.com/device?state=secret-state Device code: ");
     harness.pty.emitData("AB12-Ж234");
-    harness.pty.emitData(" Device code: AB12-CD34");
+    harness.pty.emitData(" Device code: AB12-CD34\n");
 
     expect(harness.send).toHaveBeenCalledTimes(2);
     expect(harness.send.mock.calls[0][1]).toContain("https://auth.openai.com/device?state=secret-state");
     expect(harness.send.mock.calls[1][1]).toContain("AB12-CD34");
+  });
+
+  it("only delivers complete discovery values at every byte boundary", async () => {
+    const url = "https://auth.openai.com/device?state=secret-state";
+    const code = "ABCD-EFGH";
+    const output = `Open ${url}\nDevice code: ${code}\n`;
+    for (let split = 1; split < output.length; split += 1) {
+      const harness = makeHarness();
+      await harness.auth.handle(message("/auth_codex"));
+      harness.send.mockClear();
+      const prefix = output.slice(0, split);
+      harness.pty.emitData(prefix);
+      const partial = harness.send.mock.calls.flat().join("\n");
+      expect(partial.includes("https://")).toBe(prefix.includes(`${url}\n`));
+      expect(partial.includes("Device code:")).toBe(prefix.includes(`${code}\n`));
+      harness.pty.emitData(output.slice(split));
+      const delivered = harness.send.mock.calls.flat().join("\n");
+      expect(delivered).toContain(url);
+      expect(delivered).toContain(`Device code: ${code}`);
+    }
+  });
+
+  it("scrubs malformed callback-shaped input", async () => {
+    const harness = makeHarness();
+    await expect(harness.auth.handle(message("http://localhost:58741/callback?code=bad&state=short"))).resolves.toBe(true);
+    expect(harness.deleteMessage).toHaveBeenCalledWith(123, 7);
+  });
+
+  it("does not start a flow after stop while auth input is scrubbed", async () => {
+    const harness = makeHarness();
+    let release!: () => void;
+    const deletion = new Promise<void>((resolve) => { release = resolve; });
+    harness.deleteMessage.mockReturnValueOnce(deletion);
+    const pending = harness.auth.handle(message("/auth claude"));
+    await Promise.resolve();
+    harness.auth.stop();
+    release();
+    await pending;
+    expect(harness.spawnPty).not.toHaveBeenCalled();
+  });
+
+  it("returns the child process exit status", async () => {
+    const result = await runCommand(process.execPath, ["-e", "process.exit(7)"], 5000);
+    expect(result.exitCode).toBe(7);
   });
 
   it("requires a successful provider status after a zero exit", async () => {
