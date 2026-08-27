@@ -65,7 +65,7 @@ export function AttachmentsSection({
                 dense
                 action={removeButton(
                   attachment,
-                  "absolute right-1.5 top-1.5 size-[26px] rounded-full bg-[var(--material-thick)] text-[var(--text-secondary)] shadow-[var(--shadow-subtle)] backdrop-blur-[20px] hover:text-[var(--text-primary)] group-hover/tile:opacity-100",
+                  "absolute right-1 top-1 size-[34px] rounded-full bg-[var(--material-thick)] text-[var(--text-secondary)] shadow-[var(--shadow-subtle)] backdrop-blur-[20px] hover:text-[var(--text-primary)] group-hover/tile:opacity-100",
                 )}
               />
             ) : (
@@ -85,7 +85,7 @@ export function AttachmentsSection({
                   </span>
                   <span className="max-w-[160px] truncate text-[12.5px] font-medium text-[var(--text-primary)]">{attachment.filename}</span>
                 </a>
-                {removeButton(attachment, "size-6 flex-none rounded-md text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] group-hover/att:opacity-100")}
+                {removeButton(attachment, "size-[34px] flex-none rounded-md text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] group-hover/att:opacity-100")}
               </div>
             ),
           )}
