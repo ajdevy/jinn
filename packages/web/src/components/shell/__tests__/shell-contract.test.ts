@@ -117,26 +117,49 @@ export function accentButtonViolations(source: string, relPath: string): string[
   return found
 }
 
+function hatchedLines(source: string): number[] {
+  const lines: number[] = []
+  source.split("\n").forEach((text, offset) => {
+    if (HATCH.test(text)) lines.push(offset + 1)
+  })
+  return lines
+}
+
 /**
  * One entry per unhatched sheet, not per file. Both suppressions used to answer
  * file-wide — a hatch for everything under it, a `KNOWN_SHEETS` entry for
  * everything in the file it names — so a second sheet added beside an
  * already-answered-for one arrived unseen. Counting sheets instead means the
  * second one shows up as a second entry the enumerated set cannot balance.
+ *
  * A sheet is the `className` its signature sits in, so the several tokens one
- * sheet spells itself with count once; outside a `className`, its line.
+ * sheet spells itself with count once however prettier wrapped them, and two
+ * sheets sharing a line stay two. A signature written outside a `className` is
+ * its own sheet. A hatch answers for a sheet rather than for a line, so it is
+ * claimed by the first sheet whose span it falls in and cannot cover a sibling
+ * that happens to sit beside it.
  */
 export function sheetHits(source: string, relPath: string): string[] {
   const spans = classNameSpans(source)
-  const sheets = new Set<number>()
+  const sheets = new Map<number, { firstLine: number; lastLine: number }>()
   for (const match of source.matchAll(new RegExp(SHEET_SIGNATURE, "g"))) {
     const index = match.index ?? 0
     const span = spans.find((candidate) => index >= candidate.start && index < candidate.end)
-    const firstLine = lineOf(source, span ? span.start : index)
-    if (hatchedBetween(source, firstLine, lineOf(source, span ? span.end : index))) continue
-    sheets.add(firstLine)
+    const key = span ? span.start : index
+    if (sheets.has(key)) continue
+    sheets.set(key, {
+      firstLine: lineOf(source, span ? span.start : index),
+      lastLine: lineOf(source, span ? span.end : index),
+    })
   }
-  return Array.from(sheets, () => relPath)
+  const unclaimed = hatchedLines(source)
+  const found: string[] = []
+  for (const { firstLine, lastLine } of sheets.values()) {
+    const hatch = unclaimed.findIndex((line) => line >= firstLine && line <= lastLine)
+    if (hatch >= 0) unclaimed.splice(hatch, 1)
+    else found.push(relPath)
+  }
+  return found
 }
 
 describe("jinn shell contract", () => {
@@ -179,6 +202,30 @@ describe("jinn shell contract", () => {
     expect(sheetHits(source, "src/routes/todos/todo-filter-sheet.tsx")).toEqual([
       "src/routes/todos/todo-filter-sheet.tsx",
     ])
+  })
+
+  it("rule 3 counts two sheets that share a line as two, not one", () => {
+    const attributes = `<div className="animate-sheet-in" /><aside className="rounded-t-[18px]" />`
+    expect(sheetHits(attributes, "src/routes/new-sheet.tsx")).toHaveLength(2)
+    const bare = `const [shell, sibling] = ["animate-sheet-in", "rounded-t-[18px]"]`
+    expect(sheetHits(bare, "src/routes/new-sheet.tsx")).toHaveLength(2)
+  })
+
+  it("rule 3 lets one hatch answer for one of two sheets sharing a line, not for both", () => {
+    const source = `<div className="animate-sheet-in" /><aside className="rounded-t-[18px]" /> // jinn-shell: ok the enumerated picker`
+    expect(sheetHits(source, "src/routes/new-sheet.tsx")).toEqual(["src/routes/new-sheet.tsx"])
+  })
+
+  it("rule 3 counts one className's several signature tokens as one sheet", () => {
+    const wrapped = [
+      "<div",
+      "  className={cn(",
+      '    "animate-sheet-in",',
+      '    "rounded-t-[var(--radius-2xl)]",',
+      "  )}",
+      "/>",
+    ].join("\n")
+    expect(sheetHits(wrapped, "src/routes/new-sheet.tsx")).toEqual(["src/routes/new-sheet.tsx"])
   })
 
   it("rule 3 goes red on a second, unhatched sheet in a file that already hatched one", () => {
