@@ -76,6 +76,7 @@ export class TelegramAuth {
     const command = parseAuthCommand(raw);
     const input = parseAuthInput(raw);
     const id = ownerId(message.userId);
+    if (!command && input && !this.hasActiveFlow(id)) return false;
     const owner = id !== null && this.owners.has(id);
     const sensitive = Boolean(input) || AUTH_PAYLOAD_PATTERN.test(raw);
     const warning = await this.scrub(message, sensitive, owner);
@@ -115,6 +116,11 @@ export class TelegramAuth {
     return this.handle({ userId, chatType, chatId, messageId, text });
   }
 
+  async scrubExplicitPayload(message: AuthMessage): Promise<void> {
+    if (!AUTH_PAYLOAD_PATTERN.test(message.text.trim())) return;
+    await this.scrub(message, true, false);
+  }
+
   decorateReply(context: { chatType?: string; userId?: number | string } | undefined, text: string): string {
     if (!context || context.chatType !== "private" || !AUTHENTICATION_FAILURE_PATTERN.test(text)) return text;
     const id = ownerId(context.userId ?? "");
@@ -124,6 +130,10 @@ export class TelegramAuth {
   async status(owner: number, chatId: AuthChatId, warning = ""): Promise<void> {
     const states = await Promise.all((Object.keys(PROVIDERS) as AuthProvider[]).map(async (provider) => `${PROVIDERS[provider].label}: ${await this.providerState(provider)}.`));
     await this.safeSend(chatId, `${this.activeStatus(owner)}\n${states.join("\n")}`, warning);
+  }
+
+  private hasActiveFlow(owner: number | null): boolean {
+    return owner !== null && [...this.active.values()].some((flow) => flow.ownerId === owner);
   }
 
   stop(): void {

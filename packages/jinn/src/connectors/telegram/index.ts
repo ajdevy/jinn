@@ -102,7 +102,17 @@ export class TelegramConnector implements Connector {
       const rawMessageText = this.auth
         ? messageTextFromTelegram(telegramMsg)
         : undefined;
-      if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, rawMessageText ?? "")) return;
+      const allowedUser = !this.allowedUsers
+        || (userId !== undefined && this.allowedUsers.has(userId));
+      if (this.auth && !allowedUser) {
+        await this.auth.scrubExplicitPayload({
+          userId: userId ?? "",
+          chatType: telegramMsg.chat.type,
+          chatId: telegramMsg.chat.id,
+          messageId: telegramMsg.message_id,
+          text: rawMessageText ?? "",
+        });
+      }
 
       if (this.allowedUsers) {
         if (userId === undefined || !this.allowedUsers.has(userId)) {
@@ -112,6 +122,8 @@ export class TelegramConnector implements Connector {
           return;
         }
       }
+
+      if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, rawMessageText ?? "")) return;
 
       if (!this.handler) {
         logger.debug("[telegram] No handler registered, dropping message");

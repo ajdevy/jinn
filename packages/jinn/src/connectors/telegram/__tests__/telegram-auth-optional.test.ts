@@ -93,4 +93,36 @@ describe("TelegramConnector optional Telegram auth", () => {
 
     expect(mockDeleteMessage).toHaveBeenCalledWith("12345", 44);
   });
+
+  it("does not consume bare codes outside an active owner flow", async () => {
+    mockDeleteMessage.mockClear();
+    const handler = vi.fn();
+    const connector = new TelegramConnector({
+      botToken: "123456:ABC-DEF",
+      allowFrom: [67890],
+      telegramAuth: { enabled: true, ownerUserIds: [67890] },
+    });
+    connector.onMessage(handler);
+    await connector.start();
+    const listener = mockOn.mock.calls.at(-1)?.[1] as (message: unknown) => Promise<void>;
+
+    await listener({
+      message_id: 45,
+      chat: { id: 12345, type: "private" },
+      from: { id: 99999, is_bot: false },
+      date: Math.floor(Date.now() / 1000) + 10,
+      text: "TESTING",
+    });
+    await listener({
+      message_id: 46,
+      chat: { id: 12345, type: "private" },
+      from: { id: 67890, is_bot: false },
+      date: Math.floor(Date.now() / 1000) + 10,
+      text: "HELLO-WORLD",
+    });
+
+    expect(mockDeleteMessage).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0][0].text).toBe("HELLO-WORLD");
+  });
 });

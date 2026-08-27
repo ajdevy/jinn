@@ -34,6 +34,7 @@ export function markdownToTelegram(text: string): string {
  */
 export function stripTelegramMarkdown(text: string): string {
   return convertOutsideCode(text, (segment) => {
+    // Protect URLs so auth links survive the plain-text fallback unchanged.
     const urls: string[] = [];
     const protectedSegment = segment.replace(URL_PATTERN, (url) => {
       const placeholder = `\x00URL${urls.length}\x00`;
