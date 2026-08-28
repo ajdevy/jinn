@@ -83,9 +83,10 @@ export class TelegramAuth {
     const command = parseAuthCommand(raw);
     const input = parseAuthInput(raw);
     const id = ownerId(message.userId);
-    if (!command && input && !this.hasActiveFlow(id)) return false;
+    const callbackUrl = isCallbackUrlShape(raw);
+    if (!command && input && !this.hasActiveFlow(id) && !callbackUrl) return false;
     const owner = id !== null && this.owners.has(id);
-    const sensitive = Boolean(input) || AUTH_PAYLOAD_PATTERN.test(raw) || isCallbackUrlShape(raw);
+    const sensitive = Boolean(input) || AUTH_PAYLOAD_PATTERN.test(raw) || callbackUrl;
     const warning = await this.scrub(message, sensitive, owner);
 
     return command

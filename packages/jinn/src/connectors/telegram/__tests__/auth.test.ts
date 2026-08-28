@@ -244,10 +244,12 @@ describe("TelegramAuth", () => {
     }
   });
 
-  it("scrubs malformed callback-shaped input", async () => {
+  it("scrubs callback-shaped input without an active flow", async () => {
     const harness = makeHarness();
+    const valid = `http://localhost:58741/callback?code=${"Ab".repeat(24)}&state=state_1234567890123456`;
+    await expect(harness.auth.handle(message(valid))).resolves.toBe(true);
     await expect(harness.auth.handle(message("http://localhost:58741/callback?code=bad&state=short"))).resolves.toBe(true);
-    expect(harness.deleteMessage).toHaveBeenCalledWith(123, 7);
+    expect(harness.deleteMessage).toHaveBeenCalledTimes(2);
   });
 
   it("does not start a flow after stop while auth input is scrubbed", async () => {
