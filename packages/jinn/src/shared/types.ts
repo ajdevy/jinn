@@ -253,6 +253,12 @@ export interface Connector {
   /** Resolve = delivered (`undefined` = no provider message id); reject = the message did not land. */
   sendMessage(target: Target, text: string): Promise<string | undefined>;
   replyMessage(target: Target, text: string): Promise<string | undefined>;
+  /**
+   * Deliver a stored file into the chat. Optional because only Telegram implements
+   * it today; a connector without it leaves `publish_attachment` web-only, which is
+   * what every connector did before this method existed.
+   */
+  sendDocument?(target: Target, doc: OutboundDocument): Promise<string | undefined>;
   addReaction(target: Target, emoji: string): Promise<void>;
   removeReaction(target: Target, emoji: string): Promise<void>;
   editMessage(target: Target, text: string): Promise<void>;
@@ -282,6 +288,15 @@ export interface Attachment {
   url: string;
   mimeType: string;
   localPath?: string;
+}
+
+/** A stored file on its way out to a chat. `path` is absolute and already sanitized by saveFile. */
+export interface OutboundDocument {
+  path: string;
+  filename: string;
+  /** Absent when the stored file has no recorded type; the provider then sniffs it. */
+  mimetype?: string;
+  caption?: string;
 }
 
 export interface Target {

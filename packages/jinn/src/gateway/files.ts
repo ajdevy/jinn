@@ -20,6 +20,7 @@ import { streamFile } from "./byte-range.js";
 import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 import { readImageDimensions } from "./image-dimensions.js";
 import { buildMessageMedia } from "./message-media.js";
+import { deliverConnectorAttachment } from "./connector-reply.js";
 
 // Ensure managed files directory exists
 export function ensureFilesDir(): void {
@@ -1191,7 +1192,8 @@ export function rehomeAttachmentsToSession(fileIds: unknown, sessionId: string):
   }
 }
 
-/** Persist a session-scoped file, attach it as an assistant message, and push it to the UI. */
+/** Persist a session-scoped file, attach it as an assistant message, push it to the UI,
+ *  and relay it into the originating chat channel when the session came from a connector. */
 async function finalizeAttachment(
   res: ServerResponse,
   sessionId: string,
@@ -1216,6 +1218,18 @@ async function finalizeAttachment(
   const timestamp = Date.now();
   context.emit("session:attachment", { sessionId, id: messageId, content: caption, media: [media], timestamp });
   logger.info(`Attachment pushed to session ${sessionId}: ${meta.filename} (${meta.id})`);
+  // Relay before responding: an agent that reads a 201 and reports the file as sent
+  // is only right once the connector has actually taken it. Failures are swallowed
+  // inside the relay, so this cannot turn a stored file into an error response.
+  const session = getSession(sessionId);
+  const storedPath = meta.path;
+  if (session && storedPath) {
+    await deliverConnectorAttachment(
+      session,
+      { path: storedPath, filename: meta.filename, mimetype: meta.mimetype ?? undefined, caption },
+      context.connectors,
+    );
+  }
   json(res, { ...meta, media, message: { id: messageId, role: "assistant", content: caption, media: [media], timestamp } }, 201);
 }
 

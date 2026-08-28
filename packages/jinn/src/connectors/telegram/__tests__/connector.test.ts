@@ -8,6 +8,7 @@ const mockGetMe = vi.fn().mockResolvedValue({ id: 999, username: "test_bot" });
 const mockStartPolling = vi.fn();
 const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
+const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
 
 vi.mock("node-telegram-bot-api", () => {
   const MockBot = vi.fn(function (this: any) {
@@ -17,6 +18,7 @@ vi.mock("node-telegram-bot-api", () => {
     this.startPolling = mockStartPolling;
     this.stopPolling = mockStopPolling;
     this.on = mockOn;
+    this.sendDocument = mockSendDocument;
   });
   return { default: MockBot };
 });
@@ -324,6 +326,40 @@ describe("TelegramConnector", () => {
         message_id: 42,
         parse_mode: "Markdown",
       });
+    });
+  });
+
+  describe("sendDocument", () => {
+    const doc = { path: "/tmp/report.md", filename: "report.md", mimetype: "text/markdown" };
+
+    it("sends the file with its filename and type", async () => {
+      const id = await connector.sendDocument({ channel: "12345" }, { ...doc, caption: "the report" });
+      expect(mockSendDocument).toHaveBeenCalledWith(
+        "12345",
+        "/tmp/report.md",
+        { caption: "the report" },
+        { filename: "report.md", contentType: "text/markdown" },
+      );
+      expect(id).toBe("7");
+    });
+
+    it("omits the caption field entirely when there is no caption", async () => {
+      await connector.sendDocument({ channel: "12345" }, doc);
+      expect(mockSendDocument.mock.calls[0][2]).toEqual({});
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it("sends an over-long caption as its own message instead of losing it", async () => {
+      const caption = "x".repeat(1025);
+      await connector.sendDocument({ channel: "12345" }, { ...doc, caption });
+      expect(mockSendDocument.mock.calls[0][2]).toEqual({});
+      expect(mockSendMessage).toHaveBeenCalledWith("12345", caption, expect.anything());
+    });
+
+    it("keeps a caption of exactly the limit inline", async () => {
+      await connector.sendDocument({ channel: "12345" }, { ...doc, caption: "x".repeat(1024) });
+      expect(mockSendDocument.mock.calls[0][2]).toEqual({ caption: "x".repeat(1024) });
+      expect(mockSendMessage).not.toHaveBeenCalled();
     });
   });
 
