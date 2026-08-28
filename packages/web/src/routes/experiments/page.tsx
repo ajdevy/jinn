@@ -1,7 +1,8 @@
 import { Beaker, ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { OverduePill } from "./overdue-pill"
 import { useExperiments } from "./use-experiments"
 import type { Experiment } from "./types"
@@ -58,7 +59,6 @@ function ExperimentGroup({ label, experiments }: { label: string; experiments: E
 }
 
 export default function ExperimentsPage() {
-  useBreadcrumbs([{ label: "Experiments" }])
   const query = useExperiments()
   const experiments = query.data?.experiments ?? []
   const running = experiments.filter((experiment) => experiment.status === "running")
@@ -66,19 +66,20 @@ export default function ExperimentsPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <main className="mx-auto max-w-[840px] px-5 pb-20 pt-6 md:pt-11">
-          <header>
-            <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-              Experiments
-            </h1>
-            <p className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-              {query.isSuccess
+      <PageScaffold
+        contentWidth="840px"
+        header={
+          <LargeTitleHeader
+            title="Experiments"
+            subtitle={
+              query.isSuccess
                 ? `${experiments.length} ${experiments.length === 1 ? "tracked bet" : "tracked bets"} · ${running.length} running`
-                : "Hypotheses, measurements, and verdicts"}
-            </p>
-          </header>
-
+                : "Hypotheses, measurements, and verdicts"
+            }
+          />
+        }
+      >
+        <main>
           {query.isPending ? (
             <div className="mt-6 rounded-[var(--radius-xl)] bg-[var(--bg-secondary)] px-6 py-16 text-center text-[var(--text-tertiary)] shadow-[var(--shadow-card)]">
               Loading experiments…
@@ -102,7 +103,7 @@ export default function ExperimentsPage() {
             </>
           )}
         </main>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

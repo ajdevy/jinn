@@ -106,12 +106,12 @@ function claimSettleableSession(run: TurnRun, what: "result" | "error"): Session
  * a stop, a workflow interruption, or another turn taking the attempt all mean
  * the same thing: settle as interrupted and say nothing to anyone.
  */
-function wasQuietlyPreempted(run: TurnRun, live: Session, result: EngineResult): boolean {
+function wasQuietlyPreempted(run: TurnRun, live: Session, result: EngineResult, superseded: boolean): boolean {
   const completionTurn = (live.attemptTurn ?? 0) + 1;
   if (isDurableWorkflowUserMessageInterruption(live, completionTurn)) return true;
   if (result.error?.startsWith("Interrupted")) return true;
   if (live.attemptToken !== run.input.attemptToken || live.status !== "running") return true;
-  return isTurnSuperseded(run.input.session.id, run.turnStartedAt);
+  return superseded;
 }
 
 /** Settle whichever terminal class this turn landed in. */
@@ -121,7 +121,8 @@ async function concludeTurn(run: TurnRun, attempt: EngineAttempt, model: string 
   if (!live) return;
 
   const result = attempt.result;
-  const quietPreempted = wasQuietlyPreempted(run, live, result);
+  const superseded = isTurnSuperseded(sessionId, run.turnStartedAt);
+  const quietPreempted = wasQuietlyPreempted(run, live, result, superseded);
 
   // A stale engine-session id can carry text like "429" that would otherwise
   // read as a rate limit, so dead sessions are cleared before that check.
@@ -157,5 +158,9 @@ async function concludeTurn(run: TurnRun, attempt: EngineAttempt, model: string 
   }
 
   const streamedThrough = streamedBlocks.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
-  await settleAnsweredTurn(run, attempt, model, { quietPreempted, streamedThrough });
+  // A turn killed before it emitted anything is one the engine never began, so
+  // its prompt is absent from the engine's own transcript. Anything it did emit
+  // proves the engine read the prompt and recorded it.
+  const enginePromptRead = !quietPreempted || streamedBlocks.length > 0;
+  await settleAnsweredTurn(run, attempt, model, { quietPreempted, streamedThrough, superseded, enginePromptRead });
 }

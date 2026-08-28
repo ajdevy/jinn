@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRight, RefreshCw } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { api } from "@/lib/api"
 import { agoLabel, describeCron, formatNextRun, nextCronDate } from "@/lib/cron-utils"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { PageScaffold } from "@/components/shell/page-scaffold"
+import { CronListHeader } from "./list-header"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { WeeklySchedule } from "@/components/crons/weekly-schedule"
 import {
@@ -120,7 +121,6 @@ export function CronRow({
 }
 
 export default function CronPage() {
-  useBreadcrumbs([{ label: "Cron" }])
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { lens, setLens, filter, setFilter } = useCronViewParams()
@@ -174,32 +174,22 @@ export default function CronPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-20 pt-6 md:pt-11">
-          <header className="flex flex-wrap items-end justify-between gap-x-3 gap-y-3">
-            <div>
-              <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-                Cron
-              </h1>
-              <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-                {jobsQuery.isSuccess
-                  ? `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"} · ${enabledCount} enabled`
-                  : "Scheduled work your company runs on its own"}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pb-1.5 text-[length:var(--text-caption1)] text-[var(--text-quaternary)]">
-              {updatedAgo && <span>Updated {updatedAgo}</span>}
-              <button
-                type="button"
-                aria-label="Refresh cron jobs"
-                onClick={() => void jobsQuery.refetch()}
-                className="grid size-[30px] place-items-center rounded-full text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-secondary)]"
-              >
-                <RefreshCw size={13} strokeWidth={2.2} className={jobsQuery.isFetching ? "animate-spin" : undefined} aria-hidden />
-              </button>
-            </div>
-          </header>
-
+      <PageScaffold
+        contentWidth="840px"
+        header={
+          <CronListHeader
+            subtitle={
+              jobsQuery.isSuccess
+                ? `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"} · ${enabledCount} enabled`
+                : "Scheduled work your company runs on its own"
+            }
+            updatedAgo={updatedAgo}
+            fetching={jobsQuery.isFetching}
+            onRefresh={() => void jobsQuery.refetch()}
+          />
+        }
+      >
+        <div>
           {/* Lens control — fixed geometry, only the region below swaps. */}
           <div className="mb-3.5 mt-[22px] flex max-md:justify-center">
             <div className="inline-flex gap-0.5 rounded-[12px] bg-[var(--fill-tertiary)] p-[3px]" role="tablist">
@@ -340,7 +330,7 @@ export default function CronPage() {
             )}
           </div>
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

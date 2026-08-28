@@ -55,7 +55,7 @@ export function BoardSwitcher({ board, title, departments, attentionCount }: Boa
           aria-label={`Board: ${title} — switch board`}
           className="focus-ring -ml-0.5 flex items-center gap-2 rounded-xl py-0.5 pl-0.5 pr-2.5 transition-colors duration-150 hover:bg-[var(--fill-quaternary)]"
         >
-          <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-[1.15] tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
+          <h1>
             {title}
           </h1>
           <ChevronDown size={18} strokeWidth={2.2} aria-hidden className="mt-1.5 text-[var(--text-quaternary)]" />

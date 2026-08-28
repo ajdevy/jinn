@@ -43,6 +43,7 @@ import { firstOperatorCommentAfter } from "../work-items/comments.js";
 import { watchTodoReplies } from "./todo-reply-sweep.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
+import { deciderAuthority } from "./workflow-decider-authority.js";
 import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
@@ -283,7 +284,7 @@ export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConn
     }
     seen.add(id);
     const connectorConfig: Record<string, unknown> = { ...raw, id };
-    // Speech-to-text is a global setting the telegram connector reads from its own config.
+    // Speech-to-text is global: this block is only the fallback if stt.json is unusable.
     if (type === "telegram") connectorConfig.stt = config.stt;
     instances.push({ id, type, employee: raw.employee as string | undefined, config: connectorConfig });
   };
@@ -899,22 +900,21 @@ export async function startGateway(
 
   const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
-  // The other half of the Todo-first approval loop: a gate decided on the Todo
-  // resolves the workflow node that mirrored it, carrying the picked option.
+  // The other half of the Todo-first approval loop: a gate decided on the Todo resolves the workflow node that mirrored it, carrying the picked option and the authority the run's own reserved gates check.
   setTodoApprovalDecisionListener(({ approval, decision, decidedBy }) => {
     const origin = parseTodoApprovalRef(approval.ref);
     if (!origin) return;
     const run = workflowRepository.getRun(origin.workflowId, origin.runId);
     if (!run) return;
     void workflowService.decideApproval({ ...origin, decision, decidedBy, expectedRevision: run.revision,
-      ...(approval.choice ? { choice: approval.choice } : {}),
+      decidedByAuthority: deciderAuthority(decidedBy), ...(approval.choice ? { choice: approval.choice } : {}),
       ...(approval.note ? { reason: approval.note } : {}) }).catch((error) => {
       logger.warn(`Workflow approval mirror-back failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
 
   const cronJobs = loadJobs();
-  startScheduler(cronJobs, sessionManager, config, connectorMap, emit);
+  startScheduler(cronJobs, { sessionManager, getConfig: () => currentConfig, connectors: connectorMap, emit });
   logger.info(`Loaded ${cronJobs.length} cron job(s)`);
 
   // Resolve web UI directory — bundled into dist/web/ by postbuild script

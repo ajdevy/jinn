@@ -225,25 +225,25 @@ function ChatPage() {
         case 'session:completed':
         case 'session:stopped':
           updateTabStatus(sid, { status: 'idle' })
-          invalidateLiveSessionSnapshot(sid)
           break
         case 'session:deleted':
           closeTabBySessionId(sid)
-          invalidateLiveSessionSnapshot(sid)
           break
         case 'session:updated':
           // Gateway currently emits {sessionId} only — handle title defensively
           // in case future emitters carry it. Stale labels after rename are
           // also reconciled via the useSessions() effect below.
           if (p.title) updateTabStatus(sid, { label: p.title })
-          invalidateLiveSessionSnapshot(sid)
           break
+        default:
+          return
       }
-      // The invalidations above keep the resting-snapshot revisit path honest:
-      // a session that changed while no pane for it was mounted takes a cold
-      // fetch on the next visit instead of trusting its stale snapshot. The
-      // MOUNTED pane is unaffected — it heard the same event and rewrites its
-      // snapshot on the next state change.
+      // Every event above changed the session, so its snapshot is dropped: one
+      // that changed while no pane for it was mounted — a child that STARTED
+      // while its peek was closed included — takes a cold fetch on the next
+      // visit instead of trusting a stale snapshot. The MOUNTED pane is
+      // unaffected: it heard the same event and rewrites its own snapshot.
+      invalidateLiveSessionSnapshot(sid)
     })
     return unsub
   }, [subscribe, updateTabStatus, closeTabBySessionId])

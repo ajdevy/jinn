@@ -83,7 +83,7 @@ function DownloadRow({ status, onDownload }: { status: SttStatus; onDownload: ()
   return (
     <button
       onClick={onDownload}
-      className="w-full p-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-semibold)] mb-[var(--space-4)]"
+      className="w-full p-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-semibold)] mb-[var(--space-4)]" // jinn-shell: ok settings download control, not page chrome
     >
       Download Whisper Small (~500MB)
     </button>
@@ -209,7 +209,7 @@ interface SttSection {
 
 /**
  * Everything the STT section does that is not markup. It owns its own state and
- * saves immediately rather than joining the page's Save Config, because these
+ * saves through its own endpoint rather than the page's config write, because these
  * are `/api/stt/*` routes rather than part of the gateway config document.
  */
 function useSttSection(): SttSection {

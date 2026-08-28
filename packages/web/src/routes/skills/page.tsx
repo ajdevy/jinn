@@ -5,7 +5,8 @@ import { ChevronRight, Search } from "lucide-react"
 import { api } from "@/lib/api"
 import { filterSkills, type SkillSummary } from "@/lib/skills"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 
 /* Skills as a calm grouped-inset list (the Todos idiom): ONE --bg-secondary
  * container carrying the page's only card shadow, flat hoverable rows inside.
@@ -55,7 +56,6 @@ function ListSkeleton() {
 }
 
 export default function SkillsPage() {
-  useBreadcrumbs([{ label: "Skills" }])
   const navigate = useNavigate()
   const [query, setQuery] = useState("")
 
@@ -78,30 +78,32 @@ export default function SkillsPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-20 pt-6 md:pt-11">
-          <header className="flex flex-wrap items-end justify-between gap-x-3 gap-y-3.5">
-            <div>
-              <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-                Skills
-              </h1>
-              <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-                {skillsQuery.isSuccess
-                  ? `${skills.length} ${skills.length === 1 ? "skill" : "skills"} · playbooks your employees load on demand`
-                  : "Playbooks your employees load on demand"}
-              </div>
-            </div>
-            <label className="inline-flex h-[30px] w-[220px] items-center gap-[7px] rounded-full bg-[var(--fill-tertiary)] px-3 text-[length:var(--text-footnote)] text-[var(--text-quaternary)] transition-colors focus-within:text-[var(--text-tertiary)] max-[500px]:w-full">
-              <Search size={12} strokeWidth={2.4} className="flex-none" aria-hidden />
-              <input
-                data-testid="skills-search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search skills"
-                className="w-full min-w-0 border-none bg-transparent text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]"
-              />
-            </label>
-          </header>
+      <PageScaffold
+        contentWidth="840px"
+        header={
+          <LargeTitleHeader
+            title="Skills"
+            subtitle={
+              skillsQuery.isSuccess
+                ? `${skills.length} ${skills.length === 1 ? "skill" : "skills"} · playbooks your employees load on demand`
+                : "Playbooks your employees load on demand"
+            }
+            trailing={
+              <label className="inline-flex h-[30px] w-[220px] items-center gap-[7px] rounded-full bg-[var(--fill-tertiary)] px-3 text-[length:var(--text-footnote)] text-[var(--text-quaternary)] transition-colors focus-within:text-[var(--text-tertiary)] max-[500px]:w-full">
+                <Search size={12} strokeWidth={2.4} className="flex-none" aria-hidden />
+                <input
+                  data-testid="skills-search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search skills"
+                  className="w-full min-w-0 border-none bg-transparent text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]"
+                />
+              </label>
+            }
+          />
+        }
+      >
+        <div>
 
           {skillsQuery.isLoading ? (
             <ListSkeleton />
@@ -142,7 +144,7 @@ export default function SkillsPage() {
             </div>
           )}
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

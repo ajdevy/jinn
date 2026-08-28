@@ -105,7 +105,7 @@ export function mapProblems(context: MapContext, pairs: ModelMapPair[]): string[
 }
 
 /**
- * Every `fallbackModelMap` problem in the whole config. Save Config reads this
+ * Every `fallbackModelMap` problem in the whole config. The write path reads this
  * before it PUTs, so a document the gateway's loader would refuse never reaches
  * the file — the editor and the loader disagree about nothing.
  */

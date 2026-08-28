@@ -20,7 +20,7 @@ function paging(statuses: readonly WorkItemStatusWire[], columns: Record<WorkIte
 }
 
 /** The list's own padding, so both paths sit in the same place on the page. */
-const PADDING = "px-3 pb-24 pt-5 md:px-10 md:pb-10"
+const PADDING = "px-3 pt-5 md:px-10"
 
 export interface TodoListProps {
   columns: Record<WorkItemStatusWire, BoardColumnData>

@@ -31,7 +31,7 @@ function DialogActions({
         type="submit"
         data-testid={`${testId}-submit`}
         disabled={!canSubmit || submitting}
-        className="focus-ring min-h-11 rounded-full bg-[var(--accent)] px-5 text-[length:var(--text-subheadline)] font-semibold text-[var(--accent-contrast)] outline-none transition-transform hover:scale-[0.98] disabled:opacity-40"
+        className="focus-ring min-h-11 rounded-full bg-[var(--accent)] px-5 text-[length:var(--text-subheadline)] font-semibold text-[var(--accent-contrast)] outline-none transition-transform hover:scale-[0.98] disabled:opacity-40" // jinn-shell: ok dialog submit, not page chrome
       >
         {submitting ? submittingLabel : submitLabel}
       </button>

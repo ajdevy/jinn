@@ -6,19 +6,21 @@ import type {
   WorkItemAttachmentWire,
   WorkItemDetailWire,
   WorkItemFullWire,
+  WorkItemRelationWire,
   WorkItemTreeNodeWire,
 } from "@/lib/api"
 import { ActivitySection } from "../task-page/activity"
+import { RelationsSection } from "../task-page/relations"
 import TaskPage from "../task-page/task-page"
 import { comment, event } from "./fixtures/task-wire"
 
-/* Todos v2 slice 6 — the task page sections (design-doc §7.2.8–11):
- * sub-tasks with hover quick actions (child status popover through the SAME
- * legality module, assign, open, add-row absent at the depth cap), relations
- * over three wire kinds with the blocked-by direction swap, attachments
- * through the multipart lane, and the merged activity feed (folds of ≥3
- * machine events, comments never collapse, composer attaches pending files to
- * the comment it sends). */
+/* Todos v2 slice 6 — the task page sections (design-doc §7.2.8–11): sub-tasks
+ * with hover quick actions (child status popover through the SAME legality
+ * module, assign, open, add-row absent at the depth cap), attachments through
+ * the multipart lane, and the merged activity feed (folds of ≥3 machine
+ * events, comments never collapse, composer attaches pending files to the
+ * comment it sends). Relations left the page in ICI-1435; the blocked-by swap
+ * is now asserted against the component. */
 
 vi.mock("@/components/page-layout", () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock("@/routes/settings-provider", () => ({ useSettings: () => ({ settings: { employeeOverrides: {} } }) }))
@@ -181,8 +183,7 @@ describe("sub-tasks", () => {
     setWorkItemStatus.mockResolvedValue({ workItem: full("PLA-16", { status: "executing" }), escalated: false })
     renderTask()
 
-    const section = await screen.findByTestId("task-subtasks")
-    await waitFor(() => expect(section.textContent).toContain("1 of 3 done"))
+    await waitFor(() => expect(screen.getByTestId("subtasks-done").textContent).toBe("1 of 3 done"))
     expect(screen.getByTestId("subtasks-progress").style.width).toBe("33%")
 
     fireEvent.click(await screen.findByTestId("subtask-status-PLA-16"))
@@ -202,16 +203,18 @@ describe("sub-tasks", () => {
     await waitFor(() => expect(assignWorkItem).toHaveBeenCalledWith("PLA-16", "mason"))
   })
 
-  it("adds a sub-task through the quiet add row (parentId carries)", async () => {
+  it("adds a sub-task from the header's +, and the row is in the list before the gateway answers", async () => {
     withChildren()
-    createWorkItem.mockResolvedValue({ workItem: full("PLA-23", { parentId: "PLA-12" }) })
+    let settle: (value: unknown) => void = () => {}
+    createWorkItem.mockImplementation(() => new Promise((resolve) => (settle = resolve)))
     renderTask()
-
     fireEvent.click(await screen.findByTestId("subtask-add"))
     const input = screen.getByTestId("subtask-add-input")
     fireEvent.change(input, { target: { value: "E-mail receipts" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(createWorkItem).toHaveBeenCalledWith({ title: "E-mail receipts", parentId: "PLA-12" }))
+    expect((await screen.findByTestId("subtask-pending-row")).textContent).toContain("E-mail receipts")
+    expect(createWorkItem).toHaveBeenCalledWith({ title: "E-mail receipts", parentId: "PLA-12" })
+    await act(async () => settle({ workItem: full("PLA-23", { parentId: "PLA-12" }) }))
   })
 
   it("the add row simply doesn't exist at the depth cap — the caption explains", async () => {
@@ -222,48 +225,45 @@ describe("sub-tasks", () => {
 
     await screen.findByTestId("task-title")
     await waitFor(() => expect(screen.queryByTestId("subtask-add")).toBeNull())
-    // The item's node is absent from the stub tree → the empty section is
-    // suppressed entirely at the cap (no add affordance to explain).
+    // No node in the stub tree, so no children — and a childless group at the cap can offer nothing, so it stays out.
   })
 })
 
 describe("relations", () => {
-  it("renders display kinds (Blocks tinted, incoming blocks as Blocked by) and removes with the direction swap", async () => {
-    const item = full("PLA-12")
-    getWorkItem.mockResolvedValue(detailOf(item, {
-      relations: [
-        { kind: "blocks", direction: "out", other: { id: "MKT-7", title: "Store launch campaign", status: "backlog" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" },
-        { kind: "blocks", direction: "in", other: { id: "PLA-9", title: "Vendor keys", status: "blocked" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" },
-      ],
-    }))
-    removeWorkItemRelation.mockResolvedValue({ removed: true })
-    renderTask()
+  const outgoing: WorkItemRelationWire = { kind: "blocks", direction: "out", other: { id: "MKT-7", title: "Store launch campaign", status: "backlog" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" }
+  const incoming: WorkItemRelationWire = { kind: "blocks", direction: "in", other: { id: "PLA-9", title: "Vendor keys", status: "blocked" }, createdBy: "operator", createdAt: "2026-07-21T08:00:00.000Z" }
 
-    const out = await screen.findByTestId("relation-row-MKT-7")
-    expect(out.textContent).toContain("Blocks")
-    const incoming = screen.getByTestId("relation-row-PLA-9")
-    expect(incoming.textContent).toContain("Blocked by")
+  it("reads an outgoing blocks edge as Blocks, an incoming one as Blocked by, and hands the relation back whole on remove", () => {
+    const onRemove = vi.fn()
+    render(<RelationsSection id="PLA-12" relations={[outgoing, incoming]} onAdd={vi.fn()} onRemove={onRemove} />)
+
+    expect(screen.getByTestId("relation-row-MKT-7").textContent).toContain("Blocks")
+    expect(screen.getByTestId("relation-row-PLA-9").textContent).toContain("Blocked by")
 
     fireEvent.click(screen.getByTestId("relation-remove-PLA-9"))
-    // Incoming edge lives on the OTHER item: srcId swaps.
-    await waitFor(() => expect(removeWorkItemRelation).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+    // Which item owns an incoming edge is the caller's call, so the row hands
+    // the relation back whole rather than a pre-swapped pair.
+    expect(onRemove).toHaveBeenCalledWith(incoming)
   })
 
   it("adds a relation from search; 'Blocked by' writes the edge on the other item", async () => {
-    getWorkItem.mockResolvedValue(detailOf(full("PLA-12"), { relations: [] }))
-    searchWorkItems.mockResolvedValue({
-      workItems: [{ ...full("PLA-9"), status: "backlog" }],
-      total: 1,
-      nextOffset: null,
-    })
-    addWorkItemRelation.mockResolvedValue({ relation: {} })
-    renderTask()
+    searchWorkItems.mockResolvedValue({ workItems: [{ ...full("PLA-9"), status: "backlog" }], total: 1, nextOffset: null })
+    const onAdd = vi.fn()
+    render(<RelationsSection id="PLA-12" relations={[]} onAdd={onAdd} onRemove={vi.fn()} />)
 
-    fireEvent.click(await screen.findByTestId("relation-add"))
+    fireEvent.click(screen.getByTestId("relation-add"))
     fireEvent.click(screen.getByTestId("relation-kind-blocked-by"))
     fireEvent.change(screen.getByTestId("relation-search"), { target: { value: "vendor" } })
     fireEvent.click(await screen.findByTestId("relation-result-PLA-9"))
-    await waitFor(() => expect(addWorkItemRelation).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith("PLA-9", "blocks", "PLA-12"))
+  })
+
+  it("stays out of the task page even for a Todo that has relations", async () => {
+    getWorkItem.mockResolvedValue(detailOf(full("PLA-12"), { relations: [outgoing] }))
+    renderTask()
+
+    await screen.findByTestId("task-title")
+    expect(screen.queryByTestId("task-relations")).toBeNull()
   })
 })
 
@@ -295,36 +295,36 @@ describe("attachments + activity", () => {
     expect(within(dialog).getByLabelText("Play result.mp4")).toBeTruthy()
   })
 
-  it("lists item-level rows only and uploads through the multipart lane", async () => {
-    const rows: WorkItemAttachmentWire[] = [
-      { id: "wia_1", workItemId: "PLA-12", commentId: null, filename: "checkout-flow.png", mime: "image/png", bytes: 240 * 1024, sha256: "a", storagePath: "/x", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-      { id: "wia_2", workItemId: "PLA-12", commentId: "wic_1", filename: "region-matrix.csv", mime: "text/csv", bytes: 4096, sha256: "b", storagePath: "/y", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-      { id: "wia_3", workItemId: "PLA-12", commentId: null, filename: "release-notes.pdf", mime: "application/pdf", bytes: 8192, sha256: "c", storagePath: "/z", uploadedBy: "mason", createdAt: "2026-07-22T08:00:00.000Z" },
-    ]
+  it("chips item-level attachments under the description, uploads, and removes by id", async () => {
     getWorkItem.mockResolvedValue(detailOf(full("PLA-12")))
-    listWorkItemAttachments.mockResolvedValue({ attachments: rows })
-    uploadWorkItemAttachment.mockResolvedValue(rows[0])
+    listWorkItemAttachments.mockResolvedValue({ attachments: [
+      imageAttachment("wia_1", "checkout-flow.png"),
+      imageAttachment("wia_2", "region-matrix.csv", "wic_1"),
+      { ...imageAttachment("wia_3", "release-notes.pdf"), mime: "application/pdf" },
+    ] })
     renderTask()
 
-    await screen.findByTestId("task-attachments")
-    const tile = await screen.findByTestId("attachment-tile-wia_1")
-    expect(tile.getAttribute("aria-label")).toBe("Preview checkout-flow.png")
-    const caption = screen.getByTestId("attachment-caption-wia_1")
-    expect(caption.className).toContain("absolute")
-    expect(caption.className).toContain("opacity-0")
-    expect(caption.className).toContain("[@media(hover:hover)]:group-hover/tile:opacity-100")
-    expect(caption.className).toContain("group-focus-within/tile:opacity-100")
-    expect(caption.textContent).toContain("checkout-flow.png")
-    expect(caption.textContent).toContain("240 KB")
-    const fileRow = screen.getByTestId("attachment-row-wia_3")
-    expect(fileRow.textContent).toContain("release-notes.pdf")
-    expect(fileRow.textContent).toContain("8 KB")
-    // The comment-level row stays out of the item section.
-    expect(screen.queryByTestId("attachment-row-wia_2")).toBeNull()
-
+    const row = await screen.findByTestId("task-attachments")
+    expect(screen.getByTestId("task-body").compareDocumentPosition(row)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(row.compareDocumentPosition(await screen.findByTestId("task-subtasks"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.getByTestId("attachment-caption-wia_1").textContent).toBe("checkout-flow.png")
+    expect(screen.getByTestId("attachment-chip-wia_3").textContent).toBe("release-notes.pdf")
+    // The comment-level attachment stays out of the item row.
+    expect(screen.queryByTestId("attachment-tile-wia_2")).toBeNull()
     const file = new File(["bytes"], "spec.md", { type: "text/markdown" })
     fireEvent.change(screen.getByTestId("attachment-file-input"), { target: { files: [file] } })
     await waitFor(() => expect(uploadWorkItemAttachment).toHaveBeenCalledWith("PLA-12", file))
+    fireEvent.click(screen.getByTestId("attachment-remove-wia_3"))
+    await waitFor(() => expect(deleteWorkItemAttachment).toHaveBeenCalledWith("PLA-12", "wia_3"))
+  })
+
+  it("renders the paperclip alone when nothing is attached to the Todo", async () => {
+    getWorkItem.mockResolvedValue(detailOf(full("PLA-12")))
+    renderTask()
+    const row = await screen.findByTestId("task-attachments")
+    expect(within(row).getByTestId("attachment-add").getAttribute("aria-label")).toBe("Attach a file")
+    expect(row.textContent).toBe("")
+    expect(screen.queryByTestId("attachment-strip")).toBeNull()
   })
 
   it("fetches the thumbnail variant for an image tile and the full original for the lightbox", async () => {

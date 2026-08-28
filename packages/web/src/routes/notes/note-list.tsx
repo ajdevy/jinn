@@ -109,7 +109,7 @@ export function NoteList({
           type="button"
           aria-label="New note"
           onClick={onCreate}
-          className="absolute bottom-5 right-5 flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-overlay)] transition-[scale] duration-150 active:scale-[0.94]"
+          className="absolute bottom-5 right-5 flex size-14 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-overlay)] transition-[scale] duration-150 active:scale-[0.94]" // jinn-shell: ok notes list FAB, not page chrome
         >
           <PenSquare size={24} aria-hidden />
         </button>

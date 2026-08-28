@@ -15,7 +15,7 @@ import { mapConfigValue, type ServedModels } from "./model-map-model"
 interface EnginesSectionProps {
   engines: EnginesConfig | undefined
   sessions: SessionsFallbackConfig | undefined
-  /** The Settings page's config setter; the page's Save Config button PUTs it. */
+  /** The Settings page's config setter; each call schedules the PUT. */
   onChange: (path: string[], value: unknown) => void
 }
 

@@ -31,7 +31,6 @@ vi.mock("@/lib/api", () => {
 vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
 import WorkflowRunPage from "../run"
 

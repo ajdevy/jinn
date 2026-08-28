@@ -53,7 +53,7 @@ function DecideRow({ choice, deciding, needsChoice, onSubmit }: {
         type="button"
         disabled={deciding || needsChoice}
         onClick={() => onSubmit("approve")}
-        className={`${SUBMIT} bg-[var(--accent)] text-[var(--accent-contrast)]`}
+        className={`${SUBMIT} bg-[var(--accent)] text-[var(--accent-contrast)]`} // jinn-shell: ok approval submit, not page chrome
       >
         {choice ? `Approve · ${choice}` : "Approve"}
       </button>

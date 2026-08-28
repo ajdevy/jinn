@@ -4,7 +4,8 @@ import type {
   EngineLimitWindow,
 } from "@/lib/api"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { Skeleton } from "@/components/ui/skeleton"
 import { deriveFreshness, useEngineLimits, type FreshnessKind } from "./use-engine-limits"
 
@@ -187,33 +188,30 @@ function EngineCard({ engine, now }: { engine: EngineLimitEngineSnapshot; now: n
 }
 
 export default function LimitsPage() {
-  useBreadcrumbs([{ label: 'Limits' }])
   const { data, phase, refreshing, error, now, refresh } = useEngineLimits()
 
   return (
     <PageLayout>
-      {/* Same page frame as Todos: one scrolling column, inline large-title
-          header — no sticky chrome bar. */}
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-20 pt-6 md:pt-11">
-          <header className="mb-6 flex items-end justify-between gap-3">
-            <div>
-              <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-                Limits
-              </h1>
-              <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-                Engine usage windows and quotas
-              </div>
-            </div>
-            <button
-              onClick={refresh}
-              aria-label="Refresh engine limits"
-              aria-busy={refreshing}
-              className="inline-flex size-[38px] shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
-            >
-              <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
-            </button>
-          </header>
+      <PageScaffold
+        contentWidth="840px"
+        header={
+          <LargeTitleHeader
+            title="Limits"
+            subtitle="Engine usage windows and quotas"
+            trailing={
+              <button
+                onClick={refresh}
+                aria-label="Refresh engine limits"
+                aria-busy={refreshing}
+                className="inline-flex size-[38px] shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
+              >
+                <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
+              </button>
+            }
+          />
+        }
+      >
+        <div>
 
           {error && (
             <div
@@ -237,7 +235,7 @@ export default function LimitsPage() {
             </div>
           )}
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

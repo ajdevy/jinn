@@ -95,25 +95,14 @@ export interface SttStatus {
   languages: string[];
 }
 
-/**
- * Resolve the languages list from config, with backwards compat for the
- * old `language: "en"` string format.
- */
-export function resolveLanguages(sttConfig?: { language?: string; languages?: string[] }): string[] {
-  if (sttConfig?.languages && sttConfig.languages.length > 0) return sttConfig.languages;
-  if (sttConfig?.language) return [sttConfig.language];
-  return ["en"];
-}
-
-export function getSttStatus(configModel?: string, languages?: string[]): SttStatus {
-  const model = configModel || "small";
+export function getSttStatus(model: string, languages: string[]): SttStatus {
   const modelPath = getModelPath(model);
   return {
     available: modelPath !== null,
     model: modelPath ? model : null,
     downloading,
     progress: downloadProgress,
-    languages: languages || ["en"],
+    languages,
   };
 }
 

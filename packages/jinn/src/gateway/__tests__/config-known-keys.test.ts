@@ -73,6 +73,11 @@ async function call(method: string, url: string, body?: unknown) {
       gatewayAuthToken: "test-token",
       jinnHome,
       getConfig: () => currentConfig,
+      // The live gateway refreshes its in-memory copy before it answers the PUT, so a
+      // follow-up GET reads what landed on disk rather than the pre-write object.
+      reloadConfig: () => {
+        currentConfig = yaml.load(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")) as JinnConfig;
+      },
       connectors: new Map(),
       startTime: Date.now(),
       emit: vi.fn(),
@@ -242,5 +247,45 @@ describe("PUT /api/config top-level key allowlist", () => {
 
     expect(response.status).toBeGreaterThanOrEqual(500);
     expect(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")).toBe(malformed);
+  });
+});
+
+// The Settings page has no Save button: a write it cannot land is a setting that
+// silently reverts on the next reload. It reverted for a whole config.yaml because
+// the document GET served carried a key the PUT then refused.
+describe("a config.yaml carrying a key this build does not declare", () => {
+  beforeEach(() => {
+    currentConfig = { ...baseConfig(), sessions: { interruptOnNewMessage: true } } as JinnConfig;
+    fs.writeFileSync(
+      path.join(jinnHome, "config.yaml"),
+      yaml.dump({ ...currentConfig, remotes: { peer: { url: "http://peer.invalid/" } } }),
+    );
+    currentConfig = yaml.load(fs.readFileSync(path.join(jinnHome, "config.yaml"), "utf-8")) as JinnConfig;
+  });
+
+  it("does not serve the key it would refuse back", async () => {
+    const fetched = await call("GET", "/api/config");
+
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.remotes).toBeUndefined();
+    expect(fetched.body.sessions).toEqual({ interruptOnNewMessage: true });
+  });
+
+  it("saves a false the page turned off, and reads it back off disk", async () => {
+    const fetched = await call("GET", "/api/config");
+    const edited = { ...fetched.body, sessions: { ...fetched.body.sessions, interruptOnNewMessage: false } };
+
+    const saved = await call("PUT", "/api/config", edited);
+
+    expect(saved.status).toBe(200);
+    expect(savedConfig().sessions.interruptOnNewMessage).toBe(false);
+    expect((await call("GET", "/api/config")).body.sessions.interruptOnNewMessage).toBe(false);
+  });
+
+  it("keeps the undeclared key on disk rather than dropping it on the next save", async () => {
+    const fetched = await call("GET", "/api/config");
+
+    expect((await call("PUT", "/api/config", fetched.body)).status).toBe(200);
+    expect(savedConfig().remotes).toEqual({ peer: { url: "http://peer.invalid/" } });
   });
 });

@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Plus, Workflow } from "lucide-react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
+import { PrimaryAction } from "@/components/shell/primary-action"
 import {
   ApiError,
   api,
@@ -82,7 +84,6 @@ function useShelf(): { shelf: Shelf; setShelf: (next: Shelf) => void } {
 }
 
 export default function WorkflowListPage() {
-  useBreadcrumbs([{ label: "Workflows" }])
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const { shelf, setShelf } = useShelf()
@@ -104,26 +105,24 @@ export default function WorkflowListPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable="true">
-        <main className="mx-auto max-w-[760px] px-5 pb-16 pt-6 md:pt-12">
-          <header className="mb-6 flex items-end justify-between gap-3">
-            <div>
-              <h1 className="font-[var(--font-display)] text-[length:var(--text-large-title)] font-[var(--weight-bold)] tracking-[var(--tracking-tight)] text-[var(--text-primary)]">
-                Workflows
-              </h1>
-              <p className="mt-1 text-[length:var(--text-subheadline)] text-[var(--text-secondary)]">
-                Repeatable procedures your company runs.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] transition-opacity hover:opacity-90"
-            >
-              <Plus className="size-4" aria-hidden />
-              New workflow
-            </button>
-          </header>
+      <PageScaffold
+        contentWidth="760px"
+        header={
+          <LargeTitleHeader
+            title="Workflows"
+            subtitle="Repeatable procedures your company runs."
+          />
+        }
+        primaryAction={
+          <PrimaryAction
+            aria-label="New workflow"
+            label="New workflow"
+            icon={<Plus className="size-4" aria-hidden />}
+            onClick={() => setCreating(true)}
+          />
+        }
+      >
+        <main>
           <NewWorkflowDialog open={creating} onClose={() => setCreating(false)} />
 
           <div className="mb-3.5 flex gap-2" role="group" aria-label="Filter workflows">
@@ -192,7 +191,7 @@ export default function WorkflowListPage() {
             ))}
           </div>
         </main>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

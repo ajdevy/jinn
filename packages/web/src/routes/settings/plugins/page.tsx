@@ -1,7 +1,7 @@
-import { useMemo } from "react"
 import { RefreshCw } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { PluginList } from "./plugin-list"
 import {
   useInventoryFollowsDisk,
@@ -24,26 +24,24 @@ function Header({ installed, enabled, busy, onRescan }: {
   onRescan: () => void
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-x-3 gap-y-3">
-      <div>
-        <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-          Plugins
-        </h1>
-        <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-          {installed === null
-            ? "Everything installed in this workspace, and what you have let run"
-            : `${installed} installed · ${enabled} enabled`}
-        </div>
-      </div>
-      <button
-        type="button"
-        aria-label="Rescan the plugins folder"
-        onClick={onRescan}
-        className="grid size-[34px] place-items-center rounded-full text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
-      >
-        <RefreshCw size={14} strokeWidth={2.2} className={busy ? "animate-spin" : undefined} aria-hidden />
-      </button>
-    </header>
+    <LargeTitleHeader
+      title="Plugins"
+      subtitle={
+        installed === null
+          ? "Everything installed in this workspace, and what you have let run"
+          : `${installed} installed · ${enabled} enabled`
+      }
+      trailing={
+        <button
+          type="button"
+          aria-label="Rescan the plugins folder"
+          onClick={onRescan}
+          className="grid size-[34px] place-items-center rounded-full text-[var(--text-tertiary)] transition-colors hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]"
+        >
+          <RefreshCw size={14} strokeWidth={2.2} className={busy ? "animate-spin" : undefined} aria-hidden />
+        </button>
+      }
+    />
   )
 }
 
@@ -62,7 +60,6 @@ function ActionError({ error }: { error: Error }) {
 }
 
 export default function PluginsSettingsPage() {
-  useBreadcrumbs(useMemo(() => [{ label: "Settings", href: "/settings" }, { label: "Plugins" }], []))
   const inventory = usePluginInventory()
   const toggle = useTogglePlugin()
   const reveal = useRevealPlugin()
@@ -74,14 +71,18 @@ export default function PluginsSettingsPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-20 pt-6 md:pt-11">
+      <PageScaffold
+        contentWidth="840px"
+        header={
           <Header
             installed={inventory.isSuccess ? plugins.length : null}
             enabled={plugins.filter((plugin) => plugin.status === "loaded").length}
             busy={rescan.isPending || inventory.isFetching}
             onRescan={() => rescan.mutate()}
           />
+        }
+      >
+        <div>
 
           <div className="mt-[22px]">
             {failure && <ActionError error={failure} />}
@@ -96,7 +97,7 @@ export default function PluginsSettingsPage() {
             </p>
           </div>
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

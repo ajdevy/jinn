@@ -12,7 +12,8 @@ import { BackgroundActivityStatus } from '@/components/chat/background-activity-
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
 import { useLiveSession } from '@/hooks/use-live-session'
 import { useStaleChatNotice, type FreshChatSourceSession } from '@/components/chat/use-stale-chat-notice'
-import { useChatFileDrop } from '@/components/chat/use-chat-file-drop'
+import { useFileDrop } from '@/hooks/use-file-drop'
+import { FileDropOverlay } from '@/components/ui/file-drop-overlay'
 import { ChatPaneTitleBar, paneTitleBarState, paneViewControls } from '@/components/chat/chat-pane-title-bar'
 import { ChatCopyToast } from '@/components/chat/chat-copy-toast'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
@@ -411,7 +412,7 @@ export function ChatPane({
     onContentReady?.(sessionId)
   }, [sessionId, hydrating, currentSession, messages.length, streamingText, onContentReady])
 
-  const fileDrop = useChatFileDrop()
+  const fileDrop = useFileDrop()
   // A threshold, not a default: a load that resolves inside the delay never
   // announces itself, and the transcript stays mounted underneath either way.
   const showSessionHydration = useHydrationSpinner(Boolean(sessionId && hydrating && messages.length === 0 && !streamingText))
@@ -434,43 +435,7 @@ export function ChatPane({
       className="group/chat-pane"
       {...fileDrop.handlers}
     >
-      {/* Drop zone overlay */}
-      {fileDrop.dragOver && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'color-mix(in srgb, var(--bg) 85%, transparent)',
-            backdropFilter: 'blur(4px)',
-            transition: 'opacity 150ms ease-in-out',
-          }}
-        >
-          <div
-            style={{
-              border: '2px dashed var(--accent)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '48px 64px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '12px',
-            }}
-          >
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-body)' }}>
-              Drop files here
-            </span>
-          </div>
-        </div>
-      )}
+      {fileDrop.dragOver && <FileDropOverlay />}
       {multiPane && onClose ? (
         <ChatPaneTitleBar {...titleBarState} {...titleBarViewControls} active={isActive} backTo={paneBackTo} onClose={onClose} sessionActions={sessionId ? sessionActions : undefined} viewMode={viewMode} />
       ) : null}

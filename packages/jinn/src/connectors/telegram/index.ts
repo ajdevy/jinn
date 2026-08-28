@@ -16,10 +16,10 @@ import type {
 import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
 import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
-import { TMP_DIR } from "../../shared/paths.js";
+import { STT_SETTINGS_FILE, TMP_DIR } from "../../shared/paths.js";
+import { getEffectiveSttSettings } from "../../stt/settings-store.js";
 import {
   transcribe as sttTranscribe,
-  resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
 
@@ -212,12 +212,12 @@ export class TelegramConnector implements Connector {
         (telegramMsg as any).video_note;
 
       if (voiceLike) {
-        const model = this.sttConfig?.model || "small";
+        const settings = getEffectiveSttSettings(this.sttConfig, STT_SETTINGS_FILE, logger.warn);
         let unavailable: string | null = null;
-        if (!this.sttConfig?.enabled) {
+        if (!settings.enabled) {
           unavailable = "voice transcription is not enabled on this gateway";
-        } else if (!getModelPath(model)) {
-          unavailable = `STT model '${model}' is not downloaded`;
+        } else if (!getModelPath(settings.model)) {
+          unavailable = `STT model '${settings.model}' is not downloaded`;
         }
 
         if (unavailable) {
@@ -233,8 +233,7 @@ export class TelegramConnector implements Connector {
           return;
         }
 
-        const langs = resolveLanguages(this.sttConfig);
-        const language = langs.length === 1 ? langs[0] : "auto";
+        const language = settings.languages.length === 1 ? settings.languages[0] : "auto";
 
         // Serialize transcriptions: parallel whisper-cli runs OOM on small hosts.
         // If another transcription is already in flight, send a one-line ack so
@@ -266,7 +265,7 @@ export class TelegramConnector implements Connector {
               voiceLike.file_id,
               tmpDir,
             );
-            return await sttTranscribe(localPath, model, language);
+            return await sttTranscribe(localPath, settings.model, language);
           } finally {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });

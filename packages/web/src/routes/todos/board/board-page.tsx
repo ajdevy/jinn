@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom"
-import { ListFilter } from "lucide-react"
+import { ListFilter, Plus } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
+import { PageScaffold } from "@/components/shell/page-scaffold"
+import { PrimaryAction } from "@/components/shell/primary-action"
 import { ApiError, type WorkItemCompactWire, type WorkItemStatusWire } from "@/lib/api"
 import {
   activeFilterCount,
@@ -29,13 +31,13 @@ import { TodoFilterSheet } from "../todo-filter-sheet"
 import { NeedsYouView } from "../needs-you-view"
 import { NewTodoDialog } from "../new-todo-dialog"
 import { QuickCaptureBar } from "../quick-add/capture-bar"
-import { BoardHeaderActions } from "./board-header-actions"
+import { BoardHeader } from "./board-header"
 import { TodoList } from "../list/todo-list"
 import { BoardCard, cardLayoutKey, rollupOf, type CardEnrichment } from "./card"
 import { FilteredEmptyCard, HomeEmptyCard } from "./board-empty"
 import { BoardColumn, DragSlot } from "./column"
 import { ClosedColumnGroup, ClosedColumnHeader, ClosedRail } from "./closed-rail"
-import { BoardSwitcher, departmentTitle } from "./board-switcher"
+import { departmentTitle } from "./board-switcher"
 import { boardDetailIds, useBoardData, useBoardRank, useBoardTransition, useBoardTrees, useCreateSubTask, useKeepWorkItem } from "./use-board"
 import {
   BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStatusFilter, PIPELINE_STATUSES, visibleItemCount,
@@ -538,104 +540,81 @@ export default function TodoBoardPage() {
 
   return (
     <PageLayout>
-      <div className="flex h-full min-h-0 flex-col">
-        {/* ── Header (fixed; the board scrolls under it) ── */}
-        <header className="flex-none px-5 pt-6 max-[700px]:pt-[calc(24px+var(--safe-top,0px))] md:px-10 md:pt-8">
-          <div className="flex items-start gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <BoardSwitcher board={board} title={title} departments={departments.data} attentionCount={needsYou.length} />
-              </div>
-              {board.kind === "home" && <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">The Todos you created or pinned.</p>}
-              <div className="mt-1 flex items-center gap-2 text-[13px] text-[var(--text-tertiary)]">
-                {deptSummary && (
-                  <>
-                    <span className="text-[11px] text-[var(--text-quaternary)]" style={{ fontFamily: "var(--font-code)", letterSpacing: ".04em" }}>
-                      {deptSummary.prefix}
-                    </span>
-                    <Dot />
-                  </>
-                )}
-                {isAttention ? (
-                  <span>{needsYou.length} waiting</span>
-                ) : (
-                  <>
-                    <span>
-                      {filters.due
-                        ? PIPELINE_STATUSES.reduce((sum, s) => sum + (itemsByStatus[s]?.length ?? 0), 0)
-                        : data.openTotal} open
-                    </span>
-                    {blockedTotal > 0 && (
-                      <>
-                        <Dot />
-                        <span>{blockedTotal} blocked</span>
-                      </>
-                    )}
-                    {escalatedTotal > 0 && (
-                      <>
-                        <Dot />
-                        <span>{escalatedTotal} escalated</span>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-            <BoardHeaderActions
-              onQuickCapture={() => setCapturing(true)}
-              onNewTodo={() => setCreating({ department: board.kind === "department" ? board.slug : undefined })}
+      <PageScaffold
+        scroll="external"
+        header={
+          <BoardHeader
+            board={board}
+            title={title}
+            departments={departments.data}
+            attentionCount={needsYou.length}
+            deptPrefix={deptSummary?.prefix}
+            isAttention={isAttention}
+            openCount={
+              filters.due
+                ? PIPELINE_STATUSES.reduce((sum, s) => sum + (itemsByStatus[s]?.length ?? 0), 0)
+                : data.openTotal
+            }
+            blockedTotal={blockedTotal}
+            escalatedTotal={escalatedTotal}
+            onQuickCapture={() => setCapturing(true)}
+          />
+        }
+        primaryAction={
+          <PrimaryAction
+            aria-label="New todo"
+            label="New Todo"
+            icon={<Plus className="size-4" aria-hidden />}
+            testId="todo-new"
+            onClick={() => setCreating({ department: board.kind === "department" ? board.slug : undefined })}
+          />
+        }
+      >
+        {!isAttention && !mobile && (
+          <div className="flex-none px-[var(--space-3)] md:px-[var(--space-10)]">
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              employees={org.data?.employees ?? []}
+              departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
+              byName={byName}
+              hideStatus
+              hideDepartment={board.kind === "department"}
+              board
             />
           </div>
+        )}
 
-          {!isAttention && !mobile && (
-            <div className="mt-4">
-              <FilterBar
-                filters={filters}
-                onChange={setFilters}
-                employees={org.data?.employees ?? []}
-                departments={board.kind === "everything" || board.kind === "home" ? org.data?.departments ?? [] : []}
-                byName={byName}
-                hideStatus
-                hideDepartment={board.kind === "department"}
-                board
+        {!isAttention && mobile && (
+          <div className="flex-none px-[var(--space-3)] md:px-[var(--space-10)]">
+            <button
+              type="button"
+              data-testid="todo-mobile-filters"
+              onClick={() => setMobileFilterOpen(true)}
+              className="focus-ring flex h-[34px] flex-none items-center gap-[7px] rounded-[17px] bg-[var(--bg-secondary)] px-3.5 text-[14px] font-semibold text-[var(--text-primary)] outline-none"
+              style={{ boxShadow: "var(--shadow-ambient), var(--shadow-subtle), var(--inset-shine)" }}
+            >
+              <ListFilter
+                size={13}
+                strokeWidth={2.2}
+                aria-hidden
+                className={filterCount > 0 ? "text-[var(--accent)]" : undefined}
               />
-            </div>
-          )}
+              Filters
+              {filterCount > 0 && (
+                <span className="text-[12px] font-medium tabular-nums text-[var(--text-quaternary)]">{filterCount}</span>
+              )}
+            </button>
+          </div>
+        )}
 
-          {/* The phone's filtering entry: the desktop chip row folds into one
-              pill that opens the same filter grammar in a sheet. */}
-          {!isAttention && mobile && (
-            <div className="mt-4">
-              <button
-                type="button"
-                data-testid="todo-mobile-filters"
-                onClick={() => setMobileFilterOpen(true)}
-                className="focus-ring flex h-[34px] flex-none items-center gap-[7px] rounded-[17px] bg-[var(--bg-secondary)] px-3.5 text-[14px] font-semibold text-[var(--text-primary)] outline-none"
-                style={{ boxShadow: "var(--shadow-ambient), var(--shadow-subtle), var(--inset-shine)" }}
-              >
-                <ListFilter
-                  size={13}
-                  strokeWidth={2.2}
-                  aria-hidden
-                  className={filterCount > 0 ? "text-[var(--accent)]" : undefined}
-                />
-                Filters
-                {filterCount > 0 && (
-                  <span className="text-[12px] font-medium tabular-nums text-[var(--text-quaternary)]">{filterCount}</span>
-                )}
-              </button>
-            </div>
-          )}
-        </header>
-
-        {/* ── Content ── */}
         {isAttention ? (
           <div
             ref={boardScrollRef}
             onScroll={onBoardScroll}
             data-testid="todo-board-scroll"
             data-scrollable
-            className="min-h-0 flex-1 overflow-y-auto px-5 pb-20 pt-5 md:px-10"
+            className="min-h-0 flex-1 overflow-y-auto px-5 pb-[var(--jinn-scaffold-bottom)] pt-5 md:px-10 lg:pb-10"
           >
             <div className="max-w-[680px]">
               {needs.isLoading ? (
@@ -667,7 +646,7 @@ export default function TodoBoardPage() {
             hidden={!mobile}
             data-testid="todo-list-scroll"
             data-scrollable
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="min-h-0 flex-1 overflow-y-auto pb-[var(--jinn-scaffold-bottom)] lg:pb-10"
           >
             {data.isError ? (
               <BoardErrorCard error={data.error} testId="todo-list-error" />
@@ -704,7 +683,7 @@ export default function TodoBoardPage() {
             hidden={mobile}
             data-testid="todo-board-scroll"
             data-scrollable
-            className="min-h-0 flex-1 overflow-auto"
+            className="min-h-0 flex-1 overflow-auto pb-[var(--jinn-scaffold-bottom)] lg:pb-10"
           >
             {data.isError ? (
               <BoardErrorCard error={data.error} />
@@ -743,7 +722,7 @@ export default function TodoBoardPage() {
           </div>
           </>
         )}
-      </div>
+      </PageScaffold>
 
       {/* Drag ghost — lifted card follows the pointer (scale 1.02 + 1.2° tilt). */}
       {drag && (
@@ -817,9 +796,6 @@ export default function TodoBoardPage() {
   )
 }
 
-function Dot() {
-  return <span aria-hidden className="size-[2.5px] rounded-full bg-[var(--text-quaternary)]" />
-}
 
 /** The grouped-list skeleton (mobile/inbox loading) — moved here from the
  *  retired legacy list's group module at the stage-C cutover. */
@@ -877,7 +853,7 @@ function BoardSkeleton() {
     <div className="flex min-h-full items-start gap-3 px-10 pb-8 pt-5" data-testid="board-skeleton" aria-hidden>
       {cardsPerColumn.map((cards, column) => (
         <div key={column} className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 px-[13px] pb-2.5 pt-0.5">
+          <div className="flex items-center gap-2 px-[11px] pb-2.5 pt-0.5">
             <span className="size-5 rounded-full bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
             <span className="h-3 w-[74px] rounded-[6px] bg-[var(--fill-tertiary)] motion-safe:animate-[skeletonPulse_1.6s_var(--ease-smooth)_infinite]" />
           </div>

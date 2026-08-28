@@ -5,11 +5,9 @@ import { queryClient } from '@/lib/query-client'
 import { ThemeProvider } from "@/routes/providers"
 import { SettingsProvider, DocumentTitle, useSettings } from "@/routes/settings-provider"
 import { useQueryInvalidation } from '@/hooks/use-query-invalidation'
-import { BreadcrumbProvider } from '@/context/breadcrumb-context'
 import { EmojiFavicon } from '@/components/emoji-favicon'
 import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
-import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
 import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
@@ -52,31 +50,28 @@ export function ClientProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <BreadcrumbProvider>
-          <AuthProvider>
-            <AuthGate>
-              <SettingsProvider>
-                <GatewayProvider>
-                  <InstanceMigrationGate />
-                  <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
-                  <DeferredTalkContextBridge />
-                  {/* Above the router, so route changes never remount the orb. */}
-                  <TalkOrbOverlay />
-                  <DocumentTitle />
-                  <EmojiFavicon />
-                  <QueryInvalidationBridge />
-                  {/* Before the host bridge, so the sink is registered by the
-                      time a frame can route into it. */}
-                  <PluginNotices />
-                  <PluginHostBridge />
-                  {/* After the host bridge: a plugin's module body may read
-                      host state the moment it evaluates. */}
-                  <DiskPluginsBridge />
-                </GatewayProvider>
-              </SettingsProvider>
-            </AuthGate>
-          </AuthProvider>
-        </BreadcrumbProvider>
+        <AuthProvider>
+          <AuthGate>
+            <SettingsProvider>
+              <GatewayProvider>
+                <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
+                <DeferredTalkContextBridge />
+                {/* Above the router, so route changes never remount the orb. */}
+                <TalkOrbOverlay />
+                <DocumentTitle />
+                <EmojiFavicon />
+                <QueryInvalidationBridge />
+                {/* Before the host bridge, so the sink is registered by the
+                    time a frame can route into it. */}
+                <PluginNotices />
+                <PluginHostBridge />
+                {/* After the host bridge: a plugin's module body may read
+                    host state the moment it evaluates. */}
+                <DiskPluginsBridge />
+              </GatewayProvider>
+            </SettingsProvider>
+          </AuthGate>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   )

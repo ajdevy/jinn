@@ -5,27 +5,44 @@ import { api, type WorkItemAttachmentWire } from "@/lib/api"
  * unchanged: the item's attachment list plus the two multipart mutations that
  * write it. Upload and remove both settle the same pair of caches (the list and
  * the Todo detail, which carries its own count), so they belong together and
- * not spread through the page body. `onError` stays the page's refusal lane. */
+ * not spread through the page body. Both of the page's refusal lanes ride in:
+ * `onError` for a mutation that failed outright, `onUploadFailures` for the
+ * files an otherwise-successful batch could not take. */
 
 export function useTaskAttachments({
   id,
   enabled,
   onError,
+  onUploadFailures,
 }: {
   id: string | null
   enabled: boolean
   onError: (fallback: string) => (error: unknown) => void
+  onUploadFailures: (filenames: string[]) => void
 }) {
   const qc = useQueryClient()
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["work-item-attachments", id] })
     if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
   }
+  // A drop of five files is five independent uploads, so one refusal reports
+  // itself and the other four still land. Failures are collected instead of
+  // thrown: rejecting here would abort the batch at the first bad file.
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
-      for (const file of files) await api.uploadWorkItemAttachment(id!, file)
+      const failed: string[] = []
+      for (const file of files) {
+        try {
+          await api.uploadWorkItemAttachment(id!, file)
+        } catch {
+          failed.push(file.name)
+        }
+      }
+      return failed
     },
-    onError: onError("Couldn't attach the file"),
+    onSuccess: (failed) => {
+      if (failed.length > 0) onUploadFailures(failed)
+    },
     onSettled: invalidate,
   })
   const remove = useMutation({

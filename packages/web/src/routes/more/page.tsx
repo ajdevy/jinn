@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom"
 import { ChevronRight, Sun, Moon, Palette, type LucideIcon } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useTheme } from "@/routes/providers"
 import { THEMES, type ThemeId } from "@/lib/themes"
 import type { NavItem } from "@/lib/nav"
@@ -118,7 +119,6 @@ function AppearanceRow() {
 }
 
 export default function MorePage() {
-  useBreadcrumbs([{ label: "More" }])
   const { data: features } = useFeatures()
   // Subscribed, not a module-time snapshot: this list is the phone's only route
   // to an overflow destination, so a sidebar.nav row from a plugin enabled after
@@ -129,12 +129,8 @@ export default function MorePage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[560px] px-4 pb-20 pt-6 md:pt-11">
-          <h1 className="px-1 font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-            More
-          </h1>
-
+      <PageScaffold contentWidth="560px" header={<LargeTitleHeader title="More" />}>
+        <div>
           <div className="mt-5">
             <Card>
               {overflowLinks.map((item, i) => (
@@ -151,7 +147,7 @@ export default function MorePage() {
 
           <WorkspacesGroup />
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

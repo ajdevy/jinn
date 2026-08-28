@@ -44,3 +44,38 @@ export function isTurnSuperseded(sessionId: string, turnStartedAt: number): bool
   const markedAt = new Date(marker).getTime();
   return Number.isFinite(markedAt) && markedAt >= turnStartedAt;
 }
+
+/**
+ * Prompts a newer user message displaced before the engine had begun their
+ * turn. The engine never recorded them, so the next turn carries them forward;
+ * without this they are lost from the engine's context entirely.
+ */
+export const UNSEEN_INTERRUPTED_PROMPTS_META_KEY = "unseenInterruptedPrompts";
+
+/** Past this many pile-ups the sender is a stuck client, not a fast typist. */
+const MAX_UNSEEN_INTERRUPTED_PROMPTS = 5;
+
+/** Hold an interrupted prompt the engine never read, for the next turn to carry. */
+export function retainUnseenInterruptedPrompt(sessionId: string, prompt: string): void {
+  const text = prompt.trim();
+  const session = getSession(sessionId);
+  if (!text || !session) return;
+  const pending = [...readUnseenInterruptedPrompts(session), text].slice(-MAX_UNSEEN_INTERRUPTED_PROMPTS);
+  updateSession(sessionId, {
+    transportMeta: withTransportMeta(session, { [UNSEEN_INTERRUPTED_PROMPTS_META_KEY]: pending }),
+  });
+}
+
+/** The interrupted prompts still owed to the engine, oldest first. */
+export function readUnseenInterruptedPrompts(session: Session): string[] {
+  const held = session.transportMeta?.[UNSEEN_INTERRUPTED_PROMPTS_META_KEY];
+  if (!Array.isArray(held)) return [];
+  return held.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+/** Drop the held prompts a turn has now put in front of the engine. */
+export function withUnseenInterruptedPromptsCleared(meta: unknown): Record<string, unknown> {
+  const base = meta && typeof meta === "object" && !Array.isArray(meta) ? { ...(meta as Record<string, unknown>) } : {};
+  delete base[UNSEEN_INTERRUPTED_PROMPTS_META_KEY];
+  return base;
+}

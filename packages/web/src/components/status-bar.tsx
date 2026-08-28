@@ -81,7 +81,7 @@ contributions.registerMany([
  */
 export function StatusBar() {
   return (
-    <div className="mb-[calc(56px+max(var(--safe-bottom),6px))] flex shrink-0 items-center justify-end gap-1 px-2 py-1 lg:mb-0">
+    <div className="mb-[calc(var(--tab-bar-height)+max(var(--safe-bottom),6px))] flex shrink-0 items-center justify-end gap-1 px-2 py-1 lg:mb-0">
       <Slot area={AREAS.statusbarRight} variant="chip" />
     </div>
   )

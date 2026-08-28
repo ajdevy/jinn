@@ -203,6 +203,45 @@ function renderBoardNavigation() {
   return { ...view, client }
 }
 
+/** Patch one backlog row in the query cache, the way a live payload would. */
+function patchBacklogRow(
+  client: QueryClient,
+  id: string,
+  patch: Partial<WorkItemCompactWire>,
+): void {
+  const key = boardColumnQueryKey({ kind: "department", slug: "platform" }, "backlog", { status: "open" })
+  act(() => {
+    client.setQueryData(key, (previous: { pages: Array<{ workItems: WorkItemCompactWire[] }> } | undefined) => {
+      if (!previous) throw new Error("missing backlog query fixture")
+      return {
+        ...previous,
+        pages: previous.pages.map((page, i) => i === 0
+          ? { ...page, workItems: page.workItems.map((item) => item.id === id ? { ...item, ...patch } : item) }
+          : page),
+      }
+    })
+  })
+}
+
+/** jsdom lays nothing out, so the FLIP's offsetTop reads have to be stubbed.
+ *  The FLIP measures layout, not the viewport, so that a scroll cannot read as
+ *  movement. `grown` flips the lower card's position the way real growth would. */
+function stubFlipLayout(cardId: string, grown: () => boolean): { animate: ReturnType<typeof vi.fn>; restore: () => void } {
+  Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+    configurable: true,
+    get(this: HTMLElement) { return this.dataset.boardCard === cardId ? (grown() ? 112 : 80) : 0 },
+  })
+  const animate = vi.fn()
+  Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate })
+  return {
+    animate,
+    restore: () => {
+      delete (HTMLElement.prototype as { offsetTop?: unknown }).offsetTop
+      delete (HTMLElement.prototype as { animate?: unknown }).animate
+    },
+  }
+}
+
 function boardStatusRequestCount(): number {
   return listWorkItems.mock.calls.filter(([params]) => params?.status).length
 }
@@ -478,30 +517,7 @@ describe("the board surface", () => {
     await waitFor(() => expect(getWorkItemTrees).toHaveBeenCalledTimes(1))
     avatarRender.mockClear()
 
-    const key = boardColumnQueryKey(
-      { kind: "department", slug: "platform" },
-      "backlog",
-      { status: "open" },
-    )
-    act(() => {
-      client.setQueryData(key, (previous: {
-        pages: Array<{ workItems: WorkItemCompactWire[] }>
-        pageParams: number[]
-      } | undefined) => {
-        if (!previous) throw new Error("missing backlog query fixture")
-        return {
-          ...previous,
-          pages: previous.pages.map((page, pageIndex) => pageIndex === 0
-            ? {
-                ...page,
-                workItems: page.workItems.map((item) =>
-                  item.id === "PLA-1" ? { ...item, title: "Changed title" } : item,
-                ),
-              }
-            : page),
-        }
-      })
-    })
+    patchBacklogRow(client, "PLA-1", { title: "Changed title" })
 
     await waitFor(() => expect(screen.getByTestId("board-card-PLA-1").textContent).toContain("Changed title"))
     expect(avatarRender).toHaveBeenCalledTimes(1)
@@ -600,17 +616,10 @@ describe("card anatomy", () => {
     expect(card.textContent).toContain("infra")
     expect(card.textContent).toContain("Jul 1")
     // Skipping is desktop-only, at a fixed intrinsic size: a remembered one is revised mid-scroll and takes the reader's place with it.
-    expect(card.className).toContain("[content-visibility:auto] [contain-intrinsic-size:83px] max-[700px]:[content-visibility:visible]")
+    expect(card.className).toContain("[content-visibility:auto] [contain-intrinsic-size:137px] max-[700px]:[content-visibility:visible]")
   })
 
-  it("shows the approval bell in accent when an approval is pending", async () => {
-    rows.in_review = [compact({ id: "PLA-5", status: "in_review", approvalState: "pending" })]
-    renderBoard("/todos/b/platform")
-    const card = await screen.findByTestId("board-card-PLA-5")
-    expect(card.textContent).toContain("Approval")
-  })
-
-  it("adds a markdown-free preview line from the Todo body", async () => {
+  it("keeps the Todo body off the card entirely", async () => {
     rows.backlog = [compact({ id: "PLA-15", status: "backlog" })]
     const tree = emptyTree("PLA-15")
     tree.root.body = "## Plan\n\nShip the **quiet** card preview with `one renderer`."
@@ -618,59 +627,57 @@ describe("card anatomy", () => {
     renderBoard("/todos/b/platform")
 
     const card = await screen.findByTestId("board-card-PLA-15")
-    expect(card.textContent).toContain("Ship the quiet card preview with one renderer.")
-    expect(card.textContent).not.toContain("##")
-    expect(card.textContent).not.toContain("**")
-    expect(card.textContent).not.toContain("`")
+    expect(card.textContent).not.toContain("Ship the quiet card preview")
+    expect(card.textContent).not.toContain("Plan")
   })
 
-  it("FLIPs cards below an item when delayed enrichment grows its card", async () => {
-    rows.backlog = [
-      compact({ id: "PLA-15", status: "backlog" }),
-      compact({ id: "PLA-16", status: "backlog" }),
-    ]
-    let release!: () => void
-    let enriched = false
-    getWorkItemTrees.mockImplementation(
-      (ids: string[]) =>
-        new Promise((resolve) => {
-          release = () => {
-            const trees = Object.fromEntries(ids.map((id) => {
-              const tree = emptyTree(id)
-              if (id === "PLA-15") tree.root.body = "Delayed body preview"
-              return [id, tree]
-            }))
-            resolve({ trees })
-          }
-        }),
-    )
-    // The FLIP measures layout, not the viewport, so that a scroll cannot read as movement; jsdom lays nothing out, so offsetTop is what has to stand in.
-    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
-      configurable: true,
-      get(this: HTMLElement) { return this.dataset.boardCard === "PLA-16" ? (enriched ? 112 : 80) : 0 },
-    })
-    const animate = vi.fn()
-    Object.defineProperty(HTMLElement.prototype, "animate", {
-      configurable: true,
-      value: animate,
-    })
+  it("FLIPs cards below an item when a stop lead grows its card", async () => {
+    rows.backlog = [compact({ id: "PLA-15", status: "backlog" }), compact({ id: "PLA-16", status: "backlog" })]
+    let grown = false
+    const flip = stubFlipLayout("PLA-16", () => grown)
 
-    renderBoard("/todos/b/platform")
+    const { client } = renderBoard("/todos/b/platform")
     const lowerCard = await screen.findByTestId("board-card-PLA-16")
-    await waitFor(() => expect(release).toBeTypeOf("function"))
-    enriched = true
-    await act(async () => {
-      release()
-    })
-    await waitFor(() => expect(screen.getByTestId("board-card-PLA-15").textContent).toContain("Delayed body preview"))
-    expect(animate).toHaveBeenCalledWith(
+    await waitFor(() => expect(getWorkItemTrees).toHaveBeenCalled())
+
+    // The four-row face grows for one reason only: a stop lead, which rides the
+    // compact row rather than arriving with enrichment.
+    grown = true
+    patchBacklogRow(client, "PLA-15", { unblockHint: { what: "sign the renewal", who: "the operator" } })
+
+    // The phone list renders the same lead under the same id, so scope the wait to the card.
+    await waitFor(() =>
+      expect(screen.getByTestId("board-card-PLA-15").querySelector('[data-testid="stop-lead-PLA-15"]')).toBeTruthy(),
+    )
+    expect(flip.animate).toHaveBeenCalledWith(
       [{ transform: "translateY(-32px)" }, { transform: "translateY(0)" }],
       { duration: 200, easing: "cubic-bezier(.34,1.3,.64,1)" },
     )
-    expect(animate.mock.instances).toContain(lowerCard)
+    expect(flip.animate.mock.instances).toContain(lowerCard)
+    flip.restore()
+  })
 
-    delete (HTMLElement.prototype as { offsetTop?: unknown }).offsetTop
-    delete (HTMLElement.prototype as { animate?: unknown }).animate
+  it("does not FLIP when delayed enrichment lands — the four-row face cannot grow", async () => {
+    rows.backlog = [compact({ id: "PLA-15", status: "backlog" }), compact({ id: "PLA-16", status: "backlog" })]
+    const rich = emptyTree("PLA-15")
+    rich.root.body = "A body the card no longer shows"
+    rich.root.priority = 3
+    rich.root.children = [{ ...emptyTree("PLA-17", "done").root, children: [] }]
+    rich.totals = { backlog: 1, done: 1 }
+    rich.spendUsd = 12.5
+    getWorkItemTrees.mockImplementation((ids: string[]) =>
+      Promise.resolve({ trees: Object.fromEntries(ids.map((id) => [id, id === "PLA-15" ? rich : emptyTree(id)])) }),
+    )
+    const flip = stubFlipLayout("PLA-16", () => false)
+
+    renderBoard("/todos/b/platform")
+    await screen.findByTestId("board-card-PLA-16")
+
+    // The enrichment did land after first paint — the roll-up and the cost prove it.
+    await waitFor(() => expect(screen.getByTestId("board-rollup-PLA-15").textContent).toContain("1/1"))
+    expect(screen.getByTestId("board-card-PLA-15").textContent).toContain("$12.50")
+    expect(flip.animate).not.toHaveBeenCalled()
+    flip.restore()
   })
 
   it("renders the roll-up pill from the tree and expands the in-place tray", async () => {
@@ -722,31 +729,19 @@ describe("card anatomy", () => {
     )
   })
 
-  it("shows the blocked reason from the latest transition note", async () => {
+  it("leaves the blocked transition note off the card — it has no row on the face", async () => {
     rows.blocked = [compact({ id: "PLA-9", status: "blocked" })]
+    const note = {
+      id: "wie_1", workItemId: "PLA-9", kind: "status_change", fromStatus: "executing", toStatus: "blocked",
+      actor: "operator", detail: { note: "Waiting on vendor keys" }, createdAt: "2026-07-23T09:00:00.000Z",
+    }
     getWorkItems.mockImplementation((ids: string[]) =>
-      Promise.resolve({
-        workItems: ids.map((id) => ({
-          workItem: { ...emptyTree(id, "blocked").root },
-          events: [
-            {
-              id: "wie_1",
-              workItemId: id,
-              kind: "status_change",
-              fromStatus: "executing",
-              toStatus: "blocked",
-              actor: "operator",
-              detail: { note: "Waiting on vendor keys" },
-              createdAt: "2026-07-23T09:00:00.000Z",
-            },
-          ],
-        })),
-      }),
+      Promise.resolve({ workItems: ids.map((id) => ({ workItem: { ...emptyTree(id, "blocked").root }, events: [note] })) }),
     )
     renderBoard("/todos/b/platform")
-    await waitFor(() =>
-      expect(screen.getByTestId("board-card-PLA-9").textContent).toContain("Waiting on vendor keys"),
-    )
+    const card = await screen.findByTestId("board-card-PLA-9")
+    await waitFor(() => expect(getWorkItems).toHaveBeenCalled())
+    expect(card.textContent).not.toContain("Waiting on vendor keys")
   })
 })
 

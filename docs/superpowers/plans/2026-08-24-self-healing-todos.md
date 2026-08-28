@@ -666,7 +666,7 @@ EOF
 - Operator-filtered triggers after dropping impersonation depend on the resume stamp. Covered by tests; watch first classify-only week.
 - Two-attempt cap vs block recurrences: both count; a dependency-kind requeue is not a recovery attempt.
 - Instance PLA-222 not applied until rollout step 4.
-- Sweep and the anomaly detector share one `work_item_recovery` row. A later *generic* operator fallback (`no safe automatic recovery is known`) cannot replace an unresolved `manager`/`recovering` lane. Specific verdicts (failure, leftover manager, pending routed approval, operator-only) may replace. Terminal `done`/`cancelled` means the prior condition resolved. Refused `complete()` (open children) stays `in_review` on Manager attention.
+- The sweep is the only writer of a Todo's `work_item_recovery` row; the anomaly detector only appends `anomaly_observed`. A later *generic* operator fallback (`no safe automatic recovery is known`) cannot replace an unresolved `manager`/`recovering` lane. Specific verdicts (failure, leftover manager, pending routed approval, operator-only) may replace. Terminal `done`/`cancelled` means the prior condition resolved. Refused `complete()` (open children) stays `in_review` on Manager attention.
 
 ## Leak-grep
 

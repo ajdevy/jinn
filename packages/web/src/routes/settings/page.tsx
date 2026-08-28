@@ -1,9 +1,10 @@
 
-import { useEffect, useState } from "react"
-import { RotateCcw, Trash2, Check, Save, Loader2, Plus, EyeOff } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { RotateCcw, Trash2, Check, Loader2, Plus, EyeOff } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useSettings } from "@/routes/settings-provider"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { api } from "@/lib/api"
 import { authFetch } from "@/lib/auth"
 import { useModelRegistry } from "@/hooks/use-model-registry"
@@ -19,6 +20,7 @@ import {
 import { ACCENT_PRESETS, ThemePicker, TextSizePicker } from "./appearance-pickers"
 import { OperatorEmojiRow, PortalEmojiRow } from "./emoji-rows"
 import { ConfigConflictNotice } from "./config-conflict-notice"
+import { ConfigSaveStatus } from "./config-save-status"
 import { PluginsEntry } from "./plugins/entry"
 import { EnginesSection } from "./engines/entry"
 import type { Config } from "./config-shape"
@@ -27,6 +29,7 @@ import { SttSettingsSection } from "./stt-section"
 import { VoiceSection } from "./voice-section"
 import { PairingSection } from "./pairing-section"
 import { ShortcutsSection } from "./shortcuts-section"
+import { useConfigCommit } from "./use-config-commit"
 import { useVoiceCapability } from "./use-voice-capability"
 import {
   CONTROL_CLASS,
@@ -44,7 +47,6 @@ import {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  useBreadcrumbs([{ label: 'Settings' }])
   const {
     settings,
     setAccentColor,
@@ -88,18 +90,18 @@ export default function SettingsPage() {
 
   // Gateway config state
   const [config, setConfig] = useState<Config>({})
+  /** The document the next write is built from. Held beside the state because two
+   *  edits in one tick both have to reach the writer, not just the last render. */
+  const configRef = useRef<Config>({})
   const [configLoading, setConfigLoading] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  /** Which config.yaml this page is editing. Sent back on save so a hand edit
-   *  made since the load is refused rather than silently overwritten. */
-  const [configRevision, setConfigRevision] = useState("")
   const [conflict, setConflict] = useState<{ message: string; remedy?: string } | null>(null)
   const { voiceCapability, reloadVoiceCapability } = useVoiceCapability()
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error"
-    message: string
-  } | null>(null)
+  const { saveState, commit, adoptRevision } = useConfigCommit({
+    blocker: (next) => configSaveBlocker(next.engines, modelRegistry?.engines),
+    onSaved: reloadVoiceCapability,
+    onConflict: setConflict,
+  })
 
   // WhatsApp QR code state
   const [waQr, setWaQr] = useState<string | null>(null)
@@ -139,8 +141,9 @@ export default function SettingsPage() {
     api
       .getConfig()
       .then(({ config: loaded, revision }) => {
+        configRef.current = loaded as Config
         setConfig(loaded as Config)
-        setConfigRevision(revision)
+        adoptRevision(revision)
         // Reloading is the way out of a conflict, so it is also what clears it.
         setConflict(null)
         setCompanyPrefixValue((loaded as Config).portal?.companyPrefix ?? "")
@@ -186,8 +189,16 @@ export default function SettingsPage() {
     }
   }, [config.connectors?.whatsapp])
 
+  /** Editing and saving are one action now that there is no Save button. */
+  function applyModelConfig(updater: (cfg: Config) => Config) {
+    const next = updater(configRef.current)
+    configRef.current = next
+    setConfig(next)
+    commit(next)
+  }
+
   function updateConfig(path: string[], value: unknown) {
-    setConfig((prev) => {
+    applyModelConfig((prev) => {
       const next = structuredClone(prev)
       let obj: Record<string, unknown> = next
       for (let i = 0; i < path.length - 1; i++) {
@@ -199,10 +210,6 @@ export default function SettingsPage() {
       obj[path[path.length - 1]] = value
       return next
     })
-  }
-
-  function applyModelConfig(updater: (cfg: Config) => Config) {
-    setConfig((prev) => updater(prev))
   }
 
   const claudeRegistryModels = modelRegistry?.engines?.claude?.models ?? []
@@ -225,50 +232,11 @@ export default function SettingsPage() {
     setClaudeModelLabel("")
   }
 
-  function handleSave() {
-    const blocker = configSaveBlocker(config.engines, modelRegistry?.engines)
-    if (blocker) {
-      setConflict(null)
-      setFeedback({ type: "error", message: blocker })
-      return
-    }
-    setSaving(true)
-    setFeedback(null)
-    setConflict(null)
-    api
-      .updateConfig(config, configRevision || undefined)
-      .then((result) => {
-        setConfigRevision(result?.revision ?? "")
-        reloadVoiceCapability()
-        setFeedback({ type: "success", message: "Settings saved successfully" })
-      })
-      .catch((err) => {
-        // A conflict is not a failed save, it is a save that has not happened yet:
-        // it gets its own notice with the way out, and deliberately no retry.
-        if (err?.code === "CONFIG_CONFLICT") {
-          setConflict({ message: err.message, remedy: err.remedy })
-          return
-        }
-        setFeedback({ type: "error", message: `Failed to save: ${err.message}` })
-      })
-      .finally(() => setSaving(false))
-  }
-
   return (
     <PageLayout>
-      {/* Same page frame as Todos/Limits: one scrolling column, inline
-          large-title header. Forms read best narrow, so the column is 640px. */}
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[640px] px-5 pb-20 pt-6 md:pt-11">
-          <header className="mb-6">
-            <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-              Settings
-            </h1>
-            <div className="mt-1 text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-              Portal, gateway and connectors
-            </div>
-          </header>
-
+      {/* Forms read best narrow, so the column is 640px. */}
+      <PageScaffold contentWidth="640px" header={<LargeTitleHeader title="Settings" subtitle="Portal, gateway and connectors" />}>
+        <div>
           {/* -- Section 1: Appearance -- */}
           <Section title="Appearance">
             <ThemePicker />
@@ -533,23 +501,7 @@ export default function SettingsPage() {
             />
           )}
 
-          {/* Gateway config feedback */}
-          {feedback && (
-            <div
-              className="mb-[var(--space-4)] rounded-[var(--radius-lg)] p-[10px_13px] text-[length:var(--text-footnote)]"
-              style={{
-                background: `color-mix(in srgb, ${
-                  feedback.type === "success" ? "var(--system-green)" : "var(--system-red)"
-                } 8%, transparent)`,
-                color:
-                  feedback.type === "success"
-                    ? "var(--system-green)"
-                    : "var(--system-red)",
-              }}
-            >
-              {feedback.message}
-            </div>
-          )}
+          <ConfigSaveStatus state={saveState} />
 
           {configLoading ? (
             <div
@@ -675,7 +627,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={addClaudeModel}
                       disabled={!claudeModelId.trim()}
-                      className="inline-flex items-center justify-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border-none bg-[var(--accent)] px-[10px] py-[6px] text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:cursor-default disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-[var(--space-1)] rounded-[var(--radius-sm)] border-none bg-[var(--accent)] px-[10px] py-[6px] text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--accent-contrast)] disabled:cursor-default disabled:opacity-50" // jinn-shell: ok inline settings control, not page chrome
                     >
                       <Plus size={14} />
                       Add
@@ -878,6 +830,7 @@ export default function SettingsPage() {
                 <FieldRow label="Interrupt on New Message">
                   <ToggleSwitch
                     checked={config.sessions?.interruptOnNewMessage ?? true}
+                    ariaLabel="Interrupt on new message"
                     onChange={(v) =>
                       updateConfig(["sessions", "interruptOnNewMessage"], v)
                     }
@@ -1415,10 +1368,10 @@ export default function SettingsPage() {
               {/* -- Section 9: Voice Input (STT) -- */}
               <SttSettingsSection />
 
-              {/* Save row for gateway config — pill buttons in the app's shared
-                  grammar (accent-fill primary, quiet fill secondary). */}
+              {/* Edits save themselves; reloading is how the operator throws one
+                  away or picks up a hand edit. Quiet fill, in the shared grammar. */}
               <div
-                className="mb-7 flex justify-end gap-[var(--space-3)]"
+                className="mb-7 flex justify-end"
               >
                 <button
                   onClick={() => loadConfig()}
@@ -1426,21 +1379,6 @@ export default function SettingsPage() {
                 >
                   <RotateCcw size={15} />
                   Reload
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="inline-flex h-[38px] items-center gap-1.5 rounded-full border-none px-4 text-[length:var(--text-subheadline)] font-semibold transition-transform hover:scale-[0.98]"
-                  style={{
-                    background: "var(--accent-fill)",
-                    color: "var(--accent)",
-                    boxShadow: "var(--inset-shine)",
-                    cursor: saving ? "wait" : "pointer",
-                    opacity: saving ? 0.7 : 1,
-                  }}
-                >
-                  <Save size={15} />
-                  {saving ? "Saving…" : "Save Config"}
                 </button>
               </div>
             </>
@@ -1483,7 +1421,7 @@ export default function SettingsPage() {
             </div>
           </Section>
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

@@ -39,7 +39,6 @@ vi.mock("@/lib/api", () => {
 vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => undefined }))
 
 import { WorkflowValidationApiError } from "@/lib/api"
 import { DND_MIME } from "../editor/palette"
@@ -91,7 +90,7 @@ describe("workflow editor surface", () => {
     createWorkflow.mockResolvedValue({ ...structuredClone(definition), id: "daily-report", title: "Daily Report", nodes: [], edges: [], ui: { positions: {} } })
     const router = renderRoute("/workflow")
 
-    await userEvent.click(await screen.findByRole("button", { name: /new workflow/i }))
+    await userEvent.click((await screen.findAllByRole("button", { name: /new workflow/i }))[0])
     await userEvent.type(screen.getByLabelText("Workflow title"), "Daily Report")
     await userEvent.click(screen.getByRole("button", { name: "Create" }))
 

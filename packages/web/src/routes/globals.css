@@ -303,6 +303,13 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+  /* MobileTabBar's box ABOVE its own safe-area padding: a 0.5px top edge, 6px
+     of `py-1.5` and a 49px row (`components/chat/mobile-tab-bar.tsx`). Compose
+     the inset at the call site the same way everything else does, e.g.
+     bottom-[calc(var(--tab-bar-height)+max(var(--safe-bottom),6px))]. It was
+     written out twice before this token existed and the two copies disagreed;
+     one of them parked a third of the status bar's controls behind the bar. */
+  --tab-bar-height: 56px;
   /* Height the on-screen keyboard obscures, published by the platform viewport
      adapter. Declared here so the variable resolves before
      that runs and in browsers without visualViewport; compose it the same way,
@@ -327,6 +334,7 @@
 
 /* LEDGER DARK — warm charcoal + amber (default) */
 :root, [data-theme="dark"] {
+  --tab-bar-height: 56px;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-display: "Hanken Grotesk", -apple-system, system-ui, sans-serif;
   --font-code: "IBM Plex Mono", "SF Mono", Monaco, Menlo, monospace;
@@ -411,6 +419,7 @@
 
 /* LEDGER LIGHT — warm paper + ochre */
 [data-theme="light"] {
+  --tab-bar-height: 56px;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-display: "Hanken Grotesk", -apple-system, system-ui, sans-serif;
   --font-code: "IBM Plex Mono", "SF Mono", Monaco, Menlo, monospace;
@@ -487,6 +496,7 @@
 /* SYSTEM: media-query fallback before JS hydration */
 @media (prefers-color-scheme: light) {
   [data-theme="system"] {
+    --tab-bar-height: 56px;
     --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     --font-display: "Hanken Grotesk", -apple-system, system-ui, sans-serif;
     --font-code: "IBM Plex Mono", "SF Mono", Monaco, Menlo, monospace;
@@ -559,6 +569,7 @@
 }
 @media (prefers-color-scheme: dark) {
   [data-theme="system"] {
+    --tab-bar-height: 56px;
     --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     --font-display: "Hanken Grotesk", -apple-system, system-ui, sans-serif;
     --font-code: "IBM Plex Mono", "SF Mono", Monaco, Menlo, monospace;
@@ -963,6 +974,92 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes jinn-title-enter { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   [data-title-enter] { animation: none; }
+}
+
+/* ============================================
+   Jinn shell — the large title's collapse
+   Scroll-driven, so the header owes nothing to a scroll listener: the timeline
+   IS the scrollport (`scroll(nearest block)`), which is why the large title has
+   to live inside it. The range comes from the title's own measured height,
+   published inline per instance by PageScaffold — --text-large-title is a
+   clamp() times --text-scale, so one global distance would finish early at
+   large text sizes and never finish at small ones.
+   The keyframes change what the title LOOKS like on the way out, never what it
+   occupies: the box leaves by scrolling away, which is what keeps the header's
+   resting height the bar's rather than a tall empty cell.
+   ============================================ */
+
+/* One gutter serves the page margin and the content column both, so the large
+   title and the body it heads cannot drift apart: a route publishes its measure
+   as --jinn-content-width and the leftover width is split either side. Unset,
+   the column is the full width and the gutter is just the page margin. */
+.jinn-scrollport {
+  --jinn-gutter: max(var(--space-3), (100% - var(--jinn-content-width, 100%)) / 2);
+  /* Declared here because the sticky bar pins against it — see .jinn-title-bar. */
+  --jinn-scrollport-top: var(--space-5);
+  padding-inline: var(--jinn-gutter);
+  padding-top: var(--jinn-scrollport-top);
+}
+
+@media (min-width: 48rem) {
+  .jinn-scrollport {
+    --jinn-gutter: max(var(--space-10), (100% - var(--jinn-content-width, 100%)) / 2);
+  }
+}
+
+/* The bar's material spans the page rather than the column, so it takes the
+   gutter back off and re-applies it as padding. It rises the scrollport's top
+   padding too: a sticky inset counts from the content box, so `top: 0` pins the
+   bar BELOW that padding and leaves a band of unblurred content sliding past
+   above it. */
+.jinn-title-bar {
+  top: calc(var(--jinn-scrollport-top, 0px) * -1);
+  margin-inline: calc(var(--jinn-gutter) * -1);
+  padding-inline: var(--jinn-gutter);
+}
+
+@keyframes jinn-title-collapse {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-6px) scale(0.92); }
+}
+
+.jinn-large-title {
+  animation: jinn-title-collapse linear both;
+  animation-timeline: scroll(nearest block);
+  animation-range: 0 var(--jinn-collapse-distance);
+}
+
+@keyframes jinn-title-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.jinn-inline-title {
+  opacity: 0;
+  animation: jinn-title-reveal linear both;
+  animation-timeline: scroll(nearest block);
+  animation-range: 0 var(--jinn-collapse-distance);
+}
+
+/* Where the timeline is unsupported the header is permanently inline: no large
+   title, the inline one always visible, the bar's material always applied. One
+   line shorter and entirely correct — nothing is animated badly. */
+@supports not (animation-timeline: scroll()) {
+  .jinn-large-title { display: none; }
+  .jinn-inline-title { opacity: 1; }
+}
+
+/* Same state under reduced motion, and it has to be said here: a scroll-driven
+   animation is not time-driven, so neither the --duration-* collapse nor the
+   global `animation-duration: 0.01ms` reset reaches it. */
+@media (prefers-reduced-motion: reduce) {
+  .jinn-large-title { display: none; }
+  .jinn-inline-title { opacity: 1; animation: none; }
+}
+
+@media (min-width: 64rem) {
+  .jinn-large-title { animation: none; display: block; opacity: 1; transform: none; }
+  .jinn-inline-title { display: none; animation: none; }
 }
 
 /* ============================================

@@ -12,9 +12,11 @@ import { departmentTitle } from "./board-switcher"
  * board's others, and reaches the card as a callback like every other action. */
 
 /**
- * The toggle. It shows at rest wherever it is mounted: an affordance nobody
- * can see is one nobody uses, and hover-gating it hid the whole gesture on the
- * board where it matters most. Unkept it rests at `--text-tertiary`, which
+ * The toggle. It shows at rest wherever it is mounted — an affordance nobody can
+ * see is one nobody uses — and any mount that wants it hover-gated says so in
+ * the `className` it passes, as the board card does since ICI-1427: that card's
+ * top row belongs to the assignee, and a pin resting beside every avatar reads
+ * as state rather than as a control. Unkept it rests at `--text-tertiary`, which
  * clears 3:1 on the card in both themes where the quietest ink measured 1.9:1,
  * and strengthens under the pointer; kept it is the accent, filled. The button
  * occupies the same box in every state, so a card cannot resize as the pointer

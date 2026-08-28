@@ -73,22 +73,6 @@ export interface QueueItem {
   messageId: string | null;
 }
 
-export interface InstanceMigration {
-  required: boolean
-  fromVersion: string
-  toVersion: string
-  versions: string[]
-  changedFiles: Array<{ path: string; operation: 'add' | 'modify' | 'remove' }>
-  prompt: string | null
-  migrationKey: string | null
-}
-
-export interface OpenInstanceMigrationResult {
-  sessionId: string
-  reused: boolean
-  migrationKey: string
-}
-
 export interface WorkspaceInfo {
   id: string
   name: string
@@ -706,9 +690,6 @@ export const api = {
   listWorkspaces: () => get<WorkspaceInfo[]>('/api/instances'),
   createWorkspace: (input: { name: string }) => post<CreateWorkspaceResult>('/api/instances', input),
   startWorkspace: (id: string) => post<WorkspaceInfo>(`/api/instances/${encodeURIComponent(id)}/start`),
-  getInstanceMigration: () => get<InstanceMigration>('/api/instance-migration'),
-  openInstanceMigration: (migrationKey: string) =>
-    post<OpenInstanceMigrationResult>('/api/instance-migration/open', { migrationKey }),
   listNotes: (query?: string) => {
     const params = new URLSearchParams()
     if (query?.trim()) params.set("q", query.trim())

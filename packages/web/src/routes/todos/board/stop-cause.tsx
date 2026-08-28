@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { Pause, TriangleAlert } from "lucide-react"
-import type { WorkItemCompactWire, WorkItemStatusWire } from "@/lib/api"
+import { Pause } from "lucide-react"
+import type { WorkItemCompactWire } from "@/lib/api"
 import { isParked } from "@/lib/parked"
 import { formatCountdown } from "../util"
 
@@ -13,8 +13,9 @@ import { formatCountdown } from "../util"
  *
  * The countdown chip and the unblock hint separate them, and both LEAD the card
  * at every width: on a card that has stopped, the wait is the headline and the
- * title is the detail. The plain why-line stays for the ordinary case — a block
- * whose only explanation is its transition note. */
+ * title is the detail. A block whose only explanation is its transition note has
+ * no line here any more — the board card is a fixed grid since ICI-1427, and the
+ * note reads on the task page and in the Needs-you view instead. */
 
 /** Whether the card carries a lead at all, from the fields alone and never from
  *  the clock: `cardLayoutKey` feeds the column's FLIP, and a key that changed on
@@ -86,25 +87,6 @@ export function StopCauseLead({ item, className = "" }: { item: WorkItemCompactW
           <span className="truncate text-[var(--text-tertiary)]">{hint.who}</span>
         </span>
       )}
-    </div>
-  )
-}
-
-/** The one-line why on blocked/escalated cards: the latest transition note. The
- *  mock leads the line with a small bare status glyph (F4). */
-export function CauseLine({ status, reason }: { status: WorkItemStatusWire; reason: string }) {
-  return (
-    <div
-      className={`mt-2 flex items-center gap-1.5 text-[12px] max-[700px]:hidden ${
-        status === "escalated" ? "text-[var(--system-red)]" : "text-[var(--system-orange)]"
-      }`}
-    >
-      {status === "escalated" ? (
-        <TriangleAlert size={11} aria-hidden className="flex-none" />
-      ) : (
-        <Pause size={11} aria-hidden className="flex-none" />
-      )}
-      {reason}
     </div>
   )
 }

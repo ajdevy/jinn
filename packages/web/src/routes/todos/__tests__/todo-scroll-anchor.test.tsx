@@ -229,6 +229,8 @@ describe("Todos list scroll anchoring, windowed", () => {
   /** The virtualizer's own item estimate, so an unmeasured row is this tall. */
   const WINDOW_ROW_H = 44
 
+  // The guard for the windowed list reading the page's own scroller: unwire
+  // `getScrollElement` in list/list-window.tsx and no row mounts, so this fails.
   it("holds the read position when the group above the reader grows", async () => {
     rows.backlog = Array.from({ length: 80 }, (_, k) => compact(`PLA-${k + 1}`, "backlog", k))
     const layout = installVirtualLayout(WINDOW_ROW_H, VIEWPORT_H, {

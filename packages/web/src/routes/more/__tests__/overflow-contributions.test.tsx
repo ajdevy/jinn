@@ -13,7 +13,6 @@ import MorePage from "../page"
 vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock("@/routes/providers", () => ({ useTheme: () => ({ theme: "dark", setTheme: vi.fn() }) }))
 vi.mock("@/hooks/use-features", () => ({ useFeatures: () => ({ data: undefined, isPending: false }) }))
 vi.mock("@/hooks/use-workspaces", () => ({
