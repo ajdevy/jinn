@@ -67,6 +67,21 @@ describe("the merged feed model", () => {
     expect(amongQuiet.map((b) => b.kind)).toEqual(["event", "event", "run-start", "run-end", "event", "event"])
   })
 
+  it("sorts a thread by its latest reply, so a reply made mid-attempt lands inside it", () => {
+    const blocks = buildFeed(
+      [],
+      [
+        comment("wic_root", "Starting", "2026-07-22T09:50:00.000Z"),
+        comment("wic_reply", "Halfway", "2026-07-22T10:20:00.000Z", { parentCommentId: "wic_root" }),
+      ],
+      [run("wir_1", { startedAt: "2026-07-22T10:00:00.000Z", endedAt: "2026-07-22T10:40:00.000Z" })],
+    )
+    // Replies stay grouped under their root, so the block carries several
+    // timestamps and only one position. The newest is the one that keeps the
+    // reply on the right side of the attempt it answers.
+    expect(blocks.map((b) => b.kind)).toEqual(["run-start", "comment", "run-end"])
+  })
+
   it("whispers read as actor + verb (bounce carries its round; approvals decide readably)", () => {
     expect(whisperOf(event("e", "status_change", "t", { toStatus: "in_review" })).text).toBe("moved it to In review")
     expect(

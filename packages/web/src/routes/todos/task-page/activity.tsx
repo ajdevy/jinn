@@ -508,7 +508,7 @@ export function ActivitySection({
                     return next
                   })
                 }
-                className="focus-ring flex items-center py-1.5 text-[12.5px] font-medium text-[var(--text-quaternary)] outline-none hover:text-[var(--text-secondary)]"
+                className="focus-ring flex items-center py-1.5 text-[12.5px] font-medium text-[var(--text-quaternary)] outline-none hover:text-[var(--text-secondary)] max-[700px]:min-h-[34px]"
               >
                 <ChevronRight
                   size={11}

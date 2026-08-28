@@ -23,6 +23,14 @@ type FeedEntry =
 
 export type FeedBlock = FeedEntry | { kind: "fold"; events: WorkItemEventWire[] }
 
+/** Where a thread sits in the stream. Threading is single-level, so a block
+ *  carries several timestamps and gets one position — and it has to be the
+ *  newest, or a reply written during an attempt sorts ahead of the attempt it
+ *  answers and stops interleaving with it. */
+function threadAt(node: CommentThreadNode): string {
+  return node.replies.reduce((latest, reply) => (reply.createdAt > latest ? reply.createdAt : latest), node.comment.createdAt)
+}
+
 function runEntries(run: WorkItemRunWire): FeedEntry[] {
   const start: FeedEntry = { kind: "run-start", at: run.startedAt, run }
   if (run.endedAt === null || run.outcome === null) return [start]
@@ -38,7 +46,7 @@ export function buildFeed(
     ...events
       .filter((event) => !FEED_HIDDEN_KINDS.has(event.kind))
       .map((event): FeedEntry => ({ kind: "event", at: event.createdAt, event })),
-    ...buildCommentThread(comments).map((node): FeedEntry => ({ kind: "comment", at: node.comment.createdAt, node })),
+    ...buildCommentThread(comments).map((node): FeedEntry => ({ kind: "comment", at: threadAt(node), node })),
     ...runs.flatMap(runEntries),
   ].sort((a, b) => a.at.localeCompare(b.at))
 
