@@ -1,6 +1,8 @@
-import { useRef } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import { FileText, Image as ImageIcon, Paperclip, X } from "lucide-react"
 import { api, type WorkItemAttachmentWire } from "@/lib/api"
+import { useFileDrop } from "@/hooks/use-file-drop"
+import { FileDropOverlay } from "@/components/ui/file-drop-overlay"
 import { AttachmentTile, isImageMime, useAttachmentPreview } from "./attachment-preview"
 
 /* Todos v2 — attachments are one quiet action under the description, not a
@@ -9,6 +11,34 @@ import { AttachmentTile, isImageMime, useAttachmentPreview } from "./attachment-
  * tile the activity feed renders, so the page speaks one visual language about
  * an attachment wherever it appears. Item-level only — comment-level
  * attachments belong to their comment in the feed (ICI-1438). */
+
+/* The other way in: the whole detail surface takes a file drag, so a drop over
+ * the description, the sub-tasks, the props rail or the activity feed attaches
+ * exactly as the paperclip does. Drags that carry no files — a sub-task
+ * reorder, a board card — pass straight through to whoever owns them. */
+
+export function AttachmentDropSurface({
+  className,
+  onUpload,
+  children,
+}: {
+  className: string
+  onUpload: (files: File[]) => void
+  children: ReactNode
+}) {
+  const { dragOver, droppedFiles, clearDroppedFiles, handlers } = useFileDrop()
+  useEffect(() => {
+    if (!droppedFiles) return
+    clearDroppedFiles()
+    onUpload(droppedFiles)
+  }, [droppedFiles, clearDroppedFiles, onUpload])
+  return (
+    <div className={`relative ${className}`} {...handlers}>
+      {children}
+      {dragOver && <FileDropOverlay />}
+    </div>
+  )
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
