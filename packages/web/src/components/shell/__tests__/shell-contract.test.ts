@@ -34,9 +34,7 @@ function sourceFiles(directory: string): string[] {
   })
 }
 
-function relativePath(path: string): string {
-  return relative(webRoot, path).replaceAll("\\", "/")
-}
+const relativePath = (path: string): string => relative(webRoot, path).replaceAll("\\", "/")
 
 function lineOf(source: string, index: number): number {
   return source.slice(0, index).split("\n").length
