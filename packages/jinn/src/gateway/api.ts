@@ -138,6 +138,7 @@ import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
 import { handlePluginsApi } from "./plugins-api.js";
 import { handleExperimentsApi } from "./experiments-api.js";
+import { handleMcpHttp } from "./mcp-http.js";
 import QRCode from "qrcode";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, mimeFromFilename, MultipartUploadError, readLocalFileForIngestion, readMultipartFile, sanitizeUploadFilename, isFileNotModified } from "./files.js";
@@ -2009,6 +2010,7 @@ export async function handleApiRequest(
     }
 
     if (await handleExperimentsApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleMcpHttp(req, res, { method, pathname }, context)) return;
 
     // GET /api/knowledge/search — GRS-020b: deterministic token-AND search over
     // the two allowlisted knowledge roots (knowledge/ + docs/, .md only).
