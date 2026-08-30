@@ -9,6 +9,7 @@ import type {
   ConnectorCapabilities,
   ConnectorHealth,
   IncomingMessage,
+  OutboundDocument,
   ReplyContext,
   Target,
   TelegramConnectorConfig,
@@ -24,6 +25,9 @@ import {
 } from "../../stt/stt.js";
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
+
+/** Bot API `sendDocument` caption ceiling; `sendMessage` allows 4096. */
+const TELEGRAM_CAPTION_LIMIT = 1024;
 
 export class TelegramConnector implements Connector {
   name = "telegram";
@@ -409,6 +413,22 @@ export class TelegramConnector implements Connector {
       if (id) lastMessageId = id;
     }
     return lastMessageId;
+  }
+
+  async sendDocument(target: Target, doc: OutboundDocument): Promise<string | undefined> {
+    const caption = doc.caption?.trim() ?? "";
+    // Bot API caps a caption at 1024 characters and rejects the whole send past it,
+    // while a plain message allows 4096. An oversized caption is the agent's prose,
+    // not a label, so it follows the file as its own message instead of being cut.
+    const inlineCaption = caption.length > 0 && caption.length <= TELEGRAM_CAPTION_LIMIT;
+    const result = await this.bot.sendDocument(
+      target.channel,
+      doc.path,
+      inlineCaption ? { caption } : {},
+      { filename: doc.filename, contentType: doc.mimetype },
+    );
+    if (caption && !inlineCaption) await this.sendMessage(target, caption);
+    return String(result.message_id);
   }
 
   async setTypingStatus(channelId: string, _threadTs: string | undefined, status: string): Promise<void> {
