@@ -118,6 +118,26 @@ describe("both runners account for every terminal class identically", () => {
     expect(web.totals).toEqual(connector.totals);
   });
 
+  it("switches to a configured provider after a server error", async () => {
+    const config = testConfig({
+      engines: {
+        default: "claude",
+        claude: { bin: process.execPath, fallback: ["codex"] },
+        codex: { bin: process.execPath, fallback: ["claude"], model: "gpt-5.6-luna" },
+      },
+    } as Partial<JinnConfig>);
+    const failed = [engineResult({ error: "server_error", result: "" })];
+    const recovered = [engineResult({ result: "fallback answer", sessionId: "native-fb" })];
+
+    const connector = await runConnectorTurn(config, failed, recovered);
+    const web = await runWebTurn(config, failed, recovered);
+
+    expect(connector.session.engine).toBe("codex");
+    expect(web.session.engine).toBe("codex");
+    expect(connector.totals).toEqual({ cost: 0, turns: 1 });
+    expect(web.totals).toEqual(connector.totals);
+  });
+
   it("a rate-limit retry records the resumed turn on both paths", async () => {
     // resetsAt 60s in the past keeps the deadline (resetsAt + 30min) live while
     // the first retry fires after the 10s floor.

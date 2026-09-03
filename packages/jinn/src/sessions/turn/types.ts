@@ -94,7 +94,7 @@ export interface TurnPlan {
   engine: Engine;
   /** Engine name at turn start; stale results from any other engine are dropped. */
   engineName: string;
-  engineConfig: { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
+  engineConfig: { bin?: string; model?: string; fallback?: string[]; effortLevel?: string; childEffortOverride?: string };
   effortLevel?: string;
   model?: string;
   resumeSessionId?: string;

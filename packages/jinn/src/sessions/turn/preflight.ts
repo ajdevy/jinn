@@ -18,7 +18,7 @@ const SYNC_TRANSCRIPT_MESSAGES = 20;
 const HEAVY_PROMPT_CHARS = 6000;
 const HEAVY_EFFORTS = new Set(["high", "xhigh", "max"]);
 
-type EngineConfig = { bin?: string; model?: string; effortLevel?: string; childEffortOverride?: string };
+type EngineConfig = { bin?: string; model?: string; fallback?: string[]; effortLevel?: string; childEffortOverride?: string };
 
 /** Org hierarchy for the system prompt, or the reason this turn has none. */
 export async function resolveTurnHierarchy(

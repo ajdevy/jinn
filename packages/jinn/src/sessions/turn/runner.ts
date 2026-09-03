@@ -1,13 +1,17 @@
 import { logger } from "../../shared/logger.js";
-import { detectRateLimit, isDeadSessionError } from "../../shared/rateLimit.js";
-import type { EngineResult, Session } from "../../shared/types.js";
+import { detectRateLimit, isDeadSessionError, rateLimitEngineLabel } from "../../shared/rateLimit.js";
+import { isProviderFailure, resolveProviderFallback } from "../../shared/provider-fallback.js";
+import { isInterruptibleEngine, type EngineResult, type Session } from "../../shared/types.js";
 import { completedStreamedBlockIds } from "../../gateway/streamed-blocks.js";
 import {
   deletePartialMessages,
   getPartialMessages,
   getSession,
+  getEngineSessionRef,
+  nextEngineSessionFields,
   settlePartialMessages,
   updateSession,
+  updateSessionForAttempt,
   type UpdateSessionFields,
 } from "../registry.js";
 import { createPartialStreamWriter } from "../partial-stream.js";
@@ -52,9 +56,10 @@ export async function runTurn(input: TurnInput, surface: TurnSurface): Promise<v
   };
 
   try {
-    const { attempt, model } = await runEngineWithModelFallback(run);
-    run.heartbeat.stop();
-    await concludeTurn(run, attempt, model);
+    const initial = await runEngineWithModelFallback(run);
+    const execution = await runEngineWithProviderFallback(run, initial);
+    execution.run.heartbeat.stop();
+    await concludeTurn(execution.run, execution.attempt, execution.model);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error(`Session ${sessionId} error: ${errMsg}`);
@@ -62,6 +67,112 @@ export async function runTurn(input: TurnInput, surface: TurnSurface): Promise<v
   } finally {
     run.heartbeat.stop();
   }
+}
+
+type EngineExecution = {
+  run: TurnRun;
+  attempt: EngineAttempt;
+  model: string | undefined;
+};
+
+const PROVIDER_FALLBACK_COOLDOWN_MS = 15 * 60_000;
+
+/** Switch once to the configured provider chain when a turn fails before streaming. */
+async function runEngineWithProviderFallback(
+  run: TurnRun,
+  initial: { attempt: EngineAttempt; model: string | undefined },
+): Promise<EngineExecution> {
+  const result = initial.attempt.result;
+  if (!isProviderFailure(result) || getPartialMessages(run.input.session.id).length > 0) {
+    return { run, ...initial };
+  }
+
+  const live = getSession(run.input.session.id);
+  const currentMeta = (live?.transportMeta || {}) as Record<string, unknown>;
+  if (!live
+    || live.engine !== run.plan.engineName
+    || live.attemptToken !== run.input.attemptToken
+    || live.status !== "running"
+    || currentMeta.engineOverride) {
+    return { run, ...initial };
+  }
+
+  const fallbackName = resolveProviderFallback(run.input.config, run.plan.engineName, run.input.engines);
+  if (!fallbackName) return { run, ...initial };
+
+  const fallbackConfig = (run.input.config.engines as unknown as Record<string, {
+    bin?: string;
+    model?: string;
+    effortLevel?: string;
+    childEffortOverride?: string;
+  } | undefined>)[fallbackName] ?? {};
+  const fallbackRef = getEngineSessionRef(live, fallbackName);
+  const syncSince = new Date().toISOString();
+  const until = new Date(Date.now() + PROVIDER_FALLBACK_COOLDOWN_MS);
+  const nextMeta = {
+    ...currentMeta,
+    engineOverride: {
+      originalEngine: live.engine,
+      originalEngineSessionId: live.engineSessionId,
+      originalModel: live.model,
+      originalEffortLevel: live.effortLevel,
+      until: until.toISOString(),
+      syncSince,
+    },
+    engineSyncTarget: fallbackName,
+    engineSyncSince: syncSince,
+  };
+  const parked = live.engineSessionId
+    ? nextEngineSessionFields(live, live.engine, live.engineSessionId, {
+      model: live.model ?? undefined,
+      effortLevel: live.effortLevel ?? undefined,
+    })
+    : {};
+  const fallbackModel = fallbackRef.model ?? fallbackConfig.model ?? null;
+  const fallbackEffort = fallbackRef.effortLevel ?? fallbackConfig.effortLevel ?? null;
+  const projected = {
+    ...live,
+    ...parked,
+    engine: fallbackName,
+    engineSessionId: fallbackRef.id ?? null,
+    model: fallbackModel,
+    effortLevel: fallbackEffort,
+    transportMeta: nextMeta,
+  };
+  const fallbackPlan = preflightTurn({ ...run.input, session: projected, engineOverride: undefined });
+  if (!fallbackPlan.ok) {
+    logger.warn(`Provider fallback for session ${live.id} refused: ${fallbackPlan.error}`);
+    return { run, ...initial };
+  }
+
+  const switched = updateSessionForAttempt(run.input.session.id, run.input.attemptToken, (current) => {
+    if (current.engine !== run.plan.engineName) return {};
+    return {
+      ...parked,
+      engine: fallbackName,
+      engineSessionId: fallbackRef.id ?? null,
+      model: fallbackModel,
+      effortLevel: fallbackEffort,
+      transportMeta: nextMeta as any,
+      lastError: `${rateLimitEngineLabel(run.plan.engineName)} unavailable — using ${rateLimitEngineLabel(fallbackName)} temporarily`,
+    };
+  });
+  if (!switched || switched.engine !== fallbackName || switched.attemptToken !== run.input.attemptToken) {
+    return { run, ...initial };
+  }
+
+  logger.warn(`Session ${live.id} provider ${run.plan.engineName} failed; switching to ${fallbackName}`);
+  if (isInterruptibleEngine(run.plan.engine)) {
+    run.plan.engine.kill(live.id, "Interrupted: provider fallback");
+  }
+  await run.surface.notice(
+    `⚠️ ${rateLimitEngineLabel(run.plan.engineName)} is temporarily unavailable. Switching to ${rateLimitEngineLabel(fallbackName)}.`,
+  ).catch((err) => logger.warn(`Provider fallback notice failed: ${err instanceof Error ? err.message : String(err)}`));
+
+  const fallbackInput = { ...run.input, session: switched, engineOverride: undefined };
+  const fallbackRun: TurnRun = { ...run, input: fallbackInput, plan: fallbackPlan };
+  const attempt = await runEngineAttempt({ ...fallbackRun, model: fallbackPlan.model });
+  return { run: fallbackRun, attempt, model: fallbackPlan.model };
 }
 
 /** Run the engine, retrying once on a model Claude has since withdrawn. */
