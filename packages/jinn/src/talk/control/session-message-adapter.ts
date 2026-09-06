@@ -1,8 +1,17 @@
 import type { ApiContext } from "../../gateway/api.js";
 import { dispatchWebSessionRun } from "../../gateway/web-session-dispatch.js";
-import { claimIncomingTurn } from "../../sessions/incoming-turn.js";
+import { claimIncomingTurn, incomingTurnReplayError, type IncomingTurnClaim } from "../../sessions/incoming-turn.js";
 import { getSession } from "../../sessions/registry.js";
-import type { TalkControlAdapterContext } from "./types.js";
+import { TalkControlRefusal, type TalkControlAdapterContext } from "./types.js";
+
+function assertReplayable(claim: IncomingTurnClaim, subject: string): void {
+  const replayError = incomingTurnReplayError(claim, subject);
+  if (!replayError) return;
+  throw new TalkControlRefusal(
+    claim.deduplicated && claim.interrupted ? "queue-item-interrupted" : "queue-item-cancelled",
+    replayError,
+  );
+}
 
 /** Atomically claim the visible message and queue intent before dispatch. The
  * stable provider operation survives a lost HTTP/runtime receipt and a restart. */
@@ -29,6 +38,7 @@ export function dispatchTalkSessionMessage(
     durableDedupe: true,
     meta: { talk: { sessionId: call.talkSessionId, providerCallId: call.providerCallId } },
   });
+  assertReplayable(claim, "Talk turn");
   if (!claim.deduplicated) {
     context.emit("queue:updated", { sessionId: session.id, sessionKey });
     dispatchWebSessionRun(session, prompt, engine, context, { queueItemId: claim.queueItemId });

@@ -114,10 +114,10 @@ describe("Talk domain retry resilience", () => {
 
     const first = claimDelegation(base);
     sessions.markQueueItemCompleted(first.queueItemId);
-    sessions.updateSession(first.session.id, { status: "interrupted" });
+    sessions.updateSession(first.session.id, { status: "idle", attemptOutcome: "succeeded" });
     const replay = claimDelegation(base);
 
-    expect(replay).toMatchObject({ replayed: true, session: { id: first.session.id, status: "interrupted" } });
+    expect(replay).toMatchObject({ replayed: true, session: { id: first.session.id, status: "idle", attemptOutcome: "succeeded" } });
     expect(sessions.getMessages(first.session.id).map((message) => message.content)).toEqual([base.prompt]);
     expect(workItems.getWorkItem(item.id)).toMatchObject({ assignee: "a-worker", department: "platform" });
     const rows = (await import("../../../shared/db.js")).initDb()

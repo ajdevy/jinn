@@ -23,6 +23,25 @@ export const CREATE_QUEUE_ITEMS_TABLE = `
         ON queue_items (session_key, status, position);
     `;
 
+function releaseDuplicateDedupeKeys(database: Database.Database): void {
+  database.exec(`
+    UPDATE queue_items
+    SET dedupe_key = NULL
+    WHERE dedupe_key IS NOT NULL
+      AND status IN ('pending', 'running', 'interrupted')
+      AND EXISTS (
+        SELECT 1
+        FROM queue_items AS earlier
+        WHERE earlier.dedupe_key = queue_items.dedupe_key
+          AND earlier.status IN ('pending', 'running', 'interrupted')
+          AND (
+            earlier.created_at < queue_items.created_at
+            OR (earlier.created_at = queue_items.created_at AND earlier.rowid < queue_items.rowid)
+          )
+      )
+  `);
+}
+
 /**
  * Additive migration for restart-safe system work. Internal queue rows use the
  * same durable ordering/replay machinery as user messages, but stay out of the
@@ -60,9 +79,24 @@ export function migrateQueueItemsSchema(database: Database.Database): void {
   if (!names.has('dispatch_payload')) {
     database.exec('ALTER TABLE queue_items ADD COLUMN dispatch_payload TEXT');
   }
+  const dedupeIndex = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uq_queue_items_dedupe'",
+  ).get() as { sql: string | null } | undefined;
+  // Interrupted rows retain their durable identity. Re-running the old
+  // partial-index DDL with IF NOT EXISTS would silently leave that identity
+  // unprotected on homes upgraded from the previous schema.
+  if (!dedupeIndex?.sql?.includes("'interrupted'")) {
+    if (dedupeIndex) database.exec('DROP INDEX uq_queue_items_dedupe');
+    // Homes upgraded from the old index may contain one active row and one
+    // interrupted row with the same identity. Keep the earliest acceptance
+    // and release only the later duplicate; dropping queue/message rows would
+    // lose operator-visible work, while creating the tightened index first
+    // would abort the whole startup migration with SQLITE_CONSTRAINT.
+    releaseDuplicateDedupeKeys(database);
+  }
   database.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_queue_items_dedupe
       ON queue_items (dedupe_key)
-      WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running')
+      WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running', 'interrupted')
   `);
 }

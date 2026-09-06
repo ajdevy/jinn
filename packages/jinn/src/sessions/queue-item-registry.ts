@@ -9,8 +9,10 @@ export interface QueueItem {
   sessionId: string;
   sessionKey: string;
   prompt: string;
-  status: "pending" | "running" | "cancelled" | "completed";
+  status: "pending" | "running" | "interrupted" | "cancelled" | "completed";
   internal: boolean;
+  /** Stable producer identity, when this row came from an idempotent send. */
+  dedupeKey: string | null;
   /** The transcript row this item will run, when the enqueuing path had one. */
   messageId: string | null;
   /** Engine-facing extras that must travel with the payload when rows rotate.
@@ -57,7 +59,7 @@ function rowToQueueItem(row: QueueItemRow): QueueItem {
 }
 
 const QUEUE_ITEM_SELECT =
-  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt, message_id as messageId, dispatch_payload FROM queue_items";
+  "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, internal, dedupe_key as dedupeKey, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt, message_id as messageId, dispatch_payload FROM queue_items";
 
 export function enqueueQueueItem(
   sessionId: string,
@@ -176,11 +178,13 @@ export function cancelAllPendingQueueItems(sessionKey: string): number {
 
 export function recoverStaleQueueItems(): number {
   const db = initDb();
-  // If the gateway restarts mid-run, move any "running" items back to "pending"
-  // so they can be replayed. Do NOT cancel pending work.
+  // A running row has already crossed the engine boundary. It may have emitted
+  // a response before the process died, so replaying it as ordinary pending work
+  // can produce a second answer. Keep its durable id and mark it interrupted;
+  // only rows that were still pending before the restart are replayed.
   const result = db.prepare(
     `UPDATE queue_items
-     SET status = 'pending', started_at = NULL
+     SET status = 'interrupted'
      WHERE status = 'running'
        AND NOT EXISTS (
          SELECT 1 FROM sessions

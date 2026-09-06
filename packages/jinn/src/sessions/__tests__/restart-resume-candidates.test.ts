@@ -111,6 +111,18 @@ describe("restart interruption marking", () => {
 });
 
 describe("consumeRestartResumeCandidates", () => {
+  it("marks a started queue item as interrupted instead of replayable pending work", () => {
+    const marked = interruptedByRestart();
+    const itemId = registry.enqueueQueueItem(marked.id, marked.sessionKey || marked.id, "already started");
+    expect(registry.markQueueItemRunning(itemId)).toBe(true);
+
+    expect(registry.recoverStaleQueueItems()).toBe(1);
+
+    expect(registry.getQueueItem(itemId)).toMatchObject({ status: "interrupted" });
+    expect(registry.listAllPendingQueueItems()).toEqual([]);
+    expect(restartResume.consumeRestartResumeCandidates().map((session) => session.id)).toEqual([marked.id]);
+  });
+
   it("skips a session whose pending queue item is already being replayed", () => {
     const marked = interruptedByRestart();
     registry.enqueueQueueItem(marked.id, marked.sessionKey || marked.id, "resume me");

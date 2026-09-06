@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildTalkControlManifest } from "../manifest.js";
 import { TalkControlRuntime } from "../runtime.js";
-import type { TalkControlReceipt, TalkControlReceiptStore } from "../types.js";
+import { TalkControlRefusal, type TalkControlReceipt, type TalkControlReceiptStore } from "../types.js";
 
 function call(overrides: Record<string, unknown> = {}) {
   return {
@@ -122,6 +122,31 @@ describe("TalkControlRuntime", () => {
       .resolves.toMatchObject({ ok: true, verified: true, replayed: false });
     expect(execute).toHaveBeenCalledTimes(2);
     expect(held.size).toBe(1);
+  });
+
+  it("caches an interrupted durable-turn refusal instead of retrying a dead identity", async () => {
+    const execute = vi.fn(async () => {
+      throw new TalkControlRefusal(
+        "queue-item-interrupted",
+        "Talk turn was interrupted by a gateway restart; retry it with a new operation identity",
+      );
+    });
+    const runtime = new TalkControlRuntime({
+      manifest: buildTalkControlManifest(),
+      execute,
+      verify: async () => ({ ok: true, evidence: {} }),
+    });
+
+    const first = await runtime.dispatch(call());
+    const replay = await runtime.dispatch(call());
+
+    expect(first).toEqual({
+      ok: false,
+      code: "queue-item-interrupted",
+      error: "Talk turn was interrupted by a gateway restart; retry it with a new operation identity",
+    });
+    expect(replay).toEqual(first);
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("rejects missing, unknown, and wrongly typed arguments before execution", async () => {

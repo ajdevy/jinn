@@ -572,13 +572,14 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     const engine = context.sessionManager.getEngine(session.engine);
     if (!engine) {
       const diagnostic = `Engine "${session.engine}" not available`;
-      if (callbackDelivery) {
+      if (callbackDelivery || item.dedupeKey) {
         // Acceptance committed this exact queue row as part of the callback
-        // outbox. Engine availability is transient operational state, not a
-        // reason to destroy that accepted intent. Keep the row pending so a
-        // later config/engine reload can replay the same durable ID.
+        // outbox, or this row carries its own producer idempotency identity.
+        // Engine availability is transient operational state, not a reason to
+        // destroy an accepted intent. Keep the row pending so a later
+        // config/engine reload can replay the same durable ID.
         updateSession(session.id, { lastActivity: new Date().toISOString(), lastError: diagnostic });
-        logger.warn(`Deferred accepted callback queue ${item.id}: ${diagnostic}`);
+        logger.warn(`Deferred durable queue ${item.id}: ${diagnostic}`);
       } else {
         cancelQueueItem(item.id);
         updateSession(session.id, { status: "error", lastActivity: new Date().toISOString(), lastError: diagnostic });
