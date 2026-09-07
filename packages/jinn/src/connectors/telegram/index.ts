@@ -29,6 +29,33 @@ type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 /** Bot API `sendDocument` caption ceiling; `sendMessage` allows 4096. */
 const TELEGRAM_CAPTION_LIMIT = 1024;
 
+type TelegramApiError = {
+  code?: unknown;
+  response?: {
+    status?: unknown;
+    body?: unknown;
+  };
+};
+
+function isTelegramMarkdownParseError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as TelegramApiError;
+  if (candidate.code !== "ETELEGRAM" || candidate.response?.status !== 400) {
+    return false;
+  }
+
+  const body = candidate.response.body;
+  if (!body || typeof body !== "object") return false;
+
+  const telegramBody = body as { error_code?: unknown; description?: unknown };
+  return (
+    telegramBody.error_code === 400 &&
+    typeof telegramBody.description === "string" &&
+    telegramBody.description.toLowerCase().includes("can't parse entities")
+  );
+}
+
 export class TelegramConnector implements Connector {
   name = "telegram";
   id: string;
@@ -370,8 +397,16 @@ export class TelegramConnector implements Connector {
       });
       return String(result.message_id);
     } catch (err) {
-      // On parse error, retry without Markdown formatting. Strip the markers we
-      // added during conversion so users don't see literal asterisks/underscores.
+      if (!isTelegramMarkdownParseError(err)) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`[telegram] Send failed without retry: ${message}`);
+        throw err;
+      }
+
+      // Telegram rejected the request before sending it because of Markdown
+      // parsing. Retry without the markers we added during conversion so users
+      // don't see literal asterisks/underscores. Unknown delivery outcomes are
+      // never retried because Telegram may already have accepted the request.
       logger.warn(`[telegram] Send failed with Markdown, retrying as plain text: ${err}`);
       try {
         const result = await this.bot.sendMessage(chatId, stripTelegramMarkdown(text), opts);
