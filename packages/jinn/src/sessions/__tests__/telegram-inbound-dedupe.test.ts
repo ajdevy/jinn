@@ -35,6 +35,24 @@ describe("migrateTelegramInboundReceiptsSchema", () => {
       .toEqual({ name: "idx_telegram_inbound_receipts_completed_at" });
     database.close();
   });
+
+  it("upgrades the first receipt shape as completed without losing its timestamps", () => {
+    const database = new Database(":memory:");
+    database.exec(`
+      CREATE TABLE telegram_inbound_receipts (
+        dedupe_key TEXT PRIMARY KEY,
+        received_at INTEGER NOT NULL
+      )
+    `);
+    database.prepare("INSERT INTO telegram_inbound_receipts (dedupe_key, received_at) VALUES (?, ?)")
+      .run("telegram:999:12345:42", 1_000);
+
+    migrateTelegramInboundReceiptsSchema(database);
+
+    expect(database.prepare("SELECT state, claimed_at, completed_at FROM telegram_inbound_receipts").get())
+      .toEqual({ state: "completed", claimed_at: 1_000, completed_at: 1_000 });
+    database.close();
+  });
 });
 
 describe("Telegram inbound receipt claims", () => {
@@ -74,6 +92,21 @@ describe("Telegram inbound receipt claims", () => {
     `).run(key, 1_000);
 
     expect(dedupe.claimTelegramInbound(key, 1_001)).toBe(true);
+  });
+
+  it("reclaims a stale receipt even when the original owner still has this PID", () => {
+    const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
+    const claimedAt = 1_000;
+    dbModule.initDb().prepare(`
+      INSERT INTO telegram_inbound_receipts (
+        dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+      ) VALUES (?, 'in_flight', 'current-owner', ?, ?, NULL)
+    `).run(key, process.pid, claimedAt);
+
+    expect(dedupe.claimTelegramInbound(
+      key,
+      claimedAt + dedupe.TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS + 1,
+    )).toBe(true);
   });
 
   it("serially collapses a burst to one winner", () => {

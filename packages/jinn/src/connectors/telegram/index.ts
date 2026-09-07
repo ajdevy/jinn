@@ -167,6 +167,15 @@ export class TelegramConnector implements Connector {
           );
         }
       };
+      const sessionKey = deriveSessionKey(telegramMsg, this.id);
+      const replyContext = buildReplyContext(telegramMsg);
+
+      const username =
+        telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
+
+      let messageText: string =
+        (telegramMsg as any).text || (telegramMsg as any).caption || "";
+
       if (this.telegramBotId === undefined) {
         logger.error("[telegram] Cannot claim inbound message before bot identity is known");
       } else {
@@ -192,15 +201,6 @@ export class TelegramConnector implements Connector {
           inboundDedupeKey = undefined;
         }
       }
-
-      const sessionKey = deriveSessionKey(telegramMsg, this.id);
-      const replyContext = buildReplyContext(telegramMsg);
-
-      const username =
-        telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
-
-      let messageText: string =
-        (telegramMsg as any).text || (telegramMsg as any).caption || "";
 
       // File attachments: download via bot token and push to msg.attachments.
       // sessions/manager.ts pulls localPath and engines auto-inject
@@ -249,7 +249,15 @@ export class TelegramConnector implements Connector {
 
       const attachments: Attachment[] = [];
       if (specs.length > 0) {
-        fs.mkdirSync(TMP_DIR, { recursive: true });
+        try {
+          fs.mkdirSync(TMP_DIR, { recursive: true });
+        } catch (err) {
+          releaseInboundClaim();
+          logger.error(
+            `[telegram] Failed to prepare attachment directory: ${err instanceof Error ? err.message : err}`,
+          );
+          return;
+        }
         for (const spec of specs) {
           try {
             const downloaded: string = await (this.bot as any).downloadFile(
