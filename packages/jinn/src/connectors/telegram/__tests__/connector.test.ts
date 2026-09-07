@@ -291,7 +291,27 @@ describe("TelegramConnector", () => {
         from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
         date: Math.floor(Date.now() / 1000) + 10,
         text: "Retry routing",
-      })).rejects.toThrow("route failed");
+      })).resolves.toBeUndefined();
+
+      expect(mockReleaseTelegramInbound).toHaveBeenCalledOnce();
+      expect(mockCompleteTelegramInbound).not.toHaveBeenCalled();
+    });
+
+    it("releases the receipt when routing reports failure", async () => {
+      const handler = vi.fn().mockResolvedValue(false);
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      await messageCallback({
+        message_id: 46,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Route reported failure",
+      });
 
       expect(mockReleaseTelegramInbound).toHaveBeenCalledOnce();
       expect(mockCompleteTelegramInbound).not.toHaveBeenCalled();

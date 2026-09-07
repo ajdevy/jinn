@@ -33,6 +33,8 @@ describe("migrateTelegramInboundReceiptsSchema", () => {
       .toEqual({ name: "telegram_inbound_receipts" });
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_telegram_inbound_receipts_completed_at'").get())
       .toEqual({ name: "idx_telegram_inbound_receipts_completed_at" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_telegram_inbound_receipts_claimed_at'").get())
+      .toEqual({ name: "idx_telegram_inbound_receipts_claimed_at" });
     database.close();
   });
 
@@ -107,6 +109,21 @@ describe("Telegram inbound receipt claims", () => {
       key,
       claimedAt + dedupe.TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS + 1,
     )).toBe(true);
+  });
+
+  it("sweeps stale in-flight receipts when another message is claimed", () => {
+    const staleKey = dedupe.telegramInboundDedupeKey(999, 12345, 42);
+    const freshKey = dedupe.telegramInboundDedupeKey(999, 12345, 43);
+    const now = 1_000 + dedupe.TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS + 1;
+    dbModule.initDb().prepare(`
+      INSERT INTO telegram_inbound_receipts (
+        dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+      ) VALUES (?, 'in_flight', 'dead-owner', 0, ?, NULL)
+    `).run(staleKey, 1_000);
+
+    expect(dedupe.claimTelegramInbound(freshKey, now)).toBe(true);
+    expect(dbModule.initDb().prepare("SELECT COUNT(*) AS count FROM telegram_inbound_receipts WHERE dedupe_key = ?").get(staleKey))
+      .toEqual({ count: 0 });
   });
 
   it("serially collapses a burst to one winner", () => {

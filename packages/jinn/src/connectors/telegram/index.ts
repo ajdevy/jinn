@@ -431,11 +431,14 @@ export class TelegramConnector implements Connector {
       };
 
       try {
-        await this.handler(msg);
-        completeInboundClaim();
+        const routed = await this.handler(msg);
+        if (routed === false) releaseInboundClaim();
+        else completeInboundClaim();
       } catch (err) {
         releaseInboundClaim();
-        throw err;
+        logger.error(
+          `[telegram] Inbound message ${telegramMsg.message_id} handler failed: ${err instanceof Error ? err.message : err}`,
+        );
       }
     });
   }

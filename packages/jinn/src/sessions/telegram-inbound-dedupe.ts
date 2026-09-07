@@ -38,9 +38,11 @@ export function claimTelegramInbound(
 ): boolean {
   const database = initDb();
   const claim = database.transaction(() => {
-    database
-      .prepare("DELETE FROM telegram_inbound_receipts WHERE state = 'completed' AND completed_at < ?")
-      .run(now - windowMs);
+    database.prepare(`
+      DELETE FROM telegram_inbound_receipts
+      WHERE (state = 'completed' AND completed_at < ?)
+         OR (state = 'in_flight' AND claimed_at < ?)
+    `).run(now - windowMs, now - TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS);
     const existing = database.prepare(`
       SELECT state, owner_id, owner_pid, claimed_at, completed_at
       FROM telegram_inbound_receipts

@@ -141,11 +141,11 @@ CREATE TABLE IF NOT EXISTS chat_pins (
 )
 `;
 
-// Telegram polling is at-least-once across a restart: node-telegram-bot-api
-// keeps the getUpdates offset in memory, so an update whose acknowledgement was
-// lost can be emitted again after the process comes back. The connector claims
-// an in-flight receipt before side effects and marks it completed after routing;
-// this table keeps that two-phase state durable across process restarts.
+// Telegram polling can replay an update across a restart: node-telegram-bot-api
+// keeps the getUpdates offset in memory, so an acknowledgement can be lost
+// between polling and processing. The connector claims an in-flight receipt
+// before side effects and marks it completed after routing; this table keeps
+// that two-phase state durable across process restarts.
 export const CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE = `
 CREATE TABLE IF NOT EXISTS telegram_inbound_receipts (
   dedupe_key TEXT PRIMARY KEY,
@@ -157,6 +157,9 @@ CREATE TABLE IF NOT EXISTS telegram_inbound_receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_completed_at
   ON telegram_inbound_receipts (state, completed_at)
+;
+CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_claimed_at
+  ON telegram_inbound_receipts (state, claimed_at)
 `;
 
 export function migrateTelegramInboundReceiptsSchema(database: Database.Database): void {
@@ -187,6 +190,10 @@ export function migrateTelegramInboundReceiptsSchema(database: Database.Database
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_completed_at
       ON telegram_inbound_receipts (state, completed_at)
+  `);
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_claimed_at
+      ON telegram_inbound_receipts (state, claimed_at)
   `);
 }
 
