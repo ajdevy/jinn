@@ -10,6 +10,20 @@ const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
 const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
 
+function telegramApiError(description: string, errorCode = 400) {
+  return Object.assign(new Error(`ETELEGRAM: ${errorCode} ${description}`), {
+    code: "ETELEGRAM",
+    response: {
+      status: errorCode,
+      body: {
+        ok: false,
+        error_code: errorCode,
+        description,
+      },
+    },
+  });
+}
+
 vi.mock("node-telegram-bot-api", () => {
   const MockBot = vi.fn(function (this: any) {
     this.sendMessage = mockSendMessage;
@@ -284,7 +298,7 @@ describe("TelegramConnector", () => {
 
     it("retries without parse_mode on Markdown parse error", async () => {
       mockSendMessage
-        .mockRejectedValueOnce(new Error("Bad Request: can't parse entities"))
+        .mockRejectedValueOnce(telegramApiError("Bad Request: can't parse entities"))
         .mockResolvedValueOnce({ message_id: 2 });
       const result = await connector.sendMessage(target, "**bad markdown");
       // First call with Markdown, second without
@@ -295,8 +309,38 @@ describe("TelegramConnector", () => {
     });
 
     it("rejects when the plain-text retry also fails", async () => {
-      mockSendMessage.mockRejectedValueOnce(new Error("can't parse entities")).mockRejectedValueOnce(new Error("chat not found"));
-      await expect(connector.sendMessage(target, "**bad markdown")).rejects.toThrow("chat not found");
+      mockSendMessage
+        .mockRejectedValueOnce(telegramApiError("Bad Request: can't parse entities"))
+        .mockRejectedValueOnce(new Error("chat not found"));
+      await expect(connector.sendMessage(target, "**bad markdown")).rejects.toThrow(
+        "chat not found",
+      );
+    });
+
+    it("does not retry when the transport outcome is unknown", async () => {
+      const fatalError = Object.assign(new Error("EFATAL: fetch failed"), {
+        code: "EFATAL",
+      });
+      mockSendMessage.mockRejectedValueOnce(fatalError);
+
+      await expect(connector.sendMessage(target, "Hello!")).rejects.toBe(fatalError);
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+    });
+
+    it("does not retry when reading the Telegram response times out", async () => {
+      const timeoutError = new Error("The operation was aborted");
+      mockSendMessage.mockRejectedValueOnce(timeoutError);
+
+      await expect(connector.sendMessage(target, "Hello!")).rejects.toBe(timeoutError);
+      expect(mockSendMessage).toHaveBeenCalledOnce();
+    });
+
+    it("does not retry an explicit Telegram API rejection", async () => {
+      const telegramError = telegramApiError("Bad Request: chat not found");
+      mockSendMessage.mockRejectedValueOnce(telegramError);
+
+      await expect(connector.sendMessage(target, "Hello!")).rejects.toBe(telegramError);
+      expect(mockSendMessage).toHaveBeenCalledOnce();
     });
   });
 
