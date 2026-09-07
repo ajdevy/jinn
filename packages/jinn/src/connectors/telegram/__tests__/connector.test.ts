@@ -9,6 +9,7 @@ const mockStartPolling = vi.fn();
 const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
 const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
+const mockClaimTelegramInbound = vi.fn().mockReturnValue(true);
 
 function telegramApiError(description: string, errorCode = 400) {
   return Object.assign(new Error(`ETELEGRAM: ${errorCode} ${description}`), {
@@ -44,6 +45,12 @@ vi.mock("../../../shared/logger.js", () => ({
     debug: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+vi.mock("../../../sessions/telegram-inbound-dedupe.js", () => ({
+  claimTelegramInbound: mockClaimTelegramInbound,
+  telegramInboundDedupeKey: (botId: number, chatId: number, messageId: number) =>
+    `telegram:${botId}:${chatId}:${messageId}`,
 }));
 
 // Import after mocks are set up
@@ -181,6 +188,34 @@ describe("TelegramConnector", () => {
       expect(msg.user).toBe("testuser");
       expect(msg.userId).toBe("67890");
       expect(msg.channel).toBe("12345");
+    });
+
+    it("drops a replay before routing it to the handler", async () => {
+      const handler = vi.fn();
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      const telegramMsg = {
+        message_id: 42,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Hello once!",
+      };
+
+      mockClaimTelegramInbound.mockReturnValueOnce(true).mockReturnValueOnce(false);
+      await messageCallback(telegramMsg);
+      await messageCallback(telegramMsg);
+
+      expect(mockClaimTelegramInbound).toHaveBeenCalledTimes(2);
+      expect(mockClaimTelegramInbound).toHaveBeenNthCalledWith(
+        1,
+        "telegram:999:12345:42",
+      );
+      expect(handler).toHaveBeenCalledOnce();
     });
 
     it("ignores messages from bots", async () => {

@@ -141,6 +141,24 @@ CREATE TABLE IF NOT EXISTS chat_pins (
 )
 `;
 
+// Telegram polling is at-least-once across a restart: node-telegram-bot-api
+// keeps the getUpdates offset in memory, so an update whose acknowledgement was
+// lost can be emitted again after the process comes back. Keep only a short,
+// durable receipt keyed by Telegram's bot/chat/message identity; the connector
+// removes expired receipts when it claims the next message.
+export const CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE = `
+CREATE TABLE IF NOT EXISTS telegram_inbound_receipts (
+  dedupe_key TEXT PRIMARY KEY,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_received_at
+  ON telegram_inbound_receipts (received_at)
+`;
+
+export function migrateTelegramInboundReceiptsSchema(database: Database.Database): void {
+  database.exec(CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE);
+}
+
 function callbackDeliveriesTableSql(tableName = 'callback_deliveries'): string {
   return `
 CREATE TABLE ${tableName} (

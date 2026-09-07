@@ -23,6 +23,10 @@ import {
   resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
+import {
+  claimTelegramInbound,
+  telegramInboundDedupeKey,
+} from "../../sessions/telegram-inbound-dedupe.js";
 
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 
@@ -64,6 +68,7 @@ export class TelegramConnector implements Connector {
   private readonly allowedUsers: Set<number> | null;
   private readonly ignoreOldMessagesOnBoot: boolean;
   private readonly bootTimeMs = Date.now();
+  private telegramBotId: number | undefined;
   private started = false;
   private lastError: string | null = null;
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -93,6 +98,7 @@ export class TelegramConnector implements Connector {
   async start(): Promise<void> {
     try {
       const me = await this.bot.getMe();
+      this.telegramBotId = me.id;
       logger.info(`[telegram] Bot started: @${me.username} (id: ${me.id})`);
       this.bot.startPolling();
       this.started = true;
@@ -132,6 +138,31 @@ export class TelegramConnector implements Connector {
           );
           return;
         }
+      }
+
+      if (this.telegramBotId === undefined) {
+        logger.error("[telegram] Cannot claim inbound message before bot identity is known");
+        return;
+      }
+      const dedupeKey = telegramInboundDedupeKey(
+        this.telegramBotId,
+        telegramMsg.chat.id,
+        telegramMsg.message_id,
+      );
+      let claimed: boolean;
+      try {
+        claimed = claimTelegramInbound(dedupeKey);
+      } catch (err) {
+        logger.error(
+          `[telegram] Failed to claim inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
+        );
+        return;
+      }
+      if (!claimed) {
+        logger.debug(
+          `[telegram] Ignoring replayed message ${telegramMsg.message_id} in chat ${telegramMsg.chat.id}`,
+        );
+        return;
       }
 
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
