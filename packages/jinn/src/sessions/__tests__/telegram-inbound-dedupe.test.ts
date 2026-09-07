@@ -126,6 +126,18 @@ describe("Telegram inbound receipt claims", () => {
       .toEqual({ count: 0 });
   });
 
+  it("does not sweep an old in-flight receipt owned by this process", () => {
+    const activeKey = dedupe.telegramInboundDedupeKey(999, 12345, 42);
+    const otherKey = dedupe.telegramInboundDedupeKey(999, 12345, 43);
+    const now = 1_000 + dedupe.TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS + 1;
+    expect(dedupe.claimTelegramInbound(activeKey, 1_000)).toBe(true);
+    expect(dedupe.claimTelegramInbound(otherKey, now)).toBe(true);
+
+    expect(dbModule.initDb().prepare("SELECT COUNT(*) AS count FROM telegram_inbound_receipts WHERE dedupe_key = ?").get(activeKey))
+      .toEqual({ count: 1 });
+    expect(dedupe.claimTelegramInbound(activeKey, now)).toBe(false);
+  });
+
   it("serially collapses a burst to one winner", () => {
     const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
     const claims = Array.from({ length: 20 }, () => dedupe.claimTelegramInbound(key, 1_000));

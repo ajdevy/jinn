@@ -148,7 +148,9 @@ export class TelegramConnector implements Connector {
         inboundDedupeKey = undefined;
         if (!key) return;
         try {
-          releaseTelegramInbound(key);
+          if (!releaseTelegramInbound(key)) {
+            logger.warn(`[telegram] Inbound release found no active receipt for message ${telegramMsg.message_id}`);
+          }
         } catch (err) {
           logger.error(
             `[telegram] Failed to release inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
@@ -160,7 +162,9 @@ export class TelegramConnector implements Connector {
         inboundDedupeKey = undefined;
         if (!key) return;
         try {
-          completeTelegramInbound(key);
+          if (!completeTelegramInbound(key)) {
+            logger.warn(`[telegram] Inbound completion found no active receipt for message ${telegramMsg.message_id}`);
+          }
         } catch (err) {
           logger.error(
             `[telegram] Failed to complete inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,

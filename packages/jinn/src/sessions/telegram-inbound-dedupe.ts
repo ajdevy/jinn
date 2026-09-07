@@ -38,11 +38,10 @@ export function claimTelegramInbound(
 ): boolean {
   const database = initDb();
   const claim = database.transaction(() => {
-    database.prepare(`
-      DELETE FROM telegram_inbound_receipts
-      WHERE (state = 'completed' AND completed_at < ?)
-         OR (state = 'in_flight' AND claimed_at < ?)
-    `).run(now - windowMs, now - TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS);
+    database
+      .prepare("DELETE FROM telegram_inbound_receipts WHERE state = 'completed' AND completed_at < ?")
+      .run(now - windowMs);
+    sweepStaleInboundReceipts(database, now, ownerId);
     const existing = database.prepare(`
       SELECT state, owner_id, owner_pid, claimed_at, completed_at
       FROM telegram_inbound_receipts
@@ -76,16 +75,41 @@ function claimExistingReceipt(
     return undefined;
   }
 
-  const stale = existing.claimed_at < now - TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS;
-  const sameProcessGeneration = existing.owner_id === ownerId;
-  const pidReusedByThisProcess = existing.owner_pid === TELEGRAM_INBOUND_OWNER_PID;
-  if (!stale && (sameProcessGeneration || (!pidReusedByThisProcess && ownerProcessIsAlive(existing.owner_pid)))) return false;
+      if (!isReclaimableOwner(existing, ownerId)) return false;
   const reclaimed = database.prepare(`
     UPDATE telegram_inbound_receipts
     SET owner_id = ?, owner_pid = ?, claimed_at = ?, completed_at = NULL
     WHERE dedupe_key = ? AND state = 'in_flight' AND owner_id = ?
   `).run(ownerId, TELEGRAM_INBOUND_OWNER_PID, now, dedupeKey, existing.owner_id);
   return reclaimed.changes === 1;
+}
+
+function sweepStaleInboundReceipts(
+  database: ReturnType<typeof initDb>,
+  now: number,
+  ownerId: string,
+): void {
+  const stale = database.prepare(`
+    SELECT dedupe_key, owner_id, owner_pid
+    FROM telegram_inbound_receipts
+    WHERE state = 'in_flight' AND claimed_at < ?
+  `).all(now - TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS) as Array<Pick<TelegramInboundReceiptRow, "owner_id" | "owner_pid"> & { dedupe_key: string }>;
+  for (const row of stale) {
+    if (!isReclaimableOwner(row, ownerId)) continue;
+    database.prepare(`
+      DELETE FROM telegram_inbound_receipts
+      WHERE dedupe_key = ? AND state = 'in_flight' AND owner_id = ?
+    `).run(row.dedupe_key, row.owner_id);
+  }
+}
+
+function isReclaimableOwner(
+  receipt: Pick<TelegramInboundReceiptRow, "owner_id" | "owner_pid">,
+  ownerId: string,
+): boolean {
+  if (receipt.owner_id === ownerId) return false;
+  if (receipt.owner_pid === TELEGRAM_INBOUND_OWNER_PID) return true;
+  return !ownerProcessIsAlive(receipt.owner_pid);
 }
 
 /** Release a claim when preprocessing or routing failed before dispatch. */
