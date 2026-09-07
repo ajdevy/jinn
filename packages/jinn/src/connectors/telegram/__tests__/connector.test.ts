@@ -11,6 +11,8 @@ const mockOn = vi.fn();
 const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
 const mockDownloadFile = vi.fn();
 const mockClaimTelegramInbound = vi.fn().mockReturnValue(true);
+const mockCompleteTelegramInbound = vi.fn().mockReturnValue(true);
+const mockReleaseTelegramInbound = vi.fn().mockReturnValue(true);
 
 function telegramApiError(description: string, errorCode = 400) {
   return Object.assign(new Error(`ETELEGRAM: ${errorCode} ${description}`), {
@@ -51,6 +53,8 @@ vi.mock("../../../shared/logger.js", () => ({
 
 vi.mock("../../../sessions/telegram-inbound-dedupe.js", () => ({
   claimTelegramInbound: mockClaimTelegramInbound,
+  completeTelegramInbound: mockCompleteTelegramInbound,
+  releaseTelegramInbound: mockReleaseTelegramInbound,
   telegramInboundDedupeKey: (botId: number, chatId: number, messageId: number) =>
     `telegram:${botId}:${chatId}:${messageId}`,
 }));
@@ -242,11 +246,11 @@ describe("TelegramConnector", () => {
       });
 
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(mockClaimTelegramInbound).not.toHaveBeenCalled();
+      expect(mockClaimTelegramInbound).toHaveBeenCalledOnce();
       releaseDownload("/tmp/not-created.bin");
       await pending;
 
-      expect(mockClaimTelegramInbound).toHaveBeenCalledOnce();
+      expect(mockCompleteTelegramInbound).toHaveBeenCalledOnce();
       expect(handler).toHaveBeenCalledOnce();
     });
 
@@ -271,6 +275,26 @@ describe("TelegramConnector", () => {
       });
 
       expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("releases the receipt when routing rejects", async () => {
+      const handler = vi.fn().mockRejectedValue(new Error("route failed"));
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      await expect(messageCallback({
+        message_id: 45,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Retry routing",
+      })).rejects.toThrow("route failed");
+
+      expect(mockReleaseTelegramInbound).toHaveBeenCalledOnce();
+      expect(mockCompleteTelegramInbound).not.toHaveBeenCalled();
     });
 
     it("ignores messages from bots", async () => {

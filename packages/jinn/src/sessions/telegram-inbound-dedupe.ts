@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { initDb } from "../shared/db.js";
 
 /** Bound replay protection to Telegram's normal pending-update horizon; this is not a permanent archive. */
 export const TELEGRAM_INBOUND_DEDUPE_WINDOW_MS = 24 * 60 * 60_000;
+const TELEGRAM_INBOUND_OWNER_ID = randomUUID();
+const TELEGRAM_INBOUND_OWNER_PID = process.pid;
 
 /** Telegram message IDs are unique within a chat; bot ID scopes duplicate bot instances. */
 export function telegramInboundDedupeKey(
@@ -21,16 +24,76 @@ export function claimTelegramInbound(
   dedupeKey: string,
   now = Date.now(),
   windowMs = TELEGRAM_INBOUND_DEDUPE_WINDOW_MS,
+  ownerId = TELEGRAM_INBOUND_OWNER_ID,
 ): boolean {
   const database = initDb();
   const claim = database.transaction(() => {
     database
-      .prepare("DELETE FROM telegram_inbound_receipts WHERE received_at < ?")
+      .prepare("DELETE FROM telegram_inbound_receipts WHERE state = 'completed' AND completed_at < ?")
       .run(now - windowMs);
-    return database
-      .prepare("INSERT OR IGNORE INTO telegram_inbound_receipts (dedupe_key, received_at) VALUES (?, ?)")
-      .run(dedupeKey, now)
-      .changes === 1;
+    const existing = database.prepare(`
+      SELECT state, owner_id, owner_pid, completed_at
+      FROM telegram_inbound_receipts
+      WHERE dedupe_key = ?
+    `).get(dedupeKey) as {
+      state: "in_flight" | "completed";
+      owner_id: string;
+      owner_pid: number;
+      completed_at: number | null;
+    } | undefined;
+
+    if (existing?.state === "completed") {
+      if (existing.completed_at !== null && existing.completed_at >= now - windowMs) return false;
+      database.prepare("DELETE FROM telegram_inbound_receipts WHERE dedupe_key = ?").run(dedupeKey);
+    } else if (existing) {
+      if (existing.owner_id === ownerId || ownerProcessIsAlive(existing.owner_pid)) return false;
+      const reclaimed = database.prepare(`
+        UPDATE telegram_inbound_receipts
+        SET owner_id = ?, owner_pid = ?, claimed_at = ?, completed_at = NULL
+        WHERE dedupe_key = ? AND state = 'in_flight' AND owner_id = ?
+      `).run(ownerId, TELEGRAM_INBOUND_OWNER_PID, now, dedupeKey, existing.owner_id);
+      return reclaimed.changes === 1;
+    }
+
+    return database.prepare(`
+      INSERT INTO telegram_inbound_receipts (
+        dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+      ) VALUES (?, 'in_flight', ?, ?, ?, NULL)
+    `).run(dedupeKey, ownerId, TELEGRAM_INBOUND_OWNER_PID, now).changes === 1;
   });
   return claim();
+}
+
+/** Release a claim when preprocessing or routing failed before dispatch. */
+export function releaseTelegramInbound(
+  dedupeKey: string,
+  ownerId = TELEGRAM_INBOUND_OWNER_ID,
+): boolean {
+  return initDb().prepare(`
+    DELETE FROM telegram_inbound_receipts
+    WHERE dedupe_key = ? AND state = 'in_flight' AND owner_id = ?
+  `).run(dedupeKey, ownerId).changes === 1;
+}
+
+/** Complete a claim only after the connector handed the message to routing. */
+export function completeTelegramInbound(
+  dedupeKey: string,
+  now = Date.now(),
+  ownerId = TELEGRAM_INBOUND_OWNER_ID,
+): boolean {
+  return initDb().prepare(`
+    UPDATE telegram_inbound_receipts
+    SET state = 'completed', completed_at = ?
+    WHERE dedupe_key = ? AND state = 'in_flight' AND owner_id = ?
+  `).run(now, dedupeKey, ownerId).changes === 1;
+}
+
+function ownerProcessIsAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }

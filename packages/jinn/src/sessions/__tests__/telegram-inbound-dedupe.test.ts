@@ -31,8 +31,8 @@ describe("migrateTelegramInboundReceiptsSchema", () => {
     expect(database.prepare("SELECT value FROM marker").get()).toEqual({ value: "keep" });
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'telegram_inbound_receipts'").get())
       .toEqual({ name: "telegram_inbound_receipts" });
-    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_telegram_inbound_receipts_received_at'").get())
-      .toEqual({ name: "idx_telegram_inbound_receipts_received_at" });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_telegram_inbound_receipts_completed_at'").get())
+      .toEqual({ name: "idx_telegram_inbound_receipts_completed_at" });
     database.close();
   });
 });
@@ -48,6 +48,7 @@ describe("Telegram inbound receipt claims", () => {
   it("claims a message once and rejects a replay across a database reopen", () => {
     const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
     expect(dedupe.claimTelegramInbound(key, 1_000)).toBe(true);
+    expect(dedupe.completeTelegramInbound(key, 1_000)).toBe(true);
 
     dbModule.__closeDbForTest();
 
@@ -59,8 +60,20 @@ describe("Telegram inbound receipt claims", () => {
   it("allows the same identity again only after the bounded window expires", () => {
     const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
     expect(dedupe.claimTelegramInbound(key, 1_000)).toBe(true);
+    expect(dedupe.completeTelegramInbound(key, 1_000)).toBe(true);
     expect(dedupe.claimTelegramInbound(key, 1_000 + dedupe.TELEGRAM_INBOUND_DEDUPE_WINDOW_MS - 1)).toBe(false);
     expect(dedupe.claimTelegramInbound(key, 1_000 + dedupe.TELEGRAM_INBOUND_DEDUPE_WINDOW_MS + 1)).toBe(true);
+  });
+
+  it("reclaims an in-flight receipt left by a dead process", () => {
+    const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
+    dbModule.initDb().prepare(`
+      INSERT INTO telegram_inbound_receipts (
+        dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+      ) VALUES (?, 'in_flight', 'dead-owner', 0, ?, NULL)
+    `).run(key, 1_000);
+
+    expect(dedupe.claimTelegramInbound(key, 1_001)).toBe(true);
   });
 
   it("serially collapses a burst to one winner", () => {

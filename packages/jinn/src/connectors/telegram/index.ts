@@ -25,6 +25,8 @@ import {
 } from "../../stt/stt.js";
 import {
   claimTelegramInbound,
+  completeTelegramInbound,
+  releaseTelegramInbound,
   telegramInboundDedupeKey,
 } from "../../sessions/telegram-inbound-dedupe.js";
 
@@ -64,7 +66,7 @@ export class TelegramConnector implements Connector {
   name = "telegram";
   id: string;
   private bot: TelegramBot;
-  private handler: ((msg: IncomingMessage) => void) | null = null;
+  private handler: ((msg: IncomingMessage) => void | Promise<unknown>) | null = null;
   private readonly allowedUsers: Set<number> | null;
   private readonly ignoreOldMessagesOnBoot: boolean;
   private readonly bootTimeMs = Date.now();
@@ -137,6 +139,57 @@ export class TelegramConnector implements Connector {
             `[telegram] Ignoring message from unauthorized user ${userId}`,
           );
           return;
+        }
+      }
+
+      let inboundDedupeKey: string | undefined;
+      const releaseInboundClaim = (): void => {
+        const key = inboundDedupeKey;
+        inboundDedupeKey = undefined;
+        if (!key) return;
+        try {
+          releaseTelegramInbound(key);
+        } catch (err) {
+          logger.error(
+            `[telegram] Failed to release inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      };
+      const completeInboundClaim = (): void => {
+        const key = inboundDedupeKey;
+        inboundDedupeKey = undefined;
+        if (!key) return;
+        try {
+          completeTelegramInbound(key);
+        } catch (err) {
+          logger.error(
+            `[telegram] Failed to complete inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      };
+      if (this.telegramBotId === undefined) {
+        logger.error("[telegram] Cannot claim inbound message before bot identity is known");
+      } else {
+        inboundDedupeKey = telegramInboundDedupeKey(
+          this.telegramBotId,
+          telegramMsg.chat.id,
+          telegramMsg.message_id,
+        );
+        try {
+          if (!claimTelegramInbound(inboundDedupeKey)) {
+            logger.debug(
+              `[telegram] Ignoring replayed message ${telegramMsg.message_id} in chat ${telegramMsg.chat.id}`,
+            );
+            return;
+          }
+        } catch (err) {
+          // A failed receipt write must not turn a valid Telegram update into a
+          // silent loss. Continue once without dedupe; the next healthy claim
+          // restores duplicate protection, and the error remains observable.
+          logger.error(
+            `[telegram] Failed to claim inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
+          );
+          inboundDedupeKey = undefined;
         }
       }
 
@@ -244,14 +297,18 @@ export class TelegramConnector implements Connector {
 
         if (unavailable) {
           logger.warn(`[telegram] Dropping voice message: ${unavailable}`);
+          let noticeSent = false;
           try {
             await this.bot.sendMessage(
               telegramMsg.chat.id,
               `⚠️ Couldn't transcribe your voice message — ${unavailable}. Please type instead.`,
             );
+            noticeSent = true;
           } catch {
             /* non-fatal */
           }
+          if (noticeSent) completeInboundClaim();
+          else releaseInboundClaim();
           return;
         }
 
@@ -310,14 +367,18 @@ export class TelegramConnector implements Connector {
           logger.error(
             `[telegram] STT failed: ${err instanceof Error ? err.message : err}`,
           );
+          let noticeSent = false;
           try {
             await this.bot.sendMessage(
               telegramMsg.chat.id,
               "⚠️ Couldn't transcribe your voice message. Please try again or type instead.",
             );
+            noticeSent = true;
           } catch {
             /* non-fatal */
           }
+          if (noticeSent) completeInboundClaim();
+          else releaseInboundClaim();
           return;
         }
 
@@ -328,14 +389,18 @@ export class TelegramConnector implements Connector {
           logger.info(`[telegram] Transcribed ${transcript.length} chars`);
         } else {
           logger.warn("[telegram] Transcription returned empty text");
+          let noticeSent = false;
           try {
             await this.bot.sendMessage(
               telegramMsg.chat.id,
               "⚠️ Couldn't make out anything in your voice message. Please try again or type instead.",
             );
+            noticeSent = true;
           } catch {
             /* non-fatal */
           }
+          if (noticeSent) completeInboundClaim();
+          else releaseInboundClaim();
           return;
         }
       }
@@ -357,32 +422,13 @@ export class TelegramConnector implements Connector {
         },
       };
 
-      if (this.telegramBotId === undefined) {
-        logger.error("[telegram] Cannot claim inbound message before bot identity is known");
-      } else {
-        const dedupeKey = telegramInboundDedupeKey(
-          this.telegramBotId,
-          telegramMsg.chat.id,
-          telegramMsg.message_id,
-        );
-        try {
-          if (!claimTelegramInbound(dedupeKey)) {
-            logger.debug(
-              `[telegram] Ignoring replayed message ${telegramMsg.message_id} in chat ${telegramMsg.chat.id}`,
-            );
-            return;
-          }
-        } catch (err) {
-          // A failed receipt write must not turn a valid Telegram update into a
-          // silent loss. Continue once without dedupe; the next healthy claim
-          // restores duplicate protection, and the error remains observable.
-          logger.error(
-            `[telegram] Failed to claim inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
-          );
-        }
+      try {
+        await this.handler(msg);
+        completeInboundClaim();
+      } catch (err) {
+        releaseInboundClaim();
+        throw err;
       }
-
-      this.handler(msg);
     });
   }
 
@@ -539,7 +585,7 @@ export class TelegramConnector implements Connector {
     });
   }
 
-  onMessage(handler: (msg: IncomingMessage) => void): void {
+  onMessage(handler: (msg: IncomingMessage) => void | Promise<unknown>): void {
     this.handler = handler;
   }
 }

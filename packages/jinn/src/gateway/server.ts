@@ -693,8 +693,9 @@ export async function startGateway(
         const emp = employeeRegistry.get(instance.employee);
         if (emp) routeOpts.employee = emp;
       }
-      sessionManager.route(msg, connector, routeOpts).catch((err) => {
+      return sessionManager.route(msg, connector, routeOpts).catch((err) => {
         logger.error(`${instance.id} route error: ${err instanceof Error ? err.message : err}`);
+        throw err;
       });
     });
     connectorMap.set(instance.id, connector);

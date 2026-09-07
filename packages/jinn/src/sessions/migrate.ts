@@ -143,20 +143,51 @@ CREATE TABLE IF NOT EXISTS chat_pins (
 
 // Telegram polling is at-least-once across a restart: node-telegram-bot-api
 // keeps the getUpdates offset in memory, so an update whose acknowledgement was
-// lost can be emitted again after the process comes back. Keep only a short,
-// durable receipt keyed by Telegram's bot/chat/message identity; the connector
-// removes expired receipts when it claims the next message.
+// lost can be emitted again after the process comes back. The connector claims
+// an in-flight receipt before side effects and marks it completed after routing;
+// this table keeps that two-phase state durable across process restarts.
 export const CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE = `
 CREATE TABLE IF NOT EXISTS telegram_inbound_receipts (
   dedupe_key TEXT PRIMARY KEY,
-  received_at INTEGER NOT NULL
+  state TEXT NOT NULL CHECK (state IN ('in_flight', 'completed')),
+  owner_id TEXT NOT NULL,
+  owner_pid INTEGER NOT NULL,
+  claimed_at INTEGER NOT NULL,
+  completed_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_received_at
-  ON telegram_inbound_receipts (received_at)
+CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_completed_at
+  ON telegram_inbound_receipts (state, completed_at)
 `;
 
 export function migrateTelegramInboundReceiptsSchema(database: Database.Database): void {
-  database.exec(CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE);
+  const existing = database.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_inbound_receipts'",
+  ).get();
+  if (!existing) {
+    database.exec(CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE);
+    return;
+  }
+
+  // The first version of this gate stored only `received_at`. Treat those rows
+  // as completed receipts during the additive upgrade: they were written only
+  // after preprocessing, so replaying them would be unsafe.
+  const columns = database.prepare("PRAGMA table_info(telegram_inbound_receipts)").all() as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  if (!names.has("state")) database.exec("ALTER TABLE telegram_inbound_receipts ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'");
+  if (!names.has("owner_id")) database.exec("ALTER TABLE telegram_inbound_receipts ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'legacy'");
+  if (!names.has("owner_pid")) database.exec("ALTER TABLE telegram_inbound_receipts ADD COLUMN owner_pid INTEGER NOT NULL DEFAULT 0");
+  if (!names.has("claimed_at")) {
+    database.exec("ALTER TABLE telegram_inbound_receipts ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0");
+    if (names.has("received_at")) database.exec("UPDATE telegram_inbound_receipts SET claimed_at = received_at");
+  }
+  if (!names.has("completed_at")) {
+    database.exec("ALTER TABLE telegram_inbound_receipts ADD COLUMN completed_at INTEGER");
+    if (names.has("received_at")) database.exec("UPDATE telegram_inbound_receipts SET completed_at = received_at");
+  }
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_completed_at
+      ON telegram_inbound_receipts (state, completed_at)
+  `);
 }
 
 function callbackDeliveriesTableSql(tableName = 'callback_deliveries'): string {
