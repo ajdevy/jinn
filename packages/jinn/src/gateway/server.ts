@@ -693,7 +693,17 @@ export async function startGateway(
         const emp = employeeRegistry.get(instance.employee);
         if (emp) routeOpts.employee = emp;
       }
-      sessionManager.route(msg, connector, routeOpts).catch((err) => {
+      const route = sessionManager.route(msg, connector, routeOpts);
+      if (connector.name === "telegram") {
+        // Telegram's inbound receipt is completed only after this promise
+        // settles. Let that connector release the claim on a route failure;
+        // legacy connectors retain their historical log-and-swallow boundary.
+        return route.catch((err) => {
+          logger.error(`${instance.id} route error: ${err instanceof Error ? err.message : err}`);
+          throw err;
+        });
+      }
+      void route.catch((err) => {
         logger.error(`${instance.id} route error: ${err instanceof Error ? err.message : err}`);
       });
     });

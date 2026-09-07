@@ -141,6 +141,88 @@ CREATE TABLE IF NOT EXISTS chat_pins (
 )
 `;
 
+// Telegram polling can replay an update across a restart: node-telegram-bot-api
+// keeps the getUpdates offset in memory, so an acknowledgement can be lost
+// between polling and processing. The connector claims an in-flight receipt
+// before side effects and marks it completed after routing; this table keeps
+// that two-phase state durable across process restarts.
+function telegramInboundReceiptsTableSql(tableName: string): string {
+  return `
+CREATE TABLE ${tableName} (
+  dedupe_key TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('in_flight', 'completed')),
+  owner_id TEXT NOT NULL,
+  owner_pid INTEGER NOT NULL,
+  claimed_at INTEGER NOT NULL,
+  completed_at INTEGER
+)`;
+}
+
+function telegramInboundReceiptsIndexesSql(): string {
+  return `
+CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_completed_at
+  ON telegram_inbound_receipts (state, completed_at);
+CREATE INDEX IF NOT EXISTS idx_telegram_inbound_receipts_claimed_at
+  ON telegram_inbound_receipts (state, claimed_at)
+`;
+}
+
+export const CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE = `
+${telegramInboundReceiptsTableSql('telegram_inbound_receipts')};
+${telegramInboundReceiptsIndexesSql()}
+`;
+
+export function migrateTelegramInboundReceiptsSchema(database: Database.Database): void {
+  const existing = database.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_inbound_receipts'",
+  ).get() as { [key: string]: unknown } | undefined;
+  if (!existing) {
+    database.exec(CREATE_TELEGRAM_INBOUND_RECEIPTS_TABLE);
+    return;
+  }
+
+  // The first version of this gate stored only `received_at`. Treat those rows
+  // as completed receipts during the additive upgrade: they were written only
+  // after preprocessing, so replaying them would be unsafe.
+  const columns = database.prepare("PRAGMA table_info(telegram_inbound_receipts)").all() as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  const tableSql = (database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telegram_inbound_receipts'",
+  ).get() as { sql: string }).sql.replace(/\s+/g, " ").toLowerCase();
+  if (!tableSql.includes("check (state in ('in_flight', 'completed'))")) {
+    rebuildTelegramInboundReceiptsSchema(database, names);
+    return;
+  }
+  database.exec(telegramInboundReceiptsIndexesSql());
+}
+
+/** Replace the pre-two-phase table atomically; every old receipt is copied. */
+function rebuildTelegramInboundReceiptsSchema(database: Database.Database, names: Set<string>): void {
+  if (!names.has("received_at") && !names.has("claimed_at")) {
+    throw new Error("Incompatible telegram_inbound_receipts schema: missing receipt timestamp");
+  }
+  const state = names.has("state")
+    ? "CASE WHEN state IN ('in_flight', 'completed') THEN state ELSE 'completed' END"
+    : "'completed'";
+  const ownerId = names.has("owner_id") ? "COALESCE(owner_id, 'legacy')" : "'legacy'";
+  const ownerPid = names.has("owner_pid") ? "COALESCE(owner_pid, 0)" : "0";
+  const claimedAt = names.has("claimed_at")
+    ? "COALESCE(claimed_at, 0)"
+    : "received_at";
+  const completedAt = names.has("completed_at") ? "completed_at" : "received_at";
+  database.exec(`DROP TABLE IF EXISTS telegram_inbound_receipts_v2`);
+  database.exec(`${telegramInboundReceiptsTableSql('telegram_inbound_receipts_v2')};`);
+  database.exec(`
+    INSERT INTO telegram_inbound_receipts_v2 (
+      dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+    )
+    SELECT dedupe_key, ${state}, ${ownerId}, ${ownerPid}, ${claimedAt}, ${completedAt}
+    FROM telegram_inbound_receipts
+  `);
+  database.exec("DROP TABLE telegram_inbound_receipts; ALTER TABLE telegram_inbound_receipts_v2 RENAME TO telegram_inbound_receipts");
+  database.exec(telegramInboundReceiptsIndexesSql());
+}
+
 function callbackDeliveriesTableSql(tableName = 'callback_deliveries'): string {
   return `
 CREATE TABLE ${tableName} (

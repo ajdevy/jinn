@@ -103,10 +103,10 @@
       ]
     },
     "packages/jinn/src/connectors/telegram/__tests__/connector.test.ts": {
-      "lines": 341
+      "lines": 536
     },
     "packages/jinn/src/connectors/telegram/index.ts": {
-      "lines": 459,
+      "lines": 605,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
