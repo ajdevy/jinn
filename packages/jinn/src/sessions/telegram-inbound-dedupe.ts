@@ -1,7 +1,7 @@
 import { initDb } from "../shared/db.js";
 
-/** Keep replay protection short-lived; this is not a permanent Telegram archive. */
-export const TELEGRAM_INBOUND_DEDUPE_WINDOW_MS = 5 * 60_000;
+/** Bound replay protection to Telegram's normal pending-update horizon; this is not a permanent archive. */
+export const TELEGRAM_INBOUND_DEDUPE_WINDOW_MS = 24 * 60 * 60_000;
 
 /** Telegram message IDs are unique within a chat; bot ID scopes duplicate bot instances. */
 export function telegramInboundDedupeKey(

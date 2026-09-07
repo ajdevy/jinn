@@ -140,31 +140,6 @@ export class TelegramConnector implements Connector {
         }
       }
 
-      if (this.telegramBotId === undefined) {
-        logger.error("[telegram] Cannot claim inbound message before bot identity is known");
-        return;
-      }
-      const dedupeKey = telegramInboundDedupeKey(
-        this.telegramBotId,
-        telegramMsg.chat.id,
-        telegramMsg.message_id,
-      );
-      let claimed: boolean;
-      try {
-        claimed = claimTelegramInbound(dedupeKey);
-      } catch (err) {
-        logger.error(
-          `[telegram] Failed to claim inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
-        );
-        return;
-      }
-      if (!claimed) {
-        logger.debug(
-          `[telegram] Ignoring replayed message ${telegramMsg.message_id} in chat ${telegramMsg.chat.id}`,
-        );
-        return;
-      }
-
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
       const replyContext = buildReplyContext(telegramMsg);
 
@@ -381,6 +356,31 @@ export class TelegramConnector implements Connector {
           chatType: telegramMsg.chat.type,
         },
       };
+
+      if (this.telegramBotId === undefined) {
+        logger.error("[telegram] Cannot claim inbound message before bot identity is known");
+      } else {
+        const dedupeKey = telegramInboundDedupeKey(
+          this.telegramBotId,
+          telegramMsg.chat.id,
+          telegramMsg.message_id,
+        );
+        try {
+          if (!claimTelegramInbound(dedupeKey)) {
+            logger.debug(
+              `[telegram] Ignoring replayed message ${telegramMsg.message_id} in chat ${telegramMsg.chat.id}`,
+            );
+            return;
+          }
+        } catch (err) {
+          // A failed receipt write must not turn a valid Telegram update into a
+          // silent loss. Continue once without dedupe; the next healthy claim
+          // restores duplicate protection, and the error remains observable.
+          logger.error(
+            `[telegram] Failed to claim inbound message ${telegramMsg.message_id}: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
 
       this.handler(msg);
     });

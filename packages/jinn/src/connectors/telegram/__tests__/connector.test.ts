@@ -9,6 +9,7 @@ const mockStartPolling = vi.fn();
 const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
 const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
+const mockDownloadFile = vi.fn();
 const mockClaimTelegramInbound = vi.fn().mockReturnValue(true);
 
 function telegramApiError(description: string, errorCode = 400) {
@@ -34,6 +35,7 @@ vi.mock("node-telegram-bot-api", () => {
     this.stopPolling = mockStopPolling;
     this.on = mockOn;
     this.sendDocument = mockSendDocument;
+    this.downloadFile = mockDownloadFile;
   });
   return { default: MockBot };
 });
@@ -215,6 +217,59 @@ describe("TelegramConnector", () => {
         1,
         "telegram:999:12345:42",
       );
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("claims only after attachment preprocessing finishes", async () => {
+      const handler = vi.fn();
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      let releaseDownload!: (downloadedPath: string) => void;
+      mockDownloadFile.mockImplementationOnce(
+        () => new Promise<string>((resolve) => { releaseDownload = resolve; }),
+      );
+      const pending = messageCallback({
+        message_id: 43,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Attachment once!",
+        document: { file_id: "file-1" },
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mockClaimTelegramInbound).not.toHaveBeenCalled();
+      releaseDownload("/tmp/not-created.bin");
+      await pending;
+
+      expect(mockClaimTelegramInbound).toHaveBeenCalledOnce();
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("routes once without dropping the message when receipt storage fails", async () => {
+      const handler = vi.fn();
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      mockClaimTelegramInbound.mockImplementationOnce(() => {
+        throw new Error("database unavailable");
+      });
+
+      await messageCallback({
+        message_id: 44,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "testuser", first_name: "Test", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Do not drop me",
+      });
+
       expect(handler).toHaveBeenCalledOnce();
     });
 

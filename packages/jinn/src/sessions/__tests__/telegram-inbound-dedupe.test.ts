@@ -56,11 +56,11 @@ describe("Telegram inbound receipt claims", () => {
       .toEqual({ count: 1 });
   });
 
-  it("allows the same identity again only after the short window expires", () => {
+  it("allows the same identity again only after the bounded window expires", () => {
     const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
-    expect(dedupe.claimTelegramInbound(key, 1_000, 5_000)).toBe(true);
-    expect(dedupe.claimTelegramInbound(key, 5_999, 5_000)).toBe(false);
-    expect(dedupe.claimTelegramInbound(key, 6_001, 5_000)).toBe(true);
+    expect(dedupe.claimTelegramInbound(key, 1_000)).toBe(true);
+    expect(dedupe.claimTelegramInbound(key, 1_000 + dedupe.TELEGRAM_INBOUND_DEDUPE_WINDOW_MS - 1)).toBe(false);
+    expect(dedupe.claimTelegramInbound(key, 1_000 + dedupe.TELEGRAM_INBOUND_DEDUPE_WINDOW_MS + 1)).toBe(true);
   });
 
   it("serially collapses a burst to one winner", () => {
