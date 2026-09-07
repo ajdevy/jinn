@@ -698,9 +698,9 @@ export async function startGateway(
         // Telegram's inbound receipt is completed only after this promise
         // settles. Let that connector release the claim on a route failure;
         // legacy connectors retain their historical log-and-swallow boundary.
-        return route.then(() => true).catch((err) => {
+        return route.catch((err) => {
           logger.error(`${instance.id} route error: ${err instanceof Error ? err.message : err}`);
-          return false;
+          throw err;
         });
       }
       void route.catch((err) => {

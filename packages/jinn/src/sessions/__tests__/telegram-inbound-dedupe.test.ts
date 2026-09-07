@@ -126,6 +126,20 @@ describe("Telegram inbound receipt claims", () => {
       .toEqual({ count: 0 });
   });
 
+  it("does not let another owner release or complete the active receipt", () => {
+    const key = dedupe.telegramInboundDedupeKey(999, 12345, 42);
+    dbModule.initDb().prepare(`
+      INSERT INTO telegram_inbound_receipts (
+        dedupe_key, state, owner_id, owner_pid, claimed_at, completed_at
+      ) VALUES (?, 'in_flight', 'owner-a', ?, ?, NULL)
+    `).run(key, process.pid, 1_000);
+
+    expect(dedupe.releaseTelegramInbound(key, "owner-b")).toBe(false);
+    expect(dedupe.completeTelegramInbound(key, 1_001, "owner-b")).toBe(false);
+    expect(dbModule.initDb().prepare("SELECT state, owner_id FROM telegram_inbound_receipts WHERE dedupe_key = ?").get(key))
+      .toEqual({ state: "in_flight", owner_id: "owner-a" });
+  });
+
   it("does not sweep an old in-flight receipt owned by this process", () => {
     const activeKey = dedupe.telegramInboundDedupeKey(999, 12345, 42);
     const otherKey = dedupe.telegramInboundDedupeKey(999, 12345, 43);

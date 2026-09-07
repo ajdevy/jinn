@@ -435,9 +435,8 @@ export class TelegramConnector implements Connector {
       };
 
       try {
-        const routed = await this.handler(msg);
-        if (routed === false) releaseInboundClaim();
-        else completeInboundClaim();
+        await this.handler(msg);
+        completeInboundClaim();
       } catch (err) {
         releaseInboundClaim();
         logger.error(

@@ -5,7 +5,7 @@ import { initDb } from "../shared/db.js";
 export const TELEGRAM_INBOUND_DEDUPE_WINDOW_MS = 24 * 60 * 60_000;
 /** A stuck in-flight claim must not block a replay forever in a live process. */
 export const TELEGRAM_INBOUND_IN_FLIGHT_MAX_MS = 30 * 60_000;
-const TELEGRAM_INBOUND_OWNER_ID = randomUUID();
+const TELEGRAM_INBOUND_OWNER_ID: string = randomUUID();
 const TELEGRAM_INBOUND_OWNER_PID = process.pid;
 
 type TelegramInboundReceiptRow = {
@@ -137,6 +137,8 @@ export function completeTelegramInbound(
 }
 
 function ownerProcessIsAlive(pid: number): boolean {
+  // One session DB belongs to one gateway host/PID namespace. A shared DB across
+  // containers or hosts cannot use process.kill as a reliable owner heartbeat.
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
