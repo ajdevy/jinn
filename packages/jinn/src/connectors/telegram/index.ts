@@ -88,7 +88,12 @@ export class TelegramConnector implements Connector {
 
   constructor(config: TelegramConnectorConfig) {
     this.id = config.id || "telegram";
-    this.bot = new TelegramBot(config.botToken, { polling: false });
+    this.bot = new TelegramBot(config.botToken, {
+      polling: false,
+      // A direct Telegram POST has no idempotency key. Do not let the client
+      // replay a rate-limited request after an ambiguous delivery outcome.
+      request: { maxRetriesOn429: 0 },
+    });
     this.ignoreOldMessagesOnBoot = config.ignoreOldMessagesOnBoot !== false;
     this.allowedUsers =
       config.allowFrom && config.allowFrom.length > 0
