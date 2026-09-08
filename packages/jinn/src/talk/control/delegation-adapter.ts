@@ -113,7 +113,10 @@ export function delegateTodoWithTalk(input: TalkDelegationInput): TalkControlExe
   const claimed = claimTalkDelegation(input);
   if (!claimed.replayed) {
     input.context.emit("queue:updated", { sessionId: claimed.session.id, sessionKey: claimed.session.sessionKey });
-    dispatchWebSessionRun(claimed.session, input.prompt, engine, input.context, { queueItemId: claimed.queueItemId });
+    dispatchWebSessionRun(claimed.session, input.prompt, engine, input.context, {
+      queueItemId: claimed.queueItemId,
+      replyToMessage: false,
+    });
   }
   return {
     data: {

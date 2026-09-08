@@ -119,7 +119,7 @@ import { collectEngineLimits } from "../shared/engine-limits.js";
 import { supersedeRunningTurn } from "../sessions/turn/superseded.js";
 import { dispatchWebSessionRun, resolveAttachmentPaths } from "./web-session-dispatch.js";
 import { spawnSession } from "./spawn-session.js";
-export { deliverConnectorReply } from "./connector-reply.js";
+export { deliverConnectorMessage, deliverConnectorReply } from "./connector-reply.js";
 export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
@@ -589,7 +589,10 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // Ensure the session is in a runnable state
     updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
-    dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id });
+    dispatchWebSessionRun(session, item.prompt, engine, context, {
+      queueItemId: item.id,
+      replyToMessage: !callbackDelivery,
+    });
     resumed++;
   }
 
@@ -4691,7 +4694,11 @@ export async function handleApiRequest(
         context.emit("queue:updated", { sessionId: session.id, sessionKey });
       }
 
-      dispatchWebSessionRun(session, enginePrompt, engine, context, { queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined });
+      dispatchWebSessionRun(session, enginePrompt, engine, context, {
+        queueItemId,
+        attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+        replyToMessage: !isNotification,
+      });
 
       return json(res, {
         status: "queued",

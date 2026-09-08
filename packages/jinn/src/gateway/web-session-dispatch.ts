@@ -23,12 +23,13 @@ import type { ApiContext } from "./api.js";
  */
 
 /** The turn surface every web-dispatched turn reports through. */
-function webTurnSurface(sessionId: string, context: ApiContext) {
+function webTurnSurface(sessionId: string, context: ApiContext, replyToMessage = true) {
   return createWebTurnSurface({
     sessionId,
     emit: context.emit,
     connectors: context.connectors,
     getConfig: context.getConfig,
+    replyToMessage,
   });
 }
 
@@ -123,14 +124,19 @@ export function dispatchWebSessionRun(
   prompt: string,
   engine: Engine,
   context: ApiContext,
-  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[] },
+  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[]; replyToMessage?: boolean },
 ): void {
   let dispatchedAttemptToken: string | undefined;
   const sessionKey = session.sessionKey || session.sourceRef;
   const run = async () => {
     try {
       await context.sessionManager.getQueue().enqueue(sessionKey, () =>
-        runQueuedTurn(session, context, requestForTurn({ prompt, engine, attachments: opts?.attachments }, opts?.queueItemId), {
+        runQueuedTurn(session, context, requestForTurn({
+          prompt,
+          engine,
+          attachments: opts?.attachments,
+          replyToMessage: opts?.replyToMessage,
+        }, opts?.queueItemId), {
           sessionKey,
           queueItemId: opts?.queueItemId,
           onAttempt: (token) => {
@@ -161,6 +167,7 @@ interface WebTurnRequest {
   engine: Engine;
   attemptToken: string;
   attachments?: string[];
+  replyToMessage?: boolean;
 }
 
 async function runWebSession(
@@ -200,7 +207,7 @@ async function runWebSession(
     roster: await resolveTurnHierarchy(context.getConfig()),
     channel: currentSession.sourceRef,
     user: currentSession.userId ?? "web-user",
-  }, webTurnSurface(currentSession.id, context));
+  }, webTurnSurface(currentSession.id, context, request.replyToMessage));
 }
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */
 export function resolveAttachmentPaths(fileIds: unknown): string[] {

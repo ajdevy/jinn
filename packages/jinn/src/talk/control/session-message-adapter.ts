@@ -31,7 +31,10 @@ export function dispatchTalkSessionMessage(
   });
   if (!claim.deduplicated) {
     context.emit("queue:updated", { sessionId: session.id, sessionKey });
-    dispatchWebSessionRun(session, prompt, engine, context, { queueItemId: claim.queueItemId });
+    dispatchWebSessionRun(session, prompt, engine, context, {
+      queueItemId: claim.queueItemId,
+      replyToMessage: false,
+    });
   }
   if (!claim.messageId || !claim.queueItemId) throw new Error("Talk turn claim lost its durable anchors");
   return { messageId: claim.messageId, queueItemId: claim.queueItemId, replayed: claim.deduplicated };
