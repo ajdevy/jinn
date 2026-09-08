@@ -589,7 +589,10 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     // Ensure the session is in a runnable state
     updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
-    dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id });
+    dispatchWebSessionRun(session, item.prompt, engine, context, {
+      queueItemId: item.id,
+      replyToMessage: !callbackDelivery,
+    });
     resumed++;
   }
 
