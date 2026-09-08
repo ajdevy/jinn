@@ -3,13 +3,15 @@ import type { GatewayEmit } from "../shared/gateway-events.js";
 import { logger } from "../shared/logger.js";
 import { getSession, insertMessage } from "../sessions/registry.js";
 import type { TurnReceipt, TurnSurface } from "../sessions/turn/types.js";
-import { deliverConnectorReply } from "./connector-reply.js";
+import { deliverConnectorMessage, deliverConnectorReply } from "./connector-reply.js";
 
 export interface WebTurnSurfaceOptions {
   sessionId: string;
   emit: GatewayEmit;
   connectors: Map<string, Connector>;
   getConfig: () => JinnConfig;
+  /** Notification turns must not reply to the stale inbound message. */
+  replyToMessage?: boolean;
 }
 
 /**
@@ -47,7 +49,8 @@ export function createWebTurnSurface(options: WebTurnSurfaceOptions): TurnSurfac
     async reply(text: string) {
       const session = getSession(sessionId);
       if (!session) return;
-      await deliverConnectorReply(session, text, options.connectors);
+      const deliver = options.replyToMessage === false ? deliverConnectorMessage : deliverConnectorReply;
+      await deliver(session, text, options.connectors);
     },
     async waiting() {
       // The dashboard reads the waiting state off the session row directly.

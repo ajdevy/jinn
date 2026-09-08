@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { deliverConnectorReply } from "../api.js";
+import { deliverConnectorMessage, deliverConnectorReply } from "../connector-reply.js";
 import { logger } from "../../shared/logger.js";
 import type { Connector, Session } from "../../shared/types.js";
 
@@ -7,9 +7,10 @@ import type { Connector, Session } from "../../shared/types.js";
 function makeConnector(name: string) {
   const target = { channel: "C123", thread: "T1" };
   const reconstructTarget = vi.fn(() => target);
+  const sendMessage = vi.fn(async () => undefined);
   const replyMessage = vi.fn(async () => undefined);
-  const connector = { name, reconstructTarget, replyMessage } as unknown as Connector;
-  return { connector, reconstructTarget, replyMessage, target };
+  const connector = { name, reconstructTarget, sendMessage, replyMessage } as unknown as Connector;
+  return { connector, reconstructTarget, sendMessage, replyMessage, target };
 }
 
 /** Build the minimal slice of a Session the helper reads. */
@@ -41,6 +42,15 @@ describe("deliverConnectorReply", () => {
     expect(slack.reconstructTarget).toHaveBeenCalledWith(session.replyContext);
     expect(slack.replyMessage).toHaveBeenCalledTimes(1);
     expect(slack.replyMessage).toHaveBeenCalledWith(slack.target, "hello world");
+  });
+
+  it("delivers an autonomous notification without replying to the stale inbound message", async () => {
+    const session = makeSession();
+    await deliverConnectorMessage(session, "background update", map);
+
+    expect(slack.reconstructTarget).toHaveBeenCalledWith(session.replyContext);
+    expect(slack.sendMessage).toHaveBeenCalledWith(slack.target, "background update");
+    expect(slack.replyMessage).not.toHaveBeenCalled();
   });
 
   it("does not deliver for source 'web'", async () => {

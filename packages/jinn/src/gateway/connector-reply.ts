@@ -50,6 +50,24 @@ export async function deliverConnectorReply(
   }
 }
 
+/** Relay text without attaching it to the last inbound message. */
+export async function deliverConnectorMessage(
+  session: ConnectorSession,
+  text: string,
+  connectors: Map<string, Connector>,
+): Promise<void> {
+  if (!text) return;
+  const resolved = resolveConnectorTarget(session, connectors);
+  if (!resolved) return;
+  try {
+    await resolved.connector.sendMessage(resolved.target, text);
+  } catch (err) {
+    logger.warn(
+      `Connector message delivery failed for session ${session.id ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 /**
  * Relay a published attachment into the connector channel that originated the
  * session. Without this an attachment reaches the web dashboard only, and a
