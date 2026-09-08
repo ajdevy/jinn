@@ -10,6 +10,7 @@ const mockStopPolling = vi.fn().mockResolvedValue(undefined);
 const mockOn = vi.fn();
 const mockSendDocument = vi.fn().mockResolvedValue({ message_id: 7 });
 const mockDownloadFile = vi.fn();
+const mockBotOptions = vi.fn();
 const mockClaimTelegramInbound = vi.fn().mockReturnValue(true);
 const mockCompleteTelegramInbound = vi.fn().mockReturnValue(true);
 const mockReleaseTelegramInbound = vi.fn().mockReturnValue(true);
@@ -29,7 +30,8 @@ function telegramApiError(description: string, errorCode = 400) {
 }
 
 vi.mock("node-telegram-bot-api", () => {
-  const MockBot = vi.fn(function (this: any) {
+  const MockBot = vi.fn(function (this: any, _token: string, options: unknown) {
+    mockBotOptions(options);
     this.sendMessage = mockSendMessage;
     this.editMessageText = mockEditMessageText;
     this.getMe = mockGetMe;
@@ -76,6 +78,13 @@ describe("TelegramConnector", () => {
   describe("constructor", () => {
     it("sets the connector name to telegram", () => {
       expect(connector.name).toBe("telegram");
+    });
+
+    it("disables provider retries that can duplicate an accepted send", () => {
+      expect(mockBotOptions).toHaveBeenCalledWith({
+        polling: false,
+        request: { maxRetriesOn429: 0 },
+      });
     });
   });
 
