@@ -2868,15 +2868,9 @@ export async function handleApiRequest(
         if (!permitted.ok) return json(res, { error: permitted.error }, 403);
         actingAsOperator = permitted.actingAs;
       }
-      // A granted claim changes the lane: the top-level COO is using the
-      // operator surface, so the agent-only review pre-check must not reject a
-      // direct close of an escalated Todo before transition() sees the human
-      // authority. Unauthorized claims were rejected immediately above.
       const humanAuthority = isOperatorPut || actingAsOperator !== undefined;
-      if (!humanAuthority) {
-        const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus);
-        if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
-      }
+      const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus, humanAuthority);
+      if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
       // A granted claim is the operator's authority arriving on the COO lane,
       // not just their name on the record: it releases a sticky terminal the
       // way the operator PUT does. The cascade is not part of it —
