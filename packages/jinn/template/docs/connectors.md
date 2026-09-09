@@ -95,6 +95,17 @@ Connector ids are what the rest of the gateway addresses:
 - `POST /api/connectors/reload`, which stops every running connector and restarts it
   from the current `config.yaml` — regardless of which form declared it
 
+## Incoming file attachments
+
+Connector adapters may download binary attachments to `JINN_HOME/tmp` as a
+short-lived transport detail. Before the turn is queued, the gateway copies
+each local attachment into `JINN_HOME/files/<managed-file-id>/`, registers its
+metadata in the managed-files registry, and passes the managed path to the
+engine. The user message stores the media descriptor containing that ID, so a
+child session must receive the ID in its `attachments` array; the temporary
+connector path is removed after the turn. Attachment bytes are never placed in
+the prompt or logs.
+
 ## Future Connectors
 
 The connector interface is designed for additional platforms:
