@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ApiContext } from "../../gateway/api.js";
 import { dispatchWebSessionRun } from "../../gateway/web-session-dispatch.js";
-import { claimIncomingTurn } from "../../sessions/incoming-turn.js";
+import { claimIncomingTurn, incomingTurnReplayError, type IncomingTurnClaim } from "../../sessions/incoming-turn.js";
 import {
   createSession,
   getSessionBySessionKey,
@@ -12,7 +12,7 @@ import type { Session } from "../../shared/types.js";
 import { assignWorkItem } from "../../work-items/assignment.js";
 import { reconcileWorkItem } from "../../work-items/reconcile.js";
 import { getWorkItem, linkSession } from "../../work-items/store.js";
-import type { TalkControlAdapterContext, TalkControlExecution } from "./types.js";
+import { TalkControlRefusal, type TalkControlAdapterContext, type TalkControlExecution } from "./types.js";
 
 interface DelegateEmployee {
   name: string;
@@ -35,6 +35,15 @@ interface ClaimedDelegation {
   session: Session;
   queueItemId: string;
   replayed: boolean;
+}
+
+function assertReplayable(claim: IncomingTurnClaim, subject: string): void {
+  const replayError = incomingTurnReplayError(claim, subject);
+  if (!replayError) return;
+  throw new TalkControlRefusal(
+    claim.deduplicated && claim.interrupted ? "queue-item-interrupted" : "queue-item-cancelled",
+    replayError,
+  );
 }
 
 function sessionKey(call: TalkControlAdapterContext): string {
@@ -96,8 +105,9 @@ export function claimTalkDelegation(input: TalkDelegationInput): ClaimedDelegati
       durableDedupe: true,
       meta: { talk: { sessionId: input.call.talkSessionId, providerCallId: input.call.providerCallId } },
     });
+    assertReplayable(turn, "Talk delegation turn");
     reconcileWorkItem(input.todoId);
-    const needsRunning = !existing || !turn.deduplicated || existing.status === "idle";
+    const needsRunning = !existing || !turn.deduplicated;
     const current = needsRunning
       ? updateSession(session.id, { status: "running", lastActivity: new Date().toISOString() }) ?? session
       : session;

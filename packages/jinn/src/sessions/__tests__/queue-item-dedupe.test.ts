@@ -84,6 +84,8 @@ describe("migrateQueueItemsSchema", () => {
     expect(indexes).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "uq_queue_items_dedupe", unique: 1, partial: 1 }),
     ]));
+    expect((db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uq_queue_items_dedupe'").get() as { sql: string }).sql)
+      .toContain("'interrupted'");
     const legacy = db.prepare("SELECT prompt, dedupe_key FROM queue_items WHERE id = 'legacy-1'").get();
     expect(legacy).toEqual({ prompt: "an already queued prompt", dedupe_key: null });
   });
@@ -110,6 +112,28 @@ describe("migrateQueueItemsSchema", () => {
 
     expect(schemaSnapshot(db)).toEqual(afterFirst);
     expect(db.prepare("SELECT COUNT(*) as count FROM queue_items").get()).toEqual({ count: 1 });
+  });
+
+  it("releases a duplicate identity before widening the index to interrupted rows", () => {
+    const db = legacyQueueDb();
+    db.exec("ALTER TABLE queue_items ADD COLUMN dedupe_key TEXT");
+    db.prepare("UPDATE queue_items SET dedupe_key = ?, status = 'pending'").run("replayed-key");
+    db.prepare(
+      "INSERT INTO queue_items (id, session_id, session_key, prompt, status, position, created_at, dedupe_key) VALUES (?, ?, ?, ?, 'interrupted', ?, ?, ?)",
+    ).run("legacy-2", "s1", "web:legacy", "the interrupted retry", 2, "2026-08-01T00:00:00.000Z", "replayed-key");
+    db.exec(`
+      CREATE UNIQUE INDEX uq_queue_items_dedupe
+        ON queue_items (dedupe_key)
+        WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running')
+    `);
+
+    expect(() => migrateQueueItemsSchema(db)).not.toThrow();
+    expect(db.prepare("SELECT id, dedupe_key FROM queue_items ORDER BY id").all()).toEqual([
+      { id: "legacy-1", dedupe_key: "replayed-key" },
+      { id: "legacy-2", dedupe_key: null },
+    ]);
+    expect((db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uq_queue_items_dedupe'").get() as { sql: string }).sql)
+      .toContain("'interrupted'");
   });
 });
 
@@ -151,6 +175,47 @@ describe("claimIncomingTurn — dedupe identity", () => {
     expect(queueRows(session.id).map((row) => row.status)).toEqual(["completed", "pending"]);
   });
 
+  it("releases a content-derived identity when restart interrupts a started send", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:dedupe-interrupted" });
+    const key = turns.lateralSendDedupeKey("caller-interrupted", session.id, "retry safely");
+    const first = turns.claimIncomingTurn(turn(session, "retry safely", key));
+    expect(first.deduplicated).toBe(false);
+    expect(reg.markQueueItemRunning(first.queueItemId!)).toBe(true);
+    expect(reg.recoverStaleQueueItems()).toBe(1);
+
+    const replay = turns.claimIncomingTurn(turn(session, "retry safely", key));
+
+    expect(replay.deduplicated).toBe(false);
+    expect(replay.queueItemId).not.toBe(first.queueItemId);
+    expect(queueRows(session.id)).toEqual([
+      expect.objectContaining({ id: first.queueItemId, status: "interrupted", dedupe_key: null }),
+      expect.objectContaining({ id: replay.queueItemId, status: "pending", dedupe_key: key }),
+    ]);
+  });
+
+  it("keeps a durable Talk identity interrupted until the caller uses a new operation key", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:durable-interrupted" });
+    const input = {
+      ...turn(session, "retry with a new operation", "talk:session-interrupted:provider-call-1"),
+      role: "user",
+      content: "retry with a new operation",
+      queueVisibility: "visible" as const,
+      durableDedupe: true,
+    };
+    const first = turns.claimIncomingTurn(input);
+    if (first.deduplicated) throw new Error("the first durable claim unexpectedly replayed");
+    expect(reg.markQueueItemRunning(first.queueItemId!)).toBe(true);
+    expect(reg.recoverStaleQueueItems()).toBe(1);
+
+    expect(turns.claimIncomingTurn(input)).toEqual({
+      deduplicated: true,
+      queueItemId: first.queueItemId,
+      messageId: first.messageId,
+      interrupted: true,
+    });
+    expect(reg.getQueueItems(session.sessionKey)).toEqual([]);
+  });
+
   it("leaves no queue row behind when the message write fails", () => {
     const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:dedupe-rollback" });
     const key = turns.lateralSendDedupeKey("caller-4", session.id, "doomed");
@@ -183,6 +248,7 @@ describe("claimIncomingTurn — dedupe identity", () => {
       ...turn(session, "keep this approach", "talk:session-1:provider-call-1"),
       role: "user",
       content: "keep this approach",
+      media: [],
       queueVisibility: "visible" as const,
       durableDedupe: true,
     };
@@ -201,5 +267,26 @@ describe("claimIncomingTurn — dedupe identity", () => {
     expect(reg.getMessages(session.id).map((message) => message.content)).toEqual(["keep this approach"]);
     expect(() => turns.claimIncomingTurn({ ...input, content: "changed retry", prompt: "changed retry" }))
       .toThrow(/different input|dedupe/i);
+  });
+
+  it("reports a cancelled durable turn instead of replaying a dead identity", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:dedupe-cancelled" });
+    const input = {
+      ...turn(session, "cancel this", "talk:session-cancelled:provider-call-1"),
+      role: "user",
+      content: "cancel this",
+      queueVisibility: "visible" as const,
+      durableDedupe: true,
+    };
+    const first = turns.claimIncomingTurn(input);
+    if (first.deduplicated) throw new Error("the first durable claim unexpectedly replayed");
+    dbModule.initDb().prepare("UPDATE queue_items SET status = 'cancelled' WHERE id = ?").run(first.queueItemId);
+
+    expect(turns.claimIncomingTurn(input)).toEqual({
+      deduplicated: true,
+      queueItemId: first.queueItemId,
+      messageId: first.messageId,
+      cancelled: true,
+    });
   });
 });

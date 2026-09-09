@@ -450,7 +450,7 @@ export async function startGateway(
   }
   const recoveredQueue = recoverStaleQueueItems();
   if (recoveredQueue > 0) {
-    logger.info(`Recovered ${recoveredQueue} in-flight queue item(s) from previous run — reset to pending`);
+    logger.info(`Recovered ${recoveredQueue} in-flight queue item(s) from previous run — marked interrupted; no automatic replay`);
   }
   // Resolve gateway port/host early so boot artifacts (gateway.json) can record it.
   const port = config.gateway.port || 7777;

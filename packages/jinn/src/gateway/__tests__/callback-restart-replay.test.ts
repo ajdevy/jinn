@@ -11,6 +11,7 @@ import {
   resetCallbackState,
 } from "./helpers/callback-harness.js";
 import { clearVisibleQueue, postCallbackDelivery, postNotification } from "./helpers/callback-requests.js";
+import { claimIncomingTurn } from "../../sessions/incoming-turn.js";
 
 beforeEach(resetCallbackState);
 
@@ -45,6 +46,24 @@ const restartCases = [
 ];
 
 describe("accepted callback queue intents survive a restart", () => {
+  it("does not replay a queue item that had already crossed the engine boundary", async () => {
+    const seenPrompts: string[] = [];
+    const events: Array<{ event: string; data: unknown }> = [];
+    const engine = makeEngine(seenPrompts);
+    const parent = createParent("restart-running");
+    const itemId = registry.enqueueQueueItem(parent.id, parent.sessionKey, "already started");
+    expect(registry.markQueueItemRunning(itemId)).toBe(true);
+
+    expect(registry.recoverStaleQueueItems()).toBe(1);
+
+    const postRestartQueue = new queueModule.SessionQueue();
+    api.resumePendingWebQueueItems(makeContext(engine, postRestartQueue, events));
+
+    await eventually(() => expect(postRestartQueue.isRunning(parent.sessionKey)).toBe(false));
+    expect(seenPrompts).toEqual([]);
+    expect(registry.getQueueItem(itemId)).toMatchObject({ status: "interrupted" });
+  });
+
   it.each(restartCases)("replays one accepted $source callback queue intent after restart", async (row) => {
     const seenPrompts: string[] = [];
     const events: Array<{ event: string; data: unknown }> = [];
@@ -79,6 +98,33 @@ describe("accepted callback queue intents survive a restart", () => {
       expect(registry.listAllPendingQueueItems()).toEqual([]);
     });
     row.alsoExpectReplayed({ parentId: parent.id, events });
+  });
+
+  it("keeps an idempotent queue intent pending while its engine is unavailable", () => {
+    const seenPrompts: string[] = [];
+    const parent = createParent("restart-dedupe-engine-down");
+    const key = "lateral:restart-dedupe-engine-down";
+    const claim = claimIncomingTurn({
+      sessionId: parent.id,
+      sessionKey: parent.sessionKey,
+      prompt: "durable lateral send",
+      isNotification: true,
+      role: "notification",
+      content: "durable lateral send",
+      dedupeKey: key,
+    });
+    expect(claim.deduplicated).toBe(false);
+
+    const queue = new queueModule.SessionQueue();
+    const restoredContext = makeContext(makeEngine(seenPrompts), queue, []);
+    restoredContext.sessionManager.getEngine = () => undefined;
+
+    api.resumePendingWebQueueItems(restoredContext);
+
+    expect(seenPrompts).toEqual([]);
+    expect(registry.listAllPendingQueueItems()).toEqual([
+      expect.objectContaining({ id: claim.queueItemId, status: "pending", dedupeKey: key }),
+    ]);
   });
 
   it.each(["web", "talk"] as const)(
