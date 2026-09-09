@@ -560,24 +560,19 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
       cancelQueueItem(item.id);
       continue;
     }
-    // Ordinary non-web queue ownership remains connector-specific. Callback
-    // receipts are the exception: acceptance already committed this internal
-    // turn, so startup replay must finish it regardless of the parent's source.
+    // Callback receipts are the exception to connector-specific queue ownership:
+    // acceptance already committed this internal turn.
     const callbackDelivery = getSessionDeliveryByQueueItemId(item.id);
     if (runtimeSessionSource(session.source) !== "web" && !callbackDelivery) continue;
-    // Hot-reload calls this too: a row waiting its turn here is owned, not orphaned.
+    // Hot-reload calls this too: a waiting row is owned, not orphaned.
     if (context.sessionManager.getQueue().hasInFlightItem(item.id)) continue;
     session = maybeRevertEngineOverride(session);
-
     const engine = context.sessionManager.getEngine(session.engine);
     if (!engine) {
       const diagnostic = `Engine "${session.engine}" not available`;
       if (callbackDelivery || item.dedupeKey) {
-        // Acceptance committed this exact queue row as part of the callback
-        // outbox, or this row carries its own producer idempotency identity.
-        // Engine availability is transient operational state, not a reason to
-        // destroy an accepted intent. Keep the row pending so a later
-        // config/engine reload can replay the same durable ID.
+        // Keep accepted or producer-idempotent rows pending: engine availability
+        // is transient, and a later reload can replay the same durable ID.
         updateSession(session.id, { lastActivity: new Date().toISOString(), lastError: diagnostic });
         logger.warn(`Deferred durable queue ${item.id}: ${diagnostic}`);
       } else {
@@ -586,14 +581,10 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
       }
       continue;
     }
-
     // Ensure the session is in a runnable state
     updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
-    dispatchWebSessionRun(session, item.prompt, engine, context, {
-      queueItemId: item.id,
-      replyToMessage: !callbackDelivery,
-    });
+    dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id, replyToMessage: !callbackDelivery });
     resumed++;
   }
 
@@ -2868,16 +2859,17 @@ export async function handleApiRequest(
         if (!permitted.ok) return json(res, { error: permitted.error }, 403);
         actingAsOperator = permitted.actingAs;
       }
+      // A granted claim changes the lane, so the agent-only pre-check must not
+      // reject a COO close before transition() sees the human authority.
       const humanAuthority = isOperatorPut || actingAsOperator !== undefined;
-      const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus, humanAuthority);
-      if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
-      // A granted claim is the operator's authority arriving on the COO lane,
-      // not just their name on the record: it releases a sticky terminal the
-      // way the operator PUT does. The cascade is not part of it —
-      // parseStatusUpdateFields keeps that on the operator's own surface.
+      if (!humanAuthority) {
+        const authorized = authorizeAgentWorkItemStatus(caller, item, target as WorkItemStatus);
+        if (!authorized.ok) return json(res, { error: authorized.error }, authorized.status);
+      }
+      // The claim releases a sticky terminal like the operator PUT; cascade
+      // remains on the operator's own surface via parseStatusUpdateFields.
       const actor = fields.asOperator ? "operator" : workItemActor(caller);
-      // Read the list per request, so adding or removing a delegate takes effect
-      // on the next move rather than at the next restart.
+      // Read delegates per request so changes take effect on the next move.
       const armedAsDelegate = resolveArmingDelegate(caller, target, context.getConfig());
       const detail = writeDetail({
         ...(note ? { note } : {}),
@@ -4696,9 +4688,7 @@ export async function handleApiRequest(
       }
 
       dispatchWebSessionRun(session, enginePrompt, engine, context, {
-        queueItemId,
-        attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
-        replyToMessage: !isNotification,
+        queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined, replyToMessage: !isNotification,
       });
 
       return json(res, {
