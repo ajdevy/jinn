@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { IncomingMessage, Session, Target } from "../../../shared/types.js";
+import type { IncomingMessage, JinnConfig, Session, Target } from "../../../shared/types.js";
+import { createConnectorTurnSurface } from "../../../sessions/turn/connector-surface.js";
 
 // Mock node-telegram-bot-api before importing connector
 const mockSendMessage = vi.fn().mockResolvedValue({ message_id: 1 });
@@ -479,6 +480,24 @@ describe("TelegramConnector", () => {
         parse_mode: "Markdown",
         reply_parameters: { message_id: 42 },
       });
+    });
+
+    it("does not resend a terminal reply when the delivery callback is replayed three times", async () => {
+      const surface = createConnectorTurnSurface({
+        connector,
+        target: { channel: "12345" },
+        session: { id: "telegram-replay-session", attemptToken: "telegram-attempt-1" } as Session,
+        config: {} as JinnConfig,
+        decorate: false,
+      });
+
+      await Promise.all([
+        surface.reply("Reply once"),
+        surface.reply("Reply once"),
+        surface.reply("Reply once"),
+      ]);
+
+      expect(mockSendMessage).toHaveBeenCalledOnce();
     });
   });
 

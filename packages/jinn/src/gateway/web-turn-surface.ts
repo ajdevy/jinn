@@ -12,6 +12,8 @@ export interface WebTurnSurfaceOptions {
   getConfig: () => JinnConfig;
   /** Notification turns must not reply to the stale inbound message. */
   replyToMessage?: boolean;
+  /** Durable queue identity, when this turn can be replayed after restart. */
+  deliveryKey?: string;
 }
 
 /**
@@ -50,7 +52,7 @@ export function createWebTurnSurface(options: WebTurnSurfaceOptions): TurnSurfac
       const session = getSession(sessionId);
       if (!session) return;
       const deliver = options.replyToMessage === false ? deliverConnectorMessage : deliverConnectorReply;
-      await deliver(session, text, options.connectors);
+      await deliver(session, text, options.connectors, options.deliveryKey);
     },
     async waiting() {
       // The dashboard reads the waiting state off the session row directly.

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { deliverConnectorMessage, deliverConnectorReply } from "../connector-reply.js";
 import { logger } from "../../shared/logger.js";
+import { __closeDbForTest } from "../../shared/db.js";
 import type { Connector, Session } from "../../shared/types.js";
 
 /** Build a minimal mocked connector exposing the two methods the helper uses. */
@@ -15,8 +16,8 @@ function makeConnector(name: string) {
 
 /** Build the minimal slice of a Session the helper reads. */
 function makeSession(
-  overrides: Partial<Pick<Session, "source" | "connector" | "replyContext">> & { id?: string } = {},
-): Pick<Session, "source" | "connector" | "replyContext"> & { id?: string } {
+  overrides: Partial<Pick<Session, "source" | "connector" | "replyContext" | "attemptToken">> & { id?: string } = {},
+): Pick<Session, "source" | "connector" | "replyContext" | "attemptToken"> & { id?: string } {
   return {
     source: "slack",
     connector: "slack",
@@ -42,6 +43,20 @@ describe("deliverConnectorReply", () => {
     expect(slack.reconstructTarget).toHaveBeenCalledWith(session.replyContext);
     expect(slack.replyMessage).toHaveBeenCalledTimes(1);
     expect(slack.replyMessage).toHaveBeenCalledWith(slack.target, "hello world");
+  });
+
+  it("does not resend one terminal attempt when delivery is replayed three times", async () => {
+    const session = makeSession({ id: "session-replay", attemptToken: "attempt-1" });
+
+    await Promise.all([
+      deliverConnectorReply(session, "hello world", map),
+      deliverConnectorReply(session, "hello world", map),
+      deliverConnectorReply(session, "hello world", map),
+    ]);
+    __closeDbForTest();
+    await deliverConnectorReply(session, "hello world", map);
+
+    expect(slack.replyMessage).toHaveBeenCalledOnce();
   });
 
   it("delivers an autonomous notification without replying to the stale inbound message", async () => {

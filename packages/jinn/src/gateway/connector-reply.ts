@@ -1,10 +1,21 @@
 import type { Connector, OutboundDocument, Session, Target } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
+import { claimConnectorDelivery, connectorDeliveryKey, type ConnectorDeliveryKind } from "../sessions/connector-delivery-dedupe.js";
 
 /** Sources whose turns have no originating chat channel to relay back into. */
 const NON_CONNECTOR_SOURCES = new Set(["web", "talk", "cron"]);
 
-type ConnectorSession = Pick<Session, "source" | "connector" | "replyContext"> & { id?: string };
+type ConnectorSession = Pick<Session, "source" | "connector" | "replyContext" | "attemptToken"> & { id?: string };
+
+function stableDeliveryKey(
+  session: ConnectorSession,
+  kind: ConnectorDeliveryKind,
+  explicitKey?: string,
+): string | undefined {
+  if (explicitKey) return `${explicitKey}:${kind}`;
+  if (!session.id || !session.attemptToken) return undefined;
+  return connectorDeliveryKey(session.id, session.attemptToken, kind);
+}
 
 /**
  * Resolve the connector and target a session's outbound traffic belongs to, or
@@ -37,11 +48,17 @@ export async function deliverConnectorReply(
   session: ConnectorSession,
   text: string,
   connectors: Map<string, Connector>,
+  deliveryKey?: string,
 ): Promise<void> {
   if (!text) return;
   const resolved = resolveConnectorTarget(session, connectors);
   if (!resolved) return;
   try {
+    const stableKey = stableDeliveryKey(session, "reply", deliveryKey);
+    if (stableKey && !claimConnectorDelivery(stableKey)) {
+      logger.debug(`Connector reply delivery replay suppressed for session ${session.id ?? "?"}`);
+      return;
+    }
     await resolved.connector.replyMessage(resolved.target, text);
   } catch (err) {
     logger.warn(
@@ -55,11 +72,17 @@ export async function deliverConnectorMessage(
   session: ConnectorSession,
   text: string,
   connectors: Map<string, Connector>,
+  deliveryKey?: string,
 ): Promise<void> {
   if (!text) return;
   const resolved = resolveConnectorTarget(session, connectors);
   if (!resolved) return;
   try {
+    const stableKey = stableDeliveryKey(session, "message", deliveryKey);
+    if (stableKey && !claimConnectorDelivery(stableKey)) {
+      logger.debug(`Connector message delivery replay suppressed for session ${session.id ?? "?"}`);
+      return;
+    }
     await resolved.connector.sendMessage(resolved.target, text);
   } catch (err) {
     logger.warn(

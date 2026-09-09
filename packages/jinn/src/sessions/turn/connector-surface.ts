@@ -2,6 +2,7 @@ import { logger } from "../../shared/logger.js";
 import type { Connector, JinnConfig, Session, Target } from "../../shared/types.js";
 import type { GatewayEmit } from "../../shared/gateway-events.js";
 import type { TurnReceipt, TurnSurface } from "./types.js";
+import { claimConnectorDelivery, connectorDeliveryKey } from "../connector-delivery-dedupe.js";
 
 const THINKING_STATUS = "is thinking...";
 const RUNNING_REACTION = "eyes";
@@ -21,8 +22,18 @@ export interface ConnectorTurnSurfaceOptions {
 }
 
 /** A rejection is logged and handed to `onFailure`, never rethrown: `TurnSurface.reply` is no-throw. */
-async function deliver(connector: Connector, target: Target, text: string, onFailure: (message: string) => void): Promise<void> {
+async function deliver(
+  connector: Connector,
+  target: Target,
+  text: string,
+  onFailure: (message: string) => void,
+  deliveryKey?: string,
+): Promise<void> {
   if (!text) return;
+  if (deliveryKey && !claimConnectorDelivery(deliveryKey)) {
+    logger.debug(`Connector delivery replay suppressed for ${target.channel}`);
+    return;
+  }
   await connector.replyMessage(target, text).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Connector delivery to ${target.channel} failed: ${message}`);
@@ -35,6 +46,9 @@ export function createConnectorTurnSurface(options: ConnectorTurnSurfaceOptions)
   const { connector, target, decorate } = options;
   const capabilities = connector.getCapabilities();
   const threadTs = target.thread || target.messageTs;
+  const replyDeliveryKey = options.session.attemptToken
+    ? connectorDeliveryKey(options.session.id, options.session.attemptToken, "reply")
+    : undefined;
   let deliveryError: string | null = null;
 
   const setTyping = async (status: string): Promise<void> => {
@@ -57,7 +71,7 @@ export function createConnectorTurnSurface(options: ConnectorTurnSurfaceOptions)
     },
     // A banner that fails to land must not fail the turn, so it is logged only.
     notice: (text) => deliver(connector, target, text, () => {}),
-    reply: (text) => deliver(connector, target, text, (message) => { deliveryError = message; }),
+    reply: (text) => deliver(connector, target, text, (message) => { deliveryError = message; }, replyDeliveryKey),
     async waiting(active: boolean) {
       await setTyping(active ? "" : THINKING_STATUS);
       await react(active ? [WAITING_REACTION] : [RUNNING_REACTION], active ? [RUNNING_REACTION] : [WAITING_REACTION]);
