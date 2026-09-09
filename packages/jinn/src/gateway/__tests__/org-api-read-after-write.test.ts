@@ -123,6 +123,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  dbModule.__closeDbForTest();
   fs.rmSync(home, { recursive: true, force: true });
 });
 

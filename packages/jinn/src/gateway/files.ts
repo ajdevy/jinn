@@ -21,7 +21,8 @@ import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 import { readImageDimensions } from "./image-dimensions.js";
 import { buildMessageMedia } from "./message-media.js";
 import { deliverConnectorAttachment } from "./connector-reply.js";
-import type { Attachment } from "../shared/types.js";
+export { registerIncomingAttachment } from "./incoming-attachment.js";
+export { readLocalFileForIngestion, type LocalFileIngestion } from "./local-file-ingestion.js";
 
 // Ensure managed files directory exists
 export function ensureFilesDir(): void {
@@ -497,7 +498,7 @@ interface ManagedFileReadError {
   error: string;
 }
 
-function sameInode(a: fs.Stats, b: fs.Stats): boolean {
+export function sameInode(a: fs.Stats, b: fs.Stats): boolean {
   return a.dev === b.dev && a.ino === b.ino;
 }
 
@@ -680,98 +681,6 @@ async function saveFile(result: UploadResult, context: ApiContext): Promise<File
 
   logger.info(`File uploaded: ${result.filename} (${result.id}, ${result.buffer.length} bytes)`);
 
-  return meta;
-}
-
-export type LocalFileIngestion =
-  | { ok: true; buffer: Buffer; realPath: string }
-  | { ok: false; status: 400 | 403 | 404 | 413; error: string };
-
-/**
- * Read a caller-named local file for ingestion (e.g. JSON-path attachment
- * uploads) under the standing file-read policy. Symlink-swap-proof: the source
- * is canonicalized and opened ONCE (O_NOFOLLOW on the canonical path), the
- * assessment runs against that opened real path, the size cap uses fstat on
- * the SAME descriptor, and the bytes are read from that descriptor — a path
- * swapped between checks is detected by inode comparison and refused.
- */
-export function readLocalFileForIngestion(requestedPath: string, maxBytes: number): LocalFileIngestion {
-  const requested = path.resolve(expandPath(requestedPath));
-  let fd: number | null = null;
-  try {
-    const realPath = fs.realpathSync.native(requested);
-    fd = fs.openSync(realPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    const openedStat = fs.fstatSync(fd);
-    if (!openedStat.isFile()) return { ok: false, status: 400, error: `not a file: ${requestedPath}` };
-    // The opened descriptor must still be what the canonical path names — a
-    // swap between realpath and open surfaces as an inode mismatch.
-    const currentStat = fs.statSync(realPath);
-    if (!sameInode(openedStat, currentStat)) {
-      return { ok: false, status: 403, error: `${requestedPath} changed during open and was refused` };
-    }
-    const assessment = assessFileRead(realPath, { authenticated: true });
-    if (!assessment.allowed) {
-      return { ok: false, status: 403, error: assessment.reason || "File read blocked by security policy" };
-    }
-    if (openedStat.size > maxBytes) {
-      return { ok: false, status: 413, error: `attachment exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB per-file limit` };
-    }
-    const buffer = Buffer.alloc(openedStat.size);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const read = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
-      if (read <= 0) break;
-      offset += read;
-    }
-    if (offset !== buffer.length) {
-      return { ok: false, status: 403, error: `${requestedPath} changed during read and was refused` };
-    }
-    return { ok: true, buffer, realPath };
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return { ok: false, status: 404, error: `file not found: ${requestedPath}` };
-    if (code === "ELOOP") return { ok: false, status: 403, error: `${requestedPath} changed during open and was refused` };
-    return { ok: false, status: 400, error: err instanceof Error ? err.message : "read failed" };
-  } finally {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* ignore */ }
-    }
-  }
-}
-
-/**
- * Copy a connector-downloaded attachment into durable managed storage and
- * register its metadata. The connector's temporary path is an ingestion
- * detail only; callers must pass the returned id/path to later turns.
- *
- * Bytes are read through the same policy and descriptor checks as other local
- * file ingestion. No content is logged or returned in the metadata.
- */
-export function registerIncomingAttachment(attachment: Attachment): FileMeta | undefined {
-  const localPath = attachment.localPath;
-  if (!localPath) return undefined;
-
-  const ingested = readLocalFileForIngestion(localPath, 50 * 1024 * 1024);
-  if (!ingested.ok) {
-    logger.warn(`Inbound attachment was not registered: ${ingested.error}`);
-    return undefined;
-  }
-
-  const id = crypto.randomUUID();
-  const filename = sanitizeUploadFilename(attachment.name || path.basename(ingested.realPath));
-  const storageDir = path.join(FILES_DIR, id);
-  const storagePath = path.join(storageDir, filename);
-  fs.mkdirSync(storageDir, { recursive: true });
-  fs.writeFileSync(storagePath, ingested.buffer, { mode: 0o600 });
-
-  const meta = insertFile({
-    id,
-    filename,
-    size: ingested.buffer.length,
-    mimetype: attachment.mimeType || mimeFromFilename(filename),
-    path: storagePath,
-  });
-  logger.info(`Registered inbound attachment ${filename} (${id}, ${meta.size} bytes)`);
   return meta;
 }
 

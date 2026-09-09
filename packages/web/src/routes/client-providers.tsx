@@ -1,5 +1,5 @@
 
-import type { ReactNode } from "react"
+import { lazy, Suspense, type ReactNode } from "react"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
 import { ThemeProvider } from "@/routes/providers"
@@ -10,13 +10,16 @@ import { EmojiFavicon } from '@/components/emoji-favicon'
 import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
 import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
-import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
 import { TodoPrefixContext } from "@/components/chat/todo-prefix-context"
 import { useTodoPrefixes } from "@/hooks/use-todo-prefixes"
 import { PluginHostBridge } from "@/plugins/sdk/plugin-host-bridge"
 import { PluginNotices } from "@/plugins/sdk/plugin-notices"
 import { DiskPluginsBridge } from "@/plugins/disk-plugins-bridge"
-import { TalkContextBridge } from "@/components/talk/context/talk-context-bridge"
+import { TalkOrbOverlay } from "@/components/talk/talk-orb-overlay"
+
+const TalkContextBridge = lazy(() =>
+  import("@/components/talk/context/talk-context-bridge").then((module) => ({ default: module.TalkContextBridge })),
+)
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -42,7 +45,9 @@ export function ClientProviders({ children }: { children: ReactNode }) {
                 <GatewayProvider>
                   <InstanceMigrationGate />
                   <TodoMentionPrefixes>{children}</TodoMentionPrefixes>
-                  <TalkContextBridge />
+                  <Suspense fallback={null}>
+                    <TalkContextBridge />
+                  </Suspense>
                   {/* Above the router, so route changes never remount the orb. */}
                   <TalkOrbOverlay />
                   <DocumentTitle />

@@ -14,12 +14,7 @@ import type {
   Target,
   TelegramConnectorConfig,
 } from "../../shared/types.js";
-import {
-  buildEnginePrompt,
-  deriveSessionKey,
-  buildReplyContext,
-  isOldTelegramMessage,
-} from "./threads.js";
+import { buildEnginePrompt, deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
 import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
 import { TMP_DIR } from "../../shared/paths.js";
@@ -34,7 +29,6 @@ import {
   releaseTelegramInbound,
   telegramInboundDedupeKey,
 } from "../../sessions/telegram-inbound-dedupe.js";
-
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
 
 /** Bot API `sendDocument` caption ceiling; `sendMessage` allows 4096. */
@@ -93,12 +87,7 @@ export class TelegramConnector implements Connector {
 
   constructor(config: TelegramConnectorConfig) {
     this.id = config.id || "telegram";
-    this.bot = new TelegramBot(config.botToken, {
-      polling: false,
-      // A direct Telegram POST has no idempotency key. Do not let the client
-      // replay a rate-limited request after an ambiguous delivery outcome.
-      request: { maxRetriesOn429: 0 },
-    });
+    this.bot = new TelegramBot(config.botToken, { polling: false, request: { maxRetriesOn429: 0 } });
     this.ignoreOldMessagesOnBoot = config.ignoreOldMessagesOnBoot !== false;
     this.allowedUsers =
       config.allowFrom && config.allowFrom.length > 0
@@ -428,7 +417,6 @@ export class TelegramConnector implements Connector {
       }
 
       messageText = buildEnginePrompt(messageText, telegramMsg as any);
-
       const msg: IncomingMessage = {
         connector: this.id,
         source: "telegram",

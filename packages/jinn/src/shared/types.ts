@@ -439,44 +439,12 @@ export interface DelegatedActivity {
   employees: string[];
 }
 
-export interface SessionDeliveryIdentity {
-  targetSessionId: string;
-  sourceKind: "session" | "workflow-run" | "heartbeat" | "work-item";
-  sourceId: string;
-  sourceAttempt: string;
-  sourceOutcome: string;
-  sourceVersion: number;
-  deliveryKind: string;
-}
-
-export interface SessionDeliveryPayload {
-  message: string;
-  displayMessage: string;
-  meta?: JsonObject;
-  block?: ChatBlockEnvelope;
-}
-
-export interface SessionDelivery extends SessionDeliveryIdentity {
-  id: string;
-  payload: SessionDeliveryPayload;
-  status: "pending" | "accepted" | "dead_letter";
-  messageId: string | null;
-  queueItemId: string | null;
-  attemptCount: number;
-  nextAttemptAt: number | null;
-  lastAttemptAt: number | null;
-  lastError: string | null;
-  deadLetteredAt: number | null;
-  createdAt: string;
-  acceptedAt: string | null;
-}
-
-/** Operator-facing dead-letter diagnostics. Poison rows remain discoverable
- * even when their stored payload cannot be decoded safely. */
-export interface SessionDeliveryDeadLetter extends Omit<SessionDelivery, "payload"> {
-  payload: SessionDeliveryPayload | null;
-  payloadError: string | null;
-}
+export type {
+  SessionDelivery,
+  SessionDeliveryDeadLetter,
+  SessionDeliveryIdentity,
+  SessionDeliveryPayload,
+} from "./session-delivery-types.js";
 
 export type ExperimentStoreFailureReason = "invalid" | "not-found" | "conflict";
 

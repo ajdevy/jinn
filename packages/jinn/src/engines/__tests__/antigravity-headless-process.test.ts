@@ -102,6 +102,7 @@ describe("AntigravityHeadlessEngine process ownership", () => {
   });
 
   it("terminates and settles a turn at the hard timeout", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     vi.useFakeTimers();
     const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
@@ -125,6 +126,7 @@ describe("AntigravityHeadlessEngine process ownership", () => {
   });
 
   it("reaps the owned process group after an explicit terminal result", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const processKill = vi.mocked(process.kill);
     const engine = new headless.AntigravityHeadlessEngine();
     const resultPromise = engine.run({
