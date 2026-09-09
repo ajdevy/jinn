@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { IncomingMessage, Session, Target } from "../../../shared/types.js";
+import fs from "node:fs";
+import type { IncomingMessage, JinnConfig, Session, Target } from "../../../shared/types.js";
+import { createConnectorTurnSurface } from "../../../sessions/turn/connector-surface.js";
 
 // Mock node-telegram-bot-api before importing connector
 const mockSendMessage = vi.fn().mockResolvedValue({ message_id: 1 });
@@ -203,6 +205,56 @@ describe("TelegramConnector", () => {
       expect(msg.user).toBe("testuser");
       expect(msg.userId).toBe("67890");
       expect(msg.channel).toBe("12345");
+    });
+
+    it("adds reply context without creating a second turn or losing current media", async () => {
+      const handler = vi.fn();
+      connector.onMessage(handler);
+      await connector.start();
+
+      const messageCallback = mockOn.mock.calls.find(
+        (call) => call[0] === "message",
+      )?.[1];
+      const renameSync = vi.spyOn(fs, "renameSync").mockImplementation(() => undefined);
+      mockDownloadFile.mockResolvedValueOnce("/tmp/downloaded-note.pdf");
+
+      const telegramMsg = {
+        message_id: 50,
+        chat: { id: 12345, type: "private" as const },
+        from: { id: 67890, username: "new_author", first_name: "New", is_bot: false },
+        date: Math.floor(Date.now() / 1000) + 10,
+        text: "Answer the quoted question",
+        document: { file_id: "file-1", file_name: "note.pdf", mime_type: "application/pdf" },
+        reply_to_message: {
+          message_id: 49,
+          chat: { id: 12345, type: "private" as const },
+          from: { id: 7, username: "quoted_author", first_name: "Quoted" },
+          text: "Quoted question",
+        },
+      };
+
+      try {
+        await messageCallback(telegramMsg);
+      } finally {
+        renameSync.mockRestore();
+      }
+
+      expect(handler).toHaveBeenCalledOnce();
+      const incoming: IncomingMessage = handler.mock.calls[0][0];
+      expect(incoming.text).toContain("author: @quoted_author");
+      expect(incoming.text).toContain("message_id: 49");
+      expect(incoming.text).toContain("quoted_text:\nQuoted question");
+      expect(incoming.text).toContain("<telegram-user-message>\nAnswer the quoted question");
+      expect(incoming.attachments).toEqual([
+        expect.objectContaining({ name: "note.pdf", mimeType: "application/pdf", localPath: expect.any(String) }),
+      ]);
+      expect(incoming.raw).toBe(telegramMsg);
+      expect(incoming.replyContext).toEqual({ chatId: 12345, messageId: 50 });
+      expect(connector.reconstructTarget(incoming.replyContext)).toMatchObject({
+        channel: "12345",
+        messageTs: "50",
+        replyContext: incoming.replyContext,
+      });
     });
 
     it("drops a replay before routing it to the handler", async () => {
@@ -479,6 +531,24 @@ describe("TelegramConnector", () => {
         parse_mode: "Markdown",
         reply_parameters: { message_id: 42 },
       });
+    });
+
+    it("does not resend a terminal reply when the delivery callback is replayed three times", async () => {
+      const surface = createConnectorTurnSurface({
+        connector,
+        target: { channel: "12345" },
+        session: { id: "telegram-replay-session", attemptToken: "telegram-attempt-1" } as Session,
+        config: {} as JinnConfig,
+        decorate: false,
+      });
+
+      await Promise.all([
+        surface.reply("Reply once"),
+        surface.reply("Reply once"),
+        surface.reply("Reply once"),
+      ]);
+
+      expect(mockSendMessage).toHaveBeenCalledOnce();
     });
   });
 

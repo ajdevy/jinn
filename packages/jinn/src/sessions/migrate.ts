@@ -172,6 +172,14 @@ ${telegramInboundReceiptsTableSql('telegram_inbound_receipts')};
 ${telegramInboundReceiptsIndexesSql()}
 `;
 
+/** At-most-once fence for connector POSTs whose provider has no idempotency key. */
+export const CREATE_CONNECTOR_DELIVERY_RECEIPTS_TABLE = `
+CREATE TABLE IF NOT EXISTS connector_delivery_receipts (
+  delivery_key TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+)
+`;
+
 export function migrateTelegramInboundReceiptsSchema(database: Database.Database): void {
   const existing = database.prepare(
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telegram_inbound_receipts'",

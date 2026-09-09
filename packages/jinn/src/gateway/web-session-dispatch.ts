@@ -23,13 +23,14 @@ import type { ApiContext } from "./api.js";
  */
 
 /** The turn surface every web-dispatched turn reports through. */
-function webTurnSurface(sessionId: string, context: ApiContext, replyToMessage = true) {
+function webTurnSurface(sessionId: string, context: ApiContext, replyToMessage = true, deliveryKey?: string) {
   return createWebTurnSurface({
     sessionId,
     emit: context.emit,
     connectors: context.connectors,
     getConfig: context.getConfig,
     replyToMessage,
+    deliveryKey,
   });
 }
 
@@ -136,6 +137,7 @@ export function dispatchWebSessionRun(
           engine,
           attachments: opts?.attachments,
           replyToMessage: opts?.replyToMessage,
+          deliveryKey: opts?.queueItemId ? `queue-item:${opts.queueItemId}` : undefined,
         }, opts?.queueItemId), {
           sessionKey,
           queueItemId: opts?.queueItemId,
@@ -168,6 +170,7 @@ interface WebTurnRequest {
   attemptToken: string;
   attachments?: string[];
   replyToMessage?: boolean;
+  deliveryKey?: string;
 }
 
 async function runWebSession(
@@ -207,7 +210,7 @@ async function runWebSession(
     roster: await resolveTurnHierarchy(context.getConfig()),
     channel: currentSession.sourceRef,
     user: currentSession.userId ?? "web-user",
-  }, webTurnSurface(currentSession.id, context, request.replyToMessage));
+  }, webTurnSurface(currentSession.id, context, request.replyToMessage, request.deliveryKey));
 }
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */
 export function resolveAttachmentPaths(fileIds: unknown): string[] {
