@@ -38,6 +38,7 @@ import { runTurn } from "./turn/runner.js";
 import { resolveTurnHierarchy } from "./turn/preflight.js";
 import { createConnectorTurnSurface } from "./turn/connector-surface.js";
 import type { GatewayEmit } from "../shared/gateway-events.js";
+import { fileIdsToMedia, registerIncomingAttachment } from "../gateway/files.js";
 
 export interface RouteOptions {
   employee?: Employee;
@@ -147,7 +148,7 @@ export class SessionManager {
   private enqueueWorkflowAttempt(session: Session, prompt: string, employee: Employee, claim: string): void {
     const msg: IncomingMessage = { connector: "workflow", source: "workflow", sessionKey: session.sessionKey, replyContext: {}, channel: session.id, user: "workflow", userId: "workflow", text: prompt, attachments: [], raw: null };
     // Emitted on the enqueue promise, never inside the task: the row only reads 'completed' in enqueue's own finally, so a listener that answers the completion by dispatching again (the stop-nudge does) would claim over a row still running this prompt. It carries the state this turn settled on, because a turn already queued behind it begins before the promise does, and a turn the queue skipped or one that threw settles on nothing and stays as silent as it was.
-    setImmediate(() => { let settled: Session | undefined; void this.queue.enqueue(session.sessionKey, async () => { try { await this.runSession(session, msg, [], WORKFLOW_CONNECTOR, { channel: session.id }, employee); settled = getSession(session.id); } catch (error) { logger.error(`Workflow session ${session.id} dispatch failed: ${String(error)}`); } }, claim).then(() => { if (settled) this.emitWorkflowAttemptCompletion(settled); }); });
+    setImmediate(() => { let settled: Session | undefined; void this.queue.enqueue(session.sessionKey, async () => { try { await this.runSession(session, msg, [], [], [], WORKFLOW_CONNECTOR, { channel: session.id }, employee); settled = getSession(session.id); } catch (error) { logger.error(`Workflow session ${session.id} dispatch failed: ${String(error)}`); } }, claim).then(() => { if (settled) this.emitWorkflowAttemptCompletion(settled); }); });
   }
   async remindWorkflowAttempt(sessionId: string, text: string): Promise<void> {
     const session = getSession(sessionId);
@@ -241,9 +242,25 @@ export class SessionManager {
     const target = connector.reconstructTarget(msg.replyContext);
     target.messageTs ??= msg.messageId;
 
-    const attachmentPaths = msg.attachments
-      .map((attachment) => attachment.localPath)
-      .filter((filePath): filePath is string => !!filePath);
+    // Connector downloads are temporary transport state. Register them before
+    // queueing the turn so the user message and any later child delegation can
+    // address the same durable managed-file IDs instead of a path that cleanup
+    // removes when this turn settles.
+    const registeredAttachmentIds: string[] = [];
+    const attachmentPaths: string[] = [];
+    const cleanupPaths: string[] = [];
+    for (const attachment of msg.attachments) {
+      if (attachment.localPath) cleanupPaths.push(attachment.localPath);
+      const meta = registerIncomingAttachment(attachment);
+      if (meta) {
+        registeredAttachmentIds.push(meta.id);
+        if (meta.path) attachmentPaths.push(meta.path);
+      } else if (attachment.localPath) {
+        // Preserve the historical best-effort route if storage registration
+        // fails; the temporary file is still available for this turn only.
+        attachmentPaths.push(attachment.localPath);
+      }
+    }
 
     if (session.status === "waiting") {
       // A new user message on a rate-limit-paused session is an explicit "retry
@@ -267,7 +284,7 @@ export class SessionManager {
     const sessionId = session.id;
 
     await this.queue.enqueue(msg.sessionKey, () =>
-      this.runSession(session!, msg, attachmentPaths, connector, target, opts.employee),
+      this.runSession(session!, msg, attachmentPaths, cleanupPaths, registeredAttachmentIds, connector, target, opts.employee),
     );
 
     return { sessionId };
@@ -277,6 +294,8 @@ export class SessionManager {
     session: Session,
     msg: IncomingMessage,
     attachments: string[],
+    cleanupPaths: string[],
+    managedAttachmentIds: string[],
     connector: Connector,
     target: Target,
     employee?: Employee,
@@ -288,7 +307,8 @@ export class SessionManager {
     }
     session = liveSession;
 
-    insertMessage(session.id, "user", msg.text);
+    const media = fileIdsToMedia(managedAttachmentIds);
+    insertMessage(session.id, "user", msg.text, media.length > 0 ? media : undefined);
 
     // Mark running before anything else can fail, so a preflight error settles
     // the attempt instead of leaving the session looking idle with a live token.
@@ -339,7 +359,7 @@ export class SessionManager {
       }, surface);
     } finally {
       // Clean up temp attachment files downloaded from the connector.
-      for (const filePath of attachments) {
+      for (const filePath of cleanupPaths) {
         try {
           fs.rmSync(filePath, { force: true });
         } catch {

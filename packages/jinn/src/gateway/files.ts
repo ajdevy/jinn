@@ -21,6 +21,7 @@ import { ensureLowVariant, ensurePoster } from "./video-variants.js";
 import { readImageDimensions } from "./image-dimensions.js";
 import { buildMessageMedia } from "./message-media.js";
 import { deliverConnectorAttachment } from "./connector-reply.js";
+import type { Attachment } from "../shared/types.js";
 
 // Ensure managed files directory exists
 export function ensureFilesDir(): void {
@@ -736,6 +737,42 @@ export function readLocalFileForIngestion(requestedPath: string, maxBytes: numbe
       try { fs.closeSync(fd); } catch { /* ignore */ }
     }
   }
+}
+
+/**
+ * Copy a connector-downloaded attachment into durable managed storage and
+ * register its metadata. The connector's temporary path is an ingestion
+ * detail only; callers must pass the returned id/path to later turns.
+ *
+ * Bytes are read through the same policy and descriptor checks as other local
+ * file ingestion. No content is logged or returned in the metadata.
+ */
+export function registerIncomingAttachment(attachment: Attachment): FileMeta | undefined {
+  const localPath = attachment.localPath;
+  if (!localPath) return undefined;
+
+  const ingested = readLocalFileForIngestion(localPath, 50 * 1024 * 1024);
+  if (!ingested.ok) {
+    logger.warn(`Inbound attachment was not registered: ${ingested.error}`);
+    return undefined;
+  }
+
+  const id = crypto.randomUUID();
+  const filename = sanitizeUploadFilename(attachment.name || path.basename(ingested.realPath));
+  const storageDir = path.join(FILES_DIR, id);
+  const storagePath = path.join(storageDir, filename);
+  fs.mkdirSync(storageDir, { recursive: true });
+  fs.writeFileSync(storagePath, ingested.buffer, { mode: 0o600 });
+
+  const meta = insertFile({
+    id,
+    filename,
+    size: ingested.buffer.length,
+    mimetype: attachment.mimeType || mimeFromFilename(filename),
+    path: storagePath,
+  });
+  logger.info(`Registered inbound attachment ${filename} (${id}, ${meta.size} bytes)`);
+  return meta;
 }
 
 export interface MultipartFileUpload {
