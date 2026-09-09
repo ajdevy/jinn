@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "../threads.js";
+import { deriveSessionKey, buildReplyContext, buildEnginePrompt, isOldTelegramMessage } from "../threads.js";
 
 describe("deriveSessionKey", () => {
   it("returns telegram:<chatId> for a private chat", () => {
@@ -48,6 +48,40 @@ describe("buildReplyContext", () => {
       chatId: -100999,
       messageId: 99,
     });
+  });
+});
+
+describe("buildEnginePrompt", () => {
+  it("keeps a Telegram reply in an explicit quoted context before the new text", () => {
+    const prompt = buildEnginePrompt("Please answer this", {
+      chat: { id: 12345, type: "private" },
+      message_id: 42,
+      text: "The new question",
+      reply_to_message: {
+        chat: { id: 12345, type: "private" },
+        message_id: 41,
+        from: { id: 7, username: "quoted_author" },
+        text: "The quoted message",
+        photo: [{}],
+      },
+    });
+
+    expect(prompt).toContain("<telegram-reply-context>");
+    expect(prompt).toContain("author: @quoted_author");
+    expect(prompt).toContain("message_id: 41");
+    expect(prompt).toContain("chat_id: 12345");
+    expect(prompt).toContain("quoted_text:\nThe quoted message");
+    expect(prompt).toContain("quoted_media: photo");
+    expect(prompt).toContain("<telegram-user-message>\nPlease answer this");
+    expect(prompt.indexOf("<telegram-reply-context>")).toBeLessThan(prompt.indexOf("<telegram-user-message>"));
+  });
+
+  it("does not change an ordinary Telegram message without a reply", () => {
+    expect(buildEnginePrompt("A normal message", {
+      chat: { id: 12345, type: "private" },
+      message_id: 43,
+      text: "A normal message",
+    })).toBe("A normal message");
   });
 });
 

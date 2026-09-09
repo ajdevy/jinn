@@ -14,7 +14,12 @@ import type {
   Target,
   TelegramConnectorConfig,
 } from "../../shared/types.js";
-import { deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
+import {
+  buildEnginePrompt,
+  deriveSessionKey,
+  buildReplyContext,
+  isOldTelegramMessage,
+} from "./threads.js";
 import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
 import { TMP_DIR } from "../../shared/paths.js";
@@ -421,6 +426,8 @@ export class TelegramConnector implements Connector {
           return;
         }
       }
+
+      messageText = buildEnginePrompt(messageText, telegramMsg as any);
 
       const msg: IncomingMessage = {
         connector: this.id,
