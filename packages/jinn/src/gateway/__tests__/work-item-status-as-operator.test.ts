@@ -249,6 +249,16 @@ describe("POST /api/work-items/:id/status — asOperator", () => {
     });
   });
 
+  it("lets the COO close an escalated parent when its child is already done", async () => {
+    const parent = store.createWorkItem({ title: "Escalated parent with done child", status: "escalated" });
+    store.createWorkItem({ title: "Already completed child", parentId: parent.id, status: "done" });
+    const coo = portalSession("web:coo-closes-escalated-parent");
+
+    const closed = await setStatus(parent.id, { status: "done", asOperator: true }, toolHeaders(coo));
+    expect(closed.status).toBe(200);
+    expect(closed.body.workItem.status).toBe("done");
+  });
+
   it("releases an escalated Todo for the COO lane, with the operator's instruction on the record", async () => {
     const item = store.createWorkItem({ title: "Waiting on the operator", status: "escalated" });
     const coo = portalSession("web:coo-releases");
