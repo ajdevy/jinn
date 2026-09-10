@@ -109,7 +109,7 @@ describe("connector attachment managed-file handoff", () => {
 
     const [managed] = registry.listFiles();
     expect(managed).toMatchObject({ filename: "sample.bin", size: bytes.length, mimetype: "application/octet-stream" });
-    expect(managed.path).toMatch(new RegExp(`${path.sep}files${path.sep}[^${path.sep}]+${path.sep}sample\\.bin$`));
+    expect(managed.path).toBe(path.join(paths.FILES_DIR, managed.id, "sample.bin"));
     expect(fs.readFileSync(managed.path!)).toEqual(bytes);
     expect(fs.existsSync(source)).toBe(false);
 

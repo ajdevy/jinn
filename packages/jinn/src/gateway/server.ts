@@ -388,19 +388,16 @@ export function startConnectorInstances(instances: NormalizedConnector[], initCo
 }
 
 export type GatewayCleanup = () => Promise<void>;
-
 export async function startGateway(
   config: JinnConfig,
 ): Promise<GatewayCleanup> {
   const bootId = randomUUID().slice(0, 8);
-
   // Configure logging
   configureLogger({
     level: config.logging.level,
     stdout: config.logging.stdout,
     file: config.logging.file,
   });
-
   const gatewayName = config.portal?.portalName || "Jinn";
   logger.info(`Starting ${gatewayName} gateway (boot ${bootId}, pid ${process.pid})...`);
 
@@ -433,20 +430,13 @@ export async function startGateway(
   if (recoveredWorkflowAttempts > 0) {
     logger.info(`Recovered ${recoveredWorkflowAttempts} stale workflow attempt session(s) after gateway restart`);
   }
-  // GRS-003a split-brain fix: the sessions just flipped running→interrupted above, so any
-  // work item still marked `executing` on the strength of one of those sessions is now stale.
-  // Re-derive work-item status from linked-session evidence. Best-effort and idempotent, and
-  // the 20s periodic reconciler (startWorkItemReconciler) covers it anyway — so it is DEFERRED
-  // past server.listen() (see the setImmediate below) to let the gateway accept requests first
-  // instead of blocking boot on an O(active work items) synchronous re-derivation.
-
-  // Log resumable sessions so operators know what can be picked up
+  // Linked work-item state is reconciled after listen(); the periodic reconciler
+  // is idempotent, so boot does not block on an O(active work items) sweep.
+  // Log resumable sessions so operators know what can be picked up.
   const resumable = getInterruptedSessions();
   if (resumable.length > 0) {
     logger.info(`${resumable.length} interrupted session(s) available for resume:`);
-    for (const s of resumable) {
-      logger.info(`  - ${s.id} (engine: ${s.engine}, employee: ${s.employee || "none"}, engineSessionId: ${s.engineSessionId})`);
-    }
+    for (const s of resumable) logger.info(`  - ${s.id} (engine: ${s.engine}, employee: ${s.employee || "none"}, engineSessionId: ${s.engineSessionId})`);
   }
   const recoveredQueue = recoverStaleQueueItems();
   if (recoveredQueue > 0) {

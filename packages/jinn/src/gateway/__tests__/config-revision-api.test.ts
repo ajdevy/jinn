@@ -123,7 +123,8 @@ beforeEach(() => {
   emit.mockClear();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  (await import("../../shared/db.js")).__closeDbForTest();
   fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 

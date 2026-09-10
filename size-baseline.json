@@ -382,7 +382,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1553,
+      "lines": 1513,
       "exempt": [
         "complexity",
         "max-depth",
@@ -726,7 +726,7 @@
       ]
     },
     "packages/jinn/src/sessions/migrate.ts": {
-      "lines": 941,
+      "lines": 854,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -847,7 +847,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 837
+      "lines": 820
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314

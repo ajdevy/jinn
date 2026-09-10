@@ -38,7 +38,8 @@ import { runTurn } from "./turn/runner.js";
 import { resolveTurnHierarchy } from "./turn/preflight.js";
 import { createConnectorTurnSurface } from "./turn/connector-surface.js";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import { fileIdsToMedia, registerIncomingAttachment } from "../gateway/files.js";
+import { fileIdsToMedia } from "../gateway/files.js";
+import { prepareIncomingAttachments } from "./prepare-incoming-attachments.js";
 
 export interface RouteOptions {
   employee?: Employee;
@@ -235,32 +236,12 @@ export class SessionManager {
         ...(opts.effortLevel ? { effortLevel: opts.effortLevel } : {}),
       }) ?? session;
     }
-
     session = maybeRevertEngineOverride(session);
     this.queue.clearCancelled(msg.sessionKey);
 
     const target = connector.reconstructTarget(msg.replyContext);
     target.messageTs ??= msg.messageId;
-
-    // Connector downloads are temporary transport state. Register them before
-    // queueing the turn so the user message and any later child delegation can
-    // address the same durable managed-file IDs instead of a path that cleanup
-    // removes when this turn settles.
-    const registeredAttachmentIds: string[] = [];
-    const attachmentPaths: string[] = [];
-    const cleanupPaths: string[] = [];
-    for (const attachment of msg.attachments) {
-      if (attachment.localPath) cleanupPaths.push(attachment.localPath);
-      const meta = registerIncomingAttachment(attachment);
-      if (meta) {
-        registeredAttachmentIds.push(meta.id);
-        if (meta.path) attachmentPaths.push(meta.path);
-      } else if (attachment.localPath) {
-        // Preserve the historical best-effort route if storage registration
-        // fails; the temporary file is still available for this turn only.
-        attachmentPaths.push(attachment.localPath);
-      }
-    }
+    const { attachmentPaths, cleanupPaths, managedAttachmentIds: registeredAttachmentIds } = prepareIncomingAttachments(msg.attachments);
 
     if (session.status === "waiting") {
       // A new user message on a rate-limit-paused session is an explicit "retry
@@ -282,7 +263,6 @@ export class SessionManager {
     }
 
     const sessionId = session.id;
-
     await this.queue.enqueue(msg.sessionKey, () =>
       this.runSession(session!, msg, attachmentPaths, cleanupPaths, registeredAttachmentIds, connector, target, opts.employee),
     );

@@ -90,8 +90,8 @@ function canReviewWorkItemDone(session: Session, item: WorkItem, linked: Session
  * `cancelled` has no agent lane at all and the route refuses it before this
  * point, where cancellation's separate archive path is chosen.
  */
-export function authorizeAgentWorkItemStatus(caller: WorkItemCaller, item: WorkItem, target: WorkItemStatus): { ok: true } | { ok: false; status: 403; error: string } {
-  if (caller.kind === 'operator' || target !== 'done') return { ok: true };
+export function authorizeAgentWorkItemStatus(caller: WorkItemCaller, item: WorkItem, target: WorkItemStatus, humanAuthority = false): { ok: true } | { ok: false; status: 403; error: string } {
+  if (humanAuthority || caller.kind === 'operator' || target !== 'done') return { ok: true };
   const review = canReviewWorkItemDone(caller.session, item, listSessionsByWorkItem(item.id));
   return review.ok ? { ok: true } : { ok: false, status: 403, error: review.error };
 }
