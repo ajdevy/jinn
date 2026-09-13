@@ -52,6 +52,91 @@ describe("buildReplyContext", () => {
 });
 
 describe("buildEnginePrompt", () => {
+  it("includes Bot API forward_origin context before the forwarded text", () => {
+    const prompt = buildEnginePrompt("Forwarded question", {
+      chat: { id: 12345, type: "private" },
+      message_id: 44,
+      text: "Forwarded question",
+      forward_origin: {
+        type: "user",
+        date: 1700000000,
+        sender_user: { id: 7, username: "forwarded_author" },
+      },
+    });
+
+    expect(prompt).toContain("<telegram-forward-context>");
+    expect(prompt).toContain("forward_type: user");
+    expect(prompt).toContain("author: @forwarded_author");
+    expect(prompt).toContain("forwarded_text:\nForwarded question");
+    expect(prompt).toContain("forwarded_media: none");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/Forwarded question/g)).toHaveLength(1);
+    expect(prompt.indexOf("<telegram-forward-context>")).toBeLessThan(
+      prompt.indexOf("<telegram-user-message>"),
+    );
+  });
+
+  it("falls back to legacy forward fields and includes media type", () => {
+    const prompt = buildEnginePrompt("A forwarded caption", {
+      chat: { id: 12345, type: "private" },
+      message_id: 45,
+      caption: "A forwarded caption",
+      photo: [{}],
+      forward_from: { id: 8, first_name: "Legacy", last_name: "Author" },
+      forward_date: 1700000001,
+    });
+
+    expect(prompt).toContain("forward_type: legacy");
+    expect(prompt).toContain("author: Legacy Author");
+    expect(prompt).toContain("forwarded_text:\nA forwarded caption");
+    expect(prompt).toContain("forwarded_media: photo");
+  });
+
+  it("handles channel origins, source message ids, and author signatures", () => {
+    const prompt = buildEnginePrompt("Channel post", {
+      chat: { id: -100999, type: "supergroup" },
+      message_id: 46,
+      text: "Channel post",
+      forward_origin: {
+        type: "channel",
+        date: 1700000002,
+        chat: { id: -100555, title: "News" },
+        message_id: 999,
+        author_signature: "Editor",
+      },
+    });
+
+    expect(prompt).toContain("forward_type: channel");
+    expect(prompt).toContain("author: News (Editor)");
+    expect(prompt).toContain("origin_message_id: 999");
+  });
+
+  it("handles absent, partial, and malformed forward context without throwing", () => {
+    expect(buildEnginePrompt("No forward", {
+      chat: { id: 12345, type: "private" },
+      message_id: 47,
+      text: "No forward",
+    })).toBe("No forward");
+
+    const partial = buildEnginePrompt("Partial forward", {
+      chat: { id: 12345, type: "private" },
+      message_id: 48,
+      text: "Partial forward",
+      forward_origin: { type: "hidden_user" },
+    });
+    expect(partial).toContain("<telegram-forward-context>");
+    expect(partial).toContain("author: unknown");
+
+    const malformed = buildEnginePrompt("Malformed forward", {
+      chat: { id: 12345, type: "private" },
+      message_id: 49,
+      text: "Malformed forward",
+      forward_origin: "not-an-origin",
+      forward_from: { id: "not-a-number" },
+    });
+    expect(malformed).toBe("Malformed forward");
+  });
+
   it("keeps a Telegram reply in an explicit quoted context before the new text", () => {
     const prompt = buildEnginePrompt("Please answer this", {
       chat: { id: 12345, type: "private" },
@@ -74,6 +159,68 @@ describe("buildEnginePrompt", () => {
     expect(prompt).toContain("quoted_media: photo");
     expect(prompt).toContain("<telegram-user-message>\nPlease answer this");
     expect(prompt.indexOf("<telegram-reply-context>")).toBeLessThan(prompt.indexOf("<telegram-user-message>"));
+  });
+
+  it("keeps forward and reply contexts separate", () => {
+    const prompt = buildEnginePrompt("Current text", {
+      chat: { id: 12345, type: "private" },
+      message_id: 50,
+      text: "Current text",
+      forward_origin: {
+        type: "chat",
+        sender_chat: { id: -1001, title: "Forwarded channel" },
+      },
+      reply_to_message: {
+        chat: { id: 12345, type: "private" },
+        message_id: 48,
+        text: "Quoted text",
+      },
+    });
+
+    expect(prompt.indexOf("<telegram-forward-context>")).toBeLessThan(
+      prompt.indexOf("<telegram-reply-context>"),
+    );
+    expect(prompt).toContain("author: Forwarded channel");
+    expect(prompt).toContain("quoted_text:\nQuoted text");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/Current text/g)).toHaveLength(1);
+  });
+
+  it("does not repeat the media placeholder for a caption-less forward", () => {
+    const prompt = buildEnginePrompt("", {
+      chat: { id: 12345, type: "private" },
+      message_id: 51,
+      photo: [{}],
+      forward_origin: {
+        type: "user",
+        sender_user: { id: 7, username: "photo_author" },
+      },
+    });
+
+    expect(prompt).toContain("forwarded_text:\n(no text; see attached media)");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/no text; see attached media/g)).toHaveLength(1);
+  });
+
+  it("does not repeat the media placeholder for a caption-less forward reply", () => {
+    const prompt = buildEnginePrompt("", {
+      chat: { id: 12345, type: "private" },
+      message_id: 52,
+      photo: [{}],
+      forward_origin: {
+        type: "user",
+        sender_user: { id: 7, username: "photo_author" },
+      },
+      reply_to_message: {
+        chat: { id: 12345, type: "private" },
+        message_id: 51,
+        text: "Topic root",
+      },
+    });
+
+    expect(prompt).toContain("<telegram-reply-context>");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/no text; see attached media/g)).toHaveLength(1);
   });
 
   it("does not change an ordinary Telegram message without a reply", () => {
