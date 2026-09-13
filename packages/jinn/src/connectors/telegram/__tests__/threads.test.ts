@@ -202,6 +202,27 @@ describe("buildEnginePrompt", () => {
     expect(prompt.match(/no text; see attached media/g)).toHaveLength(1);
   });
 
+  it("does not repeat the media placeholder for a caption-less forward reply", () => {
+    const prompt = buildEnginePrompt("", {
+      chat: { id: 12345, type: "private" },
+      message_id: 52,
+      photo: [{}],
+      forward_origin: {
+        type: "user",
+        sender_user: { id: 7, username: "photo_author" },
+      },
+      reply_to_message: {
+        chat: { id: 12345, type: "private" },
+        message_id: 51,
+        text: "Topic root",
+      },
+    });
+
+    expect(prompt).toContain("<telegram-reply-context>");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/no text; see attached media/g)).toHaveLength(1);
+  });
+
   it("does not change an ordinary Telegram message without a reply", () => {
     expect(buildEnginePrompt("A normal message", {
       chat: { id: 12345, type: "private" },
