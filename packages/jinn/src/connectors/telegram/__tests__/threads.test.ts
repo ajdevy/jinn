@@ -69,6 +69,8 @@ describe("buildEnginePrompt", () => {
     expect(prompt).toContain("author: @forwarded_author");
     expect(prompt).toContain("forwarded_text:\nForwarded question");
     expect(prompt).toContain("forwarded_media: none");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/Forwarded question/g)).toHaveLength(1);
     expect(prompt.indexOf("<telegram-forward-context>")).toBeLessThan(
       prompt.indexOf("<telegram-user-message>"),
     );
@@ -90,16 +92,35 @@ describe("buildEnginePrompt", () => {
     expect(prompt).toContain("forwarded_media: photo");
   });
 
+  it("handles channel origins, source message ids, and author signatures", () => {
+    const prompt = buildEnginePrompt("Channel post", {
+      chat: { id: -100999, type: "supergroup" },
+      message_id: 46,
+      text: "Channel post",
+      forward_origin: {
+        type: "channel",
+        date: 1700000002,
+        chat: { id: -100555, title: "News" },
+        message_id: 999,
+        author_signature: "Editor",
+      },
+    });
+
+    expect(prompt).toContain("forward_type: channel");
+    expect(prompt).toContain("author: News (Editor)");
+    expect(prompt).toContain("origin_message_id: 999");
+  });
+
   it("handles absent, partial, and malformed forward context without throwing", () => {
     expect(buildEnginePrompt("No forward", {
       chat: { id: 12345, type: "private" },
-      message_id: 46,
+      message_id: 47,
       text: "No forward",
     })).toBe("No forward");
 
     const partial = buildEnginePrompt("Partial forward", {
       chat: { id: 12345, type: "private" },
-      message_id: 47,
+      message_id: 48,
       text: "Partial forward",
       forward_origin: { type: "hidden_user" },
     });
@@ -108,7 +129,7 @@ describe("buildEnginePrompt", () => {
 
     const malformed = buildEnginePrompt("Malformed forward", {
       chat: { id: 12345, type: "private" },
-      message_id: 48,
+      message_id: 49,
       text: "Malformed forward",
       forward_origin: "not-an-origin",
       forward_from: { id: "not-a-number" },
@@ -143,7 +164,7 @@ describe("buildEnginePrompt", () => {
   it("keeps forward and reply contexts separate", () => {
     const prompt = buildEnginePrompt("Current text", {
       chat: { id: 12345, type: "private" },
-      message_id: 49,
+      message_id: 50,
       text: "Current text",
       forward_origin: {
         type: "chat",

@@ -118,12 +118,13 @@ function readForwardOrigin(value: unknown): ForwardContextDetails {
   if (!origin || !type) return {};
 
   const sender = origin.sender_user ?? origin.sender_chat ?? origin.chat;
+  const author = telegramEntityAuthor(sender);
+  const signature = nonEmptyString(origin.author_signature);
   return {
     type,
-    author:
-      telegramEntityAuthor(sender) ??
-      nonEmptyString(origin.sender_user_name) ??
-      nonEmptyString(origin.author_signature),
+    author: author && signature
+      ? `${author} (${signature})`
+      : author ?? nonEmptyString(origin.sender_user_name) ?? signature,
     date: finiteNumber(origin.date),
     originMessageId: finiteNumber(origin.message_id),
   };
@@ -144,6 +145,19 @@ function telegramForwardedText(msg: TelegramMessageLike): string {
   return nonEmptyString(msg.text) ??
     nonEmptyString(msg.caption) ??
     "(no text; see attached media)";
+}
+
+function telegramUserMessageText(
+  messageText: string,
+  msg: TelegramMessageLike,
+  hasForwardContext: boolean,
+  hasReplyContext: boolean,
+): string {
+  const forwardedText = nonEmptyString(msg.text) ?? nonEmptyString(msg.caption);
+  if (hasForwardContext && !hasReplyContext && forwardedText === messageText) {
+    return "(no additional user text; see forwarded content above)";
+  }
+  return messageText || "(no text; see attached media)";
 }
 
 function appendForwardMetadata(
@@ -218,7 +232,7 @@ export function buildEnginePrompt(messageText: string, msg: TelegramMessageLike)
 
   sections.push(
     "<telegram-user-message>",
-    messageText || "(no text; see attached media)",
+    telegramUserMessageText(messageText, msg, Boolean(forwardContext), Boolean(quoted)),
     "</telegram-user-message>",
   );
   return sections.join("\n");
