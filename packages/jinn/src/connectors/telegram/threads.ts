@@ -151,10 +151,10 @@ function telegramUserMessageText(
   messageText: string,
   msg: TelegramMessageLike,
   hasForwardContext: boolean,
-  hasReplyContext: boolean,
 ): string {
   const forwardedText = nonEmptyString(msg.text) ?? nonEmptyString(msg.caption);
-  if (hasForwardContext && !hasReplyContext && forwardedText === messageText) {
+  if (hasForwardContext &&
+    ((!forwardedText && !messageText) || forwardedText === messageText)) {
     return "(no additional user text; see forwarded content above)";
   }
   return messageText || "(no text; see attached media)";
@@ -232,7 +232,7 @@ export function buildEnginePrompt(messageText: string, msg: TelegramMessageLike)
 
   sections.push(
     "<telegram-user-message>",
-    telegramUserMessageText(messageText, msg, Boolean(forwardContext), Boolean(quoted)),
+    telegramUserMessageText(messageText, msg, Boolean(forwardContext)),
     "</telegram-user-message>",
   );
   return sections.join("\n");

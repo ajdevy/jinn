@@ -182,6 +182,24 @@ describe("buildEnginePrompt", () => {
     );
     expect(prompt).toContain("author: Forwarded channel");
     expect(prompt).toContain("quoted_text:\nQuoted text");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/Current text/g)).toHaveLength(1);
+  });
+
+  it("does not repeat the media placeholder for a caption-less forward", () => {
+    const prompt = buildEnginePrompt("", {
+      chat: { id: 12345, type: "private" },
+      message_id: 51,
+      photo: [{}],
+      forward_origin: {
+        type: "user",
+        sender_user: { id: 7, username: "photo_author" },
+      },
+    });
+
+    expect(prompt).toContain("forwarded_text:\n(no text; see attached media)");
+    expect(prompt).toContain("<telegram-user-message>\n(no additional user text; see forwarded content above)");
+    expect(prompt.match(/no text; see attached media/g)).toHaveLength(1);
   });
 
   it("does not change an ordinary Telegram message without a reply", () => {
