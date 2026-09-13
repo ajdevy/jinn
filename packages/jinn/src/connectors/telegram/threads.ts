@@ -10,6 +10,11 @@ export interface TelegramMessageLike {
     last_name?: string;
   };
   sender_chat?: { id: number; type: string; username?: string; title?: string };
+  forward_origin?: unknown;
+  forward_from?: unknown;
+  forward_from_chat?: unknown;
+  forward_sender_name?: unknown;
+  forward_date?: unknown;
   date?: number;
   text?: string;
   caption?: string;
@@ -51,6 +56,39 @@ function telegramAuthor(msg: TelegramMessageLike): string {
   return "unknown";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function telegramEntityAuthor(value: unknown): string | undefined {
+  const entity = asRecord(value);
+  if (!entity) return undefined;
+
+  if (typeof entity.username === "string" && entity.username) {
+    return `@${entity.username}`;
+  }
+
+  const name = [entity.first_name, entity.last_name]
+    .filter((part): part is string => typeof part === "string" && Boolean(part))
+    .join(" ");
+  if (name) return name;
+
+  if (typeof entity.title === "string" && entity.title) return entity.title;
+
+  const id = finiteNumber(entity.id);
+  return id === undefined ? undefined : `id: ${id}`;
+}
+
 function telegramMediaKinds(msg: TelegramMessageLike): string {
   const media = [
     ["photo", Array.isArray(msg.photo) && msg.photo.length > 0],
@@ -67,35 +105,123 @@ function telegramMediaKinds(msg: TelegramMessageLike): string {
   return media.length > 0 ? media.join(", ") : "none";
 }
 
+type ForwardContextDetails = {
+  type?: string;
+  author?: string;
+  date?: number;
+  originMessageId?: number;
+};
+
+function readForwardOrigin(value: unknown): ForwardContextDetails {
+  const origin = asRecord(value);
+  const type = nonEmptyString(origin?.type);
+  if (!origin || !type) return {};
+
+  const sender = origin.sender_user ?? origin.sender_chat ?? origin.chat;
+  return {
+    type,
+    author:
+      telegramEntityAuthor(sender) ??
+      nonEmptyString(origin.sender_user_name) ??
+      nonEmptyString(origin.author_signature),
+    date: finiteNumber(origin.date),
+    originMessageId: finiteNumber(origin.message_id),
+  };
+}
+
+function readLegacyForward(msg: TelegramMessageLike): ForwardContextDetails {
+  return {
+    author: [
+      telegramEntityAuthor(msg.forward_from),
+      telegramEntityAuthor(msg.forward_from_chat),
+      nonEmptyString(msg.forward_sender_name),
+    ].find((author): author is string => Boolean(author)),
+    date: finiteNumber(msg.forward_date),
+  };
+}
+
+function telegramForwardedText(msg: TelegramMessageLike): string {
+  return nonEmptyString(msg.text) ??
+    nonEmptyString(msg.caption) ??
+    "(no text; see attached media)";
+}
+
+function appendForwardMetadata(
+  lines: string[],
+  origin: ForwardContextDetails,
+  legacy: ForwardContextDetails,
+): void {
+  const date = origin.date ?? legacy.date;
+  if (date !== undefined) lines.push(`forward_date: ${date}`);
+  if (origin.originMessageId !== undefined) {
+    lines.push(`origin_message_id: ${origin.originMessageId}`);
+  }
+}
+
+/**
+ * Normalize Bot API 7.x MessageOrigin data while keeping old forward fields
+ * usable for updates produced by older Telegram clients or libraries.
+ */
+export function buildForwardContext(msg: TelegramMessageLike): string | null {
+  const origin = readForwardOrigin(msg.forward_origin);
+  const legacy = readLegacyForward(msg);
+  if (!origin.type && !legacy.author && legacy.date === undefined) return null;
+
+  const media = telegramMediaKinds(msg);
+  const contentType = media === "none" ? "text" : media;
+  const lines = [
+    "<telegram-forward-context>",
+    `forward_type: ${origin.type ?? "legacy"}`,
+    `author: ${origin.author ?? legacy.author ?? "unknown"}`,
+  ];
+  appendForwardMetadata(lines, origin, legacy);
+  lines.push(
+    "forwarded_text:",
+    telegramForwardedText(msg),
+    `forwarded_media: ${media}`,
+    `content_type: ${contentType}`,
+    "</telegram-forward-context>",
+  );
+  return lines.join("\n");
+}
+
 /**
  * Keep a Telegram reply's quoted message explicit and separate from the new
  * inbound text so the engine receives one prompt and one inbound turn.
  */
 export function buildEnginePrompt(messageText: string, msg: TelegramMessageLike): string {
   const quoted = msg.reply_to_message;
-  if (!quoted) return messageText;
+  const forwardContext = buildForwardContext(msg);
+  if (!quoted && !forwardContext) return messageText;
 
-  const quotedText =
-    typeof quoted.text === "string"
-      ? quoted.text
-      : typeof quoted.caption === "string"
-        ? quoted.caption
-        : "(no text)";
-  const currentText = messageText || "(no text; see attached media)";
+  const sections: string[] = [];
+  if (forwardContext) sections.push(forwardContext);
 
-  return [
-    "<telegram-reply-context>",
-    `author: ${telegramAuthor(quoted)}`,
-    `message_id: ${quoted.message_id}`,
-    `chat_id: ${quoted.chat.id}`,
-    "quoted_text:",
-    quotedText,
-    `quoted_media: ${telegramMediaKinds(quoted)}`,
-    "</telegram-reply-context>",
+  if (quoted) {
+    const quotedText =
+      typeof quoted.text === "string"
+        ? quoted.text
+        : typeof quoted.caption === "string"
+          ? quoted.caption
+          : "(no text)";
+    sections.push([
+      "<telegram-reply-context>",
+      `author: ${telegramAuthor(quoted)}`,
+      `message_id: ${quoted.message_id}`,
+      `chat_id: ${quoted.chat.id}`,
+      "quoted_text:",
+      quotedText,
+      `quoted_media: ${telegramMediaKinds(quoted)}`,
+      "</telegram-reply-context>",
+    ].join("\n"));
+  }
+
+  sections.push(
     "<telegram-user-message>",
-    currentText,
+    messageText || "(no text; see attached media)",
     "</telegram-user-message>",
-  ].join("\n");
+  );
+  return sections.join("\n");
 }
 
 /**
