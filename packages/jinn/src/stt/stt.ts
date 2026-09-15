@@ -56,6 +56,21 @@ const EXPECTED_SIZES: Record<string, number> = {
   "large-v3-turbo": 1_500_000_000,
 };
 
+const MIN_VALID_SIZE_RATIO = 0.9;
+
+function isUsableModelFile(model: string, candidate: string): boolean {
+  try {
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile() || stat.size < (EXPECTED_SIZES[model] ?? 466_000_000) * MIN_VALID_SIZE_RATIO) {
+      return false;
+    }
+    fs.accessSync(candidate, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let downloading = false;
 let downloadProgress = 0;
 
@@ -84,7 +99,11 @@ export function initStt(localSettings?: LocalSttSettings): void {
 export function getModelPath(model: string): string | null {
   const filename = MODEL_FILES[model];
   if (!filename) return null;
-  return findModelFile(filename, [STT_MODELS_DIR, LEGACY_STT_MODELS_DIR]);
+  return findModelFile(
+    filename,
+    [STT_MODELS_DIR, LEGACY_STT_MODELS_DIR],
+    (candidate) => isUsableModelFile(model, candidate),
+  );
 }
 
 export interface SttStatus {
@@ -178,13 +197,14 @@ export async function downloadModel(
     // truncated/empty download hard — a bad rename here would poison
     // getModelPath() into reporting the model as available forever.
     const actualSize = fs.statSync(tmpPath, { throwIfNoEntry: false } as fs.StatSyncOptions & { throwIfNoEntry: false })?.size ?? 0;
-    if (actualSize < expectedSize * 0.9) {
+    if (actualSize < expectedSize * MIN_VALID_SIZE_RATIO) {
       throw new Error(
         `Downloaded model '${model}' looks truncated (${actualSize} bytes, expected ~${expectedSize}) — deleted; try again`,
       );
     }
 
     // Rename temp file to final path
+    fs.rmSync(destPath, { force: true });
     fs.renameSync(tmpPath, destPath);
 
     downloadProgress = 100;

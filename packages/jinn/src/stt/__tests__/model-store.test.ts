@@ -31,6 +31,12 @@ function writeModel(dir: string, filename: string, contents: string | Uint8Array
   return file;
 }
 
+function writeValidSmallModel(dir: string, filename: string): string {
+  const file = writeModel(dir, filename, "model");
+  fs.truncateSync(file, 466_000_000);
+  return file;
+}
+
 afterEach(() => {
   spawnMock.mockReset();
   vi.restoreAllMocks();
@@ -89,7 +95,7 @@ describe("legacy model adoption", () => {
     const sharedDir = path.join(root, "shared");
     const legacyDir = path.join(process.env.JINN_HOME!, "models", "whisper");
     const filename = "ggml-small.bin";
-    const legacyFile = writeModel(legacyDir, filename, "legacy model");
+    const legacyFile = writeValidSmallModel(legacyDir, filename);
     process.env.JINN_STT_MODELS_DIR = sharedDir;
     const { getModelPath } = await import("../stt.js");
 
@@ -151,6 +157,33 @@ describe("legacy model adoption", () => {
 });
 
 describe("STT model lookup and download", () => {
+  it("does not treat a truncated model as available and redownloads it", async () => {
+    const root = tempDir();
+    const sharedDir = path.join(root, "shared");
+    process.env.JINN_STT_MODELS_DIR = sharedDir;
+    const modelPath = writeModel(sharedDir, "ggml-small.bin", "truncated!!!");
+    const { downloadModel, getSttStatus } = await import("../stt.js");
+
+    expect(fs.statSync(modelPath).size).toBe(12);
+    expect(getSttStatus("small").available).toBe(false);
+
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new EventEmitter();
+      const partialPath = args[args.indexOf("-o") + 1]!;
+      fs.mkdirSync(path.dirname(partialPath), { recursive: true });
+      fs.writeFileSync(partialPath, "model");
+      fs.truncateSync(partialPath, 466_000_000);
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    });
+
+    await downloadModel("small", () => undefined);
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(fs.statSync(modelPath).size).toBe(466_000_000);
+    expect(getSttStatus("small").available).toBe(true);
+  });
+
   it("prefers the shared copy, falls back to legacy, and rejects missing or unknown models", async () => {
     const root = tempDir();
     const sharedDir = path.join(root, "shared");
@@ -158,10 +191,10 @@ describe("STT model lookup and download", () => {
     process.env.JINN_STT_MODELS_DIR = sharedDir;
     const { getModelPath } = await import("../stt.js");
     const filename = "ggml-small.bin";
-    const legacyFile = writeModel(legacyDir, filename, "legacy model");
+    const legacyFile = writeValidSmallModel(legacyDir, filename);
 
     expect(getModelPath("small")).toBe(legacyFile);
-    const sharedFile = writeModel(sharedDir, filename, "shared model");
+    const sharedFile = writeValidSmallModel(sharedDir, filename);
     expect(getModelPath("small")).toBe(sharedFile);
     fs.unlinkSync(sharedFile);
     fs.unlinkSync(legacyFile);
@@ -196,5 +229,26 @@ describe("STT model lookup and download", () => {
     expect(finalExistedDuringDownload).toBe(false);
     expect(fs.existsSync(partialPath)).toBe(false);
     expect(fs.statSync(finalPath).size).toBe(75_000_000);
+  });
+
+  it("rejects a truncated download without installing it", async () => {
+    const root = tempDir();
+    const sharedDir = path.join(root, "shared");
+    process.env.JINN_STT_MODELS_DIR = sharedDir;
+    const { downloadModel } = await import("../stt.js");
+    let partialPath = "";
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new EventEmitter();
+      partialPath = args[args.indexOf("-o") + 1]!;
+      fs.mkdirSync(path.dirname(partialPath), { recursive: true });
+      fs.writeFileSync(partialPath, "truncated");
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    });
+
+    await expect(downloadModel("tiny", () => undefined)).rejects.toThrow(/looks truncated/);
+
+    expect(fs.existsSync(partialPath)).toBe(false);
+    expect(fs.existsSync(path.join(sharedDir, "ggml-tiny.bin"))).toBe(false);
   });
 });
