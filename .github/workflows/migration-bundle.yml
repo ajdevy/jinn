@@ -43,13 +43,19 @@ jobs:
           if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
             echo "Checking unreleased migration $VERSION while package remains at $PACKAGE_VERSION"
           fi
-          # Same derivation and same command as the release job, so a PR can never
-          # pass a gate the release then fails. The branch matters: --base-ref is
-          # validated as a version tag, and once v$VERSION is tagged, passing it
-          # would diff the version against itself and always report current.
-          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            BASE="$(git describe --tags --abbrev=0 "v$VERSION^")"
-          else
-            BASE="$(git describe --tags --abbrev=0)"
+          # Use the base release recorded by the bundle. Forks may not carry
+          # upstream release tags, so materialize that tag locally from the
+          # reachable package-version commit before running the checker.
+          BASE="$(node -p "require('./packages/jinn/template/migrations/' + '$VERSION' + '/manifest.json').generatedFrom.baseRef")"
+          if ! git rev-parse -q --verify "refs/tags/$BASE" >/dev/null; then
+            BASE_VERSION="${BASE#v}"
+            BASE_COMMIT="$(git log --all --reverse --format='%H' -- packages/jinn/package.json | while read -r commit; do
+              if git show "$commit:packages/jinn/package.json" 2>/dev/null | grep -q "\"version\": \"$BASE_VERSION\""; then
+                echo "$commit"
+                break
+              fi
+            done)"
+            test -n "$BASE_COMMIT"
+            git tag "$BASE" "$BASE_COMMIT"
           fi
           pnpm --filter jinn-cli migration:check -- --base-ref "$BASE" --version "$VERSION" --allow-unreleased
