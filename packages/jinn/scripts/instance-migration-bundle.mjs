@@ -41,6 +41,13 @@ function isNewerVersion(candidate, current) {
   return false
 }
 
+function isCompatibleUnreleasedVersion(candidate, packageVersion) {
+  if (isNewerVersion(candidate, packageVersion)) return true
+  const [candidateMajor, candidateMinor] = candidate.split(".")
+  const [packageMajor, packageMinor] = packageVersion.split(".")
+  return candidateMajor === packageMajor && candidateMinor === packageMinor
+}
+
 function roots() {
   const cwd = fs.realpathSync(process.cwd())
   const nested = path.join(cwd, "packages", "jinn")
@@ -234,7 +241,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2))
   const { repoRoot, packageRoot } = roots()
   const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"))
-  if (pkg.version !== args.version && (!args.allowUnreleased || !isNewerVersion(args.version, pkg.version))) throw new Error(`package version ${pkg.version} does not match requested bundle ${args.version}`)
+  if (pkg.version !== args.version && (!args.allowUnreleased || !isCompatibleUnreleasedVersion(args.version, pkg.version))) throw new Error(`package version ${pkg.version} does not match requested bundle ${args.version}`)
   git(repoRoot, ["rev-parse", "--verify", `${args.baseRef}^{commit}`])
   const outputDir = path.join(packageRoot, "template", "migrations", args.version)
   let committedFallback = ""

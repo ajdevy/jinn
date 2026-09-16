@@ -179,6 +179,13 @@ describe("instance migration bundle generator", () => {
 
     expect(run(root, "check", ...args).status).toBe(1)
     expect(run(root, "check", ...args, "--allow-unreleased").status).toBe(0)
+
+    fs.writeFileSync(
+      path.join(root, "packages/jinn/package.json"),
+      JSON.stringify({ name: "jinn-cli", version: "0.26.3" }, null, 2) + "\n",
+    )
+    expect(run(root, "check", ...args).status).toBe(1)
+    expect(run(root, "check", ...args, "--allow-unreleased").status).toBe(0)
   })
 
   it("rejects empty bundles, unsafe symlinks, and version mismatch", () => {
