@@ -31,6 +31,10 @@ test("publishes jinn-cli from an exact version tag through npm Trusted Publishin
     assert.match(workflow, new RegExp(`run: ${gate.replace(" ", "\\s+")}`))
   }
 
+  assert.match(workflow, /npm pack --pack-destination "\$CANDIDATE_DIR"/)
+  assert.match(workflow, /pnpm upgrade-verify -- --candidate-tarball "\$CANDIDATE_TARBALL"/)
+  assert.doesNotMatch(workflow, /migration:(?:generate|check)/)
+
   assert.match(workflow, /working-directory: packages\/jinn\s*\n\s+run: npm publish/)
   assert.doesNotMatch(workflow, /(NODE_AUTH_TOKEN|NPM_TOKEN|_authToken)/)
 })

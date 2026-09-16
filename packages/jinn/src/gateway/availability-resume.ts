@@ -4,10 +4,10 @@ import {
   startAvailabilityResumeSweep,
   type AvailabilityRearmResult,
 } from "../work-items/availability-resume.js";
-import { listWorkItemEvents } from "../work-items/event-log.js";
 import { getWorkItemLabels, normalizeLabelName, setWorkItemLabels } from "../work-items/labels.js";
 import type { WorkItemStatus } from "../work-items/store.js";
 import { transition, TransitionError } from "../work-items/transitions.js";
+import { owningWorkflowId } from "../work-items/workflow-ownership.js";
 import { resolveRearmTarget } from "../workflows/rearm-target.js";
 import type { WorkflowRepository } from "../workflows/repository.js";
 
@@ -26,7 +26,7 @@ export function startAvailabilityResumes(repository: WorkflowRepository): () => 
 
 /** One re-arm. Exported for tests; the sweep above is the only caller in anger. */
 export function availabilityRearm(todoId: string, repository: WorkflowRepository): AvailabilityRearmResult {
-  const workflowId = boundWorkflowId(todoId);
+  const workflowId = owningWorkflowId(todoId);
   if (workflowId === undefined) {
     return { unavailable: "no Workflow run has ever driven this Todo, so nothing says where a re-arm would land" };
   }
@@ -35,7 +35,7 @@ export function availabilityRearm(todoId: string, repository: WorkflowRepository
 
   if (target.label !== undefined) restoreArmingLabel(todoId, target.label);
   try {
-    const moved = transition(todoId, target.status as WorkItemStatus, armingActor(target.actor), {
+    const moved = transition(todoId, target.status as WorkItemStatus, AVAILABILITY_RESUME_ACTOR, {
       requeue: true,
       detail: { workflowId, availabilityResume: true },
     });
@@ -50,29 +50,6 @@ export function availabilityRearm(todoId: string, repository: WorkflowRepository
     return { unavailable: `it could not be moved to \`${target.status}\`: ${error.message}` };
   }
   return { status: target.status, ...(target.label === undefined ? {} : { label: target.label }) };
-}
-
-/**
- * The actor the re-armed status event carries.
- *
- * A trigger's `actor` filter is an authority boundary — it is what keeps an
- * arbitrary employee from starting a pipeline nobody asked for. This does not
- * cross it: the sweep only ever reaches a Todo whose own audit trail shows this
- * workflow ALREADY running on it, which is the arming that authority produced.
- * Resuming an attempt the operator armed is not the same act as arming one, and
- * the `availability_resumed` event beside it says which of the two happened.
- */
-function armingActor(required: string | undefined): string {
-  return required ?? AVAILABILITY_RESUME_ACTOR;
-}
-
-/** Which Workflow was driving this Todo, read off the status moves its own runs
- *  reflected onto it. Newest wins: a Todo re-armed into a different pipeline
- *  since then belongs to that one. */
-function boundWorkflowId(todoId: string): string | undefined {
-  const bound = listWorkItemEvents(todoId)
-    .filter((event) => event.kind === "status_change" && typeof event.detail?.workflowId === "string");
-  return bound.at(-1)?.detail?.workflowId as string | undefined;
 }
 
 /**

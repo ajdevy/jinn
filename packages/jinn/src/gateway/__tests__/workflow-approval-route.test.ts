@@ -42,7 +42,9 @@ describe("the Workflow approval route", () => {
     expect(picked.read().status).toBe(200);
     expect(decideApproval).toHaveBeenCalledWith({ workflowId: "release-flow",
       runId: "run_11111111-1111-4111-8111-111111111111", nodeId: "review", decision: "approve",
-      reason: "Cheapest", choice: "variant-b", expectedRevision: 4, decidedBy: "operator" });
+      reason: "Cheapest", choice: "variant-b", expectedRevision: 4, decidedBy: "operator",
+      // No caller-session header on a gateway-authenticated request is the operator console.
+      decidedByAuthority: "operator" });
 
     // Which choices are legal is the gate's business, not the route's: a
     // non-offered pick and a pick on a rejection have to come back in the

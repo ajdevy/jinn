@@ -20,12 +20,6 @@
         "complexity"
       ]
     },
-    "packages/jinn/src/cli/__tests__/migrate-prompt.test.ts": {
-      "lines": 503
-    },
-    "packages/jinn/src/cli/__tests__/migrate.test.ts": {
-      "lines": 595
-    },
     "packages/jinn/src/cli/__tests__/pair.test.ts": {
       "lines": 304
     },
@@ -35,16 +29,6 @@
       ]
     },
     "packages/jinn/src/cli/limits.ts": {
-      "exempt": [
-        "complexity"
-      ]
-    },
-    "packages/jinn/src/cli/migrate-prompt.ts": {
-      "exempt": [
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/cli/migrate.ts": {
       "exempt": [
         "complexity"
       ]
@@ -88,7 +72,6 @@
       ]
     },
     "packages/jinn/src/connectors/discord/index.ts": {
-      "lines": 351,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -122,11 +105,6 @@
     },
     "packages/jinn/src/cron/__tests__/runner.test.ts": {
       "lines": 489
-    },
-    "packages/jinn/src/cron/run-summary.ts": {
-      "exempt": [
-        "complexity"
-      ]
     },
     "packages/jinn/src/cron/runner.ts": {
       "exempt": [
@@ -196,7 +174,7 @@
       ]
     },
     "packages/jinn/src/engines/codex.ts": {
-      "lines": 1065,
+      "lines": 1038,
       "exempt": [
         "complexity",
         "max-depth",
@@ -218,7 +196,7 @@
       ]
     },
     "packages/jinn/src/engines/grok.ts": {
-      "lines": 791,
+      "lines": 790,
       "exempt": [
         "complexity",
         "max-depth",
@@ -305,10 +283,7 @@
       "lines": 485
     },
     "packages/jinn/src/gateway/__tests__/file-read.test.ts": {
-      "lines": 549
-    },
-    "packages/jinn/src/gateway/__tests__/instance-migration-api.test.ts": {
-      "lines": 394
+      "lines": 524
     },
     "packages/jinn/src/gateway/__tests__/lifecycle-stop.test.ts": {
       "lines": 525
@@ -338,13 +313,10 @@
       "lines": 374
     },
     "packages/jinn/src/gateway/__tests__/workflow-v2-api.test.ts": {
-      "lines": 631,
-      "exempt": [
-        "max-params"
-      ]
+      "lines": 631
     },
     "packages/jinn/src/gateway/api.ts": {
-      "lines": 5432,
+      "lines": 5121,
       "exempt": [
         "complexity",
         "max-depth",
@@ -382,7 +354,7 @@
       ]
     },
     "packages/jinn/src/gateway/files.ts": {
-      "lines": 1513,
+      "lines": 1346,
       "exempt": [
         "complexity",
         "max-depth",
@@ -442,9 +414,8 @@
       ]
     },
     "packages/jinn/src/gateway/server.ts": {
-      "lines": 1313,
+      "lines": 1305,
       "exempt": [
-        "@typescript-eslint/no-floating-promises",
         "complexity",
         "max-depth",
         "max-lines-per-function"
@@ -621,37 +592,10 @@
       ]
     },
     "packages/jinn/src/mcp/work-item-tools.ts": {
-      "lines": 665,
+      "lines": 634,
       "exempt": [
         "complexity",
         "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/__tests__/completion.test.ts": {
-      "lines": 321
-    },
-    "packages/jinn/src/migrations/__tests__/service.test.ts": {
-      "lines": 373
-    },
-    "packages/jinn/src/migrations/completion.ts": {
-      "exempt": [
-        "complexity",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/service.ts": {
-      "lines": 617,
-      "exempt": [
-        "complexity",
-        "max-depth",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/jinn/src/migrations/snapshot.ts": {
-      "lines": 331,
-      "exempt": [
-        "complexity",
-        "max-depth"
       ]
     },
     "packages/jinn/src/notes/__tests__/store.test.ts": {
@@ -689,7 +633,7 @@
       "lines": 331
     },
     "packages/jinn/src/sessions/callbacks.ts": {
-      "lines": 580,
+      "lines": 564,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -746,7 +690,7 @@
       ]
     },
     "packages/jinn/src/sessions/registry.ts": {
-      "lines": 2635,
+      "lines": 2520,
       "exempt": [
         "complexity",
         "max-depth",
@@ -817,7 +761,7 @@
       ]
     },
     "packages/jinn/src/shared/engine-limits.ts": {
-      "lines": 658,
+      "lines": 373,
       "exempt": [
         "complexity",
         "max-depth",
@@ -847,7 +791,7 @@
       ]
     },
     "packages/jinn/src/shared/types.ts": {
-      "lines": 820
+      "lines": 821
     },
     "packages/jinn/src/stt/__tests__/settings-store.test.ts": {
       "lines": 314
@@ -1007,17 +951,9 @@
       ]
     },
     "packages/jinn/src/workflows/model.ts": {
-      "lines": 323,
-      "exempt": [
-        "complexity"
-      ]
+      "lines": 323
     },
     "packages/jinn/src/workflows/output.ts": {
-      "exempt": [
-        "complexity"
-      ]
-    },
-    "packages/jinn/src/workflows/repository-migrations.ts": {
       "exempt": [
         "complexity"
       ]
@@ -1055,7 +991,7 @@
       ]
     },
     "packages/jinn/src/workflows/service.ts": {
-      "lines": 482,
+      "lines": 480,
       "exempt": [
         "complexity",
         "max-depth"
@@ -1149,7 +1085,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-input.tsx": {
-      "lines": 1046,
+      "lines": 1039,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1157,7 +1093,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-messages.tsx": {
-      "lines": 1334,
+      "lines": 1208,
       "exempt": [
         "complexity",
         "max-depth",
@@ -1165,7 +1101,7 @@
       ]
     },
     "packages/web/src/components/chat/chat-pane.tsx": {
-      "lines": 582,
+      "lines": 547,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1177,7 +1113,6 @@
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
-        "max-depth",
         "max-lines-per-function"
       ]
     },
@@ -1225,8 +1160,7 @@
     "packages/web/src/components/chat/fold-region.tsx": {
       "exempt": [
         "complexity",
-        "max-lines-per-function",
-        "max-params"
+        "max-lines-per-function"
       ]
     },
     "packages/web/src/components/chat/handoff-card.tsx": {
@@ -1288,7 +1222,7 @@
       ]
     },
     "packages/web/src/components/chat/thread-peek.tsx": {
-      "lines": 403,
+      "lines": 364,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1319,11 +1253,6 @@
         "max-lines-per-function"
       ]
     },
-    "packages/web/src/components/code-block-chrome.tsx": {
-      "exempt": [
-        "@typescript-eslint/no-floating-promises"
-      ]
-    },
     "packages/web/src/components/crons/weekly-schedule.tsx": {
       "lines": 388,
       "exempt": [
@@ -1347,15 +1276,6 @@
     "packages/web/src/components/markdown-view.tsx": {
       "exempt": [
         "@typescript-eslint/no-unused-vars",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/web/src/components/migration/__tests__/instance-migration-gate.test.tsx": {
-      "lines": 341
-    },
-    "packages/web/src/components/migration/instance-migration-gate.tsx": {
-      "exempt": [
-        "complexity",
         "max-lines-per-function"
       ]
     },
@@ -1400,7 +1320,6 @@
       ]
     },
     "packages/web/src/components/pill-nav.tsx": {
-      "lines": 444,
       "exempt": [
         "max-lines-per-function"
       ]
@@ -1446,7 +1365,7 @@
       ]
     },
     "packages/web/src/hooks/__tests__/use-live-session.test.ts": {
-      "lines": 2103
+      "lines": 2021
     },
     "packages/web/src/hooks/use-chat-tabs.ts": {
       "lines": 337,
@@ -1466,7 +1385,7 @@
       ]
     },
     "packages/web/src/hooks/use-live-session.ts": {
-      "lines": 1428,
+      "lines": 1402,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1500,7 +1419,7 @@
       ]
     },
     "packages/web/src/lib/api.ts": {
-      "lines": 1117,
+      "lines": 1075,
       "exempt": [
         "complexity"
       ]
@@ -1509,11 +1428,6 @@
       "lines": 370,
       "exempt": [
         "complexity",
-        "max-lines-per-function"
-      ]
-    },
-    "packages/web/src/lib/conversations.ts": {
-      "exempt": [
         "max-lines-per-function"
       ]
     },
@@ -1562,14 +1476,13 @@
       ]
     },
     "packages/web/src/routes/cron/detail.tsx": {
-      "lines": 305,
       "exempt": [
         "complexity",
         "max-lines-per-function"
       ]
     },
     "packages/web/src/routes/cron/page.tsx": {
-      "lines": 346,
+      "lines": 336,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1602,12 +1515,6 @@
     },
     "packages/web/src/routes/logs/page.tsx": {
       "exempt": [
-        "max-lines-per-function"
-      ]
-    },
-    "packages/web/src/routes/more/page.tsx": {
-      "exempt": [
-        "complexity",
         "max-lines-per-function"
       ]
     },
@@ -1661,7 +1568,7 @@
       ]
     },
     "packages/web/src/routes/settings/page.tsx": {
-      "lines": 1489,
+      "lines": 1395,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1679,13 +1586,10 @@
       ]
     },
     "packages/web/src/routes/todos/__tests__/board-page.test.tsx": {
-      "lines": 874
+      "lines": 869
     },
     "packages/web/src/routes/todos/__tests__/filter-bar.test.tsx": {
-      "lines": 307,
-      "exempt": [
-        "@typescript-eslint/no-floating-promises"
-      ]
+      "lines": 307
     },
     "packages/web/src/routes/todos/__tests__/task-page.test.tsx": {
       "lines": 582
@@ -1694,7 +1598,7 @@
       "lines": 652
     },
     "packages/web/src/routes/todos/board/board-page.tsx": {
-      "lines": 917,
+      "lines": 891,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1713,7 +1617,6 @@
       ]
     },
     "packages/web/src/routes/todos/board/card.tsx": {
-      "lines": 326,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1743,11 +1646,6 @@
         "max-lines-per-function"
       ]
     },
-    "packages/web/src/routes/todos/list/group-items.ts": {
-      "exempt": [
-        "max-lines-per-function"
-      ]
-    },
     "packages/web/src/routes/todos/list/list-group.tsx": {
       "exempt": [
         "max-lines-per-function"
@@ -1759,7 +1657,7 @@
       ]
     },
     "packages/web/src/routes/todos/needs-you-view.tsx": {
-      "lines": 509,
+      "lines": 503,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1790,7 +1688,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/activity.tsx": {
-      "lines": 601,
+      "lines": 556,
       "exempt": [
         "complexity",
         "max-lines-per-function"
@@ -1851,7 +1749,7 @@
       ]
     },
     "packages/web/src/routes/todos/task-page/task-page.tsx": {
-      "lines": 649,
+      "lines": 586,
       "exempt": [
         "@typescript-eslint/no-floating-promises",
         "complexity",
@@ -1889,7 +1787,7 @@
       "lines": 322
     },
     "packages/web/src/routes/workflow/__tests__/run-canvas.test.tsx": {
-      "lines": 476
+      "lines": 475
     },
     "packages/web/src/routes/workflow/editor/edge.tsx": {
       "exempt": [
@@ -1957,7 +1855,6 @@
     },
     "packages/web/vite.config.ts": {
       "exempt": [
-        "complexity",
         "max-lines-per-function"
       ]
     },

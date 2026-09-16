@@ -42,7 +42,11 @@ const BINDING_NAME = /^[A-Za-z_$][\w$]*$/
 /** Install the app's own instances where the shims read them. Idempotent. */
 export async function installPluginSdk(): Promise<void> {
   namespaces ??= {
-    '@jinn/plugin-sdk': await import('./index'),
+    // The alias, not the relative path: a broken `@jinn/plugin-sdk` mapping
+    // must fail this app build rather than a stranger's first plugin load.
+    // Dynamic so the barrel (Select, Menu, the floating layer) stays off
+    // the first paint of a dashboard whose plugins directory is empty.
+    '@jinn/plugin-sdk': await import('@jinn/plugin-sdk'),
     react: React,
     'react/jsx-runtime': jsxRuntime,
   }

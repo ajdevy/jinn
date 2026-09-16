@@ -115,6 +115,7 @@ describe('desktop pane focus', () => {
     fireEvent.pointerDown(within(paneB).getByRole('button', { name: 'Actions for Title b' }), { button: 0, ctrlKey: false })
     let menu = await screen.findByRole('menu')
     expect(within(menu).getByRole('menuitem', { name: 'Open beside' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Open in new tab' })).toBeTruthy()
     expect(within(menu).getByRole('button', { name: 'Chat' })).toBeTruthy()
     expect(within(menu).getByRole('button', { name: 'CLI' })).toBeTruthy()
     // The pane title bar is the multi-pane home of the header's Open beside, so it has to
@@ -123,6 +124,7 @@ describe('desktop pane focus', () => {
     const paneMenuOrder = Array.from(menu.querySelectorAll('[role="menuitem"], button'))
       .map((element) => element.textContent?.trim() ?? '')
     expect(paneMenuOrder.indexOf('Open beside')).toBe(paneMenuOrder.indexOf('CLI') + 1)
+    expect(paneMenuOrder.indexOf('Open in new tab')).toBe(paneMenuOrder.indexOf('Open beside') + 1)
     expect(paneMenuOrder.indexOf('Open beside')).toBeLessThan(paneMenuOrder.indexOf('Rename'))
     expect(within(menu).getByRole('menuitem', { name: 'Copy CLI Resume Command' })).toBeTruthy()
     expect(within(menu).getByRole('menuitem', { name: 'Share debug log' })).toBeTruthy()

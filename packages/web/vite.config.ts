@@ -128,6 +128,10 @@ export default defineConfig(() => {
         // is runtime code the bundle really carries. It is a pure leaf with an
         // empty import list, which is what keeps that safe with no polyfills.
         '@jinn/fallback-map-wire': path.resolve(__dirname, '../jinn/src/shared/fallback-map-wire.ts'),
+        // The same leaf treatment as the line above, and for the same reason: the
+        // editor has to judge a model id by the rule the config loader judges it
+        // by, and a second copy of that rule is a second answer waiting to drift.
+        '@jinn/model-id': path.resolve(__dirname, '../jinn/src/shared/model-id.ts'),
       },
     },
     build: {

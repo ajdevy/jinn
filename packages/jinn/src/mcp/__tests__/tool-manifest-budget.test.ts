@@ -7,7 +7,7 @@ import { EXPECTED_ENUMS, EXPECTED_REQUIRED, EXPECTED_TOOL_NAMES } from "./tool-m
 // Fixed provider budget. Rebased for the experiment Todo link with the same
 // ~zero headroom discipline as before: new tool prose must stay concise rather
 // than growing into this ceiling.
-const MAX_MANIFEST_TOKENS = 5952;
+const MAX_MANIFEST_TOKENS = 6072;
 // Exact gate: js-tiktoken 1.0.21 with its local o200k_base ranks. The provider
 // projection is the OpenAI Responses API function-tool request shape pinned on 2026-07-12.
 const ATTESTED = {
@@ -161,9 +161,32 @@ const ATTESTED = {
   // creation no longer writes ownership — the assign flow is its only writer. It
   // gives 8 tokens back on each wrapper. The ceiling does not move, so Pi comes off
   // it and sits 8 under: this refactor hands the next addition its room back.
-  rpc: { tokens: 5438, sha256: "2b3556e30cc0a46f9a7fb5f592845980d83c68b4a72322b1244397cabebbc2d2" },
-  pi: { tokens: 5944, sha256: "96000ceef8c8d58cb7ef9a08805db72291587df446f7878017ff5f65b9336ada" },
-  openai: { tokens: 5643, sha256: "b26d667bbfae543baf471adafe05ae90713217782fdff53d902a80fc778009c0" },
+  // Rebased for `dispatch_work_item` (PLA-228): the Todo Shaper's handoff. The
+  // Shaper's whole contract is to create one Todo and hand it on, and without
+  // this verb it cannot — the dispatch route exists but has no MCP hand, so the
+  // shaping half of quick capture would end at a Todo nobody starts. It is the
+  // cheapest shape the capability has: a six-word description and one `id`
+  // property, no prose the schema already carries. That is 64 tokens. Unlike
+  // the earlier rebases there was nothing dead left to buy any of it back with
+  // — PLA-155 already retired the last restated enum and the last duplicated
+  // field list, and PLA-227's 8 are the headroom this spends first. So the
+  // ceiling moves by exactly the remaining 56 and Pi sits ON it again: the next
+  // addition to this surface has to buy its room before it spends any.
+  // Rebased for `land_on_work_item` (PLA-228): the third way a capture can end.
+  // Without it a capture that restated a Todo the board already had leaves only
+  // a comment, and a comment is prose — the derived stage is not allowed to
+  // pattern-match it, so the strip reported a correct dedupe as `failed`. The
+  // verb writes the one fact the stage can read. It is the same minimal shape
+  // as `dispatch_work_item`: a seven-word description and one `id` property.
+  // That is 68 tokens. Four were bought back by cutting "on a Todo" from
+  // `dispatch_work_item` — its own `id` property already names which Todo — and
+  // there was nothing else left to cut, since S1 and PLA-155 between them took
+  // the last of the restated enums and duplicated field lists. So the ceiling
+  // moves by the remaining 64 and Pi sits ON it again. As before: the next
+  // addition to this surface has to buy its room before it spends any.
+  rpc: { tokens: 5551, sha256: "38c8d571742952c0f18538a248ba382890ce27013c6f6ccb6e23c87ce89e920e" },
+  pi: { tokens: 6072, sha256: "6550e55e90a92778fd96031126f3b485b1f8b1f939911445e6d4a8d084ba1b25" },
+  openai: { tokens: 5762, sha256: "08338610f923005449889331f6159417661f2e6054b80448007db9a07d78eb47" },
 } as const;
 
 type TokenizerLoader = () => Promise<[{ Tiktoken: typeof import("js-tiktoken/lite").Tiktoken }, { default: typeof import("js-tiktoken/ranks/o200k_base").default }]>;
@@ -230,7 +253,7 @@ describe("tool manifest budget", () => {
   it("keeps tool names, required arrays, and enum arrays stable", () => {
     const tools = buildTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
-    expect(tools).toHaveLength(73);
+    expect(tools).toHaveLength(75);
 
     const required = Object.fromEntries(tools.map((t) => [t.name, t.inputSchema.required ?? []]));
     expect(required).toEqual(EXPECTED_REQUIRED);

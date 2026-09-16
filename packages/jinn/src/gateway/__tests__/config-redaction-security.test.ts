@@ -12,7 +12,7 @@ describe("GET /api/config redaction", () => {
     expect(isSensitiveConfigKey("model")).toBe(false);
   });
 
-  it("recursively redacts connector, engine, MCP, and remote secrets", () => {
+  it("recursively redacts connector, engine, MCP, and list-item secrets", () => {
     const sanitized = sanitizeConfigForApi({
       gateway: { port: 7777 },
       engines: {
@@ -26,7 +26,7 @@ describe("GET /api/config redaction", () => {
           search: { env: { BRAVE_API_KEY: "brave-secret", SAFE_VALUE: "kept" } },
         },
       },
-      remotes: [{ id: "dev", token: "remote-secret", url: "http://127.0.0.1:7777" }],
+      webhooks: [{ id: "dev", token: "webhook-secret", url: "https://example.invalid/hook" }],
     });
 
     expect(sanitized.engines.claude.apiKey).toBe("***");
@@ -34,8 +34,8 @@ describe("GET /api/config redaction", () => {
     expect(sanitized.connectors.slack.signingSecret).toBe("***");
     expect(sanitized.mcp.servers.search.env.BRAVE_API_KEY).toBe("***");
     expect(sanitized.mcp.servers.search.env.SAFE_VALUE).toBe("kept");
-    expect(sanitized.remotes[0].token).toBe("***");
-    expect(sanitized.remotes[0].url).toBe("http://127.0.0.1:7777");
+    expect(sanitized.webhooks[0].token).toBe("***");
+    expect(sanitized.webhooks[0].url).toBe("https://example.invalid/hook");
   });
 
   it("never sends the realtime provider key to the UI", () => {

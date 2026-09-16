@@ -12,6 +12,7 @@ import { jsonValueSchema, type JsonValue, type TriggerNode, type WorkflowDefinit
 import { WorkflowRepositoryError, type WorkflowRepository } from "./repository.js";
 import type { WorkflowRunDetail } from "./runtime.js";
 import type { WorkflowRunner } from "./runner.js";
+import { owningWorkflowId } from "../work-items/workflow-ownership.js";
 import { declinedOutcomes, NOTHING_SUPERSEDED, settle, stillWhereTheEventLeftIt, suppressAll,
   type IndexedTrigger, type SupersededBy, type TodoCandidate, type TodoMismatch } from "./todo-event-outcome.js";
 
@@ -50,7 +51,10 @@ function todoMismatch(node: TriggerNode, event: WorkflowTodoStatusEvent): TodoMi
   // what says the operator's authority stands behind it. Only an `operator`
   // filter is widened, and only where the binding has not opted out.
   const armed = actor === "operator" && delegates !== false && event.armedAsDelegate !== null;
-  if (actor !== undefined && actor !== event.actor && !armed) return refused(`actor ${event.actor ?? "unknown"} is not ${actor}`);
+  const resumed = actor === "operator" && (event.quotaWindowDecided || event.armedAsRecovery === true);
+  if (actor !== undefined && actor !== event.actor && !armed && !resumed) {
+    return refused(`actor ${event.actor ?? "unknown"} is not ${actor}`);
+  }
   if (department !== undefined && department !== event.item.department) return refused(`department filter ${department} does not match`);
   if (assignee !== undefined && assignee !== event.item.assignee) return refused(`assignee filter ${assignee} does not match`);
   const live = event.item.live;
@@ -190,7 +194,16 @@ export class WorkflowTriggerService {
     const deciding = claim.deferred ? candidates.filter((item) => allowed.has(item.definition.id)) : candidates;
     const outcomes = declinedOutcomes(event, deciding, superseded, claim.deferred === true);
     const labels = event.item.labels.map((label) => label.name);
-    const runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
+    let runnable = indexed.filter((candidate) => allowed.has(candidate.definition.id));
+    const bound = owningWorkflowId(event.workItemId);
+    if (bound !== undefined && runnable.some((candidate) => candidate.definition.id === bound)) {
+      for (const extra of runnable.filter((candidate) => candidate.definition.id !== bound)) {
+        const detail = `Todo event ${event.id} suppressed: ${event.workItemId} already belongs to workflow \`${bound}\`.`;
+        logger.info(`Workflow ${extra.definition.id}: ${detail}`);
+        outcomes.push({ workflowId: extra.definition.id, outcome: "suppressed", detail });
+      }
+      runnable = runnable.filter((candidate) => candidate.definition.id === bound);
+    }
     const owner = `workflow:${event.id}`;
     const refusal = this.refusalBeforeStart(event, claim.deferred === true, runnable, owner);
     if (refusal !== undefined) return suppressAll(this.feed, event, runnable, outcomes, refusal);

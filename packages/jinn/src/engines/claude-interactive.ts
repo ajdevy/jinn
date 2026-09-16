@@ -7,7 +7,7 @@ import { JINN_HOME, CLAUDE_SETTINGS_DIR, HOOK_RELAY_SCRIPT, CLAUDE_LIMITS_DIR } 
 import { cleanupSessionSettings, writeSessionSettings } from "../shared/claude-settings.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
-import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
+import { PtyLifecycleManager, isProcessExitInterruption, processExitInterruption, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped } from "./pty-stream.js";
 import type { PtyControlEvent, PtyViewEngine, PtyIdleSpawnOpts, PtySnapshotSubscription } from "./pty-view-engine.js";
 import type { HookRegistry, HookPayload } from "../gateway/hook-registry.js";
@@ -557,7 +557,7 @@ export class TurnResolver {
     // real cause; report it instead of the generic "process exited". Other
     // interrupt reasons (user abort, engine switch, preemption) keep their
     // "Interrupted: …" text so the quiet-interrupt handling downstream engages.
-    if (this.stopFailurePayload && !this.settled && reason === "Interrupted: claude process exited") {
+    if (this.stopFailurePayload && !this.settled && isProcessExitInterruption(reason)) {
       this.settleWithFailure();
       return;
     }
@@ -1334,7 +1334,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       watchdog = setInterval(() => {
         const p = entry.boundProc as { _exitCode?: number | null } | undefined;
         if (p && p._exitCode != null) {
-          resolver.interrupt("Interrupted: claude process exited");
+          resolver.interrupt(processExitInterruption("claude", { exitCode: p._exitCode }));
         }
       }, 5000);
       watchdog.unref?.();
@@ -1586,7 +1586,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       // poison it. Identity mismatch => benign cleanup, no interrupt.
       const e = this.active.get(jinnSessionId);
       if (e && e.boundProc === proc) {
-        e.resolver.interrupt("Interrupted: claude process exited");
+        e.resolver.interrupt(processExitInterruption("claude", event));
       }
     });
     return handle;

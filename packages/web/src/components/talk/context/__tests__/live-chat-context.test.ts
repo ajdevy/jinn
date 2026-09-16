@@ -157,14 +157,19 @@ describe("bounded live chat context", () => {
     expect(rendered).toContain("Fixture review · completed · Seven cases checked")
     expect(rendered).not.toContain("Unfinished fixture review")
     expect(rendered).not.toContain("An unfinished answer.")
-    expect(rendered).not.toContain(SESSION_ID)
+    // The one identifier the packet carries: the chat the operator has actually
+    // selected, stated as a handle. Without it the model can read the title off
+    // the screen but cannot name the session to `read_session`, so asked what it
+    // is looking at it narrates — the hallucination PLA-224 was raised for.
+    expect(rendered).toContain(`Selected session id: ${SESSION_ID}`)
+    expect(rendered).toContain("a handle to use, never something to say")
     expect(rendered).not.toContain("unsettled raw token tail")
     expect(context.meaningfulText).not.toContain("unsettled raw token tail")
     expect(rendered).toContain("titles, people, topics, and relative time")
     expect(rendered).toContain("not identifiers unless explicitly asked")
   })
 
-  it("does not put UUIDs from the production chat list into the provider packet", () => {
+  it("carries the selected session's id and no other chat's, from the production chat list", () => {
     cache([message("message-1", "assistant", "The current answer.", NOW - 5_000)], "", "idle")
     queryClient.setQueryData(queryKeys.sessions.all, {
       sessions: [
@@ -178,7 +183,9 @@ describe("bounded live chat context", () => {
 
     expect(rendered).toContain("Platform standup")
     expect(rendered).toContain("Release room")
-    expect(rendered).not.toContain(SESSION_ID)
+    expect(rendered).toContain(`Selected session id: ${SESSION_ID}`)
+    // The chat LIST stays titles: `objectLine` withholds ids on a chat page, so
+    // only what the operator selected is addressable.
     expect(rendered).not.toContain(OTHER_SESSION_ID)
   })
 
@@ -203,7 +210,7 @@ describe("bounded live chat context", () => {
 
     expect(updates(talk.connection)).toHaveLength(2)
     expect(instructions(updates(talk.connection)[1]!)).toContain("The stable answer is ready.")
-    expect(instructions(updates(talk.connection)[1]!)).not.toContain(SESSION_ID)
+    expect(instructions(updates(talk.connection)[1]!)).toContain(`Selected session id: ${SESSION_ID}`)
   })
 
   it("replaces one visible chat packet with the next chat rather than retaining the old tail", () => {
@@ -227,7 +234,10 @@ describe("bounded live chat context", () => {
     expect(latest).toContain("Second chat answer.")
     expect(latest).not.toContain("Platform standup")
     expect(latest).not.toContain("First chat answer.")
-    expect(latest).not.toContain(OTHER_SESSION_ID)
+    // The handle moves with the selection: the new chat's id replaces the old
+    // one rather than both being carried.
+    expect(latest).toContain(`Selected session id: ${OTHER_SESSION_ID}`)
+    expect(latest).not.toContain(SESSION_ID)
   })
 
   it("keeps the newest stable tail when the 1200-character packet has to drop older context", () => {

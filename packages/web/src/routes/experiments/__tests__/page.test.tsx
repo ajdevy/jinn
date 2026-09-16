@@ -26,7 +26,6 @@ vi.mock("@/components/page-layout", () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-vi.mock("@/context/breadcrumb-context", () => ({ useBreadcrumbs: () => {} }))
 
 import ExperimentsPage from "../page"
 import ExperimentDetailPage from "../detail"

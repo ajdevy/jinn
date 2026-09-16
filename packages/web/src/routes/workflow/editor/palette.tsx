@@ -70,7 +70,7 @@ export function MobileAddNode() {
           type="button"
           aria-label="Add step"
           onClick={() => setOpen(true)}
-          className="mb-1 mr-1 grid size-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-overlay)]"
+          className="mb-1 mr-1 grid size-11 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[var(--shadow-overlay)]" // jinn-shell: ok editor add-step FAB, not page chrome
         >
           <Plus size={20} strokeWidth={2.25} aria-hidden />
         </button>

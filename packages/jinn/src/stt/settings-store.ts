@@ -126,12 +126,21 @@ export function writeSharedSttSettings(
 export function resolveEffectiveSttSettings(
   sharedSettings: SharedSttSettingsReadResult,
   localSettings?: LocalSttSettings,
+  warn: (message: string) => void = (message) => console.warn(message),
 ): EffectiveSttSettings {
-  const source = sharedSettings.state === "loaded"
-    ? parseSharedSttSettings(sharedSettings.settings)
-    : sharedSettings.state === "missing" && localSettings
-      ? settingsFromLocal(localSettings)
-      : {};
+  // Fallback ladder: a readable shared file, else the local block (a corrupt stt.json
+  // must not outrank config.yaml), else these defaults. Total by construction: a mistyped
+  // local block warns and falls through rather than throwing inside a message handler.
+  let source: SharedSttSettings = {};
+  if (sharedSettings.state === "loaded") {
+    source = parseSharedSttSettings(sharedSettings.settings);
+  } else if (localSettings) {
+    try {
+      source = settingsFromLocal(localSettings);
+    } catch (error) {
+      warn(`Ignoring the invalid stt block in the instance config: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   return {
     ...(source.enabled !== undefined ? { enabled: source.enabled } : {}),
     model: source.model || "small",
@@ -144,5 +153,5 @@ export function getEffectiveSttSettings(
   settingsPath = resolveSttSettingsPath(),
   warn: (message: string) => void = (message) => console.warn(message),
 ): EffectiveSttSettings {
-  return resolveEffectiveSttSettings(readSharedSttSettings(settingsPath, warn), localSettings);
+  return resolveEffectiveSttSettings(readSharedSttSettings(settingsPath, warn), localSettings, warn);
 }

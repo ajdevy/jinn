@@ -160,18 +160,18 @@ const approvalNodeSchema = z.strictObject({
   config: z.strictObject({
     description: z.string(),
     approver: stringBindingSchema.optional(),
-    // Reserves the gate for the human operator. Default routing sends an
-    // approval up the org hierarchy to its root, which means the COO can
-    // approve a pipeline the COO started — fine for ordinary gates, a
-    // governance hole for one that authorizes something irreversible.
+    // Who decides, when routing to an org root the COO occupies is too loose. `operatorOnly` keeps the
+    // gate for the human operator, so the COO cannot approve a pipeline the COO started; `decidableBy`
+    // hands it to the COO's portal lane on purpose. Two classes, because `operatorOnly` also closes the Todo.
     operatorOnly: z.boolean().optional(),
+    decidableBy: z.literal('coo').optional(),
     // Variant-picking: the labels mirror onto the bound Todo's approval and the
     // pick reads back as `{{ node.<id>.choice }}`. Fixed labels, not bindings, and
     // trimmed as the mirror trims — two spellings is a gate neither door can decide.
     options: z.array(z.string().trim().min(1).max(80)).min(2).max(8)
       .refine((values) => new Set(values).size === values.length, 'Approval options must be unique').optional(),
-  }).refine((config) => !(config.operatorOnly && config.approver !== undefined),
-    'An operator-only approval cannot also name an approver.'),
+  }).refine((config) => !(config.operatorOnly && config.approver !== undefined), 'An operator-only approval cannot also name an approver.')
+    .refine((config) => !(config.decidableBy && (config.operatorOnly || config.approver !== undefined)), 'A COO-decidable approval cannot also be operator-only or name an approver.'),
 });
 const waitConfigSchema = z.discriminatedUnion('mode', [
   z.strictObject({ mode: z.literal('duration'), minutes: finiteNumberSchema.int().min(1).max(43_200) }),

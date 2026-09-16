@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { act, render } from "@testing-library/react"
 import { useEffect, type ReactNode } from "react"
 import { Outlet, RouterProvider, createMemoryRouter } from "react-router-dom"
@@ -29,6 +30,7 @@ vi.mock("@/routes/auth-provider", () => ({ AuthProvider: passThrough, AuthGate: 
 vi.mock("@/routes/settings-provider", () => ({
   SettingsProvider: passThrough,
   DocumentTitle: () => null,
+  useSettings: () => ({ settings: { talkOrb: false } }),
 }))
 /** Stable identity: the plugin host bridge subscribes in an effect keyed on it. */
 const gateway = vi.hoisted(() => ({ connected: false, subscribe: () => () => {} }))
@@ -36,9 +38,6 @@ const gateway = vi.hoisted(() => ({ connected: false, subscribe: () => () => {} 
 vi.mock("@/hooks/use-gateway", () => ({ GatewayProvider: passThrough, useGateway: () => gateway }))
 vi.mock("@/hooks/use-query-invalidation", () => ({ useQueryInvalidation: () => {} }))
 vi.mock("@/components/emoji-favicon", () => ({ EmojiFavicon: () => null }))
-vi.mock("@/components/migration/instance-migration-gate", () => ({
-  InstanceMigrationGate: () => null,
-}))
 
 function renderApp() {
   const router = createMemoryRouter(
@@ -88,5 +87,11 @@ describe("ClientProviders mounts the talk orb above the router", () => {
 
     expect(view.container.textContent).toContain("chat")
     expect(orb.mounts).toBe(1)
+  })
+
+  it("keeps the Talk screen-context graph off the first paint", () => {
+    const source = readFileSync("src/routes/client-providers.tsx", "utf8")
+    expect(source).not.toMatch(/\bimport\s+\{[^}]*TalkContextBridge/)
+    expect(source).toMatch(/import\("@\/components\/talk\/context\/talk-context-bridge"\)/)
   })
 })

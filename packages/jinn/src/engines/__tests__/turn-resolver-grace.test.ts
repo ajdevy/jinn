@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TurnResolver } from "../claude-interactive.js";
+import { processExitInterruption } from "../pty-lifecycle.js";
 
 // Helper: a settled-state probe that never blocks the test on an unsettled promise.
 function probe(r: TurnResolver) {
@@ -124,6 +125,17 @@ describe("TurnResolver — StopFailure grace window", () => {
     const get = probe(r);
     r.onHook({ hook_event_name: "StopFailure", error: "server_error", session_id: "sid" });
     r.interrupt("Interrupted: claude process exited"); // PTY-death watchdog path
+    await vi.advanceTimersByTimeAsync(0);
+    expect(get()?.error).toBe("Interactive turn failed: server_error");
+  });
+
+  // The reason carries the exit code and signal now, so the diversion cannot be an
+  // equality test against the sentence it used to be.
+  it("still diverts to the StopFailure when the PTY death reason carries diagnostics", async () => {
+    const r = new TurnResolver({ fallbackSessionId: "sid", assumeStarted: true, stopFailureGraceMs: 1000 });
+    const get = probe(r);
+    r.onHook({ hook_event_name: "StopFailure", error: "server_error", session_id: "sid" });
+    r.interrupt(processExitInterruption("claude", { exitCode: 1, signal: 0 }));
     await vi.advanceTimersByTimeAsync(0);
     expect(get()?.error).toBe("Interactive turn failed: server_error");
   });

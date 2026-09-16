@@ -139,7 +139,7 @@ describe("shared STT settings API", () => {
     });
   });
 
-  it("returns defaults instead of local settings when the shared file is malformed", async () => {
+  it("returns local settings instead of defaults when the shared file is malformed", async () => {
     currentConfig = {
       ...configWithoutStt(),
       stt: { model: "tiny", languages: ["bg"] },
@@ -149,10 +149,10 @@ describe("shared STT settings API", () => {
     const response = await call("GET", "/api/stt/status");
 
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ model: "small", languages: ["en"] });
+    expect(response.body).toMatchObject({ model: "tiny", languages: ["bg"] });
   });
 
-  it.runIf(process.platform !== "win32")("returns defaults instead of local settings when the shared file mode is 000", async () => {
+  it.runIf(process.platform !== "win32")("returns local settings instead of defaults when the shared file mode is 000", async () => {
     currentConfig = {
       ...configWithoutStt(),
       stt: { model: "tiny", languages: ["bg"] },
@@ -162,7 +162,7 @@ describe("shared STT settings API", () => {
     const response = await call("GET", "/api/stt/status");
 
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ model: "small", languages: ["en"] });
+    expect(response.body).toMatchObject({ model: "tiny", languages: ["bg"] });
   });
 
   it("writes languages to the shared file and exposes them on the next GET", async () => {
@@ -207,5 +207,32 @@ describe("shared STT settings API", () => {
         },
       });
     });
+  });
+
+  it("resolves the same settings for the dashboard and for a connector whose local block diverges", async () => {
+    settingsStore.writeSharedSttSettings(settingsPath, { enabled: true, model: "tiny", languages: ["en"] });
+
+    const update = await call("PUT", "/api/stt/config", { languages: ["en", "bg"] });
+    const dashboard = await call("GET", "/api/stt/status");
+
+    expect(update.status).toBe(200);
+    expect(dashboard.body).toMatchObject({ model: "tiny", languages: ["en", "bg"] });
+    // The exact call the telegram connector makes, with a stale/divergent config.yaml block.
+    expect(settingsStore.getEffectiveSttSettings(
+      { enabled: false, model: "medium", language: "de" },
+      settingsPath,
+      vi.fn(),
+    )).toEqual({ enabled: true, model: "tiny", languages: ["en", "bg"] });
+  });
+
+  it("resolves a mistyped local block to defaults with one warning instead of throwing", () => {
+    const warn = vi.fn();
+
+    expect(settingsStore.getEffectiveSttSettings(
+      { enabled: "true" } as unknown as Parameters<SettingsStore["getEffectiveSttSettings"]>[0],
+      settingsPath,
+      warn,
+    )).toEqual({ model: "small", languages: ["en"] });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

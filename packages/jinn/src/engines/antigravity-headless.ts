@@ -15,6 +15,7 @@ import {
 } from "./antigravity-headless-turn.js";
 
 export {
+  ANTIGRAVITY_TURN_TIMEOUT_MS,
   buildAntigravityHeadlessArgs,
   parseAntigravityStreamLine,
   type AntigravityParsedLine,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   blankSourceProblem,
+  malformedSourceProblem,
+  malformedTargetProblem,
   mapNotAMappingProblem,
   modelMapEntryPath,
   modelMapPath,
@@ -8,14 +10,19 @@ import {
   unservedTargetProblem,
   unservedTargetWarning,
 } from '@jinn/fallback-map-wire'
+import { mapPairProblem, type ServedModels } from '@/routes/settings/engines/model-map-model'
 
 /* The bundle reaches the gateway's own problem strings, byte for byte.
  *
- * Every expectation below is a hard-coded literal rather than a call back into the
- * module, and that is the whole point: `packages/jinn`'s engine-fallback.test.ts
+ * The sentences are pinned to hard-coded literals rather than to a call back into
+ * the module, and that is the whole point: `packages/jinn`'s engine-fallback.test.ts
  * hard-codes the same sentences against the config loader. Both suites passing is
  * what proves the editor refuses a map entry in the words the loader would use. If
- * one side ever drifts, exactly one of the two suites goes red. */
+ * one side ever drifts, exactly one of the two suites goes red.
+ *
+ * The last case in each group closes the remaining gap: that the editor picks the
+ * RIGHT sentence for an entry, not merely that the right sentence exists. A literal
+ * cannot say that, so those compare the editor's verdict against the wire directly. */
 
 describe('fallbackModelMap problem strings', () => {
   it('names the config path an operator would edit', () => {
@@ -39,6 +46,28 @@ describe('fallbackModelMap problem strings', () => {
       .toBe('engines.claude.fallbackModelMap["opus"] must be a nonempty model id (got number)')
     expect(targetNotAModelIdProblem('claude', 'opus', '  '))
       .toBe('engines.claude.fallbackModelMap["opus"] must be a nonempty model id (got string)')
+  })
+
+  it('reports a key and a target carrying a control character, in the loader words', () => {
+    expect(malformedSourceProblem('antigravity', 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)')).toBe(
+      'engines.antigravity.fallbackModelMap has a key that is not a model id '
+      + '(got "gemini-3.7-flash-high\\tGemini 3.7 Flash (High)")',
+    )
+    expect(malformedTargetProblem('claude', 'claude-opus-5', 'gpt-5.6-sol\tGPT-5.6 Sol')).toBe(
+      'engines.claude.fallbackModelMap["claude-opus-5"] must be a model id with no control characters '
+      + '(got "gpt-5.6-sol\\tGPT-5.6 Sol")',
+    )
+  })
+
+  it('is the sentence the editor renders for the same entry, byte for byte', () => {
+    const pastedKey = 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)'
+    const served: ServedModels = { antigravity: ['gemini-3.7-flash-high'], codex: ['gpt-5.6-sol'] }
+    const context = { engine: 'antigravity', substitute: 'codex', served }
+
+    expect(mapPairProblem(context, [[pastedKey, 'gpt-5.6-sol']], 0))
+      .toBe(malformedSourceProblem('antigravity', pastedKey))
+    expect(mapPairProblem(context, [['gemini-3.7-flash-high', 'gpt-5.6-sol\tGPT-5.6 Sol']], 0))
+      .toBe(malformedTargetProblem('antigravity', 'gemini-3.7-flash-high', 'gpt-5.6-sol\tGPT-5.6 Sol'))
   })
 
   it('reports a target the substitute does not serve — the one the editor renders', () => {

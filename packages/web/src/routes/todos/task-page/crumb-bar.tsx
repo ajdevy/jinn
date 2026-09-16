@@ -79,7 +79,7 @@ export function CrumbBar({
           <ChevronLeft size={17} strokeWidth={2.2} aria-hidden />
         </button>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden whitespace-nowrap">
+        <div className="-ml-2 flex min-w-0 flex-1 items-center gap-2 overflow-hidden whitespace-nowrap pl-2">
           {/* Text sits on the 96px spine; the wash bleeds -8px (polish law 5). */}
           <button
             type="button"

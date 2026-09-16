@@ -3,12 +3,16 @@ import { Plus, X } from "lucide-react"
 import { api, type WorkItemCompactWire, type WorkItemRelationKindWire, type WorkItemRelationWire } from "@/lib/api"
 import { StatusCircle } from "../state-glyph"
 
-/* Todos v2 slice 6 — the relations section (design-doc §7.2.9, mock
- * task-detail.html): inset rows — kind label (Blocks in orange, the one tinted
- * kind: it gates others' work) + item pill (status disc + mono ID + title),
- * hover × to remove, and an add row that grows a kind picker + item search.
- * Four visible kinds over three wire kinds: "Blocked by" is an incoming
- * `blocks` edge, so adding one writes the edge on the OTHER item. */
+/* The relations section (design-doc §7.2.9, mock task-detail.html): inset rows
+ * — kind label (Blocks in orange, the one tinted kind: it gates others' work)
+ * + item pill (status disc + mono ID + title), hover × to remove, and an add
+ * row that grows a kind picker + item search. Four visible kinds over three
+ * wire kinds: "Blocked by" is an incoming `blocks` edge, so adding one writes
+ * the edge on the OTHER item.
+ *
+ * ICI-1435 unmounted this from the Todo detail view. The relation tables,
+ * `link_work_items` and the client's add/remove calls are untouched — the
+ * component is kept whole so restoring it is a one-line change. */
 
 export type RelationDisplayKind = "blocks" | "blocked-by" | "relates" | "duplicates"
 

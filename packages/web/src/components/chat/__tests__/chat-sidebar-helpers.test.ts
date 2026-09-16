@@ -85,6 +85,37 @@ describe('workflow sessions in the chat sidebar', () => {
   })
 })
 
+describe('plugin-spawned sessions in the chat sidebar', () => {
+  // Regression: plugin spawns (host.sessions.spawn) are stamped source "plugin";
+  // the sidebar's source gate omitted it, so those chats never rendered — and a
+  // pin on one stayed invisible too, since pinned rows only float within the
+  // already-visible set.
+  const pluginSession = { id: 'life-genie', source: 'plugin', sourceRef: 'plugin:life:09f8059ad0ba' }
+
+  it('renders a plugin session in the sidebar list and in search results', () => {
+    expect(isVisibleSource(pluginSession)).toBe(true)
+    expect([pluginSession].filter(isVisibleSource).map((s) => s.id)).toEqual(['life-genie'])
+  })
+
+  it('floats a pinned plugin session to the Pinned section', () => {
+    expect(shouldFloatPinned(pluginSession, new Set(['life-genie']))).toBe(true)
+    expect(shouldFloatPinned(pluginSession, new Set())).toBe(false)
+  })
+
+  it('gives an employee-less plugin session the portal identity', () => {
+    // Plugin spawns carry no employee, so they belong in the direct/COO lane
+    // and must resolve to the portal identity rather than a phantom group.
+    expect(isDirectSession(pluginSession, 'jimbo')).toBe(true)
+    expect(
+      resolveRowIdentity(pluginSession, {
+        portalSlug: 'jimbo',
+        portalName: 'Jimbo',
+        employeeData: new Map(),
+      }),
+    ).toEqual({ avatarName: 'jimbo', displayName: 'Jimbo' })
+  })
+})
+
 describe('chat sidebar search row identity', () => {
   const opts = {
     portalSlug: 'jimbo',

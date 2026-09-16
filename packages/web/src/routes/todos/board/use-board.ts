@@ -16,11 +16,11 @@ import { BOARD_STATUS_ORDER, CLOSED_STATUSES, EXCEPTION_STATUSES, isColumnInStat
 
 /* Todos v2 slice 6 — the board data layer (design-doc §11 queries).
  * One infinite query per status column, scoped per board:
- *   Home          → kept=true + rootsOnly
+ *   Home          → home=true + rootsOnly
  *   department    → department=<slug> + rootsOnly
  *   Everything    → rootsOnly (no board-scope filter)
- * Home is one filter, not a union, and only the operator's pin fills it: every
- * caller holding their credential mints as `operator`, so auto-keep aped it all.
+ * Home is a union in one scope (PLA-230): pinned OR operator-created — sending
+ * `kept` and `createdBy` would be the intersection. Creating writes no pin row.
  * True per-column counts come from each query's `total` (the gateway counts the
  * whole filtered set before LIMIT/OFFSET — never a capped page length). */
 
@@ -30,8 +30,8 @@ export const BOARD_PAGE_SIZE = 20
 
 /** Server params for a board scope (pure — unit-tested). Boards show roots
  *  only (§4): children live in the in-place tree tray, not as cards. */
-export function boardScopeParams(board: BoardId): { kept?: true; department?: string; rootsOnly: true } {
-  if (board.kind === "home") return { kept: true, rootsOnly: true }
+export function boardScopeParams(board: BoardId): { home?: true; department?: string; rootsOnly: true } {
+  if (board.kind === "home") return { home: true, rootsOnly: true }
   if (board.kind === "department") return { department: board.slug, rootsOnly: true }
   return { rootsOnly: true }
 }
@@ -197,7 +197,7 @@ export function useBoardMenuCounts(departments: DepartmentSummaryWire[] | undefi
       const openOf = (totals: Partial<Record<WorkItemStatusWire, number>> | undefined): number =>
         OPEN_STATUSES.reduce((sum, s) => sum + (totals?.[s] ?? 0), 0)
       const [home, everything, ...perDept] = await Promise.all([
-        api.listWorkItems({ kept: true, rootsOnly: true, limit: 1 }),
+        api.listWorkItems({ home: true, rootsOnly: true, limit: 1 }),
         api.listWorkItems({ rootsOnly: true, limit: 1 }),
         ...slugs.map((slug) => api.listWorkItems({ department: slug, rootsOnly: true, limit: 1 })),
       ])

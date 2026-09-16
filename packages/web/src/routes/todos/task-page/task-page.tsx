@@ -5,9 +5,6 @@ import {
   api,
   ApiError,
   type WorkItemDetailWire,
-  type WorkItemRelationKindWire,
-  type WorkItemRelationWire,
-  type WorkItemStatusWire,
   type WorkItemTreeNodeWire,
 } from "@/lib/api"
 import { operatorSafeTodoError } from "@/lib/todos"
@@ -27,12 +24,10 @@ import { PropsRail } from "./props-rail"
 import { ChipCluster } from "./chip-cluster"
 import { useTaskPickers } from "./use-task-pickers"
 import { BodyEditor } from "./body-editor"
-import { AcceptanceChecklist } from "./acceptance"
 import { SubTasksSection } from "./subtasks"
-import { RelationsSection } from "./relations"
-import { AttachmentsSection } from "./attachments"
+import { useSubTaskMutations } from "./use-subtask-mutations"
+import { AttachmentDropSurface, AttachmentsSection } from "./attachments"
 import { useTaskAttachments } from "./use-task-attachments"
-import { RunsSection } from "./runs"
 import { ActivitySection } from "./activity"
 import { TaskEmpty, TaskPageSkeleton } from "./task-page-fallbacks"
 import { Slot } from "@/contrib/slot"
@@ -189,7 +184,7 @@ export default function TaskPage() {
     announce,
   })
 
-  // ── Section mutations (sub-tasks, relations; attachments have their own hook) ──
+  // ── Section mutations (sub-tasks; attachments have their own hook) ──
   const qc = useQueryClient()
   const failWith = useCallback(
     (fallback: string) => (error: unknown) =>
@@ -204,42 +199,8 @@ export default function TaskPage() {
     },
     onError: failWith("Couldn't start the Dispatcher"),
   })
-  const invalidateTree = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ["work-item-tree"] })
-    void qc.invalidateQueries({ queryKey: ["work-items"] })
-    if (id) void qc.invalidateQueries({ queryKey: ["work-item", id] })
-  }, [qc, id])
-  const childStatus = useMutation({
-    mutationFn: ({ childId, status, cascade }: { childId: string; status: WorkItemStatusWire; cascade?: boolean }) =>
-      cascade ? api.setWorkItemStatus(childId, status, undefined, undefined, { cascade }) : api.setWorkItemStatus(childId, status),
-    onError: failWith("The gateway refused the move"),
-    onSettled: invalidateTree,
-  })
-  const childAssign = useMutation({
-    mutationFn: ({ childId, assignee }: { childId: string; assignee: string }) => api.assignWorkItem(childId, assignee),
-    onError: failWith("Couldn't assign the sub-task"),
-    onSettled: invalidateTree,
-  })
-  const addSubTask = useMutation({
-    mutationFn: (title: string) => api.createWorkItem({ title, parentId: id! }),
-    onError: failWith("Failed to add the sub-task"),
-    onSettled: invalidateTree,
-  })
-  const addRelation = useMutation({
-    mutationFn: ({ srcId, kind, dstId }: { srcId: string; kind: WorkItemRelationKindWire; dstId: string }) =>
-      api.addWorkItemRelation(srcId, kind, dstId),
-    onError: failWith("Couldn't add the relation"),
-    onSettled: invalidateTree,
-  })
-  const removeRelation = useMutation({
-    mutationFn: (relation: WorkItemRelationWire) =>
-      relation.direction === "in"
-        ? api.removeWorkItemRelation(relation.other.id, relation.kind, id!)
-        : api.removeWorkItemRelation(id!, relation.kind, relation.other.id),
-    onError: failWith("Couldn't remove the relation"),
-    onSettled: invalidateTree,
-  })
-  const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith })
+  const { childStatus, childAssign, addSubTask } = useSubTaskMutations({ id, rootId, item, failWith })
+  const attachments = useTaskAttachments({ id, enabled: !!item, onError: failWith, onUploadFailures: (filenames) => announce(`Couldn't attach ${filenames.join(", ")}`) })
 
   const commitBannerReason = useCallback(
     (note: string) => {
@@ -365,7 +326,7 @@ export default function TaskPage() {
     // Mobile is a full-screen push (§8): the tab bar yields the bottom edge to
     // the fixed comment bar; back is the condensed crumb's chevron.
     <PageLayout hideMobileTabBar={mobile}>
-      <div className="flex h-full min-h-0 flex-col">
+      <AttachmentDropSurface className="flex h-full min-h-0 flex-col" onUpload={(files) => attachments.upload.mutate(files)}>
         <div className="min-h-0 flex-1 overflow-y-auto" data-scrollable data-testid="task-page-scroll">
           <CrumbBar
             boardLabel={boardLabel}
@@ -478,23 +439,12 @@ export default function TaskPage() {
               </div>
 
               {item && (
-                <section className="mt-2">
-                  <div
-                    className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)]"
-                    style={{ fontFamily: "var(--font-code)" }}
-                  >
-                    Acceptance
-                  </div>
-                  <AcceptanceChecklist
-                    acceptance={item.acceptance}
-                    editable
-                    onCommit={(next) => pickers.patchField({ acceptance: next })}
-                  />
-                </section>
-              )}
-
-              {item && (
                 <>
+                  <AttachmentsSection
+                    attachments={attachments.files}
+                    onUpload={(files) => attachments.upload.mutate(files)}
+                    onRemove={(attachment) => attachments.remove.mutate(attachment)}
+                  />
                   <SubTasksSection
                     node={itemNode}
                     parentDepth={item.depth ?? 0}
@@ -506,19 +456,6 @@ export default function TaskPage() {
                     onChildAssign={(childId, assignee) => childAssign.mutate({ childId, assignee })}
                     onAddSubTask={(nextTitle) => addSubTask.mutate(nextTitle)}
                   />
-                  <RelationsSection
-                    id={item.id}
-                    relations={detail?.relations ?? []}
-                    onAdd={(srcId, kind, dstId) => addRelation.mutate({ srcId, kind, dstId })}
-                    onRemove={(relation) => removeRelation.mutate(relation)}
-                  />
-                  <AttachmentsSection
-                    attachments={attachments.files}
-                    byName={byName}
-                    onUpload={(files) => attachments.upload.mutate(files)}
-                    onRemove={(attachment) => attachments.remove.mutate(attachment)}
-                  />
-                  <RunsSection runs={detail?.runs ?? []} />
                 </>
               )}
 
@@ -569,7 +506,7 @@ export default function TaskPage() {
             )}
           </div>
         </div>
-      </div>
+      </AttachmentDropSurface>
 
       {pickers.mobileSheet}
 

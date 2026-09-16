@@ -214,24 +214,24 @@ describe("writeSharedSttSettings", () => {
 });
 
 describe("resolveEffectiveSttSettings", () => {
-  it("uses defaults instead of the local block when shared settings are malformed", () => {
+  it("uses the local block, not defaults, when shared settings are malformed", () => {
     const settingsPath = path.join(tempDir(), "stt.json");
     fs.writeFileSync(settingsPath, "{not-json");
 
     expect(resolveEffectiveSttSettings(
       readSharedSttSettings(settingsPath, vi.fn()),
       { model: "tiny", languages: ["bg"] },
-    )).toEqual({ model: "small", languages: ["en"] });
+    )).toEqual({ model: "tiny", languages: ["bg"] });
   });
 
-  it.runIf(process.platform !== "win32")("uses defaults instead of the local block when shared settings are unreadable", () => {
+  it.runIf(process.platform !== "win32")("uses the local block, not defaults, when shared settings are unreadable", () => {
     const settingsPath = path.join(tempDir(), "stt.json");
     fs.writeFileSync(settingsPath, "{}", { mode: 0o000 });
 
     expect(resolveEffectiveSttSettings(
       readSharedSttSettings(settingsPath, vi.fn()),
       { model: "tiny", languages: ["bg"] },
-    )).toEqual({ model: "small", languages: ["en"] });
+    )).toEqual({ model: "tiny", languages: ["bg"] });
   });
 
   it("uses shared settings before the local block", () => {

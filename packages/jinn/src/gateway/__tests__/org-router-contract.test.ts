@@ -27,7 +27,7 @@ vi.mock("../../shared/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { DISPATCHER, EDGES, PERSONA, WORKER, home, seedHome } from "./domain-router-home.js";
+import { DISPATCHER, EDGES, PERSONA, SHAPER, WORKER, home, seedHome } from "./domain-router-home.js";
 import { call } from "./domain-router-harness.js";
 
 beforeEach(() => {
@@ -41,8 +41,8 @@ describe("org routes still answer identically through handleOrgApi", () => {
     // persona is replaced by the compact role on this surface; the exact match proves it.
     expect(r.body).toEqual({
       departments: ["platform"],
-      employees: [{ ...WORKER, role: "Does platform work", ...EDGES }, DISPATCHER],
-      hierarchy: { root: null, sorted: ["worker", "todo-dispatcher"], warnings: [] },
+      employees: [{ ...WORKER, role: "Does platform work", ...EDGES }, DISPATCHER, SHAPER],
+      hierarchy: { root: null, sorted: ["worker", "todo-dispatcher", "todo-shaper"], warnings: [] },
     });
   });
 

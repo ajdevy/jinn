@@ -10,7 +10,7 @@ import type {
   WorkflowAttemptCompletion,
   WorkflowAttemptCompletionListener,
 } from "../../shared/types.js";
-import { isTransportFailure } from "../failure.js";
+import { isTransportFailure, workflowError } from "../failure.js";
 import type { WorkflowDefinition, WorkflowNode } from "../model.js";
 import { openWorkflowDatabase } from "../repository-migrations.js";
 import { WorkflowRepository } from "../repository.js";
@@ -167,6 +167,18 @@ describe("isTransportFailure — the message-matched half of the boundary", () =
     // A bare number is not a status code. Matching one would retry a real failure
     // whose summary happened to mention a count.
     expect(isTransportFailure("503 files changed")).toBe(false);
+  });
+});
+
+describe("workflowError — a model id we got wrong is not a verdict on the work", () => {
+  // The live break: a tab-joined composite reached `--model`, the CLI refused it, and
+  // the attempt died `retryable: false` with its work already committed.
+  it("retries an engine that refused the model id it was handed", () => {
+    expect(workflowError(new Error("invalid model selection"), "build").retryable).toBe(true);
+  });
+
+  it("still refuses a verdict the employee actually reached", () => {
+    expect(workflowError(new Error("the tests did not pass"), "build").retryable).toBe(false);
   });
 });
 

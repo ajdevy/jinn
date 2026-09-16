@@ -1,10 +1,12 @@
-import { Ellipsis, PanelRightOpen, Share2 } from 'lucide-react'
+import { Ellipsis, ExternalLink, PanelRightOpen, Share2 } from 'lucide-react'
 import { useState } from 'react'
+import { sessionUrl } from '@/components/chat/chat-route-helpers'
 import { SessionRowMenu, SESSION_MENU_CONTENT_CLASS, SESSION_MENU_ITEM_CLASS, SESSION_MENU_SEPARATOR_CLASS } from '@/components/chat/session-row-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import type { Session } from '@/components/chat/session-signals'
 import type { PaneSessionActions } from '@/components/chat/pane-session-actions'
 import { cn } from '@/lib/utils'
+import { openExternal } from '@/platform'
 import type { ViewMode } from '@/lib/view-mode'
 
 async function renamePane(title: string, sessionId: string, actions: PaneSessionActions, onRenamed: (title: string) => void): Promise<void> {
@@ -42,7 +44,7 @@ function PaneMenuTrigger({ title }: Pick<ChatPaneSessionMenuProps, 'title'>) {
   )
 }
 
-function PaneViewControls({ actions, viewMode, cliModeAvailable, viewSwitchLocked, cliTitle, onChange }: Pick<ChatPaneSessionMenuProps, 'actions' | 'viewMode' | 'cliModeAvailable' | 'viewSwitchLocked' | 'cliTitle'> & { onChange: (mode: ViewMode) => void }) {
+function PaneViewControls({ session, actions, viewMode, cliModeAvailable, viewSwitchLocked, cliTitle, onChange }: Pick<ChatPaneSessionMenuProps, 'session' | 'actions' | 'viewMode' | 'cliModeAvailable' | 'viewSwitchLocked' | 'cliTitle'> & { onChange: (mode: ViewMode) => void }) {
   if (!actions.openBeside) return null
   return (
     <>
@@ -70,12 +72,17 @@ function PaneViewControls({ actions, viewMode, cliModeAvailable, viewSwitchLocke
           )}
         >CLI</button>
       </div>
-      {/* Same label and same slot as the header's More menu: the view toggle, then Open
-          beside, then everything else. The pane title bar is the multi-pane home of an
-          action the header owns in single-pane, so the two have to read alike. */}
+      {/* Same labels and same slots as the header's More menu: the view toggle, then Open
+          beside, then Open in new tab, then everything else. The pane title bar is the
+          multi-pane home of actions the header owns in single-pane, so the two have to read
+          alike. */}
       <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={actions.openBeside}>
         <PanelRightOpen aria-hidden />
         Open beside
+      </DropdownMenuItem>
+      <DropdownMenuItem className={SESSION_MENU_ITEM_CLASS} onClick={() => { void openExternal(sessionUrl(session.id)) }}>
+        <ExternalLink aria-hidden />
+        Open in new tab
       </DropdownMenuItem>
       <DropdownMenuSeparator className={SESSION_MENU_SEPARATOR_CLASS} />
     </>

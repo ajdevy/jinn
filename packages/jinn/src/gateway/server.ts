@@ -43,6 +43,7 @@ import { firstOperatorCommentAfter } from "../work-items/comments.js";
 import { watchTodoReplies } from "./todo-reply-sweep.js";
 import { requestApproval, setTodoApprovalDecisionListener } from "../work-items/approvals.js";
 import { parseTodoApprovalRef } from "../workflows/todo-approval-ref.js";
+import { deciderAuthority } from "./workflow-decider-authority.js";
 import { workflowTodoDispatch, workflowTodoSessions } from "./workflow-todo-runs.js";
 import { workflowTodoApprovals, workflowTodoLifecycle } from "./workflow-todo-surface.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
@@ -50,13 +51,14 @@ import { claudeJsonPath } from "../shared/home.js";
 import { GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, JINN_HOME, CLAUDE_SETTINGS_DIR } from "../shared/paths.js";
 import { enforceOwnerOnlyDirectory, pathIsOwnerOnly } from "../shared/owner-only.js";
 import { isSameOriginBrowserRequest, resumePendingWebQueueItems, sessionsHoldingEngineCapacity, type ApiContext } from "./api.js";
-import { startAvailabilityResumes } from "./availability-resume.js";
+import { startTodoSweeps } from "./todo-sweeps.js";
 import { createGatewayRequestHandler } from "./request-handler.js";
 import { sessionCommGuards, LATERAL_MAX_HOPS } from "./session-comm-guards.js";
 import { rejectNonOperatorPtyUpgradeCaller, rejectUnverifiedIdentifiedUpgradeCaller } from "./upgrade-guards.js";
 import { cleanupMcpConfigFile, sweepOrphanMcpConfigFiles } from "../mcp/resolver.js";
 import { startStatusReconciler } from "./status-reconciler.js";
-import { startHeartbeatScheduler } from "../heartbeats/scheduler.js";
+import { webTurnSurface } from "./web-session-dispatch.js";
+import { startSessionSchedulers } from "./session-schedulers.js";
 import { armJinnAttachGate } from "../mcp/attachment.js";
 import { syncExternalTurn } from "./external-turns.js";
 import { pickEncoding, isCompressibleExt, compressBuffer, compressStream, type Encoding } from "./compress.js";
@@ -78,7 +80,6 @@ import { createPluginEventsChannel, matchPluginEventsPath } from "./plugin-event
 import { startPluginRuntime, stopPluginRuntime } from "../plugins/runtime.js";
 import { SlackConnector } from "../connectors/slack/index.js";
 import { DiscordConnector, type DiscordConnectorConfig } from "../connectors/discord/index.js";
-import { RemoteDiscordConnector } from "../connectors/discord/remote.js";
 import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
@@ -258,7 +259,7 @@ export interface NormalizedConnector {
 /** When a legacy top-level connector counts as configured. */
 const LEGACY_ENABLED: Record<string, (config: any) => boolean> = {
   slack: (config) => Boolean(config.appToken && config.botToken),
-  discord: (config) => Boolean(config.botToken || config.proxyVia),
+  discord: (config) => Boolean(config.botToken),
   telegram: (config) => Boolean(config.botToken),
   whatsapp: () => true,
 };
@@ -283,7 +284,7 @@ export function connectorInstancesFromConfig(config: JinnConfig): NormalizedConn
     }
     seen.add(id);
     const connectorConfig: Record<string, unknown> = { ...raw, id };
-    // Speech-to-text is a global setting the telegram connector reads from its own config.
+    // Speech-to-text is global: this block is only the fallback if stt.json is unusable.
     if (type === "telegram") connectorConfig.stt = config.stt;
     instances.push({ id, type, employee: raw.employee as string | undefined, config: connectorConfig });
   };
@@ -312,13 +313,6 @@ export function createConnector(instance: NormalizedConnector): Connector {
     case "slack":
       return new SlackConnector(config as unknown as SlackConnectorConfig);
     case "discord":
-      // Remote mode proxies all Discord I/O through the primary instance.
-      if (config.proxyVia) {
-        if (instance.id !== "discord") {
-          throw new Error("Named Remote Discord instances are not supported until the proxy protocol authenticates and validates instance identity");
-        }
-        return new RemoteDiscordConnector({ proxyVia: String(config.proxyVia), channelId: config.channelId as string | undefined });
-      }
       return new DiscordConnector(config as unknown as DiscordConnectorConfig);
     case "telegram":
       return new TelegramConnector(config as unknown as TelegramConnectorConfig);
@@ -890,14 +884,13 @@ export async function startGateway(
   };
   apiContext.reloadConfig = reloadConfig;
 
-  // Unstick sessions whose completion event was lost (status:"running" with no
-  // live turn). 15s sweep; logs one line per fix.
-  const stopStatusReconciler = startStatusReconciler({ engines, emit });
-  const stopHeartbeatScheduler = startHeartbeatScheduler();
+  // Unstick sessions whose completion event was lost (status:"running", no live turn): a 15s sweep, settling through the one completion path.
+  const stopStatusReconciler = startStatusReconciler({ engines, surfaceFor: (id) => webTurnSurface(id, apiContext) });
+  const stopSessionSchedulers = startSessionSchedulers();
 
   // Todos ledger truth-keeping: derive status from linked-session evidence so a mid-process settle lands without a boot (GRS-021a), and resume a Todo parked on a provider window that has since reopened (PLA-153).
   const stopWorkItemReconciler = startWorkItemReconciler();
-  const stopAvailabilityResumes = startAvailabilityResumes(workflowRepository);
+  const stopTodoSweeps = startTodoSweeps(workflowRepository);
 
   // A todo-status trigger's label filter reads the Todo when its event DRAINS rather than when it moved, so a label landing after the move re-opens the drain too.
   const drainTodoTriggers = (): void => { void workflowService.recover(new Date().toISOString())
@@ -907,22 +900,21 @@ export async function startGateway(
 
   const stopReplyWatch = watchTodoReplies(() => workflowService.recover(new Date().toISOString()));
 
-  // The other half of the Todo-first approval loop: a gate decided on the Todo
-  // resolves the workflow node that mirrored it, carrying the picked option.
+  // The other half of the Todo-first approval loop: a gate decided on the Todo resolves the workflow node that mirrored it, carrying the picked option and the authority the run's own reserved gates check.
   setTodoApprovalDecisionListener(({ approval, decision, decidedBy }) => {
     const origin = parseTodoApprovalRef(approval.ref);
     if (!origin) return;
     const run = workflowRepository.getRun(origin.workflowId, origin.runId);
     if (!run) return;
     void workflowService.decideApproval({ ...origin, decision, decidedBy, expectedRevision: run.revision,
-      ...(approval.choice ? { choice: approval.choice } : {}),
+      decidedByAuthority: deciderAuthority(decidedBy), ...(approval.choice ? { choice: approval.choice } : {}),
       ...(approval.note ? { reason: approval.note } : {}) }).catch((error) => {
       logger.warn(`Workflow approval mirror-back failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
 
   const cronJobs = loadJobs();
-  startScheduler(cronJobs, sessionManager, config, connectorMap, emit);
+  startScheduler(cronJobs, { sessionManager, getConfig: () => currentConfig, connectors: connectorMap, emit });
   logger.info(`Loaded ${cronJobs.length} cron job(s)`);
 
   // Resolve web UI directory — bundled into dist/web/ by postbuild script
@@ -1209,7 +1201,7 @@ export async function startGateway(
     logger.info("Gateway cleanup starting...");
 
     // Stop the periodic sweeps before we start marking sessions interrupted below — a mid-shutdown sweep must not race the teardown.
-    stopStatusReconciler(); stopWorkItemReconciler(); stopAvailabilityResumes(); stopHeartbeatScheduler();
+    stopStatusReconciler(); stopWorkItemReconciler(); stopTodoSweeps(); stopSessionSchedulers();
     backgroundRefreshes.stop();
     workflowService.dispose(); workflowDatabase.close();
 

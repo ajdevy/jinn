@@ -3,10 +3,6 @@ import { spawn } from "node:child_process";
 import { JINN_HOME } from "../shared/paths.js";
 import { loadConfig } from "../shared/config.js";
 import { assertPortTakeoverAllowed, startForeground, startDaemon, getStatus, restartDetached } from "../gateway/lifecycle.js";
-import { getPackageVersion } from "../shared/version.js";
-import { TEMPLATE_MIGRATIONS_DIR } from "../shared/paths.js";
-import { getPendingInstanceMigration } from "../migrations/service.js";
-import { migrationNoticeOptionsForProcess, renderMigrationNotice } from "./migration-notice.js";
 import { requestRestartFromGateway } from "./restart-request.js";
 import { issueLocalBootstrapGrant } from "../gateway/auth.js";
 import { gatewayBaseUrl } from "../gateway/gateway-info.js";
@@ -48,26 +44,6 @@ export async function runStart(opts: StartOptions): Promise<void> {
   }
 
   const config = loadConfig();
-
-  // Migration discovery is automatic and read-only. A malformed bundle warns
-  // without preventing the gateway from starting; the API exposes the detail.
-  try {
-    const migration = getPendingInstanceMigration({
-      instanceHome: JINN_HOME,
-      packageVersion: getPackageVersion(),
-      migrationsDir: TEMPLATE_MIGRATIONS_DIR,
-    })
-    const rendered = renderMigrationNotice(migration, migrationNoticeOptionsForProcess({
-      isTTY: Boolean(process.stdout.isTTY),
-      columns: process.stdout.columns,
-      env: process.env,
-      daemon: Boolean(opts.daemon),
-    }))
-    if (rendered.notice) console.log(rendered.notice)
-    if (rendered.prompt) console.log(`\n${rendered.prompt}`)
-  } catch (error) {
-    console.warn(`[migration] Unable to validate the installed migration bundle: ${error instanceof Error ? error.message : String(error)}`)
-  }
 
   // Allow CLI --port to override config
   if (opts.port) {

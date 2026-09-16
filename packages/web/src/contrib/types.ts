@@ -12,8 +12,8 @@ export type ContributionSource = "core" | `plugin:${string}`
  * One thing added to one place in the UI.
  *
  * There is deliberately no `enabled` field: `when` already expresses a soft
- * hide, and plugin-level enablement belongs to the plugin store. One mechanism,
- * not two.
+ * hide, and plugin-level enablement belongs to the gateway, decided in
+ * `config.yaml`. One mechanism, not two.
  */
 export interface Contribution {
   /** Unique within its area — re-registering the same id replaces that entry. */

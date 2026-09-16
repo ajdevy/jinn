@@ -115,22 +115,19 @@ export function ToolbarActions({ children }: { children?: React.ReactNode }) {
  * App shell. Desktop nav is the global NavRibbon (the same polished icon rail
  * the chat route uses) mounted as a left column — no list to fold, so its top
  * slot is the brand mark. The active rail icon is the "you are here" cue, so
- * there is no persistent title pill; pages that want a heading render their own
- * inline header (e.g. Todos).
+ * there is no persistent title pill; pages that want a heading render
+ * `PageScaffold` + `LargeTitleHeader` inside this shell.
  *
  * Mobile nav is the MobileTabBar ALONE (GRS-022). The old top-left
  * hamburger+title pill was removed: the bottom tab bar carries all cross-route
- * navigation (with a "More" tab for the overflow), and each page renders its own
- * inline large-title header + top-right actions in content — no global mobile
- * chrome bar. `chromeless` routes (chat) draw their own rail + pills.
+ * navigation (with a "More" tab for the overflow), and each headed page renders
+ * `PageScaffold` + `LargeTitleHeader` in content — no global mobile chrome bar.
+ * `chromeless` routes (chat) draw their own rail + pills.
  *
  * The StatusBar closes the column at every breakpoint — it hosts the app's
  * persistent status affordances, which used to be pinned to the bottom of the
  * desktop nav rail where mobile never saw them. `chromeless` routes draw their
  * own bottom edge, so they get no bar.
- *
- * `headerActions` is retained on the signature for callers, but no page supplies
- * one today — pages own their actions inline via ToolbarActions.
  *
  * `hideMobileTabBar` is the full-screen-push escape (Todos v2 §8): a pushed
  * detail page (the opened task) owns the bottom edge — its fixed comment bar
@@ -142,7 +139,7 @@ export function ToolbarActions({ children }: { children?: React.ReactNode }) {
  * `chromeless` chat gets it too. It arms on a coarse pointer only: a mouse keeps
  * the browser's own back, and the existing chevrons are untouched either way.
  */
-export function PageLayout({ children, headerActions: _headerActions, chromeless, hideMobileTabBar }: { children: React.ReactNode; headerActions?: React.ReactNode; chromeless?: boolean; hideMobileTabBar?: boolean }) {
+export function PageLayout({ children, chromeless, hideMobileTabBar }: { children: React.ReactNode; chromeless?: boolean; hideMobileTabBar?: boolean }) {
   const content = useRef<HTMLDivElement>(null)
   const coarsePointer = useCoarsePointer()
   return (

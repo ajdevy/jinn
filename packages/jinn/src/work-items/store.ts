@@ -8,7 +8,7 @@ import { resolveDepartmentPrefix } from './departments.js';
 import { allocateWorkItemId, useWorkItemAllocationClaim } from './migrate.js';
 import { currentApproval, currentApprovalsByItem, type WorkItemApproval } from './approval-rows.js';
 import { createdEventDetail, type WriteOrigin } from './origin.js';
-import { KEPT_EXISTS_SQL } from './kept.js';
+import { HOME_SCOPE_SQL, KEPT_EXISTS_SQL } from './kept.js';
 import { searchWorkItemIds, workItemMatchReasons, type WorkItemMatch } from './search.js';
 import type { VerifyMode, VerifyPolicy } from './verify-policy.js';
 import type { WorkItemEventKind } from './event-log.js';
@@ -181,8 +181,9 @@ export interface ListWorkItemsFilter {
   rootId?: string;
   /** Only tree roots (parentless items). */
   rootsOnly?: boolean;
-  /** Only Todos the operator has kept on Home (ICI-1357). */
+  /** Board scopes — `kept`: pinned (ICI-1357). `home`: pinned OR operator-created (PLA-230). */
   kept?: boolean;
+  home?: boolean;
   /** Items carrying this label, matched by exact label id (`lbl_…`) or stored
    *  (normalized kebab-case) name — callers normalize display names first. */
   label?: string;
@@ -584,10 +585,9 @@ function workItemWhere(filter: ListWorkItemsFilter, textIds?: readonly string[])
     conditions.push('root_id = ?');
     values.push(parseTodoId(filter.rootId));
   }
-  if (filter.rootsOnly) {
-    conditions.push('parent_id IS NULL');
-  }
+  if (filter.rootsOnly) conditions.push('parent_id IS NULL');
   if (filter.kept) conditions.push(KEPT_EXISTS_SQL);
+  if (filter.home) conditions.push(HOME_SCOPE_SQL);
   if (filter.label) {
     conditions.push(
       'EXISTS (SELECT 1 FROM work_item_labels wil JOIN labels l ON l.id = wil.label_id WHERE wil.work_item_id = work_items.id AND (l.id = ? OR l.name = ?))',
@@ -598,7 +598,7 @@ function workItemWhere(filter: ListWorkItemsFilter, textIds?: readonly string[])
     // Approvals live in work_item_approvals (their sole owner since PLA-48). An unexpired park is a
     // clock-wait (PLA-157) and leaves this set outright, gate included; an unreadable one is not a park.
     conditions.push(
-      "((EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated'))) AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?)))",
+      "((EXISTS (SELECT 1 FROM work_item_approvals wap WHERE wap.work_item_id = work_items.id AND wap.state = 'pending' AND wap.target = ?) OR (assignee = ? AND status IN ('blocked', 'escalated')) OR EXISTS (SELECT 1 FROM work_item_recovery rec WHERE rec.work_item_id = work_items.id AND rec.lane IN ('recovering', 'manager') AND work_items.status NOT IN ('done', 'cancelled'))) AND NOT EXISTS (SELECT 1 FROM work_item_stop_cause sc WHERE sc.work_item_id = work_items.id AND strftime('%s', sc.parked_until) > strftime('%s', ?) AND NOT EXISTS (SELECT 1 FROM work_item_recovery rec2 WHERE rec2.work_item_id = work_items.id AND rec2.lane IN ('recovering', 'manager'))))",
     );
     values.push(filter.needsAttentionFor, filter.needsAttentionFor, new Date().toISOString());
   }

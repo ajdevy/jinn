@@ -359,10 +359,10 @@ describe("the task page", () => {
 
     expect(screen.queryByTestId("task-details-toggle")).toBeNull()
     expect(screen.getByTestId("task-body")).toBeTruthy()
-    expect(screen.getByTestId("task-acceptance")).toBeTruthy()
-    expect(screen.getByTestId("task-subtasks")).toBeTruthy()
-    expect(screen.getByTestId("task-relations")).toBeTruthy()
-    expect(screen.getByTestId("task-attachments")).toBeTruthy()
+    expect(await screen.findByTestId("task-subtasks")).toBeTruthy()
+    expect(await screen.findByTestId("task-attachments")).toBeTruthy()
+    expect(screen.queryByTestId("task-acceptance")).toBeNull()
+    expect(screen.queryByTestId("task-relations")).toBeNull()
     expect(screen.getByTestId("task-props-rail")).toBeTruthy()
   })
 

@@ -121,7 +121,7 @@ export default {
 
 `React.createElement` works too and is equivalent. The compiler sits on the serving path rather than in the plugin directory precisely so this stays true: a single file dropped in a directory still runs, and a file that needed no compiling is still handed over exactly as it was written.
 
-The default export is checked field by field before anything is registered. `id` must be a non-empty string, `register` must be a function, `name` must be a string when present, and `defaultEnabled` must be a boolean when present (see [Enable and disable](#enable-and-disable) for why it is then ignored). Anything else is rejected with a `PluginLoadError` naming the directory, and the failure shows up as an error row instead of a silent no-op.
+The default export is checked field by field before anything is registered. `id` must be a non-empty string, `register` must be a function, and `name` must be a string when present. Anything else is rejected with a `PluginLoadError` naming the directory, which is logged rather than passing as a silent no-op; the plugin simply never registers.
 
 ---
 
@@ -222,7 +222,7 @@ The rewrite is anchored to import and export syntax and runs over a comment-mask
 
 **Enable.** Discovery says what exists. `config.yaml` says what runs. See the next section.
 
-**Mount.** For each enabled plugin the dashboard fetches `GET /api/plugins/<id>/client`, rewrites the SDK specifiers, evaluates the source as a module, validates the default export, publishes the inventory record, and calls `register(ctx)` once. The context it passes is scoped by construction:
+**Mount.** For each enabled plugin the dashboard fetches `GET /api/plugins/<id>/client`, rewrites the SDK specifiers, evaluates the source as a module, validates the default export, and calls `register(ctx)` once. The context it passes is scoped by construction:
 
 ```js
 register(ctx) {
@@ -245,7 +245,7 @@ Nothing on that context takes a plugin id, which is what makes the scoping true 
 
 **Hot reload.** The gateway watches the plugins directory (skipping `node_modules` and `.git`) and rescans on a debounce. A saved edit to `client.js` disposes the previous incarnation first, running every disposer the old `register` accumulated, and only then evaluates and registers the new one; registering first would leave stale disposers holding entries the new registration had already replaced. On the gateway side, `server.js` is re-imported with a cache-busting query keyed on the file's size and mtime plus a generation counter, so an edit, or a disable followed by a re-enable, produces a genuinely new module rather than the incarnation the operator just turned off. The watcher is restarted against that same incarnation, so the background task and the routes are never two different copies of one plugin.
 
-Editing `plugin.json` to change the id is handled too: the loader tracks which id each directory last loaded under, and disposes the previous one so its contributions and inventory row do not orphan.
+Editing `plugin.json` to change the id is handled too: the loader tracks which id each directory last loaded under, and disposes the previous one so its contributions do not orphan.
 
 ---
 
@@ -262,7 +262,7 @@ plugins:
 
 **Absence is not enabled.** The two lists are the operator's explicit decisions and the only input to the decision: a plugin named in neither is off. A plugin directory can arrive in an instance home by being copied, and it must not start running because nobody has said no to it yet. `disabled` wins over `enabled` when a plugin somehow appears in both, since the fail-closed reading is the safe one. A mistyped `plugins.enabled` that is not a list names nobody rather than enabling everything.
 
-**A plugin cannot opt itself in.** `client.js` may declare `defaultEnabled`, and the loader validates it is a boolean so an author who writes it gets told when it is the wrong type, but the value is then ignored. A manifest field that flipped an unlisted plugin on would be the plugin making the operator's decision for them.
+**A plugin cannot opt itself in.** Nothing a plugin ships declares whether it runs — there is no such field in the manifest and none in `client.js`, so `config.yaml` is the only input and the loader has nothing to ignore because there is nothing to declare. A field that flipped an unlisted plugin on would be the plugin making the operator's decision for them.
 
 One policy, three enforcement points, each closing a different window:
 

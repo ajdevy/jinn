@@ -63,6 +63,33 @@ describe("scanOrg system employees", () => {
     expect(dispatcher?.persona.trim().length).toBeGreaterThan(0);
   });
 
+  it("includes the built-in Todo Shaper when the org directory does not exist", () => {
+    expect(fs.existsSync(orgDir)).toBe(false);
+
+    const shaper = scanOrg(config).get("todo-shaper");
+
+    expect(shaper).toMatchObject({
+      name: "todo-shaper",
+      system: true,
+      engine: "codex",
+      model: "gpt-default",
+      effortLevel: "high",
+    });
+    expect(shaper?.persona.trim().length).toBeGreaterThan(0);
+  });
+
+  // The Shaper hands off rather than assigning, and the handoff is the whole
+  // reason it is a separate employee: if the persona ever stops naming the
+  // dispatch verb, quick capture ends at a Todo nobody starts.
+  it("tells the Shaper to create exactly one Todo, leave the assignee alone, and hand off", () => {
+    const persona = scanOrg(config).get("todo-shaper")!.persona;
+
+    expect(persona).toContain("create_work_item");
+    expect(persona).toContain("dispatch_work_item");
+    expect(persona).toMatch(/exactly one/i);
+    expect(persona).toMatch(/do not set an assignee/i);
+  });
+
   it("never trusts system: true from an ordinary employee YAML", () => {
     writeYaml("ordinary.yaml", `
 name: ordinary

@@ -421,7 +421,7 @@ export class WorkflowRunner {
     } catch { /* the workflow-side gate stands on its own */ }
     try {
       this.options.todoApprovals.notifyParked({ todoId, workflowId: run.workflowId, runId: run.id,
-        nodeId: node.id, request, ref });
+        nodeId: node.id, request, ref, cooDecidable: node.config.decidableBy === "coo" });
     } catch (error) {
       logger.warn(`Workflow run ${run.id} could not notify the approver of parked gate ${node.id}: `
         + `${error instanceof Error ? error.message : String(error)}`);

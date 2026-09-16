@@ -91,14 +91,19 @@ export class NativeGatewayProfiles {
     if (id === this.#snapshot.activeId) return
     const profile = this.#profile(id)
     this.#update({ ...this.#snapshot, status: "switching", switchingProfileId: id, failedProfileId: undefined, error: undefined })
+    await this.#commit(id, false)
+    const generation = this.#snapshot.generation
     try {
       await this.#authState(createNativeGatewayTransport(profile.origin, this.options.bridge))
       // Validation is asynchronous: removal wins if it landed while the candidate answered.
       this.#profile(id)
-      await this.#commit(id)
+      if (stale(this, generation)) throw new StaleGatewayGenerationError()
+      this.#update({ ...this.#snapshot, status: "ready", switchingProfileId: undefined, activeReachable: true })
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Gateway is unreachable"
-      this.#update({ ...this.#snapshot, status: "unreachable", switchingProfileId: undefined, failedProfileId: id, error: reason })
+      if (!stale(this, generation)) {
+        this.#update({ ...this.#snapshot, status: "unreachable", switchingProfileId: undefined, failedProfileId: id, error: reason, activeReachable: false })
+      }
       throw error
     }
   }
@@ -142,9 +147,8 @@ export class NativeGatewayProfiles {
   }
 
   /**
-   * Re-check the ACTIVE gateway. Retry is offered on the active row, so it must
-   * reach that origin even once a later failed switch is the failure on record;
-   * a failed switch is retried by selecting that profile again.
+   * Re-check the ACTIVE gateway. Selection commits before its reachability
+   * probe, so an unreachable chosen profile owns Retry and this reaches it.
    */
   async retry(): Promise<void> {
     const id = this.#snapshot.activeId
@@ -218,18 +222,18 @@ export class NativeGatewayProfiles {
     return instance?.trim() || new URL(transport.profile.origin).host
   }
 
-  async #commit(activeId: string | undefined): Promise<void> {
+  async #commit(activeId: string | undefined, activeReachable = activeId !== undefined): Promise<void> {
     await this.options.beforeCommit?.()
+    if (activeId) this.#profile(activeId)
     this.#snapshot = {
       ...this.#snapshot,
       activeId,
       generation: this.#snapshot.generation + 1,
-      status: "ready",
-      switchingProfileId: undefined,
+      status: activeId !== undefined && !activeReachable ? "switching" : "ready",
+      switchingProfileId: activeReachable ? undefined : activeId,
       failedProfileId: undefined,
       error: undefined,
-      // A commit only ever follows a gateway that just answered.
-      activeReachable: activeId !== undefined,
+      activeReachable,
     }
     for (const socket of this.#sockets) {
       if (socket.readyState !== GATEWAY_SOCKET_CLOSED) socket.close(1000, "Gateway profile changed")

@@ -135,8 +135,8 @@ namespaced id, so a contribution cannot lie about where it came from. Provenance
 display and for the future capability gate, and §9 is explicit that it is not a gate today.
 
 There is deliberately no `enabled` field. `when: () => false` already expresses a soft hide,
-and plugin-level enablement belongs to the store (§8), not to each contribution. One mechanism,
-not two.
+and plugin-level enablement belongs to the gateway and `config.yaml` (§8), not to each
+contribution. One mechanism, not two.
 
 **`when` is not reactive, and the spec says so out loud.** It is evaluated when the area's
 snapshot is rebuilt, which happens on a register or remove *in that area*. A `when()` that
@@ -336,11 +336,10 @@ The gateway owns the lifecycle:
 ### Hot-reload hazards, enumerated because each one has bitten somebody
 
 1. **Id changed on a hot edit.** Reloading disposes the *new* id, so the previous incarnation's
-   contributions and inventory row orphan. The loader tracks the previous id across a reload and
-   disposes that.
-2. **Ghost error records.** A directory that failed to load is recorded under its folder name. If
-   the fixing save loads under a different plugin id, the folder-named error record is dropped,
-   so the inventory shows one row and not a ghost beside it.
+   contributions orphan. The loader tracks the previous id across a reload and disposes that.
+2. **Ghost error records.** Closed by construction rather than by a branch: the dashboard keeps
+   no records at all, and the gateway keys its inventory by folder name, so a directory and the
+   id it happens to load under can never become two rows.
 3. **Re-entrant scans.** A rescan must not overlap a slow in-flight scan; reads and dynamic
    imports can exceed the debounce interval. A `scanning` guard, not a shorter interval.
 4. **Unwatchable or absent directory.** `~/.jinn/plugins/` may not exist. Absent is not an error,
@@ -365,9 +364,9 @@ plugins:
 
 **Absence is not enabled.** The two lists are the operator's explicit decisions, and they are the
 only input to the decision: a plugin named in neither is disabled. Nothing the plugin ships can
-change that, which is why §2 has no `defaultEnabled` field — a manifest value that flipped an
-unlisted plugin to enabled would be the plugin opting itself in, and the whole point of this
-section is that only the operator can do that. This deliberately inverts
+change that, and nothing it ships even mentions it: neither the §2 manifest nor the module has a
+field for enablement, because a shipped value that flipped an unlisted plugin to enabled would be
+the plugin opting itself in, and only the operator gets to do that. This deliberately inverts
 `packages/jinn/src/mcp/resolver.ts:177`, where `enabled === false` means
 absence is enabled. The difference is that an MCP server is something the operator already wrote
 into their config by hand, whereas a plugin directory can arrive by being copied. `disabled`
@@ -386,9 +385,7 @@ different window:
 | Request time (§9) | A plugin disabled *while the gateway is running* has routes already mounted. Only a per-request check makes a live toggle real. |
 | Asset serving | Neither route in §6 answers for a disabled plugin: its client entry and its assets are both 404, so a stale dashboard tab cannot resurrect it by reloading the module. |
 
-The web-side store keeps the same decisions map and the same rule, so the settings toggle and
-`config.yaml` cannot disagree about what "unset" means. A disabled plugin still appears in the
-inventory. Disabled is a state, not an absence.
+A disabled plugin still appears in the inventory. Disabled is a state, not an absence.
 
 ---
 
@@ -523,7 +520,7 @@ Each sibling Todo is graded against its section.
 
 | Todo | Section | Deliverable |
 | --- | --- | --- |
-| ICI-720 | §3 | Contribution registry, area-scoped invalidation, `Slot`, error boundaries, plugin store, and the status bar host |
+| ICI-720 | §3 | Contribution registry, area-scoped invalidation, `Slot`, error boundaries, and the status bar host |
 | ICI-721 | §4, §5 | `@jinn/plugin-sdk`: the single import surface and the hand-authored `.d.ts` |
 | ICI-722 | §4 | Runtime loader: specifier rejection, shims, blob import, validation, hot reload |
 | ICI-723 | §2, §6, §8, §9 | Discovery, manifest validation, `GET /api/plugins`, asset route with the three guards, config lists |

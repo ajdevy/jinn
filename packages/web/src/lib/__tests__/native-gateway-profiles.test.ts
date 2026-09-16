@@ -139,9 +139,10 @@ describe("native gateway profiles", () => {
     })
   })
 
-  it("does not commit an unreachable selection and reports it distinctly", async () => {
+  it("commits an unreachable selection and retries that selected profile", async () => {
     const { bridge, requests } = bridgeFixture()
-    const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
+    const storage = new MemoryStorage()
+    const profiles = createNativeGatewayProfiles({ bridge, storage })
     const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
     const beta = await profiles.pair("http://127.0.0.1:7780", "beta")
     requests.mockRejectedValueOnce(new TypeError("connection refused"))
@@ -149,11 +150,19 @@ describe("native gateway profiles", () => {
     await expect(profiles.select(beta.id)).rejects.toThrow("connection refused")
 
     expect(profiles.snapshot()).toMatchObject({
-      activeId: alpha.id,
+      activeId: beta.id,
       status: "unreachable",
       failedProfileId: beta.id,
+      activeReachable: false,
     })
-    expect(profiles.transport.profile.origin).toBe(alpha.origin)
+    expect(profiles.transport.profile.origin).toBe(beta.origin)
+    expect(createNativeGatewayProfiles({ bridge, storage }).snapshot().activeId).toBe(beta.id)
+
+    await profiles.retry()
+
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: beta.origin } }))
+    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
+    expect(alpha.id).not.toBe(beta.id)
   })
 
   it("names the profile a switch is reaching for while the switch is in flight", async () => {
@@ -203,7 +212,7 @@ describe("native gateway profiles", () => {
     expect(reloaded.snapshot()).toMatchObject({ status: "ready", activeReachable: true, failedProfileId: undefined })
   })
 
-  it("retries the active gateway, not the profile a failed switch named", async () => {
+  it("retries the newly active profile after a failed switch", async () => {
     const { bridge, requests } = bridgeFixture()
     const profiles = createNativeGatewayProfiles({ bridge, storage: new MemoryStorage() })
     const alpha = await profiles.pair("http://127.0.0.1:7779", "alpha", { activate: true })
@@ -214,8 +223,8 @@ describe("native gateway profiles", () => {
 
     await profiles.retry()
 
-    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: beta.origin } }))
-    expect(profiles.snapshot()).toMatchObject({ activeId: beta.id, status: "ready", activeReachable: true })
+    expect(requests).toHaveBeenLastCalledWith(expect.objectContaining({ target: { origin: alpha.origin } }))
+    expect(profiles.snapshot()).toMatchObject({ activeId: alpha.id, status: "ready", activeReachable: true })
   })
 
   it("does not strand a retry when the profile a failed switch named is removed", async () => {

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react"
 import { RefreshCw, Radio } from "lucide-react"
 import { api } from "@/lib/api"
 import { PageLayout, ToolbarActions } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { LogBrowser, parseLogLine } from "@/components/activity/log-browser"
 
 /* ── Summary Cards ─────────────────────────────────────────────── */
@@ -42,7 +41,6 @@ function SummaryCard({
 /* ── Page ──────────────────────────────────────────────────────── */
 
 export default function LogsPage() {
-  useBreadcrumbs([{ label: 'Activity' }])
   const [lines, setLines] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)

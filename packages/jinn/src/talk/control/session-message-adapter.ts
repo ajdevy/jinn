@@ -12,6 +12,7 @@ function assertReplayable(claim: IncomingTurnClaim, subject: string): void {
     replayError,
   );
 }
+import { requireBoundOperatorEvidence } from "./operator-evidence.js";
 
 /** Atomically claim the visible message and queue intent before dispatch. The
  * stable provider operation survives a lost HTTP/runtime receipt and a restart. */
@@ -21,6 +22,7 @@ export function dispatchTalkSessionMessage(
   prompt: string,
   call: TalkControlAdapterContext,
 ): { messageId: string; queueItemId: string; replayed: boolean } {
+  requireBoundOperatorEvidence(call, "send-evidence-required", "Sending a message into a session");
   const session = getSession(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
   const engine = context.sessionManager.getEngine(session.engine);

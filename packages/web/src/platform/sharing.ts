@@ -8,3 +8,7 @@ export function share(content: { title?: string; text?: string; url?: string }):
 export function copyText(text: string): Promise<OperationResult> {
   return getPlatform().perform({ kind: "clipboard.copy", text })
 }
+
+export function openExternal(url: string): Promise<OperationResult> {
+  return getPlatform().perform({ kind: "navigation.open-external", url })
+}

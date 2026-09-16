@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom"
 import { ChevronRight, Sun, Moon, Palette, type LucideIcon } from "lucide-react"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useTheme } from "@/routes/providers"
 import { THEMES, type ThemeId } from "@/lib/themes"
 import type { NavItem } from "@/lib/nav"
@@ -45,7 +46,7 @@ function LinkRow({ item, first }: { item: NavItem; first: boolean }) {
     <Link
       to={item.href}
       className={cn(
-        "flex h-[52px] items-center gap-3 px-3.5 text-[var(--text-primary)] transition-colors active:bg-[var(--fill-secondary)]",
+        "flex min-h-[52px] flex-wrap items-center gap-3 py-1.5 px-3.5 text-[var(--text-primary)] transition-colors active:bg-[var(--fill-secondary)]",
         !first && "border-t-[0.5px] border-[var(--separator)]",
       )}
     >
@@ -85,7 +86,7 @@ function ThemeIcon({ theme }: { theme: ThemeId }) {
 function AppearanceRow() {
   const { theme, setTheme } = useTheme()
   return (
-    <div className="flex h-[52px] items-center gap-3 border-t-[0.5px] border-[var(--separator)] px-3.5">
+    <div className="flex min-h-[52px] flex-wrap items-center gap-3 py-1.5 border-t-[0.5px] border-[var(--separator)] px-3.5">
       <span
         className="flex size-[29px] shrink-0 items-center justify-center rounded-[8px]"
         style={{ background: "var(--text-tertiary)", color: "var(--bg-secondary)" }}
@@ -103,7 +104,7 @@ function AppearanceRow() {
             onClick={() => setTheme(t.id)}
             aria-pressed={theme === t.id}
             className={cn(
-              "rounded-full px-3 py-1 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] transition-all",
+              "min-h-[40px] md:min-h-0 rounded-full px-3 py-1 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] transition-[background-color,color,box-shadow]",
               theme === t.id
                 ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
@@ -118,7 +119,6 @@ function AppearanceRow() {
 }
 
 export default function MorePage() {
-  useBreadcrumbs([{ label: "More" }])
   const { data: features } = useFeatures()
   // Subscribed, not a module-time snapshot: this list is the phone's only route
   // to an overflow destination, so a sidebar.nav row from a plugin enabled after
@@ -129,12 +129,8 @@ export default function MorePage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[560px] px-4 pb-20 pt-6 md:pt-11">
-          <h1 className="px-1 font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] md:text-[length:var(--text-large-title)]">
-            More
-          </h1>
-
+      <PageScaffold contentWidth="560px" header={<LargeTitleHeader title="More" />}>
+        <div>
           <div className="mt-5">
             <Card>
               {overflowLinks.map((item, i) => (
@@ -151,7 +147,7 @@ export default function MorePage() {
 
           <WorkspacesGroup />
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

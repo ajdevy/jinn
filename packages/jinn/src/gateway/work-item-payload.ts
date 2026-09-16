@@ -7,6 +7,7 @@ import { listWorkItemRuns } from "../work-items/runs.js";
 import { getTodoDispatchConfig } from "../work-items/dispatch-config.js";
 import { readStopCause, type TodoStopCause } from "../work-items/stop-cause.js";
 import { isWorkItemKept, keptSet } from "../work-items/kept.js";
+import { getWorkItemRecovery, recoveryByItem } from "../work-items/recovery-rows.js";
 import { initDb } from "../shared/db.js";
 
 /** The wire projections of a Todo the API routes return: one compact shape for
@@ -16,9 +17,28 @@ import { initDb } from "../shared/db.js";
  *  board's chip/indicator data; ICI-1357 adds `kept` — whether the Todo is on
  *  the operator's Home). List callers pass the pre-batched `extras` (ONE query
  *  each per page); single-item callers omit them and pay per-item lookups. */
+function attentionLaneOf(
+  item: WorkItem,
+  recovery = getWorkItemRecovery(item.id),
+): string | null {
+  if (recovery) return recovery.lane;
+  if (item.approvalOperatorOnly && item.approvalState === "pending") return "operator";
+  if (item.status === "blocked" || item.status === "escalated") {
+    const cause = readStopCause(initDb(), item.id);
+    if (cause?.parkedUntil) return "recovering";
+    return "operator";
+  }
+  return null;
+}
+
 export function compactWorkItem(
   item: WorkItem,
-  extras?: { blocked: Set<string>; labels: Map<string, Label[]>; kept: Set<string> },
+  extras?: {
+    blocked: Set<string>;
+    labels: Map<string, Label[]>;
+    kept: Set<string>;
+    recovery?: Map<string, import("../work-items/recovery.js").WorkItemRecovery>;
+  },
 ): Record<string, unknown> {
   return {
     id: item.id,
@@ -47,6 +67,7 @@ export function compactWorkItem(
     approvalTarget: item.approvalTarget,
     approvalEscalatedAt: item.approvalEscalatedAt,
     sessionRef: sessionRef(item),
+    attentionLane: attentionLaneOf(item, extras?.recovery?.get(item.id)),
     ...stopCause(item),
     updatedAt: item.updatedAt,
   };
@@ -56,7 +77,12 @@ export function compactWorkItem(
  *  ONE query each across the whole page rather than per item. */
 export function workItemPagePayload(page: ReturnType<typeof queryWorkItems>): Record<string, unknown> {
   const ids = page.workItems.map((item) => item.id);
-  const extras = { blocked: blockedSet(ids), labels: labelSets(ids), kept: keptSet(initDb(), ids) };
+  const extras = {
+    blocked: blockedSet(ids),
+    labels: labelSets(ids),
+    kept: keptSet(initDb(), ids),
+    recovery: recoveryByItem(ids),
+  };
   return {
     workItems: page.workItems.map((item) => compactWorkItem(item, extras)),
     total: page.total,

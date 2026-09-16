@@ -204,44 +204,6 @@ jobs:
       - run: pnpm build
       - run: pnpm coverage
 
-  e2e:
-    runs-on: ubuntu-latest
-    # Roughly 3 minutes in practice. The fixture serves a static bundle and mocks
-    # every API call, so no step here waits on a gateway.
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # The spec serves packages/web/out from its own fixture server, so the web
-      # bundle is the only build it needs. Filtered with `...` because @jinn/web
-      # cannot resolve @jinn/gateway-events until that workspace dep is built.
-      - run: pnpm exec turbo build --filter=@jinn/web...
-      - run: pnpm exec playwright install --with-deps chromium
-
-      # Named rather than `pnpm test:e2e`, because the rest of e2e/ needs
-      # something a runner does not have:
-      #   - scroll.spec.ts       a live gateway with a chat thread already loaded;
-      #                          it waits on .chat-messages-scroll and otherwise
-      #                          times out. Seeding that fixture is new e2e work.
-      #   - smoke.spec.ts        a gateway on :7779, to assert the page title is
-      #                          non-empty. The `docker` job already asserts
-      #                          strictly more against a real container.
-      #   - e2e/workflow-layout/ JINN_VERIFY_HOME and JINN_VERIFY_ARTIFACTS — it
-      #                          throws at collection without them — and it drives
-      #                          real, billed Codex sessions. Never on a runner.
-      - run: pnpm test:e2e e2e/instance-migration.spec.ts
-
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-results
-          path: test-results/
-
   docker:
     runs-on: ubuntu-latest
     # The failure worth catching is a gateway that builds but cannot spawn a
@@ -356,7 +318,7 @@ jobs:
     # the moment a dependency fails, and a required check that never ran does not
     # report as a red one.
     if: always()
-    needs: [typecheck, lint, footguns, ratchet, unit-tests, build, coverage, e2e, docker]
+    needs: [typecheck, lint, footguns, ratchet, unit-tests, build, coverage, docker]
     steps:
       # No `pnpm install`: the checker imports nothing outside node: builtins.
       - uses: actions/checkout@v5

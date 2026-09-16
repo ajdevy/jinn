@@ -7,84 +7,26 @@ import {
   type WorkItemAttachmentWire,
   type WorkItemCommentWire,
   type WorkItemDetailWire,
-  type WorkItemEventWire,
 } from "@/lib/api"
 import { commentAuthorLabel, operatorSafeTodoError } from "@/lib/todos"
 import { stripMarkdown } from "@/lib/strip-markdown"
 import { MarkdownView } from "@/components/markdown-view"
 import { EmployeeAvatar, OPERATOR_DEFAULT_EMOJI } from "@/components/ui/employee-avatar"
-import { buildCommentThread, type CommentThreadNode } from "../comment-thread"
 import { invalidateTodoComments, useAddTodoComment } from "../use-todo-comment"
 import { commentHeadRequest, mergeCommentPages } from "./comment-window"
 import { displayNameOf, formatRelativeTime } from "../util"
 import { AttachmentTile, useAttachmentPreview } from "./attachment-preview"
 import { formatBytes } from "./attachments"
 import { WhisperLine } from "./whisper"
+import { buildFeed, stripCommentMarkers } from "./activity-feed"
+import { RunEndLine, RunStartLine } from "./runs"
 
 /* The merged activity feed keeps audit events quiet and comment voices
  * prominent. Long comments collapse independently to syntax-free previews;
  * full bodies share MarkdownView with the rest of Jinn. The same multiline
  * composer docks at the thread edge on desktop and mobile. */
 
-const FOLD_THRESHOLD = 3
 export const COMMENT_COLLAPSE_THRESHOLD = 320
-const HTML_COMMENT_LINE = /^\s*<!--(?:(?!-->).)*-->\s*$/
-
-/** Comment voices render themselves; their audit shadows would double them. */
-const FEED_HIDDEN_KINDS = new Set(["comment_added", "comment_edited", "comment_deleted", "none"])
-
-type FeedItem =
-  | { kind: "comment"; at: string; node: CommentThreadNode }
-  | { kind: "event"; at: string; event: WorkItemEventWire }
-
-type FeedBlock =
-  | { kind: "comment"; node: CommentThreadNode }
-  | { kind: "event"; event: WorkItemEventWire }
-  | { kind: "fold"; events: WorkItemEventWire[] }
-
-export function buildFeed(events: WorkItemEventWire[], comments: WorkItemCommentWire[]): FeedBlock[] {
-  const items: FeedItem[] = [
-    ...events
-      .filter((event) => !FEED_HIDDEN_KINDS.has(event.kind))
-      .map((event): FeedItem => ({ kind: "event", at: event.createdAt, event })),
-    ...buildCommentThread(comments).map((node): FeedItem => ({ kind: "comment", at: node.comment.createdAt, node })),
-  ].sort((a, b) => a.at.localeCompare(b.at))
-
-  const blocks: FeedBlock[] = []
-  let run: WorkItemEventWire[] = []
-  const flushRun = () => {
-    if (run.length >= FOLD_THRESHOLD) blocks.push({ kind: "fold", events: run })
-    else for (const event of run) blocks.push({ kind: "event", event })
-    run = []
-  }
-  for (const item of items) {
-    if (item.kind === "event") {
-      // The birth whisper stays visible — the mock never folds "created".
-      if (item.event.kind === "created") {
-        flushRun()
-        blocks.push({ kind: "event", event: item.event })
-      } else {
-        run.push(item.event)
-      }
-    } else {
-      flushRun()
-      blocks.push({ kind: "comment", node: item.node })
-    }
-  }
-  flushRun()
-  return blocks
-}
-
-export function stripCommentMarkers(body: string): string {
-  let inCodeBlock = false
-  return body.split("\n").filter((line) => {
-    if (line.startsWith("```")) {
-      inCodeBlock = !inCodeBlock
-      return true
-    }
-    return inCodeBlock || !HTML_COMMENT_LINE.test(line)
-  }).join("\n")
-}
 
 /** Operator comments avatar as the reserved "operator" actor, not an employee. */
 function avatarFor(comment: WorkItemCommentWire): string {
@@ -109,7 +51,7 @@ function AttachmentChips({ attachments, workItemId }: { attachments: WorkItemAtt
   if (attachments.length === 0) return null
   const images = attachments.filter((attachment) => preview.canPreview(attachment))
   return (
-    <div className="ml-[42px] mt-[9px] flex flex-wrap gap-2">
+    <div className="ml-[38px] mt-[7px] flex flex-wrap gap-2">
       {attachments.map((attachment) =>
         preview.canPreview(attachment) ? (
           <AttachmentTile
@@ -173,15 +115,15 @@ function CommentBlock({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
   return (
-    <div className={`pb-1 pt-3 ${reply ? "ml-[30px]" : ""}`} data-testid={`activity-comment-${comment.id}`}>
+    <div className={`pb-0.5 pt-2 ${reply ? "ml-[30px]" : ""}`} data-testid={`activity-comment-${comment.id}`}>
       <div className="flex items-center gap-2">
-        <EmployeeAvatar name={avatarFor(comment)} fallback={comment.authorKind === "operator" ? OPERATOR_DEFAULT_EMOJI : undefined} size={22} fontSize={12} className="bg-[var(--fill-secondary)]" />
-        <span className="text-[13px] font-semibold text-[var(--text-secondary)]">{commentAuthor(comment, byName)}</span>
-        <span className="text-[11px] text-[var(--text-quaternary)]">{formatRelativeTime(comment.createdAt)}</span>
-        {comment.editedAt && !tombstoned && <span className="text-[11px] text-[var(--text-quaternary)]">(edited)</span>}
+        <EmployeeAvatar name={avatarFor(comment)} fallback={comment.authorKind === "operator" ? OPERATOR_DEFAULT_EMOJI : undefined} size={18} fontSize={10} className="bg-[var(--fill-secondary)]" />
+        <span className="text-[12.5px] font-semibold text-[var(--text-secondary)]">{commentAuthor(comment, byName)}</span>
+        <span className="text-[10.5px] text-[var(--text-quaternary)]">{formatRelativeTime(comment.createdAt)}</span>
+        {comment.editedAt && !tombstoned && <span className="text-[10.5px] text-[var(--text-quaternary)]">(edited)</span>}
       </div>
       {editing ? (
-        <div className="ml-[42px] mt-[7px]">
+        <div className="ml-[38px] mt-[5px]">
           <textarea
             autoFocus
             data-testid={`activity-edit-${comment.id}`}
@@ -190,7 +132,7 @@ function CommentBlock({
             rows={2}
             className="w-full min-w-0 resize-y rounded-[10px] bg-[var(--fill-quaternary)] p-2.5 text-[14.5px] text-[var(--text-primary)] outline-none"
           />
-          <div className="mt-1 flex gap-3.5 text-[12px] font-medium text-[var(--text-quaternary)]">
+          <div className="mt-1 flex gap-3.5 text-[11.5px] font-medium text-[var(--text-quaternary)]">
             <button
               type="button"
               data-testid={`activity-edit-save-${comment.id}`}
@@ -199,21 +141,21 @@ function CommentBlock({
                 setEditing(false)
                 if (draft.trim() && draft !== comment.body) onEdit?.(draft)
               }}
-              className="focus-ring rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50"
+              className="focus-ring inline-flex items-center rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50 max-[700px]:min-h-[34px]"
             >
               Save
             </button>
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="focus-ring rounded outline-none hover:text-[var(--text-secondary)]"
+              className="focus-ring inline-flex items-center rounded outline-none hover:text-[var(--text-secondary)] max-[700px]:min-h-[34px]"
             >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <div className="relative ml-[30px] mt-[7px] py-0.5 pl-3 text-[15px] leading-[1.55]">
+        <div className="relative ml-[26px] mt-[5px] pl-3 text-[14.5px] leading-[1.5]">
           <span
             aria-hidden
             className={`absolute bottom-[3px] left-0 top-[3px] w-[2px] rounded-[1px] ${
@@ -251,9 +193,9 @@ function CommentBlock({
       )}
       <AttachmentChips attachments={attachments} workItemId={workItemId} />
       {!tombstoned && !editing && (
-        <div className="ml-[42px] mt-1.5 flex gap-3.5 text-[12px] font-medium text-[var(--text-quaternary)]">
+        <div className="ml-[38px] mt-0.5 flex gap-3.5 text-[11.5px] font-medium text-[var(--text-quaternary)]">
           {onReply && (
-            <button type="button" data-testid={`activity-reply-${comment.id}`} onClick={onReply} className="focus-ring rounded outline-none hover:text-[var(--text-secondary)]">
+            <button type="button" data-testid={`activity-reply-${comment.id}`} onClick={onReply} className="focus-ring inline-flex items-center rounded outline-none hover:text-[var(--text-secondary)] max-[700px]:min-h-[34px]">
               Reply
             </button>
           )}
@@ -266,7 +208,7 @@ function CommentBlock({
                 setDraft(comment.body)
                 setEditing(true)
               }}
-              className="focus-ring rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50"
+              className="focus-ring inline-flex items-center rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50 max-[700px]:min-h-[34px]"
             >
               Edit
             </button>
@@ -277,7 +219,7 @@ function CommentBlock({
               data-testid={`activity-delete-${comment.id}`}
               disabled={busy}
               onClick={onDelete}
-              className="focus-ring rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50"
+              className="focus-ring inline-flex items-center rounded outline-none hover:text-[var(--text-secondary)] disabled:opacity-50 max-[700px]:min-h-[34px]"
             >
               Delete
             </button>
@@ -333,7 +275,10 @@ export function ActivitySection({
   }, [attachmentsQuery.data])
 
   const comments = useMemo(() => mergeCommentPages(commentsQuery.data, detail.comments), [commentsQuery.data, detail.comments])
-  const blocks = useMemo(() => buildFeed(detail.events, comments).reverse(), [detail.events, comments])
+  const blocks = useMemo(
+    () => buildFeed(detail.events, comments, detail.runs ?? []).reverse(),
+    [detail.events, comments, detail.runs],
+  )
 
   const [openFolds, setOpenFolds] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState("")
@@ -506,7 +451,13 @@ export function ActivitySection({
   )
 
   return (
-    <div className="pt-3" data-testid="task-activity">
+    <div data-testid="task-activity">
+      <div
+        className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)]"
+        style={{ fontFamily: "var(--font-code)" }}
+      >
+        Activity
+      </div>
       <div>
         {blocks.map((block) => {
           if (block.kind === "comment") {
@@ -537,6 +488,10 @@ export function ActivitySection({
             )
           }
           if (block.kind === "event") return <WhisperLine key={`event-${block.event.id}`} event={block.event} byName={byName} />
+          if (block.kind === "run-start") return <RunStartLine key={`run-start-${block.run.id}`} run={block.run} />
+          if (block.kind === "run-end") {
+            return <RunEndLine key={`run-end-${block.run.id}`} run={block.run} outcome={block.outcome} at={block.at} />
+          }
           const foldId = block.events[0].id
           const open = openFolds.has(foldId)
           return (
@@ -553,7 +508,7 @@ export function ActivitySection({
                     return next
                   })
                 }
-                className="focus-ring flex items-center py-1.5 text-[12.5px] font-medium text-[var(--text-quaternary)] outline-none hover:text-[var(--text-secondary)]"
+                className="focus-ring flex items-center py-1.5 text-[12.5px] font-medium text-[var(--text-quaternary)] outline-none hover:text-[var(--text-secondary)] max-[700px]:min-h-[34px]"
               >
                 <ChevronRight
                   size={11}

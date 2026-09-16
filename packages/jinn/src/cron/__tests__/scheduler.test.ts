@@ -44,8 +44,10 @@ import { reloadScheduler, startScheduler, stopScheduler, triggerCronJob } from "
 import { runCronJob } from "../runner.js";
 
 const sessionManager = {} as any;
-const config = { engines: { default: "claude" } } as unknown as JinnConfig;
+const baseConfig = { engines: { default: "claude" } } as unknown as JinnConfig;
+let config = baseConfig;
 const connectors = new Map<string, Connector>();
+const deps = { sessionManager, getConfig: () => config, connectors };
 
 beforeEach(() => {
   stopScheduler();
@@ -53,43 +55,55 @@ beforeEach(() => {
   scheduledCallback = undefined;
   throwExpression = undefined;
   scheduledTasks.length = 0;
+  config = baseConfig;
 });
 
 describe("scheduler — manual vs scheduled fire identity (GRS-003b-1)", () => {
-  it("triggerCronJob (manual /cron run) passes NO fireIso — every manual run is its own fire", async () => {
-    startScheduler([], sessionManager, config, connectors); // set module vars, schedule nothing
+  it("triggerCronJob (manual /cron run) passes NO fireIso and reads the live config", async () => {
+    startScheduler([], deps); // capture deps, schedule nothing
+    const swapped = { engines: { default: "codex" } } as unknown as JinnConfig;
+    config = swapped;
 
     const result = await triggerCronJob("test-job");
 
     expect(result).toEqual(job);
     expect(runCronJob).toHaveBeenCalledTimes(1);
     const call = (runCronJob as any).mock.calls[0];
+    // PLA-260: the config reaching the runner is the one the gateway holds NOW,
+    // not the one that existed when the scheduler was started.
+    expect(call[2]).toBe(swapped);
     // The opts carry the workflow fire handler slot (GRS-014d) but NO fireIso — a manual
     // trigger is a fresh fire by definition, so it never reuses a scheduled tick's identity.
     expect(call[4]?.fireIso).toBeUndefined();
   });
 
-  it("a scheduled tick DOES pass a deterministic per-fire fireIso", () => {
-    startScheduler([job], sessionManager, config, connectors); // schedules the job, captures cb
+  it("a scheduled tick passes a deterministic per-fire fireIso and reads the live config", () => {
+    startScheduler([job], deps); // schedules the job, captures cb
     expect(scheduledCallback).toBeTypeOf("function");
+    const swapped = { engines: { default: "codex" } } as unknown as JinnConfig;
+    config = swapped;
 
     scheduledCallback!(); // simulate node-cron firing the tick
 
     expect(runCronJob).toHaveBeenCalledTimes(1);
-    const opts = (runCronJob as any).mock.calls[0][4];
+    const call = (runCronJob as any).mock.calls[0];
+    expect(call[2]).toBe(swapped); // PLA-260: resolved at fire time, not capture time
+    const opts = call[4];
     expect(opts).toBeDefined();
     expect(opts.fireIso).toMatch(/^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/);
   });
 
-  it("keeps the old scheduler running when any replacement task cannot be constructed", () => {
-    startScheduler([job], sessionManager, config, connectors);
+  it("reload skips an invalid job and schedules the valid ones", () => {
+    startScheduler([job], deps);
     const oldTask = scheduledTasks[0];
     throwExpression = "5 * * * *";
+    const invalid = { ...job, id: "bad", schedule: throwExpression };
+    const valid = { ...job, id: "replacement" };
 
-    expect(reloadScheduler([{ ...job, id: "replacement", schedule: throwExpression }])).toBe(false);
+    expect(reloadScheduler([invalid, valid])).toEqual({ scheduled: 1, skipped: 1 });
 
-    expect(oldTask.stop).not.toHaveBeenCalled();
-    expect(scheduledTasks).toHaveLength(1);
+    expect(oldTask.stop).toHaveBeenCalled();
+    expect(scheduledTasks).toHaveLength(2); // boot task + valid replacement
   });
 
 });

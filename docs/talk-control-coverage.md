@@ -5,7 +5,7 @@
 | Route | Path | Context | Evidence and controls |
 | --- | --- | --- | --- |
 | chat | `/` | semantic | selected session and transcript; controls: open, message, continue, stop |
-| chat-redirect | `/chat` | semantic | redirect destination; controls: navigate |
+| chat-redirect | `/chat/:sessionId?` | semantic | redirect destination; controls: navigate |
 | cron-list | `/cron` | semantic | jobs, filters, and run summaries; controls: filter, open, trigger |
 | cron-detail | `/cron/:id` | semantic | selected job and run history; controls: edit, enable, disable, trigger |
 | todos-index | `/todos` | semantic | board redirect; controls: navigate |
@@ -40,9 +40,9 @@ A normal question uses semantic context. One bounded image is permitted only whe
 
 | Capability | Status | Manifest operations | Verification or planned seam |
 | --- | --- | --- | --- |
-| todo-core | supported | read_todo, talk_edit_todo, talk_comment_todo, talk_assign_todo, talk_delegate_todo | authoritative Todo, comment, assignment, and linked-session rereads |
-| todo-extended | explicit gap | — | todo-extended-command-adapter-missing; reuse create, transition, label, relation, attachment, and comment-delete commands |
-| chat-core | supported | read_session, talk_search_chat_messages, talk_draft_reply, talk_replace_draft, talk_send_draft, talk_draft_and_send, talk_send_to_session | bounded current-chat excerpts, visible-composer receipts, and named-session consent |
+| todo-core | supported | read_todo, talk_create_todo, talk_edit_todo, talk_set_todo_status, talk_comment_todo, talk_assign_todo, talk_delegate_todo | authoritative Todo, creation, status, comment, assignment, and linked-session rereads |
+| todo-extended | explicit gap | — | todo-extended-command-adapter-missing; reuse label, relation, attachment, and comment-delete commands; cancellation stays off the voice surface deliberately |
+| chat-core | supported | read_session, talk_search_chat_messages, talk_draft_reply, talk_replace_draft, talk_send_draft, talk_draft_and_send, talk_send_to_session | bounded current-chat excerpts, visible-composer receipts, and a durable named-session message re-read bound to the operator's own utterance |
 | chat-lifecycle | explicit gap | — | chat-lifecycle-command-adapter-missing; reuse create, rename, archive, duplicate, delete, queue, stop, and reset commands |
 | delegation | supported | talk_delegate_todo | Todo-to-session link, child session, and dispatch rereads |
 | workflow-core | supported | talk_start_workflow_run, read_workflow_runs, read_workflow_run | workflow-run repository rereads |

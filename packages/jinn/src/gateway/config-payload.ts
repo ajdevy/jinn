@@ -52,6 +52,19 @@ export function sanitizeConfigForApi<T>(value: T, key = ""): T {
   return value;
 }
 
+/**
+ * config.yaml as GET /api/config serves it: secrets replaced with the sentinel, and
+ * only the keys a PUT may carry. GET and PUT are one round trip — the Settings page
+ * saves back the document it was handed — so serving a key the PUT refuses ("Unknown
+ * config keys: ...") makes every save from that page fail, and one key config.yaml
+ * holds that this build does not declare is enough to do it. Dropping it here costs
+ * nothing: a PUT deep-merges into the file, so what the body omits stays on disk.
+ */
+export function configDocumentForApi(config: object, savableKeys: string[]): Record<string, unknown> {
+  const savable = Object.entries(config).filter(([key]) => savableKeys.includes(key));
+  return sanitizeConfigForApi(Object.fromEntries(savable));
+}
+
 /** A YAML mapping, as opposed to a scalar or a list. */
 function isMapping(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
