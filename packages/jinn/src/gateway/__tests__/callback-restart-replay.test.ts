@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Connector } from "../../shared/types.js";
 import {
   acceptWithoutExecuting,
   api,
@@ -99,6 +100,55 @@ describe("accepted callback queue intents survive a restart", () => {
       expect(registry.listAllPendingQueueItems()).toEqual([]);
     });
     row.alsoExpectReplayed({ parentId: parent.id, events });
+  });
+
+  it("replays a connector-parented callback as a fresh message after restart", async () => {
+    const seenPrompts: string[] = [];
+    const engine = makeEngine(seenPrompts);
+    const sendMessage = vi.fn(async () => undefined);
+    const replyMessage = vi.fn(async () => undefined);
+    const target = { channel: "telegram-chat" };
+    const connector = {
+      id: "telegram",
+      name: "telegram",
+      reconstructTarget: vi.fn(() => target),
+      sendMessage,
+      replyMessage,
+    } as unknown as Connector;
+    const parent = registry.createSession({
+      engine: "stub",
+      source: "telegram",
+      sourceRef: "telegram:callback-parent:connector-restart",
+      sessionKey: "telegram:callback-parent:connector-restart",
+      connector: "telegram",
+      replyContext: { chatId: "telegram-chat", messageId: "stale-inbound" },
+      prompt: "wait for child callbacks",
+    });
+    const delivery = registry.claimSessionDelivery({
+      targetSessionId: parent.id,
+      sourceKind: "session",
+      sourceId: "child-connector-restart",
+      sourceAttempt: "attempt-connector-restart-1",
+      sourceOutcome: "succeeded",
+      sourceVersion: 1,
+      deliveryKind: "parent-completion",
+      payload: { message: "connector callback after restart", displayMessage: "Connector restart result" },
+    }).delivery;
+    const preRestartQueue = acceptWithoutExecuting();
+    await postCallbackDelivery(makeContext(engine, preRestartQueue), parent.id, delivery.id);
+
+    const postRestartQueue = new queueModule.SessionQueue();
+    const restoredContext = makeContext(engine, postRestartQueue);
+    restoredContext.connectors = new Map([["telegram", connector]]);
+    api.resumePendingWebQueueItems(restoredContext);
+
+    await eventually(() => {
+      expect(postRestartQueue.isRunning(parent.sessionKey)).toBe(false);
+      expect(seenPrompts).toEqual(["connector callback after restart"]);
+      expect(registry.listAllPendingQueueItems()).toEqual([]);
+    });
+    expect(sendMessage).toHaveBeenCalledWith(target, "acknowledged 1");
+    expect(replyMessage).not.toHaveBeenCalled();
   });
 
   it("keeps an idempotent queue intent pending while its engine is unavailable", () => {

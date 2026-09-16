@@ -65,6 +65,11 @@ function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
   // Ensure the session is in a runnable state
   updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
-  dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id });
+  dispatchWebSessionRun(session, item.prompt, engine, context, {
+    queueItemId: item.id,
+    // Restart-replayed callbacks are notifications, including callbacks whose
+    // parent session originated in a connector. Do not thread onto stale input.
+    replyToMessage: false,
+  });
   return true;
 }
