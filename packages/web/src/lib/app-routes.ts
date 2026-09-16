@@ -17,7 +17,7 @@ export interface AppRouteDescriptor {
  */
 export const APP_ROUTES = [
   { id: "chat", path: "/", availability: "always", surface: "chat" },
-  { id: "chat-redirect", path: "/chat", availability: "always", surface: "chat" },
+  { id: "chat-redirect", path: "/chat/:sessionId?", availability: "always", surface: "chat" },
   { id: "cron-list", path: "/cron", availability: "always", surface: "cron" },
   { id: "cron-detail", path: "/cron/:id", availability: "always", surface: "cron" },
   { id: "todos-index", path: "/todos", availability: "always", surface: "todos" },

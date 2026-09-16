@@ -165,7 +165,7 @@ describe("STT model lookup and download", () => {
     const { downloadModel, getSttStatus } = await import("../stt.js");
 
     expect(fs.statSync(modelPath).size).toBe(12);
-    expect(getSttStatus("small").available).toBe(false);
+    expect(getSttStatus("small", []).available).toBe(false);
 
     spawnMock.mockImplementation((_command: string, args: string[]) => {
       const child = new EventEmitter();
@@ -181,7 +181,7 @@ describe("STT model lookup and download", () => {
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(fs.statSync(modelPath).size).toBe(466_000_000);
-    expect(getSttStatus("small").available).toBe(true);
+    expect(getSttStatus("small", []).available).toBe(true);
   });
 
   it("prefers the shared copy, falls back to legacy, and rejects missing or unknown models", async () => {

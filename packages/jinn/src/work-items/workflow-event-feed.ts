@@ -22,6 +22,10 @@ export interface WorkflowTodoStatusEvent {
    *  at the moment of the move, so nothing read later can claim a window nobody
    *  waited out. */
   quotaWindowDecided: boolean;
+  /** A recovery sweep re-armed this Todo. Operator-filtered triggers accept it
+   *  the same way they accept an availability resume: this is resuming work the
+   *  operator already armed, not a new arming. */
+  armedAsRecovery?: boolean;
   /** `source`, `department`, and `assignee` are the provenance snapshot frozen
    *  into the audit row when the Todo moved. `labels` and `live` are read at
    *  replay time instead: labels, assignment, and parentage all change
@@ -167,7 +171,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
   if (!row.detail) return null;
   try {
     const detail = JSON.parse(row.detail) as
-      { todoProvenance?: unknown; armedAsDelegate?: unknown; availabilityResume?: unknown };
+      { todoProvenance?: unknown; armedAsDelegate?: unknown; availabilityResume?: unknown; recoveryResume?: unknown };
     const snapshot = detail.todoProvenance;
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
     const value = snapshot as Record<string, unknown>;
@@ -184,6 +188,7 @@ function eventFromImmutableSnapshot(row: TodoEventRow): WorkflowTodoStatusEvent 
       actor: row.actor,
       armedAsDelegate: typeof detail.armedAsDelegate === 'string' ? detail.armedAsDelegate : null,
       quotaWindowDecided: detail.availabilityResume === true,
+      ...(detail.recoveryResume === true ? { armedAsRecovery: true } : {}),
       item: {
         source: value.source as WorkItemSource,
         department: value.department as string | null,

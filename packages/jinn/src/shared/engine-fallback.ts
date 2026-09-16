@@ -1,10 +1,14 @@
 import {
   blankSourceProblem,
+  malformedSourceProblem,
+  malformedTargetProblem,
+  malformedTargetWarning,
   mapNotAMappingProblem,
   targetNotAModelIdProblem,
   unservedTargetWarning,
 } from "./fallback-map-wire.js";
 import { logger } from "./logger.js";
+import { isSpellableModelId } from "./model-id.js";
 import { ENGINE_NAMES, isKnownEngine, type EngineName } from "./models.js";
 import type { JinnConfig, ModelRegistry } from "./types.js";
 
@@ -55,12 +59,18 @@ function modelMapEntryProblems(engine: string, map: Record<string, unknown>): st
   const problems: string[] = [];
 
   for (const [from, to] of Object.entries(map)) {
-    // YAML hands every key over as a string, so "not a model id" is a blank one.
+    // YAML hands every key over as a string, so a blank one is the only way to
+    // write a key with no id in it at all — and a control character is the only
+    // way to write one that LOOKS like an id and can never match.
     if (!from.trim()) {
       problems.push(blankSourceProblem(engine));
+    } else if (!isSpellableModelId(from)) {
+      problems.push(malformedSourceProblem(engine, from));
     }
     if (typeof to !== "string" || !to.trim()) {
       problems.push(targetNotAModelIdProblem(engine, from, to));
+    } else if (!isSpellableModelId(to)) {
+      problems.push(malformedTargetProblem(engine, from, to));
     }
   }
 
@@ -102,6 +112,8 @@ export function validateEngineFallbackModelMaps(engines: Record<string, unknown>
  * came back `model_not_found`. `engines.<from>.fallbackModelMap` is the only way a
  * pin survives — and only when the substitute actually serves what the map names,
  * because a map that could name anything would just spell the same bug in config.
+ * An entry validation never saw, because it predates the check or was written by
+ * hand, is refused here too rather than handed to a CLI as an argv.
  */
 export function resolveSubstituteModel(
   config: JinnConfig,
@@ -112,6 +124,10 @@ export function resolveSubstituteModel(
 
   const mapped = config.engines[from as EngineName]?.fallbackModelMap?.[model];
   if (!mapped) return undefined;
+  if (!isSpellableModelId(mapped)) {
+    logger.warn(malformedTargetWarning({ engine: from, model, target: mapped, substitute: to }));
+    return undefined;
+  }
   if (registry[to]?.models.some((candidate) => candidate.id === mapped)) return mapped;
 
   logger.warn(unservedTargetWarning({ engine: from, model, target: mapped, substitute: to }));

@@ -72,15 +72,15 @@ export function FilteredEmptyCard({
   )
 }
 
-/** Home holds what the operator pinned and nothing else (PLA-172), so an empty
- *  one is the ordinary first state rather than a failure — and the only place
- *  the gesture that fills it can be taught. */
+/** Home holds what the operator created or pinned (PLA-230), so an empty one is
+ *  the ordinary first state rather than a failure — and the only place the
+ *  gestures that fill it can be taught. */
 export function HomeEmptyCard({ testId = "board-home-empty" }: { testId?: string }) {
   return (
     <EmptyCard
       icon={<Pin size={24} strokeWidth={2} />}
-      title="Nothing pinned yet."
-      caption="Pin a Todo from any board to keep it on Home."
+      title="Nothing yet."
+      caption="Create a Todo, or pin one from any board."
       testId={testId}
     />
   )

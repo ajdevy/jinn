@@ -3,6 +3,7 @@ import type React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../page'
+import { CONFIG_COMMIT_DEBOUNCE_MS } from '../use-config-commit'
 
 /* Somebody hand-edited config.yaml while this page was open. The page must say so
  * and stop, rather than PUT the document it read before the edit existed. */
@@ -32,7 +33,6 @@ const fetchTalkCapability = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api', () => ({ api: apiMocks, ApiError }))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
-vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock('@/routes/providers', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }))
 vi.mock('@/routes/settings-provider', () => ({
   useSettings: () => ({
@@ -58,11 +58,12 @@ function conflict() {
 
 async function renderSettings() {
   render(<MemoryRouter><SettingsPage /></MemoryRouter>)
-  await screen.findByRole('button', { name: 'Save Config' })
+  await screen.findByRole('switch', { name: 'Interrupt on new message' })
 }
 
-function saveConfig() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
+/** There is no Save button: making an edit is what asks for a write. */
+function editConfig() {
+  fireEvent.click(screen.getByRole('switch', { name: 'Interrupt on new message' }))
 }
 
 beforeEach(() => {
@@ -79,10 +80,32 @@ beforeEach(() => {
 describe('config revision', () => {
   it('sends the revision it loaded with, so the gateway can judge staleness', async () => {
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalled())
     expect(apiMocks.updateConfig.mock.calls[0][1]).toBe('rev-1')
+  })
+})
+
+/** Long enough that a queued write, if one survived, would have gone out. */
+function afterTheWindow() {
+  return new Promise((resolve) => setTimeout(resolve, CONFIG_COMMIT_DEBOUNCE_MS + 200))
+}
+
+describe('a reload with an edit still queued', () => {
+  it('drops the queued edit rather than sending it under the revision the reload adopted', async () => {
+    await renderSettings()
+    editConfig()
+
+    // The file moved on, and the operator reloads inside the debounce window.
+    apiMocks.getConfig.mockResolvedValue({ config: { logging: { level: 'error' } }, revision: 'rev-2' })
+    const reloads = screen.getAllByRole('button', { name: 'Reload' })
+    fireEvent.click(reloads[reloads.length - 1])
+    await waitFor(() => expect(apiMocks.getConfig).toHaveBeenCalledTimes(2))
+
+    // Sending it now would pass the staleness check and overwrite what the reload fetched.
+    await afterTheWindow()
+    expect(apiMocks.updateConfig).not.toHaveBeenCalled()
   })
 })
 
@@ -90,7 +113,7 @@ describe('a hand edit under an open page', () => {
   it('renders a conflict notice instead of the generic failure, and does not retry', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(conflict())
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     expect(await screen.findByText(NOTICE)).toBeTruthy()
     // Not the error toast every other failure gets.
@@ -102,7 +125,7 @@ describe('a hand edit under an open page', () => {
   it('reloads the file the operator actually edited, and clears the notice', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(conflict())
     await renderSettings()
-    saveConfig()
+    editConfig()
     await screen.findByText(NOTICE)
 
     apiMocks.getConfig.mockResolvedValue({ config: { logging: { level: 'debug' } }, revision: 'rev-2' })
@@ -110,7 +133,7 @@ describe('a hand edit under an open page', () => {
 
     await waitFor(() => expect(screen.queryByText(NOTICE)).toBeNull())
     // Saving again carries the revision the reload adopted, so it lands.
-    saveConfig()
+    editConfig()
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalledTimes(2))
     expect(apiMocks.updateConfig.mock.calls[1][1]).toBe('rev-2')
     expect((apiMocks.updateConfig.mock.calls[1][0] as any).logging.level).toBe('debug')
@@ -119,7 +142,7 @@ describe('a hand edit under an open page', () => {
   it('still shows the ordinary failure message for every other rejection', async () => {
     apiMocks.updateConfig.mockRejectedValueOnce(new Error('Invalid config: engines.claude.fallback[0] "nope"'))
     await renderSettings()
-    saveConfig()
+    editConfig()
 
     expect(await screen.findByText(/Failed to save: Invalid config/)).toBeTruthy()
     expect(screen.queryByText(NOTICE)).toBeNull()

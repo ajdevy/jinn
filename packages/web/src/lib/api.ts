@@ -34,6 +34,9 @@ import type {
 } from "@/routes/notes/types"
 import { createConfigApi } from "@/lib/api-config"
 import { createExperimentsApi } from "@/lib/api-experiments"
+import { createSttApi } from "@/lib/api-stt"
+import { createTodoCaptureApi } from "@/lib/api-todo-capture"
+export type { TodoCaptureWire, TodoCaptureStageWire, TodoCaptureRouteWire } from "@/lib/api-todo-capture"
 import { createWorkflowLifecycleApi } from "@/lib/api-workflow-lifecycle"
 import type { StaleChatPolicy } from "@/lib/stale-chat"
 import type { EnginesResponse, ModelInfo } from "@/lib/engine-registry"
@@ -68,22 +71,6 @@ export interface QueueItem {
   createdAt: string;
   /** The transcript row this item will run, when the enqueuing path had one. */
   messageId: string | null;
-}
-
-export interface InstanceMigration {
-  required: boolean
-  fromVersion: string
-  toVersion: string
-  versions: string[]
-  changedFiles: Array<{ path: string; operation: 'add' | 'modify' | 'remove' }>
-  prompt: string | null
-  migrationKey: string | null
-}
-
-export interface OpenInstanceMigrationResult {
-  sessionId: string
-  reused: boolean
-  migrationKey: string
 }
 
 export interface WorkspaceInfo {
@@ -703,9 +690,6 @@ export const api = {
   listWorkspaces: () => get<WorkspaceInfo[]>('/api/instances'),
   createWorkspace: (input: { name: string }) => post<CreateWorkspaceResult>('/api/instances', input),
   startWorkspace: (id: string) => post<WorkspaceInfo>(`/api/instances/${encodeURIComponent(id)}/start`),
-  getInstanceMigration: () => get<InstanceMigration>('/api/instance-migration'),
-  openInstanceMigration: (migrationKey: string) =>
-    post<OpenInstanceMigrationResult>('/api/instance-migration/open', { migrationKey }),
   listNotes: (query?: string) => {
     const params = new URLSearchParams()
     if (query?.trim()) params.set("q", query.trim())
@@ -856,34 +840,8 @@ export const api = {
     get<{ needed: boolean; onboarded: boolean; sessionsCount: number; hasEmployees: boolean; companyName: string | null; companyPrefix: string | null; todoPrefix: string | null; todoPrefixFrozen: boolean; portalName: string | null; operatorName: string | null; operatorEmoji: string | null }>("/api/onboarding"),
   completeOnboarding: (data: { companyName?: string; companyPrefix?: string | null; portalName?: string; operatorName?: string; operatorEmoji?: string; language?: string; engine?: string; model?: string; effortLevel?: string }) =>
     post<{ status: string; portal: { companyName?: string; companyPrefix?: string; portalName?: string; operatorName?: string; operatorEmoji?: string; language?: string } }>("/api/onboarding", data),
-  sttStatus: () =>
-    get<{ available: boolean; model: string | null; downloading: boolean; progress: number; languages: string[] }>("/api/stt/status"),
-  sttDownload: () =>
-    post<{ status: string; model: string }>("/api/stt/download", {}),
-  sttTranscribe: async (audioBlob: Blob, language?: string): Promise<{ text: string }> => {
-    const params = language ? `?language=${encodeURIComponent(language)}` : "";
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5 * 60_000); // 5 min timeout
-    try {
-      const res = await authFetch(`/api/stt/transcribe${params}`, {
-        method: "POST",
-        headers: { "Content-Type": audioBlob.type || "audio/webm" },
-        body: audioBlob,
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      return res.json();
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new Error("Transcription timed out (5 min)");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
-  },
-  sttUpdateConfig: (languages: string[]) =>
-    put<{ status: string; languages: string[] }>("/api/stt/config", { languages }),
+  ...createSttApi({ get, post, put, authFetch }),
+  ...createTodoCaptureApi({ get, post }),
   getSessionQueue: (id: string) => get<QueueItem[]>(`/api/sessions/${id}/queue`),
   cancelQueueItem: (sessionId: string, itemId: string) => del<{ status: string }>(`/api/sessions/${sessionId}/queue/${itemId}`),
   editQueueItem: (sessionId: string, itemId: string, prompt: string) => patch<{ status: string; item: QueueItem }>(`/api/sessions/${sessionId}/queue/${itemId}`, { prompt }),
@@ -910,15 +868,15 @@ export const api = {
     q?: string
     offset?: number
     limit?: number
-    /** Todos v2 slice 6 board scopes (server-side since slice 1/3). */
     createdBy?: string
     rootsOnly?: boolean
     label?: string
     kept?: boolean
+    home?: boolean
   }, signal?: AbortSignal) => {
     const q = new URLSearchParams()
     for (const key of TODO_LIST_PARAMS) if (params?.[key]) q.set(key, String(params[key]))
-    for (const flag of ["rootsOnly", "kept"] as const) if (params?.[flag]) q.set(flag, "true")
+    for (const flag of ["rootsOnly", "kept", "home"] as const) if (params?.[flag]) q.set(flag, "true")
     q.set("limit", String(params?.limit ?? 20))
     return get<WorkItemListWire>(`/api/work-items?${q.toString()}`, signal ? { signal } : undefined)
   },

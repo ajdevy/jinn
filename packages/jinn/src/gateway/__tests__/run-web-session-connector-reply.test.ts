@@ -68,6 +68,20 @@ describe("deliverConnectorReply", () => {
     expect(slack.replyMessage).not.toHaveBeenCalled();
   });
 
+  it("does not resend one autonomous notification when delivery is replayed", async () => {
+    const session = makeSession({ id: "message-replay", attemptToken: "attempt-1" });
+
+    await Promise.all([
+      deliverConnectorMessage(session, "background update", map),
+      deliverConnectorMessage(session, "background update", map),
+      deliverConnectorMessage(session, "background update", map),
+    ]);
+    __closeDbForTest();
+    await deliverConnectorMessage(session, "background update", map);
+
+    expect(slack.sendMessage).toHaveBeenCalledOnce();
+  });
+
   it("does not deliver for source 'web'", async () => {
     await deliverConnectorReply(makeSession({ source: "web" }), "hi", map);
     expect(slack.replyMessage).not.toHaveBeenCalled();

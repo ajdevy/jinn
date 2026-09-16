@@ -6,10 +6,12 @@
  * reproduces the production shape — including the fresh arrow the list's quick-
  * add prop really is — and counts how many row bodies React executes.
  *
- * The counters are functions each body calls exactly once and nothing else on
- * the surface calls: `formatRelativeTime` for a list row, and
- * `publicWorkItemReference` for a board card. Both come from another module, so
- * a counting passthrough gives an exact body count.
+ * The counters are things each body reaches for exactly once and nothing else on
+ * the surface reaches for: `formatRelativeTime` for a list row, and the 16px
+ * status `StateCircle` for a board card. The board page mounts the list at every
+ * width, so the board counter has to be something no list row can touch — see
+ * the discriminator on the mock below. Both come from another module, so a
+ * counting passthrough gives an exact body count.
  */
 import { useRef, useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -39,13 +41,18 @@ vi.mock("../util", async (importOriginal) => {
   }
 })
 
-vi.mock("@/lib/todos", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/todos")>()
+vi.mock("../state-glyph", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../state-glyph")>()
+  const Actual = actual.StateCircle
   return {
     ...actual,
-    publicWorkItemReference: (ref: string | null) => {
-      counters.boardCards += 1
-      return actual.publicWorkItemReference(ref)
+    StateCircle: (props: React.ComponentProps<typeof Actual>) => {
+      // A board card's disc: 16px and a real status. Columns and the closed
+      // rail draw 20px, the list group's own 16px disc carries the synthetic
+      // `approval` key that `stateKeyOf` never returns, and the list row draws
+      // a `StatusCircle`, whose inner disc is a self-reference this cannot see.
+      if (props.size === 16 && props.keyOf !== "approval") counters.boardCards += 1
+      return <Actual {...props} />
     },
   }
 })
@@ -233,6 +240,9 @@ describe("Todo surface render cost", () => {
     await screen.findByTestId("board-card-PLA-0")
     const cards = document.querySelectorAll("[data-board-card]").length
     expect(cards).toBe(BOARD_COUNT)
+    // A counter the card body stopped calling would make the assertion below
+    // pass forever without measuring anything, so prove it counts first.
+    expect(counters.boardCards).toBeGreaterThanOrEqual(BOARD_COUNT)
 
     counters.boardCards = 0
     // Opening the new-Todo dialog is page state that touches no card's data.

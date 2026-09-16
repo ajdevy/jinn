@@ -37,7 +37,6 @@ vi.mock('@/components/talk/orb-canvas', () => ({
 }))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
-vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock('@/routes/providers', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }))
 vi.mock('@/routes/settings-provider', () => ({
   useSettings: () => ({
@@ -74,8 +73,9 @@ function renderSettings() {
   )
 }
 
+/** There is no Save button: an edit is what asks for a write. */
 function save() {
-  fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Interrupt on new message' }))
 }
 
 beforeEach(() => {

@@ -38,6 +38,21 @@ export function isTransportFailure(message: string): boolean {
 }
 
 /**
+ * Whether an engine diagnostic names a fault in OUR configuration rather than a
+ * verdict on the work.
+ *
+ * An engine that refuses a model id never ran the turn, so there is no decision to
+ * honour and nothing was paid for — and the id it refused came from config or from
+ * discovery, both of which an operator can fix without the run dying on top of work
+ * already committed. The retry is not the same request either: `resolveSubstituteModel`
+ * drops a pin it cannot vouch for, so the next attempt goes out on the substitute's
+ * own default rather than repeating the argv that was just refused.
+ */
+export function isConfigFaultFailure(message: string): boolean {
+  return hasEngineFailureClass(classifyEngineFailureText(message), "invalid-model");
+}
+
+/**
  * Why another engine could serve the turn this one refused, phrased for the run
  * detail — or `undefined` when swapping engines would change nothing.
  *
@@ -61,14 +76,15 @@ export function availabilityReason(message: string): string | undefined {
 /**
  * Wrap a failure whose only account of itself is its message: an engine turn that
  * reported an error, or a run-level fault (an unavailable employee, control flow
- * that did not settle). Retryable only when the message names a transport fault.
+ * that did not settle). Retryable when the message names a transport fault or a
+ * model id we got wrong; anything else is read as a verdict.
  */
 export function workflowError(error: unknown, nodeId: string, attempt?: number): WorkflowError {
   const value = error instanceof Error ? error : new Error(String(error));
   return {
     code: "workflow-step-failed",
     message: value.message,
-    retryable: isTransportFailure(value.message),
+    retryable: isTransportFailure(value.message) || isConfigFaultFailure(value.message),
     nodeId,
     ...(attempt ? { attempt } : {}),
   };

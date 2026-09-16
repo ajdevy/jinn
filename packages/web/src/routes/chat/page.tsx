@@ -119,7 +119,7 @@ function ChatPage() {
   const sessionsQuery = useSessions()
   // Which pane the route shows, when it may show it, and the optimistic bubble handed to the session the pane creates.
   const { paneKey, committedId, awaitingOpen, pendingMessage, paneSlotRef, revealSelection, adoptSession, startComposer } = usePaneIdentity(selectedId, pendingEmployee, { newChatIntent: newChatIntentRef.current, sessionsPending: sessionsQuery.isPending, sessionCount: sessionsQuery.data?.length ?? 0 })
-  const { workingSet, gridPicker, gridState } = useChatGridWorkspace(committedId, sessionsQuery.data, systemPrimedId)
+  const { workingSet, gridPicker, gridState, releaseMobilePicker } = useChatGridWorkspace(committedId, sessionsQuery.data, systemPrimedId)
   const removeWorkingSetPane = workingSet.remove
   const { viewport, focusedSessionId, mountedSessionIds, mobileSessionIds } = gridState
   const paneState = useChatPaneState(committedId, focusedSessionId)
@@ -138,7 +138,7 @@ function ChatPage() {
     })
   }, [])
   // Mobile: pop from the thread back to the chat list (the tab bar's Chat screen).
-  const backToList = useCallback(() => setMobileView('sidebar'), [])
+  const backToList = useCallback(() => { releaseMobilePicker(); setMobileView('sidebar') }, [releaseMobilePicker])
   const [threadPreview, setThreadPreview] = useState<CommsPeekData | null>(() => parseHistoryPreview(location.state))
   const previewHandoffTargetRef = useRef<string | null>(null)
   const previewAbortRef = useRef<AbortController | null>(null)
@@ -225,25 +225,25 @@ function ChatPage() {
         case 'session:completed':
         case 'session:stopped':
           updateTabStatus(sid, { status: 'idle' })
-          invalidateLiveSessionSnapshot(sid)
           break
         case 'session:deleted':
           closeTabBySessionId(sid)
-          invalidateLiveSessionSnapshot(sid)
           break
         case 'session:updated':
           // Gateway currently emits {sessionId} only — handle title defensively
           // in case future emitters carry it. Stale labels after rename are
           // also reconciled via the useSessions() effect below.
           if (p.title) updateTabStatus(sid, { label: p.title })
-          invalidateLiveSessionSnapshot(sid)
           break
+        default:
+          return
       }
-      // The invalidations above keep the resting-snapshot revisit path honest:
-      // a session that changed while no pane for it was mounted takes a cold
-      // fetch on the next visit instead of trusting its stale snapshot. The
-      // MOUNTED pane is unaffected — it heard the same event and rewrites its
-      // snapshot on the next state change.
+      // Every event above changed the session, so its snapshot is dropped: one
+      // that changed while no pane for it was mounted — a child that STARTED
+      // while its peek was closed included — takes a cold fetch on the next
+      // visit instead of trusting a stale snapshot. The MOUNTED pane is
+      // unaffected: it heard the same event and rewrites its own snapshot.
+      invalidateLiveSessionSnapshot(sid)
     })
     return unsub
   }, [subscribe, updateTabStatus, closeTabBySessionId])
@@ -278,7 +278,7 @@ function ChatPage() {
       const currentId = selectedIdRef.current
       const currentScroller = document.querySelector<HTMLElement>('.chat-messages-scroll') // display-toggled away on a phone, where it reports scrollTop 0
       if (currentId && currentScroller?.clientHeight) sessionScrollRef.current.set(currentId, currentScroller.scrollTop)
-      newChatIntentRef.current = false; setSystemPrimedId(opts?.system ? id : null)
+      newChatIntentRef.current = false; setSystemPrimedId(opts?.system ? id : null); releaseMobilePicker()
       // On mobile, opening a session pushes from the list into the thread, and the
       // pane arrives with it (see revealSelection). The one exception is the
       // background auto-select of the most-recent session (handleSessionsLoaded):
@@ -299,7 +299,7 @@ function ChatPage() {
         })
       }
     },
-    [chatTabs, navigate, revealSelection]
+    [chatTabs, navigate, releaseMobilePicker, revealSelection]
   )
 
   const handleFocusPane = useCallback((sessionId: string) => {
@@ -364,7 +364,7 @@ function ChatPage() {
   }, [paneState.bumpFocus, selectedId])
 
   const handleNewChat = useCallback(() => {
-    newChatIntentRef.current = true
+    newChatIntentRef.current = true; releaseMobilePicker()
     startComposer()
     setPendingEmployee(null)
     setMobileView('chat')
@@ -376,13 +376,13 @@ function ChatPage() {
       pendingNavRef.current = null
       navigate('/')
     }
-  }, [chatTabs, navigate, startComposer])
+  }, [chatTabs, navigate, releaseMobilePicker, startComposer])
 
   // Start a new chat with a specific employee preselected — used when contacting
   // a session-less employee from the sidebar roster or via an ?employee= deep-link.
   // The actual session is created on first send (ChatPane → buildNewSessionParams).
   const contactEmployee = useCallback((name: string) => {
-    newChatIntentRef.current = true
+    newChatIntentRef.current = true; releaseMobilePicker()
     startComposer()
     setPendingEmployee(name)
     setMobileView('chat')
@@ -393,7 +393,7 @@ function ChatPage() {
       pendingNavRef.current = null
       navigate('/')
     }
-  }, [chatTabs, navigate, startComposer])
+  }, [chatTabs, navigate, releaseMobilePicker, startComposer])
 
   // ?employee=<name> deep-link: an INTENT (compose to that employee), not a
   // location — consumed once so it doesn't re-fire or stick. ?session= is NOT
@@ -814,7 +814,7 @@ function ChatPage() {
             escape over the thread, while the list itself reflows at a fixed
             width and never changes its internal measure during the fold.
             The sibling thread therefore owns the remaining width throughout. */}
-        <div className="group/sidebar hidden h-full shrink-0 lg:flex">
+        {!viewport.mobile && <div className="group/sidebar hidden h-full shrink-0 lg:flex">
           <NavRibbon listOpen={listOpen} onToggleList={toggleList} />
           {/* Fold the list by animating its width; the inner column keeps a fixed
               280px so its contents don't reflow mid-fold. */}
@@ -841,7 +841,7 @@ function ChatPage() {
               />
             </div>
           </div>
-        </div>
+        </div>}
 
         <div className="chat-pills-layout relative min-w-0 flex-1 flex-col overflow-hidden bg-background flex">
           {/* Single-pane content scrolls beneath the theme-aware header cloud. */}
@@ -867,7 +867,7 @@ function ChatPage() {
             hideDesktop={desktopMultiPane}
           />
 
-          <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
+          {viewport.mobile && <div className={mobileView === 'sidebar' ? 'flex-1 overflow-hidden lg:hidden' : 'hidden'}>
             {/* Mobile: the chat list is the full-width body; the bottom tab bar
                 (rendered below) is the persistent nav. */}
             <ChatSidebar
@@ -884,7 +884,7 @@ function ChatPage() {
               onOrderComputed={handleOrderComputed}
               onContactEmployee={contactEmployee}
             />
-          </div>
+          </div>}
 
           <div
             ref={paneSlotRef}

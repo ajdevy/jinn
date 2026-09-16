@@ -9,7 +9,9 @@ import { lazyRoute } from './lib/lazy-route'
 import { registerRoutePrefetch } from './lib/route-prefetch'
 import { startKeyboardInset } from './platform'
 import { RouteLoading } from './components/route-loading'
+import { RouteFailure } from './components/route-failure'
 import { TodosIndexRedirect, todosIndexLoader } from './routes/todos/board/todos-index-redirect'
+import { LegacyChatRedirect } from './routes/chat/legacy-chat-redirect'
 import { useFeatures } from './hooks/use-features'
 import { APP_ROUTES, type AppRouteId } from './lib/app-routes'
 import type { NativeGatewayProfiles, NativeGatewayProfilesSnapshot } from './lib/native-gateway-profiles'
@@ -56,13 +58,6 @@ registerRoutePrefetch('/skills', SkillsPage.prefetch)
 registerRoutePrefetch('/more', MorePage.prefetch)
 registerRoutePrefetch('/workflow', WorkflowListPage.prefetch)
 
-if (typeof window !== 'undefined') {
-  const scheduleIdle = window.requestIdleCallback
-    ? (callback: () => void) => window.requestIdleCallback(callback)
-    : (callback: () => void) => window.setTimeout(callback, 0)
-  scheduleIdle(() => void ChatPage.prefetch())
-  scheduleIdle(() => void TodoBoardPage.prefetch())
-}
 
 function NotesFeatureRoute() {
   const { data: features, isPending } = useFeatures()
@@ -83,17 +78,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 
   override render() {
     if (!this.state.error) return this.props.children
-    return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-        <div className="text-subheadline font-medium text-foreground">Web UI needs a refresh</div>
-        <button
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-subheadline font-medium text-white active:scale-[0.96] transition-transform"
-          onClick={() => window.location.reload()}
-        >
-          Refresh
-        </button>
-      </div>
-    )
+    return <RouteFailure />
   }
 }
 
@@ -118,7 +103,7 @@ const routeElements: Partial<Record<AppRouteId, ReactNode>> = {
   // the reader sees one loading state instead of "loading page" and then, a beat
   // later, "loading chat".
   chat: <Suspense fallback={<RouteLoading label="Loading chat" />}><ChatPage /></Suspense>,
-  "chat-redirect": <Navigate to="/" replace />,
+  "chat-redirect": <LegacyChatRedirect />,
   "cron-list": <CronPage />,
   "cron-detail": <CronDetailPage />,
   // Todos v2 slice 6 (stage-C cutover): the board IS /todos and
@@ -172,6 +157,7 @@ const appRoutes: RouteObject[] = APP_ROUTES.flatMap((route) => {
 const router = createBrowserRouter([
   {
     element: <AppShell />,
+    errorElement: <RouteFailure />,
     children: [
       ...appRoutes,
       // A plugin's page, last and on the splat so the app's own routes are

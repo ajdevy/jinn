@@ -85,7 +85,7 @@ describe("Workflow v2 canonical API", () => {
       runId: "run_11111111-1111-4111-8111-111111111111", nodeId: "write", attempt: 1 });
     expect(service.decideApproval).toHaveBeenCalledWith({ workflowId: "release-flow",
       runId: "run_11111111-1111-4111-8111-111111111111", nodeId: "review", decision: "approve",
-      reason: "Reviewed", expectedRevision: 4, decidedBy: "operator" });
+      reason: "Reviewed", expectedRevision: 4, decidedBy: "operator", decidedByAuthority: "operator" });
     expect(service.retryNode).toHaveBeenCalledWith({ workflowId: "release-flow",
       runId: "run_11111111-1111-4111-8111-111111111111", nodeId: "write", idempotencyKey: "retry-1" });
   });

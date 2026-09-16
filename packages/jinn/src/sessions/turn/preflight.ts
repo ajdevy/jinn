@@ -8,6 +8,7 @@ import type { ResolvedMcpConfig, Session } from "../../shared/types.js";
 import { buildContext, buildPlatformContextSnapshot, runtimeSessionSource, type BuildContextOptions } from "../context.js";
 import { resolveEngineRunMcp } from "../engine-run-mcp.js";
 import { getEngineSessionRef, getMessages } from "../registry.js";
+import { readUnseenInterruptedPrompts } from "./superseded.js";
 import { formatResumeTime } from "./text.js";
 import type { TurnHierarchy, TurnInput, TurnPlan, TurnPreflight, TurnSurface } from "./types.js";
 
@@ -122,7 +123,6 @@ export function preflightTurn(input: TurnInput): TurnPreflight {
   const runtimeSource = runtimeSessionSource(session.source);
 
   const baseContextOptions = contextOptionsFor(input, effortLevel, resolvedMcp, runtimeSource);
-  const { promptToRun, syncRequested } = resolveSyncPrompt(session, engineName, input.prompt);
 
   return {
     ok: true,
@@ -136,8 +136,7 @@ export function preflightTurn(input: TurnInput): TurnPreflight {
     mcpConfigPath,
     resolvedMcp,
     runtimeSource,
-    promptToRun,
-    syncRequested,
+    ...resolveTurnPrompt(session, engineName, input.prompt),
     prepareContext: (modelForAttempt) => {
       const contextOptions: BuildContextOptions = { ...baseContextOptions, model: modelForAttempt };
       const snapshot = buildPlatformContextSnapshot(contextOptions);
@@ -148,6 +147,40 @@ export function preflightTurn(input: TurnInput): TurnPreflight {
       return { fingerprint, refresh, systemPrompt: buildContext(contextOptions) };
     },
   };
+}
+
+/**
+ * The prompt this turn actually sends, once the two things a turn may owe the
+ * engine are folded in: a transcript of what it missed on another engine, and
+ * any message an interrupt kept from it. A sync transcript is rebuilt from the
+ * message log, which already holds the interrupted messages, so it delivers
+ * them on its own and the prefix would only repeat them.
+ */
+function resolveTurnPrompt(
+  session: Session,
+  engineName: string,
+  prompt: string,
+): Pick<TurnPlan, "promptToRun" | "syncRequested" | "carriedInterruptedPrompts"> {
+  const { promptToRun, syncRequested } = resolveSyncPrompt(session, engineName, prompt);
+  const unseen = readUnseenInterruptedPrompts(session);
+  return {
+    promptToRun: syncRequested ? promptToRun : withInterruptedPrompts(promptToRun, unseen),
+    syncRequested,
+    carriedInterruptedPrompts: unseen.length > 0,
+  };
+}
+
+/**
+ * A newer message can cut a turn off before the engine ever read its prompt, so
+ * that prompt is missing from the engine's transcript and only this turn can put
+ * it back. It leads, oldest first, with the current message last.
+ */
+function withInterruptedPrompts(prompt: string, unseen: string[]): string {
+  if (unseen.length === 0) return prompt;
+  const intro = `You were interrupted before reading ${unseen.length === 1 ? "this message" : "these messages"}, so respond to ${unseen.length === 1 ? "it" : "them"} too, not only to the current one.`;
+  const earlier = unseen.map((text) => `EARLIER MESSAGE:\n${text}`).join("\n\n");
+  const current = prompt.trim() ? `CURRENT MESSAGE:\n${prompt}` : "";
+  return [intro, earlier, current].filter(Boolean).join("\n\n");
 }
 
 /** The instant a pending engine-switch transcript should start from, if any. */

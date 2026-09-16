@@ -110,8 +110,8 @@ describe("one completion path records accounting (drift guard)", () => {
     expect((completion.match(/recordTurnAccounting\(/g) ?? []).length).toBe(1);
   });
 
-  it("neither runner writes its own terminal receipt", () => {
-    for (const rel of ["gateway/api.ts", "sessions/manager.ts"]) {
+  it("no runner and no reconciler writes its own terminal receipt", () => {
+    for (const rel of ["gateway/api.ts", "sessions/manager.ts", "gateway/status-reconciler.ts"]) {
       const source = read(rel);
       expect(source).not.toMatch(/recordTurnAccounting\(/);
       expect(source).not.toMatch(/completeSessionAttempt\(/);

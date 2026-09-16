@@ -51,6 +51,10 @@ export interface GatewayEventMap {
     id: string
     action: "created" | "updated" | "reading-recorded" | "concluded"
   }
+  /** A quick capture moved. The payload is a nudge, not the truth: the browser
+   *  re-reads GET /api/todo-captures/:id, which DERIVES the stage from real
+   *  state, so a reload recovers and no stage can be shown before its fact. */
+  "todo-capture:stage": { captureId: string; stage: string; workItemId: string | null }
   "org:changed": Record<string, never>
   "config:reloaded": Record<string, never>
   "skills:changed": Record<string, never>
@@ -97,6 +101,7 @@ export const GATEWAY_EVENTS = {
   pinsChanged: "pins:changed",
   notesChanged: "notes:changed",
   experimentsChanged: "experiments:changed",
+  todoCaptureStage: "todo-capture:stage",
   orgChanged: "org:changed",
   configReloaded: "config:reloaded",
   skillsChanged: "skills:changed",

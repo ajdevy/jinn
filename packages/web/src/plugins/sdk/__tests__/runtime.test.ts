@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { installPluginSdk, sdkImportMap, shimSource } from '../runtime'
 
@@ -48,6 +49,12 @@ describe('sdkImportMap before installPluginSdk', () => {
 })
 
 describe('installPluginSdk', () => {
+  it('names the @jinn/plugin-sdk alias dynamically so a broken mapping fails this build', () => {
+    const source = readFileSync('src/plugins/sdk/runtime.ts', 'utf8')
+    expect(source).toMatch(/import\(['"]@jinn\/plugin-sdk['"]\)/)
+    expect(source).not.toMatch(/\bimport\s+['"]@jinn\/plugin-sdk['"]/)
+  })
+
   it('puts the app’s own SDK and React on the globals the shims read', async () => {
     await installPluginSdk()
 

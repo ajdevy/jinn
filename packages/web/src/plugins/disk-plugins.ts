@@ -3,21 +3,27 @@
  *
  * The gateway does the discovery — it lists every directory it found and serves
  * the client half of the ones the operator enabled — so this side is a
- * reconciliation, not a second scanner. One pass reads the inventory, unloads
- * what is no longer served, records what is served by nobody, and loads the
- * rest. `.plans/plugins.md` §7 enumerates the hazards each branch below exists
- * for; every one of them has bitten somebody.
+ * reconciliation, not a second scanner. One pass reads what is served, unloads
+ * what is no longer served, and loads the rest. `.plans/plugins.md` §7
+ * enumerates the hazards each branch below exists for; every one of them has
+ * bitten somebody.
+ *
+ * Enablement is not decided here or held here. `config.yaml` decides it, and
+ * the served list is that decision arriving.
  */
 import { authFetch } from '@/lib/auth'
-import { plugins, type PluginRecord } from '@/contrib/plugins-store'
 import { loadRuntimePlugin, unloadRuntimePlugin } from './runtime-loader'
 
+/** One row of `GET /api/plugins`. This side needs only the id; the rest of the
+ *  row is what `/settings/plugins` renders. */
+interface PluginRow {
+  id: string
+}
+
 /** `GET /api/plugins`. `plugins` is the enabled subset whose client half the
- *  gateway will serve; `inventory` is every directory it found, disabled and
- *  broken ones included. */
+ *  gateway will serve. */
 interface PluginsResponse {
-  plugins: PluginRecord[]
-  inventory: PluginRecord[]
+  plugins: PluginRow[]
 }
 
 /**
@@ -55,15 +61,10 @@ function markSettled(): void {
   for (const listener of [...settledListeners]) listener()
 }
 
-/** Take one directory's plugin down: its registrations, its own inventory row,
- *  and the folder-named row a failed load leaves behind. */
+/** Take one directory's plugin down. */
 function unload(gatewayId: string): void {
   const id = door.get(gatewayId)
-  if (id) {
-    unloadRuntimePlugin(id)
-    plugins.dropPlugin(id)
-  }
-  plugins.dropPlugin(gatewayId)
+  if (id) unloadRuntimePlugin(id)
   door.delete(gatewayId)
 }
 
@@ -75,14 +76,14 @@ type ClientFetch =
   | { ok: false; kind: 'error'; message: string }
 
 /** The reason a 422 carries — file, line and message, as the gateway's transform
- *  reported them. */
+ *  reported it. */
 async function refusalReason(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown }
     if (typeof body.error === 'string' && body.error) return body.error
   } catch {
     // A refusal whose body will not parse is still a refusal. The status is the
-    // fact the row needs; falling back keeps it from reading as a success.
+    // fact that matters; falling back keeps it from reading as a success.
   }
   return 'the gateway could not compile this plugin’s client half'
 }
@@ -97,23 +98,23 @@ async function fetchClient(id: string): Promise<ClientFetch> {
   return { ok: false, kind: 'error', message: await refusalReason(response) }
 }
 
-/** What a refusal leaves behind in the dashboard. The two are not the same
- *  absence: one plugin stopped being installed, the other is installed and will
- *  not compile, and a plugin that vanished when it broke is one nobody can fix. */
-function recordRefusal(row: PluginRecord, refusal: Extract<ClientFetch, { ok: false }>): void {
+/** What a refusal means for what is loaded. The two are not the same absence:
+ *  one plugin stopped being installed, the other is installed and will not
+ *  compile, and unloading the broken one would take a working page down too. */
+function handleRefusal(id: string, refusal: Extract<ClientFetch, { ok: false }>): void {
   if (refusal.kind === 'gone') {
     // Gone between the listing and the fetch. That is an unload, not a load
     // error: a plugin that is no longer there did not fail at anything.
-    unload(row.id)
+    unload(id)
     return
   }
-  // Broken, and still installed. It keeps its row — carrying the file and line
-  // its author has to fix — and whatever version is already running keeps
-  // running, because unloading it would take the working page down too.
-  plugins.publishPlugin({ ...row, status: 'error', error: refusal.message })
+  // Broken, and still installed. Whatever version is already running keeps
+  // running; the file and line its author has to fix reach the operator through
+  // the gateway's own inventory row on `/settings/plugins`.
+  console.warn(`[plugins] ${id} is installed and will not compile: ${refusal.message}`)
 }
 
-async function loadFromGateway(row: PluginRecord): Promise<void> {
+async function loadFromGateway(row: PluginRow): Promise<void> {
   let client: ClientFetch
   try {
     client = await fetchClient(row.id)
@@ -125,50 +126,21 @@ async function loadFromGateway(row: PluginRecord): Promise<void> {
   }
 
   if (!client.ok) {
-    recordRefusal(row, client)
+    handleRefusal(row.id, client)
     return
   }
 
-  const source = client.source
   const previous = door.get(row.id) ?? null
-  const id = await loadRuntimePlugin(source, row.id, row.kind)
+  const id = await loadRuntimePlugin(client.source, row.id)
 
   // A hot edit that changed `plugin.id`. The loader only ever sees the id it
-  // just read, so the previous incarnation's contributions and inventory row
-  // are this function's to take down.
-  if (id && previous && previous !== id) {
-    unloadRuntimePlugin(previous)
-    plugins.dropPlugin(previous)
-  }
-
-  // Loaded under an id that is not the folder name: an earlier failed load
-  // recorded itself under the folder, and that row would sit beside the real
-  // one as a ghost.
-  if (id && id !== row.id) plugins.dropPlugin(row.id)
+  // just read, so the previous incarnation's contributions are this function's
+  // to take down.
+  if (id && previous && previous !== id) unloadRuntimePlugin(previous)
 
   // A failed load keeps tracking the previous id, so the save that fixes it can
   // still dispose what is live.
   door.set(row.id, id ?? previous)
-}
-
-/**
- * Point the dashboard's own store at the operator's decision.
- *
- * The gateway's servable list IS that decision, as `config.yaml` records it, and
- * `config.yaml` is the only place it is made. Following it here keeps the store
- * a CACHE of the decision rather than a second one nothing ever writes: without
- * this, a plugin the operator enabled was fetched, evaluated and published, and
- * then never registered, because the store held no opt-in for it and absence is
- * not enabled.
- */
-async function followOperatorDecision(
-  inventory: readonly PluginRecord[],
-  servableIds: ReadonlySet<string>,
-): Promise<void> {
-  for (const row of inventory) {
-    const enabled = servableIds.has(row.id)
-    if (plugins.pluginActive(row.id) !== enabled) await plugins.setPluginEnabled(row.id, enabled)
-  }
 }
 
 /**
@@ -185,31 +157,20 @@ export async function scanDiskPlugins(): Promise<void> {
   try {
     const response = await authFetch('/api/plugins')
     if (!response.ok) throw new Error(`the gateway answered ${response.status}`)
-    const { plugins: servable, inventory } = (await response.json()) as PluginsResponse
+    const { plugins: servable } = (await response.json()) as PluginsResponse
     const servableIds = new Set(servable.map((row) => row.id))
 
-    // Before the loads below, so the loader sees the decision when it decides
-    // whether to register.
-    await followOperatorDecision(inventory, servableIds)
-
     // Deleted, or disabled while it was running. Either way it stops being
-    // registered before the inventory below says what it is now.
+    // registered before the loads below.
     for (const gatewayId of [...door.keys()]) {
       if (!servableIds.has(gatewayId)) unload(gatewayId)
-    }
-
-    // Everything the gateway knows about but will not serve still inventories:
-    // disabled and broken are states, not absences, and a plugin that vanished
-    // from the list when it broke would be one nobody could fix.
-    for (const row of inventory) {
-      if (!servableIds.has(row.id)) plugins.publishPlugin(row)
     }
 
     for (const row of servable) await loadFromGateway(row)
   } catch (error) {
     // No gateway, no plugins directory, or an answer we cannot read. Absent is
     // zero plugins; it leaves what is already loaded alone.
-    console.warn('[plugins] could not read the plugin inventory', error)
+    console.warn('[plugins] could not read the plugin list', error)
   } finally {
     scanning = false
     markSettled()

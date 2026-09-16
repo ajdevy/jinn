@@ -1,14 +1,14 @@
 import type { WorkItemRunHandoffWire, WorkItemRunOutcomeWire, WorkItemRunWire } from "@/lib/api"
 import { formatRelativeTime } from "../util"
 
-/* ICI-728 — the run ledger section: one quiet row per attempt, oldest first,
- * the order the gateway serves them and the order a reviewer reads them in.
- * Nothing here is editable — a run is a record of what happened, not a
- * property. An OPEN attempt reads as in-flight in the StateLine grammar (the
- * pulsing blue dot, "Running", no outcome word) because it has not reported an
- * outcome and the section must not invent one. The handoff below a row is the
- * evidence a reviewer reads; it shows the fields the attempt actually filled
- * in and stays silent about the rest. */
+/* ICI-728, ICI-1440 — an attempt read back as lines in the one Activity
+ * stream: where it started, and where it settled carrying its outcome and the
+ * handoff a reviewer reads. It borrows the whisper's line grammar so an
+ * attempt sorts in beside the audit events instead of arriving as a table of
+ * its own. An OPEN attempt has only the start line and reads as in-flight (the
+ * pulsing blue dot, "Running", no outcome word) because it has reported no
+ * outcome and the stream must not invent one. Nothing here is editable — a run
+ * is a record of what happened, not a property. */
 
 const OUTCOME_LABEL: Record<WorkItemRunOutcomeWire, string> = {
   completed: "Completed",
@@ -37,55 +37,74 @@ const NOTE_FIELDS: Array<{ key: "verification" | "retryNotes" | "residualRisk"; 
   { key: "residualRisk", label: "Residual risk" },
 ]
 
-export function RunsSection({ runs }: { runs: WorkItemRunWire[] }) {
+export function RunStartLine({ run }: { run: WorkItemRunWire }) {
+  const inFlight = run.outcome === null
   return (
-    <section data-testid="task-runs">
-      <div
-        className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[.15em] text-[var(--text-secondary)]"
-        style={{ fontFamily: "var(--font-code)" }}
-      >
-        Runs
-      </div>
-      {runs.length === 0 ? (
-        <p data-testid="runs-empty" className="flex min-h-9 items-center text-[13.5px] text-[var(--text-quaternary)]">
-          No attempts yet.
-        </p>
-      ) : (
-        runs.map((run) => <RunRow key={run.id} run={run} />)
-      )}
-    </section>
+    <RunLine
+      testId={`run-start-${run.id}`}
+      at={run.startedAt}
+      disc={
+        inFlight ? (
+          <span className="size-1.5 rounded-full bg-[var(--system-blue)] animate-[jinn-pulse_1.4s_infinite] motion-reduce:animate-none" />
+        ) : (
+          <span className="size-1.5 rounded-full bg-[var(--fill-primary)]" />
+        )
+      }
+    >
+      <span className={`font-semibold ${inFlight ? "text-[var(--system-blue)]" : "text-[var(--text-secondary)]"}`}>
+        {inFlight ? "Running" : "Run started"}
+      </span>
+      {inFlight && run.summary ? ` ${run.summary}` : null}
+    </RunLine>
   )
 }
 
-function RunRow({ run }: { run: WorkItemRunWire }) {
-  const outcome = run.outcome
-  // No hover fill: a run is a record, not a control, and lighting the row up
-  // would promise an action that isn't there.
+export function RunEndLine({
+  run,
+  outcome,
+  at,
+}: {
+  run: WorkItemRunWire
+  outcome: WorkItemRunOutcomeWire
+  /** The moment the attempt settled — the feed already resolved it, so the
+   *  line never has to fall back to a time that is not the one it shows. */
+  at: string
+}) {
   return (
-    <div data-testid={`run-row-${run.id}`} className="py-[7px]">
-      <div className="flex min-h-[22px] items-center text-[13.5px]">
-        <span className="grid w-4 flex-none place-items-center" aria-hidden>
-          {outcome === null ? (
-            <span className="size-1.5 rounded-full bg-[var(--system-blue)] animate-[jinn-pulse_1.4s_infinite] motion-reduce:animate-none" />
-          ) : (
-            <span className="size-1.5 rounded-full" style={{ background: OUTCOME_TINT[outcome] }} />
-          )}
-        </span>
-        <span
-          className={`flex-none pl-[14px] font-medium ${
-            outcome === null ? "text-[var(--system-blue)]" : "text-[var(--text-primary)]"
-          }`}
-        >
-          {outcome === null ? "Running" : OUTCOME_LABEL[outcome]}
-        </span>
-        {run.summary && (
-          <span className="min-w-0 truncate pl-2.5 text-[var(--text-secondary)]">{run.summary}</span>
-        )}
-        <span className="ml-auto flex-none pl-2.5 text-[12px] text-[var(--text-quaternary)]">
-          {formatRelativeTime(run.startedAt)}
-        </span>
-      </div>
+    <div>
+      <RunLine
+        testId={`run-end-${run.id}`}
+        at={at}
+        disc={<span className="size-1.5 rounded-full" style={{ background: OUTCOME_TINT[outcome] }} />}
+      >
+        <span className="font-semibold text-[var(--text-secondary)]">{OUTCOME_LABEL[outcome]}</span>
+        {run.summary ? ` ${run.summary}` : null}
+      </RunLine>
       <RunHandoff id={run.id} handoff={run.handoff} error={run.error} />
+    </div>
+  )
+}
+
+/** The shared line: icon gutter, one truncating sentence, trailing relative
+ *  time — the same anatomy WhisperLine uses, so the two interleave cleanly. */
+function RunLine({
+  testId,
+  at,
+  disc,
+  children,
+}: {
+  testId: string
+  at: string
+  disc: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2 py-[7px] text-[12.5px] text-[var(--text-tertiary)]" data-testid={testId}>
+      <span className="mr-1.5 grid w-4 flex-none place-items-center" aria-hidden>
+        {disc}
+      </span>
+      <span className="min-w-0 truncate">{children}</span>
+      <span className="flex-none text-[var(--text-quaternary)]">· {formatRelativeTime(at)}</span>
     </div>
   )
 }
@@ -103,7 +122,7 @@ function RunHandoff({
   const notes = NOTE_FIELDS.filter((field) => handoff[field.key])
   if (!error && files.length === 0 && notes.length === 0) return null
   return (
-    <dl data-testid={`run-handoff-${id}`} className="mt-1 pl-[30px] text-[12.5px] leading-[1.45]">
+    <dl data-testid={`run-handoff-${id}`} className="mb-1 pl-[30px] text-[12.5px] leading-[1.45]">
       {error && (
         <HandoffField label="Error">
           <span className="text-[var(--system-red)]">{error}</span>

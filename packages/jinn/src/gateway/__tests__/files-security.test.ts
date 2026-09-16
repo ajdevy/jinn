@@ -68,33 +68,4 @@ describe("file upload side effects", () => {
     expect(files.allowUploadedFileOpen({ getConfig: () => ({ gateway: {} }) } as any)).toBe(false);
     expect(files.allowUploadedFileOpen({ getConfig: () => ({ gateway: { allowFileOpen: true } }) } as any)).toBe(true);
   });
-
-  it("does not invent a custom remote filesystem path unless explicitly requested", () => {
-    expect(files.buildRemoteUploadBody("note.txt", Buffer.from("hello"), null)).toEqual({
-      filename: "note.txt",
-      content: Buffer.from("hello").toString("base64"),
-    });
-    expect(files.buildRemoteUploadBody("note.txt", Buffer.from("hello"), "~/inbox/note.txt")).toEqual({
-      filename: "note.txt",
-      content: Buffer.from("hello").toString("base64"),
-      path: "~/inbox/note.txt",
-    });
-  });
-
-  it("adds remote bearer auth only for configured remotes with a token", () => {
-    const config = {
-      remotes: {
-        prod: { url: "https://jinn.example.test/", token: "remote-token" },
-        demo: { url: "https://demo.example.test" },
-      },
-    };
-
-    expect(files.remoteUploadHeaders("https://jinn.example.test", config as any)).toEqual({
-      "Content-Type": "application/json",
-      authorization: "Bearer remote-token",
-    });
-    expect(files.remoteUploadHeaders("https://demo.example.test", config as any)).toEqual({
-      "Content-Type": "application/json",
-    });
-  });
 });

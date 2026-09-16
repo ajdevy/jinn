@@ -18,7 +18,6 @@ const fetchTalkCapability = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api', () => ({ api: apiMocks }))
 vi.mock('@/lib/talk-capability', () => ({ fetchTalkCapability }))
 vi.mock('@/components/page-layout', () => ({ PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
-vi.mock('@/context/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }))
 vi.mock('@/routes/providers', () => ({ useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }) }))
 vi.mock('@/routes/settings-provider', () => ({
   useSettings: () => ({
@@ -93,7 +92,6 @@ describe('Settings stale chat controls', () => {
     expect(idleMinutes.hasAttribute('disabled')).toBe(false)
     fireEvent.change(tokenThreshold, { target: { value: '450000' } })
     fireEvent.change(idleMinutes, { target: { value: '90' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
 
     await waitFor(() => expect(apiMocks.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       sessions: {

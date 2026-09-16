@@ -10,6 +10,7 @@ import {
 import { registerWorkItemIdentityFunctions } from "./id-allocator.js";
 import { WORK_ITEM_BLOCKS_DDL } from "./blocks.js";
 import { WORK_ITEM_STOP_CAUSE_DDL } from "./stop-cause.js";
+import { WORK_ITEM_RECOVERY_TABLES } from "./recovery.js";
 import { clearAutoKeptOnce, WORK_ITEM_KEPT_DDL } from "./kept.js";
 import { hasFiveOutcomeRunTable, widenRunOutcomes } from "./runs-migrate.js";
 import { WORK_ITEM_RUNS_DDL, WORK_ITEM_RUNS_TABLE_DDL, workItemRunRowsAreSound } from "./runs-schema.js";
@@ -478,7 +479,6 @@ export { allocateWorkItemId, allocateWorkItemIdV1ForTest, registerWorkItemIdenti
   useWorkItemAllocationClaim, type WorkItemAllocationClaim } from "./id-allocator.js";
 
 export type WorkItemSchemaPreflight = "absent" | "empty-prerelease" | "v1" | "current";
-
 const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_items", WORK_ITEMS_TABLE_DDL],
   ["work_item_events", WORK_ITEM_EVENTS_TABLE_DDL],
@@ -500,6 +500,7 @@ const REQUIRED_TABLE_SQL = new Map<string, string>([
   ["work_item_id_burns", WORK_ITEM_ID_BURNS_TABLE_DDL],
   ["work_item_id_issuances", WORK_ITEM_ID_ISSUANCES_TABLE_DDL],
   ["work_item_kept", WORK_ITEM_KEPT_DDL],
+  ...WORK_ITEM_RECOVERY_TABLES.map((table) => [table.name, table.ddl] as [string, string]),
   ["departments", DEPARTMENTS_TABLE_DDL],
 ]);
 
@@ -522,8 +523,7 @@ const V2_ADDITIVE_TABLES: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: "work_item_create_receipts", ddl: WORK_ITEM_CREATE_RECEIPTS_DDL },
   { name: "work_item_stop_cause", ddl: WORK_ITEM_STOP_CAUSE_DDL },
   { name: "work_item_kept", ddl: WORK_ITEM_KEPT_DDL },
-];
-
+].concat(WORK_ITEM_RECOVERY_TABLES);
 /**
  * Copy a shadow-column table's `approval_*` values into `work_item_approvals`,
  * one row per item carrying a state — a one-shot step inside each rebuild, and

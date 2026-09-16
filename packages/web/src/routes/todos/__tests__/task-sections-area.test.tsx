@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import type { WorkItemFullWire } from "@/lib/api"
+import type { WorkItemFullWire, WorkItemRunWire } from "@/lib/api"
 import { AREAS } from "@/contrib/types"
 import { contributeProbes, describeHostedArea } from "@/contrib/__tests__/hosted-area"
 import TaskPage from "../task-page/task-page"
@@ -76,9 +76,23 @@ const ITEM = {
   closedAt: null,
 } as unknown as WorkItemFullWire
 
+/** The contributed area is anchored after Runs, and a Todo nobody has attempted
+ *  renders no Runs section to sit after — so the fixture carries one attempt. */
+const RUN = {
+  id: "wir_000000000001",
+  workItemId: "PLA-12",
+  sessionId: "session-1",
+  startedAt: "2026-07-22T08:00:00.000Z",
+  endedAt: "2026-07-22T08:40:00.000Z",
+  outcome: "completed",
+  summary: null,
+  handoff: {},
+  error: null,
+} as unknown as WorkItemRunWire
+
 beforeEach(() => {
   vi.clearAllMocks()
-  getWorkItem.mockResolvedValue({ workItem: ITEM, spendUsd: 0, events: [], runs: [] })
+  getWorkItem.mockResolvedValue({ workItem: ITEM, spendUsd: 0, events: [], runs: [RUN] })
   getWorkItemTree.mockResolvedValue({ tree: { root: { ...ITEM, children: [] }, totals: {}, spendUsd: 0 } })
   getOrg.mockResolvedValue({
     departments: ["platform"],
@@ -108,7 +122,7 @@ describeHostedArea("the task page", {
   area: AREAS.todoDetailSections,
   variant: "pane",
   renderHost: renderTaskPage,
-  findHostContent: async () => screen.findByTestId("task-runs"),
+  findHostContent: async () => screen.findByTestId("task-subtasks"),
 })
 
 let dispose: (() => void) | null = null
@@ -118,16 +132,19 @@ afterEach(() => {
   dispose = null
 })
 
-it("puts a contributed section in the page body, after Runs and before Activity", async () => {
+it("puts a contributed section in the page body, after Sub-tasks and before Activity", async () => {
   dispose = contributeProbes(AREAS.todoDetailSections, [{ id: "widget" }])
 
   await renderTaskPage()
 
   const contributed = screen.getByTestId("probe-widget")
-  const runs = await screen.findByTestId("task-runs")
+  const subtasks = await screen.findByTestId("task-subtasks")
   const activity = await screen.findByTestId("task-activity")
 
-  expect(contributed.closest("main")).toBe(runs.closest("main"))
-  expect(runs.compareDocumentPosition(contributed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(contributed.closest("main")).toBe(subtasks.closest("main"))
+  expect(subtasks.compareDocumentPosition(contributed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(contributed.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  // Activity closes the document: nothing renders after it inside <main>.
+  expect(activity.parentElement?.tagName).toBe("MAIN")
+  expect(activity.nextElementSibling).toBeNull()
 })

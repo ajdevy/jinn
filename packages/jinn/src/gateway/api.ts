@@ -1,3 +1,4 @@
+export { resumePendingWebQueueItems } from "./callback-queue-recovery.js";
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -5,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { GatewayEmit } from "../shared/gateway-events.js";
-import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, IncomingMessage, JinnConfig, JsonObject, Session, Target } from "../shared/types.js";
+import type { ChatBlockEnvelope, DelegatedActivity, Employee, Engine, JinnConfig, JsonObject, Session } from "../shared/types.js";
 import { isInterruptibleEngine, reportsTurnProgress, STRUCTURED_MESSAGE_BODY_MAX_CHARS } from "../shared/types.js";
 import { resolveStaleChatPolicy } from "../shared/stale-chat.js";
 export { compactEmployeeRole } from "../shared/employee-role.js";
@@ -23,7 +24,6 @@ import { withEngineHealth } from "../shared/engine-health.js";
 import { validateNewSessionSelection, validateSessionPatch } from "../sessions/session-patch.js";
 import { buildDelegatedActivityIndex } from "../sessions/delegated-activity.js";
 import { maybeRevertEngineOverride, type SessionManager } from "../sessions/manager.js";
-import { runtimeSessionSource } from "../sessions/context.js";
 import { stripControlChars, hasControlBytes } from "../shared/sanitize.js";
 import { CONNECTOR_ID_REQUIREMENTS, isValidConnectorId } from "../shared/connector-id.js";
 import { initDb } from "../shared/db.js";
@@ -62,12 +62,10 @@ import {
   getMessages,
   getMessagePage,
   enqueueQueueItem,
-  cancelQueueItem,
   markRunningQueueItemsCompletedForSession,
-  getQueueItems,
-  listAllPendingQueueItems,
+  shouldHoldParentCompletionQueueDispatch,
+  listReleasableParentCompletionQueuesForSource,
   getSessionDelivery,
-  getSessionDeliveryByQueueItemId,
   listDeadLetterSessionDeliveries,
   requeueDeadLetterSessionDelivery,
   acceptSessionDelivery,
@@ -86,7 +84,7 @@ export {
 import { forkEngineSession } from "../sessions/fork.js";
 import { cleanUpDeletedSession } from "./session-cleanup.js";
 import { ptySnapshotStore } from "../engines/pty-snapshot.js";
-import { deepMerge, sanitizeConfigForApi } from "./config-payload.js";
+import { configDocumentForApi, deepMerge } from "./config-payload.js";
 export { isSensitiveConfigKey, sanitizeConfigForApi } from "./config-payload.js";
 import {
   CONFIG_CONFLICT_BODY,
@@ -101,7 +99,6 @@ import {
   TMP_DIR,
   FILES_DIR,
   STT_SETTINGS_FILE,
-  TEMPLATE_MIGRATIONS_DIR,
   resolveHomeIdentity,
 } from "../shared/paths.js";
 import { CONFIG_TOP_LEVEL_KEYS, saveConfigAtomic, gatewayEnvOverrides, validateConfigShape } from "../shared/config.js";
@@ -124,15 +121,14 @@ export {
   formatEngineErrorAssistantMessage,
   shouldPersistFinalAssistantMessage,
 } from "../sessions/turn/text.js";
-import { decideJinnAttachment } from "../mcp/attachment.js";
-import { getPendingInstanceMigration, reconcileServiceOwnedRemovals, type PendingInstanceMigration } from "../migrations/service.js";
-import { createMigrationSnapshot } from "../migrations/snapshot.js";
+import { preflightSystemEmployee } from "./system-employee-spawn.js";
 import { getPackageVersion } from "../shared/version.js";
 import { badRequest, json, matchRoute, notFound, serverError, type ResWithEncoding } from "./route-helpers.js";
 import { handleSessionQueueRoute } from "./queue-routes.js";
 export { matchRoute } from "./route-helpers.js";
 import { handleCronApi } from "./cron-api.js";
 import { handleOrgApi } from "./org-api.js";
+import { handleTodoCaptureApi } from "./todo-capture-api.js";
 import { handleSkillsApi } from "./skills-api.js";
 import { handleSearchApi } from "./search-api.js";
 import { pluginAdminAction } from "./plugins-admin-api.js";
@@ -240,8 +236,8 @@ import {
   escalateApproval,
   requestApproval,
 } from "../work-items/approvals.js";
-import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget } from "./approval-authority.js";
-import { approvalIsOperatorOnly } from "./workflow-todo-binding.js";
+import { resolveApprovalDecisionAuthority, resolveRootApprovalTarget, type ApprovalDecisionAuthorityOptions } from "./approval-authority.js";
+import { approvalGateClass } from "./workflow-todo-binding.js";
 import { orgRegistry } from "./org-registry.js";
 import { TODO_DISPATCHER_NAME } from "./system-employees.js";
 import { claimTodoForDelegation, claimTodoForDispatch } from "./todo-claim.js";
@@ -371,11 +367,6 @@ export interface ApiContext {
   restartGateway?: (options: RestartDetachedOptions) => void;
   /** Immutable port actually bound by this gateway process, unaffected by config hot reload. */
   runtimePort?: number;
-  /** Test/package-lab overrides for automatic instance migration discovery. */
-  migrationMigrationsDir?: string;
-  migrationPackageVersion?: string;
-  /** Test seam; production uses the normal web-session dispatch machinery. */
-  dispatchInstanceMigration?: (session: Session, prompt: string) => void;
   /** Test seams for the host-level workspace directory and creation service. */
   loadWorkspaceInstances?: () => Instance[];
   saveWorkspaceInstances?: (instances: InstanceInput[]) => void;
@@ -385,130 +376,6 @@ export interface ApiContext {
   startWorkspaceInstance?: (input: StartInstanceInput) => Promise<StartInstanceResult>;
   issueWorkspacePairingCode?: (home: string) => string;
   workflowService?: WorkflowService;
-}
-
-function pendingInstanceMigration(context: ApiContext): PendingInstanceMigration {
-  return getPendingInstanceMigration({
-    instanceHome: context.jinnHome ?? JINN_HOME,
-    packageVersion: context.migrationPackageVersion ?? getPackageVersion(),
-    migrationsDir: context.migrationMigrationsDir ?? TEMPLATE_MIGRATIONS_DIR,
-  });
-}
-
-const migrationOpenLocks = new Map<string, Promise<{ sessionId: string; migrationKey: string; reused: boolean }>>();
-
-function acceptedInstanceMigrationSession(
-  sessionKey: string,
-  prompt: string,
-): Session | undefined {
-  const session = getSessionBySessionKey(sessionKey);
-  if (!session) return undefined;
-  const hasAcceptedQueueIntent = getQueueItems(sessionKey).some((item) => (
-    item.sessionId === session.id && item.prompt === prompt
-  ));
-  return hasAcceptedQueueIntent || session.attemptOutcome === "succeeded" ? session : undefined;
-}
-
-function retireUnacceptedInstanceMigrationSession(sessionKey: string): void {
-  const session = getSessionBySessionKey(sessionKey);
-  if (!session) return;
-  updateSession(session.id, {
-    sessionKey: `retired:${sessionKey}:${session.id}`,
-    status: session.status === "error" ? "error" : "interrupted",
-    lastActivity: new Date().toISOString(),
-    lastError: session.lastError ?? "Migration handoff was not durably accepted; retired before retry.",
-  });
-}
-
-/** A snapshot failure caused by the platform refusing symlink creation. Windows
- *  needs SeCreateSymbolicLinkPrivilege (Developer Mode or elevation) and reports
- *  EPERM; the operator can fix it, but only if told which knob to turn. */
-export function isSymlinkPrivilegeError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = (error as NodeJS.ErrnoException).code;
-  const syscall = (error as NodeJS.ErrnoException).syscall;
-  if (syscall === "symlink" && (code === "EPERM" || code === "EACCES")) return true;
-  return /symlink/i.test(error.message) && /EPERM|EACCES|operation not permitted|denied/i.test(error.message);
-}
-
-async function openInstanceMigration(
-  pending: PendingInstanceMigration,
-  req: HttpRequest,
-  context: ApiContext,
-): Promise<{ sessionId: string; migrationKey: string; reused: boolean }> {
-  const migrationKey = pending.migrationKey!;
-  const sessionKey = `instance-migration:${migrationKey}`;
-  const inFlight = migrationOpenLocks.get(migrationKey);
-  if (inFlight) return { ...(await inFlight), reused: true };
-  const create = Promise.resolve().then(async () => {
-    const prompt = pending.prompt!;
-    const accepted = acceptedInstanceMigrationSession(sessionKey, prompt);
-    if (accepted) return { sessionId: accepted.id, migrationKey, reused: true };
-    retireUnacceptedInstanceMigrationSession(sessionKey);
-
-    const config = context.getConfig();
-    const selection = validateNewSessionSelection(config, {});
-    if (!selection.ok) throw new Error(selection.error || "invalid default engine selection");
-    const engineName = selection.engine || config.engines.default;
-    const engine = context.sessionManager.getEngine(engineName);
-    if (!engine) throw new Error(`Engine "${engineName}" not available`);
-
-    createMigrationSnapshot({
-      instanceHome: context.jinnHome ?? JINN_HOME,
-      migrationKey,
-      fromVersion: pending.fromVersion,
-      toVersion: pending.toVersion,
-      changedFiles: pending.changedFiles,
-      materialization: pending.materialization,
-    });
-    reconcileServiceOwnedRemovals({
-      instanceHome: context.jinnHome ?? JINN_HOME,
-      pending,
-    });
-    const afterSnapshot = acceptedInstanceMigrationSession(sessionKey, prompt);
-    if (afterSnapshot) return { sessionId: afterSnapshot.id, migrationKey, reused: true };
-    retireUnacceptedInstanceMigrationSession(sessionKey);
-    const session = createSession({
-      engine: engineName,
-      source: "web",
-      sourceRef: sessionKey,
-      connector: "web",
-      sessionKey,
-      replyContext: { source: "web" },
-      userId: resolveUserHeader(req.headers, config.gateway.userHeader),
-      employee: undefined,
-      effortLevel: selection.effortLevel,
-      model: selection.model,
-      prompt,
-      promptExcerpt: `Finish v${pending.toVersion} setup`,
-      portalName: config.portal?.portalName,
-    });
-    insertMessage(session.id, "user", prompt);
-    updateSession(session.id, { status: "running", lastActivity: new Date().toISOString() });
-    session.status = "running";
-    const queueKey = session.sessionKey || session.sourceRef || session.id;
-    const queueItemId = enqueueQueueItem(session.id, queueKey, prompt);
-    context.emit("queue:updated", { sessionId: session.id, sessionKey: queueKey });
-    try {
-      if (context.dispatchInstanceMigration) context.dispatchInstanceMigration(session, prompt);
-      else {
-      dispatchWebSessionRun(session, prompt, engine, context, { queueItemId });
-      }
-    } catch (error) {
-      cancelQueueItem(queueItemId);
-      updateSession(session.id, {
-        status: "error",
-        attemptOutcome: "failed",
-        lastActivity: new Date().toISOString(),
-        lastError: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-    return { sessionId: session.id, migrationKey, reused: false };
-  });
-  migrationOpenLocks.set(migrationKey, create);
-  try { return await create; }
-  finally { migrationOpenLocks.delete(migrationKey); }
 }
 
 function killSessionEngines(context: ApiContext, session: Session, reason: string): void {
@@ -547,50 +414,6 @@ function preserveLinkedAttempt(
     : session;
   if (session.workItemId) reconcileWorkItem(session.workItemId);
   return preserved;
-}
-
-export function resumePendingWebQueueItems(context: ApiContext): void {
-  const pending = listAllPendingQueueItems();
-  if (pending.length === 0) return;
-
-  let resumed = 0;
-  for (const item of pending) {
-    let session = getSession(item.sessionId);
-    if (!session) {
-      cancelQueueItem(item.id);
-      continue;
-    }
-    // Callback receipts are the exception to connector-specific queue ownership:
-    // acceptance already committed this internal turn.
-    const callbackDelivery = getSessionDeliveryByQueueItemId(item.id);
-    if (runtimeSessionSource(session.source) !== "web" && !callbackDelivery) continue;
-    // Hot-reload calls this too: a waiting row is owned, not orphaned.
-    if (context.sessionManager.getQueue().hasInFlightItem(item.id)) continue;
-    session = maybeRevertEngineOverride(session);
-    const engine = context.sessionManager.getEngine(session.engine);
-    if (!engine) {
-      const diagnostic = `Engine "${session.engine}" not available`;
-      if (callbackDelivery || item.dedupeKey) {
-        // Keep accepted or producer-idempotent rows pending: engine availability
-        // is transient, and a later reload can replay the same durable ID.
-        updateSession(session.id, { lastActivity: new Date().toISOString(), lastError: diagnostic });
-        logger.warn(`Deferred durable queue ${item.id}: ${diagnostic}`);
-      } else {
-        cancelQueueItem(item.id);
-        updateSession(session.id, { status: "error", lastActivity: new Date().toISOString(), lastError: diagnostic });
-      }
-      continue;
-    }
-    // Ensure the session is in a runnable state
-    updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
-
-    dispatchWebSessionRun(session, item.prompt, engine, context, { queueItemId: item.id, replyToMessage: !callbackDelivery });
-    resumed++;
-  }
-
-  if (resumed > 0) {
-    logger.info(`Re-dispatched ${resumed} pending web queue item(s) after gateway restart`);
-  }
 }
 
 /** Find managed attachment IDs that have no registry row or readable file. */
@@ -1067,12 +890,12 @@ function rejectUnverifiedIdentifiedApiCaller(req: HttpRequest, res: ServerRespon
   return true;
 }
 
-/** A gate is reserved for the human operator either because the Todo approval
- *  was requested that way, or because it mirrors a workflow Approval node the
- *  definition declared operator-only. Both decision surfaces read this one
- *  answer, so escalating cannot open a path that deciding refuses. */
-function approvalReservedForOperator(item: WorkItem, service: WorkflowService | undefined): boolean {
-  return currentApproval(item.id)?.operatorOnly === true || approvalIsOperatorOnly(item, service);
+/** Who this Todo's pending gate is reserved for: the human operator (the Todo asked for it, or the
+ *  workflow node it mirrors declared it), or the COO's own lane. Both decision surfaces read this
+ *  one answer, so escalating cannot open a path that deciding refuses. */
+function approvalReservation(item: WorkItem, service: WorkflowService | undefined): Pick<ApprovalDecisionAuthorityOptions, "operatorOnly" | "cooDecidable"> {
+  const gate = approvalGateClass(item, service);
+  return { operatorOnly: currentApproval(item.id)?.operatorOnly === true || gate === "operator", cooDecidable: gate === "coo" };
 }
 
 function operatorOnlyControlPlaneRoute(method: string, pathname: string): string | null {
@@ -1093,6 +916,7 @@ function operatorOnlyControlPlaneRoute(method: string, pathname: string): string
   if (method === "POST" && matchRoute("/api/sessions/:id/unarchive", pathname)) return "session unarchive";
   if (method === "POST" && matchRoute("/api/sessions/:id/reset", pathname)) return "session reset";
   if (method === "POST" && pathname === "/api/sessions/bulk-delete") return "session bulk delete";
+  if (method === "POST" && pathname === "/api/todo-captures") return "quick capture";
   if (method === "POST" && pathname === "/api/pins") return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/pins/:key", pathname)) return "chat pin update";
   if (method === "DELETE" && matchRoute("/api/sessions/:id/queue/:itemId", pathname)) return "session queue item cancel";
@@ -1650,53 +1474,6 @@ export async function handleApiRequest(
       return json(res, { status: "ok" });
     }
 
-    // GET /api/instance-migration — canonical, validated migration contract.
-    if (method === "GET" && pathname === "/api/instance-migration") {
-      try {
-        return json(res, pendingInstanceMigration(context));
-      } catch (error) {
-        logger.error(`Instance migration bundle validation failed: ${error instanceof Error ? error.message : String(error)}`);
-        return json(res, { error: "Installed instance migration bundle is invalid", code: "MIGRATION_BUNDLE_INVALID" }, 500);
-      }
-    }
-
-    // POST /api/instance-migration/open — snapshot first, then one durable COO session.
-    if (method === "POST" && pathname === "/api/instance-migration/open") {
-      const parsed = await readJsonBody(req, res);
-      if (!parsed.ok) return;
-      let pending: PendingInstanceMigration;
-      try { pending = pendingInstanceMigration(context); }
-      catch (error) {
-        logger.error(`Instance migration open refused: ${error instanceof Error ? error.message : String(error)}`);
-        return json(res, { error: "Installed instance migration bundle is invalid", code: "MIGRATION_BUNDLE_INVALID" }, 500);
-      }
-      if (!pending.required || !pending.migrationKey) {
-        return json(res, { error: "Instance migration is not pending", code: "MIGRATION_NOT_PENDING" }, 409);
-      }
-      const body = parsed.body && typeof parsed.body === "object" ? parsed.body as Record<string, unknown> : {};
-      if (body.migrationKey !== pending.migrationKey) {
-        return json(res, { error: "Migration key no longer matches the pending bundle", code: "MIGRATION_KEY_MISMATCH" }, 409);
-      }
-      try {
-        const opened = await openInstanceMigration(pending, req, context);
-        return json(res, opened, opened.reused ? 200 : 201);
-      } catch (error) {
-        logger.error(`Instance migration session could not open: ${error instanceof Error ? error.message : String(error)}`);
-        // Name the one cause the operator can actually act on. Collapsing every
-        // failure into one opaque sentence turned a fixable local problem (a
-        // missing Windows symlink privilege) into an apparent outage of the
-        // migration service, with nothing in the UI pointing at the real fix.
-        // The raw message stays in the log: it carries absolute instance paths.
-        return json(res, {
-          error: "Could not create the migration snapshot and COO handoff",
-          code: "MIGRATION_OPEN_FAILED",
-          ...(process.platform === "win32" && isSymlinkPrivilegeError(error)
-            ? { remedy: "Creating the migration snapshot needs symlink permission. Enable Developer Mode (Settings > System > For developers) or run the gateway elevated, then restart Jinn and retry." }
-            : {}),
-        }, 500);
-      }
-    }
-
     // GET /api/status
     if (method === "GET" && pathname === "/api/status") {
       const config = context.getConfig();
@@ -1707,17 +1484,9 @@ export async function handleApiRequest(
       const connectors = Object.fromEntries(
         Array.from(context.connectors.values()).map((connector) => [connector.name, connector.getHealth()]),
       );
-      let migration: Pick<PendingInstanceMigration, "required" | "fromVersion" | "toVersion" | "versions"> & { error?: string };
-      try {
-        const pending = pendingInstanceMigration(context);
-        migration = { required: pending.required, fromVersion: pending.fromVersion, toVersion: pending.toVersion, versions: pending.versions };
-      } catch {
-        migration = { required: false, fromVersion: "unknown", toVersion: context.migrationPackageVersion ?? getPackageVersion(), versions: [], error: "invalid_bundle" };
-      }
       return json(res, {
         status: "ok",
-        version: context.migrationPackageVersion ?? getPackageVersion(),
-        migration,
+        version: getPackageVersion(),
         uptime: Math.floor((Date.now() - context.startTime) / 1000),
         port: config.gateway.port || 7777,
         // Derived from the model registry (single source of truth) so engine
@@ -3083,23 +2852,16 @@ export async function handleApiRequest(
       // it exists to move a stuck Todo onto another engine, so it has to win.
       const dispatchEngineName = dispatchPrefs.preamble.engine ?? dispatcher.engine;
       const dispatchModel = dispatchPrefs.preamble.engine ? dispatchPrefs.preamble.model ?? undefined : dispatcher.model;
-      const attachment = decideJinnAttachment({
-        globalMcp: config.mcp,
-        employee: dispatcher,
-        engine: dispatchEngineName,
+      const preflight = preflightSystemEmployee({
+        employee: dispatcher, label: "Todo Dispatcher", settingLabel: "Dispatcher",
+        engineName: dispatchEngineName, globalMcp: config.mcp,
+        getEngine: (name) => context.sessionManager.getEngine(name),
       });
-      if (!attachment.attach) {
+      if (!preflight.ok) {
         claim.release();
-        return json(res, {
-          error: `Todo Dispatcher cannot run on engine "${dispatchEngineName}" because it cannot attach the jinn toolset: ${attachment.reason}. Change the Dispatcher engine override or the mcp.gateway settings, then try again.`,
-        }, 409);
+        return json(res, { error: preflight.error }, preflight.status);
       }
-
-      const engine = context.sessionManager.getEngine(dispatchEngineName);
-      if (!engine) {
-        claim.release();
-        return json(res, { error: `engine "${dispatchEngineName}" not available; change the Dispatcher engine override and try again` }, 502);
-      }
+      const engine = preflight.engine;
 
       const prompt = dispatchPrefs.preamble.prefix + [
         `Dispatch Todo ${item.id}.`,
@@ -3746,7 +3508,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
 
@@ -3785,7 +3547,7 @@ export async function handleApiRequest(
       const authority = resolveApprovalDecisionAuthority(req.headers, item, {
         operatorCanActOnRootTarget: true,
         operatorAuthenticated: scopedOperatorAuthenticated(req, context),
-        operatorOnly: approvalReservedForOperator(item, context.workflowService),
+        ...approvalReservation(item, context.workflowService),
       });
       if (!authority.ok) return json(res, { error: authority.error }, authority.status);
       const body = (parsed.body ?? {}) as { reason?: unknown };
@@ -4543,6 +4305,7 @@ export async function handleApiRequest(
       // still sees it. User messages retain their existing enqueue point below.
       let queueItemId: string | undefined;
       let incomingMessageId: string;
+      let callbackQueueNeedsDispatch = true;
       if (callbackDelivery) {
         const acceptance = acceptSessionDelivery(callbackDelivery.id, session.id, sessionKey);
         if (!acceptance.accepted) {
@@ -4556,6 +4319,22 @@ export async function handleApiRequest(
         }
         queueItemId = acceptance.delivery.queueItemId!;
         incomingMessageId = acceptance.delivery.messageId!;
+        // A completion accepted into an already-owned pending batch only updates
+        // that row's engine-facing payload. Enqueuing the alias would add a
+        // second promise-chain slot for the same durable work. An orphaned batch
+        // (for example after restart) is not owned and still needs dispatch.
+        const queue = context.sessionManager.getQueue();
+        if (shouldHoldParentCompletionQueueDispatch(queueItemId)) {
+          queue.holdForCallbackDrain(sessionKey, queueItemId);
+        } else {
+          queue.releaseCallbackDrain(sessionKey, queueItemId);
+        }
+        if (callbackDelivery.sourceKind === "session") {
+          for (const held of listReleasableParentCompletionQueuesForSource(callbackDelivery.sourceId)) {
+            queue.releaseCallbackDrain(held.sessionKey, held.queueItemId);
+          }
+        }
+        callbackQueueNeedsDispatch = !queue.hasInFlightItem(queueItemId);
       } else {
         const claim = claimIncomingTurn({
           sessionId: session.id, sessionKey, prompt, isNotification, role: messageRole, dedupeKey: lateralDedupeKey,
@@ -4687,9 +4466,13 @@ export async function handleApiRequest(
         context.emit("queue:updated", { sessionId: session.id, sessionKey });
       }
 
-      dispatchWebSessionRun(session, enginePrompt, engine, context, {
-        queueItemId, attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined, replyToMessage: !isNotification,
-      });
+      if (!callbackDelivery || callbackQueueNeedsDispatch) {
+        dispatchWebSessionRun(session, enginePrompt, engine, context, {
+          queueItemId,
+          attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
+          replyToMessage: !isNotification,
+        });
+      }
 
       return json(res, {
         status: "queued",
@@ -4713,6 +4496,7 @@ export async function handleApiRequest(
     }
 
     if (await handleCronApi(req, res, { method, pathname, url }, context)) return;
+    if (await handleTodoCaptureApi(req, res, { method, pathname, url }, context)) return;
     if (await handleOrgApi(req, res, { method, pathname, url }, context)) return;
     if (await handleSkillsApi(req, res, { method, pathname, url }, context)) return;
     if (await handlePluginsApi(req, res, { method, pathname, url }, context)) return;
@@ -4760,11 +4544,10 @@ export async function handleApiRequest(
 
     // GET /api/config
     if (method === "GET" && pathname === "/api/config") {
-      const config = context.getConfig();
       // The revision comes off the FILE, not off this in-memory config: the file is
       // what a PUT deep-merges into, so the file is what a conflict is about.
       res.setHeader(CONFIG_REVISION_HEADER, currentConfigRevision());
-      return json(res, sanitizeConfigForApi(config));
+      return json(res, configDocumentForApi(context.getConfig(), CONFIG_TOP_LEVEL_KEYS));
     }
 
     // PUT /api/config
@@ -4856,100 +4639,6 @@ export async function handleApiRequest(
       } catch (err) {
         return json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
       }
-    }
-
-    // POST /api/connectors/discord/incoming — receive proxied Discord messages from a primary instance
-    if (method === "POST" && pathname === "/api/connectors/discord/incoming") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-      if (!("deliverMessage" in connector)) {
-        return json(res, { error: "Discord connector is not in remote mode" }, 400);
-      }
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      // Download attachments from Discord CDN URLs to local temp
-      const { downloadAttachment } = await import("../connectors/discord/format.js");
-      const attachments = await Promise.all(
-        (body.attachments || []).map(async (att: { name: string; url: string; mimeType: string }) => {
-          if (att.url) {
-            try {
-              const localPath = await downloadAttachment(att.url, TMP_DIR, att.name);
-              return { name: att.name, url: att.url, mimeType: att.mimeType, localPath };
-            } catch {
-              return { name: att.name, url: att.url, mimeType: att.mimeType };
-            }
-          }
-          return att;
-        }),
-      );
-
-      const incomingMsg: IncomingMessage = {
-        connector: "discord",
-        source: "discord",
-        sessionKey: body.sessionKey,
-        channel: body.channel,
-        thread: body.thread,
-        user: body.user,
-        userId: body.userId,
-        text: body.text,
-        messageId: body.messageId,
-        attachments,
-        replyContext: body.replyContext || {},
-        transportMeta: body.transportMeta,
-        raw: body,
-      };
-
-      (connector as any).deliverMessage(incomingMsg);
-      return json(res, { status: "delivered" });
-    }
-
-    // POST /api/connectors/discord/proxy — proxy connector operations from remote instances
-    if (method === "POST" && pathname === "/api/connectors/discord/proxy") {
-      const connector = context.connectors.get("discord");
-      if (!connector) return notFound(res);
-
-      const _parsed = await readJsonBody(req, res);
-      if (!_parsed.ok) return;
-      const body = _parsed.body as any;
-
-      const action = body.action as string;
-      const target = body.target as Target | undefined;
-      let messageId: string | undefined;
-
-      switch (action) {
-        case "sendMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.sendMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "replyMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          messageId = (await connector.replyMessage(target, redactText(String(body.text)))) as string | undefined;
-          break;
-        case "editMessage":
-          if (!target || !body.text) return badRequest(res, "target and text are required");
-          await connector.editMessage(target, redactText(String(body.text)));
-          break;
-        case "addReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.addReaction(target, body.emoji);
-          break;
-        case "removeReaction":
-          if (!target || !body.emoji) return badRequest(res, "target and emoji are required");
-          await connector.removeReaction(target, body.emoji);
-          break;
-        case "setTypingStatus":
-          if (connector.setTypingStatus) {
-            await connector.setTypingStatus(body.channelId ?? "", body.threadTs, body.status ?? "");
-          }
-          break;
-        default:
-          return badRequest(res, `Unknown proxy action: ${action}`);
-      }
-
-      return json(res, { status: "ok", messageId });
     }
 
     // POST /api/connectors/:name/send — send via the connector with that instance id

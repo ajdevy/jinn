@@ -20,9 +20,12 @@ export type WorkflowRunReflection = "executing" | "in_review" | "blocked";
 export interface WorkflowTodoApprovalMirror {
   request(input: { todoId: string; request: string; ref: string; options?: string[]; approver?: string }): void;
   /** Wake the routed employee when a run parks on their decision. Called once,
-   *  on the transition into parked. Root and operator-only gates stay on Todos. */
+   *  on the transition into parked. Root, operator-only and COO-decidable gates
+   *  stay on Todos: the class comes from the node, because default Todo routing
+   *  would otherwise name a manager neither decision surface will admit. */
   notifyParked(input: {
     todoId: string; workflowId: string; runId: string; nodeId: string; request: string; ref: string;
+    cooDecidable?: boolean;
   }): void;
 }
 

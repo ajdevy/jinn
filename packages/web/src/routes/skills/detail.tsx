@@ -6,7 +6,8 @@ import { api } from "@/lib/api"
 import { extraFrontmatter, parseSkillMd } from "@/lib/skills"
 import { MarkdownView } from "@/components/markdown-view"
 import { PageLayout } from "@/components/page-layout"
-import { useBreadcrumbs } from "@/context/breadcrumb-context"
+import { LargeTitleHeader } from "@/components/shell/large-title-header"
+import { PageScaffold } from "@/components/shell/page-scaffold"
 import { useTheme } from "@/routes/providers"
 
 /* A skill opens as a document, not a modal: large-title header (name +
@@ -45,7 +46,6 @@ function DetailSkeleton() {
 export default function SkillDetailPage() {
   const params = useParams<{ name: string }>()
   const name = params.name ? decodeURIComponent(params.name) : ""
-  useBreadcrumbs(useMemo(() => [{ label: "Skills", href: "/skills" }, { label: name }], [name]))
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { theme } = useTheme()
@@ -139,16 +139,90 @@ export default function SkillDetailPage() {
 
   return (
     <PageLayout>
-      <div className="h-full overflow-y-auto" data-scrollable>
-        <div className="mx-auto max-w-[840px] px-5 pb-24 pt-6 md:pt-11">
-          <Link
-            to="/skills"
-            className="mb-3.5 inline-flex items-center gap-1 text-[length:var(--text-footnote)] font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
-          >
-            <ChevronLeft size={13} strokeWidth={2.4} aria-hidden />
-            Skills
-          </Link>
-
+      <PageScaffold
+        contentWidth="840px"
+        header={
+          <LargeTitleHeader
+            leading={
+              <Link
+                to="/skills"
+                className="mb-3.5 inline-flex items-center gap-1 text-[length:var(--text-footnote)] font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+              >
+                <ChevronLeft size={13} strokeWidth={2.4} aria-hidden />
+                Skills
+              </Link>
+            }
+            title={name}
+            subtitle={
+              skillQuery.isSuccess ? (
+                <>
+                  {description && (
+                    <p className="max-w-[620px] text-[length:var(--text-subheadline)] leading-[var(--leading-normal)] text-[var(--text-secondary)]">
+                      {description}
+                    </p>
+                  )}
+                  <div
+                    className="mt-2.5 text-[length:var(--text-caption1)] text-[var(--text-quaternary)] [overflow-wrap:anywhere]"
+                    style={{ fontFamily: "var(--font-code)" }}
+                  >
+                    skills/{name}/SKILL.md
+                  </div>
+                  {meta.length > 0 && !editing && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {meta.map(([k, v]) => (
+                        <div
+                          key={k}
+                          className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)] [overflow-wrap:anywhere]"
+                          style={{ fontFamily: "var(--font-code)" }}
+                        >
+                          {k}: {v}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : undefined
+            }
+            trailing={
+              skillQuery.isSuccess ? (
+                editing ? (
+                  <div className="flex flex-none items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="skill-cancel"
+                      onClick={cancelEdit}
+                      className="h-9 rounded-full px-3.5 text-[length:var(--text-subheadline)] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="skill-save"
+                      disabled={!dirty || save.isPending}
+                      onClick={commit}
+                      className="h-9 rounded-full bg-[var(--accent)] px-[18px] text-[length:var(--text-subheadline)] font-semibold text-[var(--accent-contrast)] transition-transform hover:scale-[0.98] disabled:opacity-40" // jinn-shell: ok skill editor save, not page chrome
+                    >
+                      {save.isPending ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="skill-edit"
+                    onClick={beginEdit}
+                    className="inline-flex h-[38px] flex-none items-center gap-1.5 rounded-full px-4 text-[length:var(--text-subheadline)] font-semibold transition-transform hover:scale-[0.98]"
+                    style={{ background: "var(--accent-fill)", color: "var(--accent)", boxShadow: "var(--inset-shine)" }}
+                  >
+                    <PencilLine className="size-[15px]" aria-hidden />
+                    Edit
+                  </button>
+                )
+              ) : null
+            }
+          />
+        }
+      >
+        <div>
           {skillQuery.isLoading ? (
             <DetailSkeleton />
           ) : notFound ? (
@@ -176,70 +250,6 @@ export default function SkillDetailPage() {
             </div>
           ) : (
             <>
-              <header className="flex flex-wrap items-end justify-between gap-x-3 gap-y-4">
-                <div className="min-w-0 flex-1 basis-[320px]">
-                  <h1 className="font-[var(--font-display)] text-[length:var(--text-title1)] font-bold leading-tight tracking-[var(--tracking-tight)] text-[var(--text-primary)] [overflow-wrap:anywhere] md:text-[length:var(--text-large-title)]">
-                    {name}
-                  </h1>
-                  {description && (
-                    <p className="mt-1.5 max-w-[620px] text-[length:var(--text-subheadline)] leading-[var(--leading-normal)] text-[var(--text-secondary)]">
-                      {description}
-                    </p>
-                  )}
-                  <div
-                    className="mt-2.5 text-[length:var(--text-caption1)] text-[var(--text-quaternary)] [overflow-wrap:anywhere]"
-                    style={{ fontFamily: "var(--font-code)" }}
-                  >
-                    skills/{name}/SKILL.md
-                  </div>
-                  {meta.length > 0 && !editing && (
-                    <div className="mt-1.5 space-y-0.5">
-                      {meta.map(([k, v]) => (
-                        <div
-                          key={k}
-                          className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)] [overflow-wrap:anywhere]"
-                          style={{ fontFamily: "var(--font-code)" }}
-                        >
-                          {k}: {v}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {editing ? (
-                  <div className="flex flex-none items-center gap-2">
-                    <button
-                      type="button"
-                      data-testid="skill-cancel"
-                      onClick={cancelEdit}
-                      className="h-9 rounded-full px-3.5 text-[length:var(--text-subheadline)] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--fill-secondary)]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="skill-save"
-                      disabled={!dirty || save.isPending}
-                      onClick={commit}
-                      className="h-9 rounded-full bg-[var(--accent)] px-[18px] text-[length:var(--text-subheadline)] font-semibold text-[var(--accent-contrast)] transition-transform hover:scale-[0.98] disabled:opacity-40"
-                    >
-                      {save.isPending ? "Saving…" : "Save"}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="skill-edit"
-                    onClick={beginEdit}
-                    className="inline-flex h-[38px] flex-none items-center gap-1.5 rounded-full px-4 text-[length:var(--text-subheadline)] font-semibold transition-transform hover:scale-[0.98]"
-                    style={{ background: "var(--accent-fill)", color: "var(--accent)", boxShadow: "var(--inset-shine)" }}
-                  >
-                    <PencilLine className="size-[15px]" aria-hidden />
-                    Edit
-                  </button>
-                )}
-              </header>
 
               {saveError && (
                 <div
@@ -277,7 +287,7 @@ export default function SkillDetailPage() {
             </>
           )}
         </div>
-      </div>
+      </PageScaffold>
     </PageLayout>
   )
 }

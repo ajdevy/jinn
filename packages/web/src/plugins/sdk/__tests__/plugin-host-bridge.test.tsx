@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { render } from '@testing-library/react'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -101,6 +102,12 @@ it('leaves every other frame out of the notification sink', () => {
   gateway.emit({ event: 'plugins:changed', payload: {} })
 
   expect(sink).not.toHaveBeenCalled()
+})
+
+it('does not statically import the plugin SDK barrel onto the first paint', () => {
+  // Vitest runs from the package root, so this is the file the host ships as.
+  const source = readFileSync('src/plugins/sdk/plugin-host-bridge.tsx', 'utf8')
+  expect(source).not.toMatch(/\bimport\s+['"]@jinn\/plugin-sdk['"]/)
 })
 
 it('logs a notice it cannot show rather than throwing into the socket', () => {

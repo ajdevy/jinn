@@ -9,13 +9,14 @@ import {
 import { createPortal } from 'react-dom'
 import { ChevronRight, Lock, X } from 'lucide-react'
 import { EmployeeChip } from '@/components/ui/employee-chip'
-import { StateLine } from '@/components/ui/state-line'
 import {
-  prefetchLiveSessionSnapshot,
-  readPrefetchedLiveSessionSnapshot,
-} from '@/hooks/use-live-session'
-import { clockTime } from './comms-callout'
-import { cleanLikeGateway, fullReplyCache } from './teammate-reply'
+  finishedLabel,
+  PeekLiveSession,
+  PeekStateLine,
+  shouldLiveSubscribe,
+  usePeekBody,
+  type PeekViewModel,
+} from './thread-peek-live'
 
 export interface CommsPeekData {
   kind: 'reply' | 'error' | 'relay' | 'delegation' | 'dispatch'
@@ -45,53 +46,6 @@ function focusableWithin(node: HTMLElement): HTMLElement[] {
     'textarea:not([disabled])',
     '[tabindex]:not([tabindex="-1"])',
   ].join(','))).filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true')
-}
-
-async function fetchChildPreview(
-  sessionId: string,
-  kind: CommsPeekData['kind'],
-  preview: string,
-): Promise<string | null> {
-  await prefetchLiveSessionSnapshot(sessionId)
-  const messages = readPrefetchedLiveSessionSnapshot(sessionId)?.messages ?? []
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message.role !== 'assistant' || typeof message.content !== 'string') continue
-    const content = message.content.trim()
-    if (!content) continue
-    if (kind === 'reply') {
-      if (cleanLikeGateway(content) === preview) return content
-      continue
-    }
-    return content
-  }
-  return null
-}
-
-function usePeekBody(peek: CommsPeekData): string {
-  const [fetched, setFetched] = useState<string | null>(() => fullReplyCache.get(peek.messageId) ?? null)
-
-  useEffect(() => {
-    const cached = fullReplyCache.get(peek.messageId) ?? null
-    setFetched(cached)
-    if (peek.fullMessage || cached) return
-    if (!peek.sessionId) return
-    let cancelled = false
-    const request = peek.kind === 'reply' && peek.preview
-      ? fetchChildPreview(peek.sessionId, peek.kind, peek.preview)
-      : peek.kind === 'delegation' || peek.kind === 'dispatch'
-        ? fetchChildPreview(peek.sessionId, peek.kind, peek.preview)
-        : Promise.resolve(null)
-    request
-      .then((text) => {
-        fullReplyCache.set(peek.messageId, text)
-        if (!cancelled) setFetched(text)
-      })
-      .catch(() => { /* The source preview remains the honest fallback. */ })
-    return () => { cancelled = true }
-  }, [peek])
-
-  return peek.fullMessage ?? fetched ?? peek.preview
 }
 
 interface ThreadPeekProps {
@@ -239,15 +193,58 @@ export function ThreadPeek({ peek, onClose, onOpenFullChat, renderContent, onExi
 
   if (!displayPeek) return null
 
-  const stateLabel = error
-    ? "Couldn't finish"
-    : displayPeek.kind === 'relay'
-      ? `Messaged · ${clockTime(displayPeek.timestamp)}`
-      : displayPeek.kind === 'delegation'
-        ? `Delegated · ${clockTime(displayPeek.timestamp)}`
-        : displayPeek.kind === 'dispatch'
-          ? `Followed up · ${clockTime(displayPeek.timestamp)}`
-          : `Replied · ${clockTime(displayPeek.timestamp)}`
+  const live = shouldLiveSubscribe(displayPeek)
+  const staticView: PeekViewModel = {
+    state: error ? 'error' : 'replied',
+    label: finishedLabel(displayPeek, error),
+    body,
+  }
+
+  const chrome = (stateLine: ReactNode, bodyNode: ReactNode) => (
+    <>
+      <header className="flex shrink-0 items-center gap-[var(--space-3)] px-[18px] pb-3 pt-[calc(18px+env(safe-area-inset-top))]">
+        <EmployeeChip employee={displayPeek.employee} displayName={displayPeek.displayName} size={36} showName={false} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
+            {displayPeek.displayName}
+          </span>
+          {stateLine}
+        </span>
+        <button
+          ref={closeRef}
+          type="button"
+          aria-label="Close"
+          onClick={requestClose}
+          className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-[var(--text-tertiary)] transition-[background-color,color,scale] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:scale-[0.96]"
+        >
+          <X size={16} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-1" data-scrollable>
+        <div className="text-pretty text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] text-[var(--text-primary)]">
+          {bodyNode}
+        </div>
+      </div>
+      <footer className="flex shrink-0 items-center gap-[var(--space-3)] px-[18px] pb-[calc(16px+env(safe-area-inset-bottom))] pt-3">
+        <span className="inline-flex flex-1 items-center gap-1.5 text-[length:var(--text-caption1)] text-[var(--text-quaternary)]">
+          <Lock size={12} strokeWidth={2} aria-hidden="true" />
+          Read-only
+        </span>
+        {displayPeek.sessionId && onOpenFullChat && (
+          <button
+            type="button"
+            onClick={requestFullChat}
+            aria-disabled={phase === 'handoff'}
+            aria-busy={phase === 'handoff'}
+            className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border-none bg-[var(--fill-tertiary)] px-[15px] py-[7px] text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)] transition-[background-color,scale,opacity] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] active:scale-[0.96] aria-disabled:cursor-wait aria-disabled:opacity-60"
+          >
+            Open full chat
+            <ChevronRight size={12} strokeWidth={2.25} aria-hidden="true" />
+          </button>
+        )}
+      </footer>
+    </>
+  )
 
   const view = (
     <div
@@ -279,47 +276,11 @@ export function ThreadPeek({ peek, onClose, onOpenFullChat, renderContent, onExi
         }}
       >
         <div className="peek-grab mx-auto mt-2 hidden h-1 w-9 shrink-0 rounded-[2px] bg-[var(--fill-primary)]" />
-        <header className="flex shrink-0 items-center gap-[var(--space-3)] px-[18px] pb-3 pt-[calc(18px+env(safe-area-inset-top))]">
-          <EmployeeChip employee={displayPeek.employee} displayName={displayPeek.displayName} size={36} showName={false} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[length:var(--text-subheadline)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
-              {displayPeek.displayName}
-            </span>
-            <StateLine state={error ? 'error' : 'replied'} label={stateLabel} className="mt-0.5" />
-          </span>
-          <button
-            ref={closeRef}
-            type="button"
-            aria-label="Close"
-            onClick={requestClose}
-            className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-[var(--text-tertiary)] transition-[background-color,color,scale] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)] active:scale-[0.96]"
-          >
-            <X size={16} strokeWidth={2} aria-hidden="true" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-1" data-scrollable>
-          <div className="text-pretty text-[length:var(--text-subheadline)] leading-[var(--leading-relaxed)] text-[var(--text-primary)]">
-            {renderContent(body)}
-          </div>
-        </div>
-        <footer className="flex shrink-0 items-center gap-[var(--space-3)] px-[18px] pb-[calc(16px+env(safe-area-inset-bottom))] pt-3">
-          <span className="inline-flex flex-1 items-center gap-1.5 text-[length:var(--text-caption1)] text-[var(--text-quaternary)]">
-            <Lock size={12} strokeWidth={2} aria-hidden="true" />
-            Read-only
-          </span>
-          {displayPeek.sessionId && onOpenFullChat && (
-            <button
-              type="button"
-              onClick={requestFullChat}
-              aria-disabled={phase === 'handoff'}
-              aria-busy={phase === 'handoff'}
-              className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border-none bg-[var(--fill-tertiary)] px-[15px] py-[7px] text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)] transition-[background-color,scale,opacity] duration-150 ease-[var(--ease-smooth)] hover:bg-[var(--fill-secondary)] active:scale-[0.96] aria-disabled:cursor-wait aria-disabled:opacity-60"
-            >
-              Open full chat
-              <ChevronRight size={12} strokeWidth={2.25} aria-hidden="true" />
-            </button>
-          )}
-        </footer>
+        {live ? (
+          <PeekLiveSession peek={displayPeek} renderContent={renderContent}>
+            {({ stateLine, body: liveBody }) => chrome(stateLine, liveBody)}
+          </PeekLiveSession>
+        ) : chrome(<PeekStateLine view={staticView} />, renderContent(staticView.body))}
       </aside>
       <style>{PEEK_CSS}</style>
     </div>

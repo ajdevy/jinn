@@ -85,7 +85,7 @@ describe("Telegram connector delivery and reply context", () => {
     expect(incoming.text).toContain("<telegram-user-message>\nAnswer the quoted question")
     expect(incoming.attachments).toEqual([expect.objectContaining({ name: "note.pdf", mimeType: "application/pdf", localPath: expect.any(String) })])
     expect(incoming.raw).toBe(telegramMsg)
-    expect(incoming.replyContext).toEqual({ chatId: 12345, messageId: 50 })
+    expect(incoming.replyContext).toEqual({ chatId: 12345, messageId: 50, chatType: "private", userId: 67890 })
     expect(connector.reconstructTarget(incoming.replyContext)).toMatchObject({ channel: "12345", messageTs: "50", replyContext: incoming.replyContext })
   })
 

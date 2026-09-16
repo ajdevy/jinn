@@ -111,14 +111,16 @@ jobs:
       - name: Run typecheck
         run: pnpm typecheck
 
-      - name: Verify migration bundle
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Verify published-latest upgrade
         shell: bash
         run: |
           set -euo pipefail
-          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
-          pnpm --filter jinn-cli migration:check -- --base-ref "$PREVIOUS_TAG" --version "$PACKAGE_VERSION"
+          CANDIDATE_DIR="$(mktemp -d "${RUNNER_TEMP}/jinn-upgrade-candidate.XXXXXX")"
+          trap 'rm -rf "$CANDIDATE_DIR"' EXIT
+          (cd packages/jinn && npm pack --pack-destination "$CANDIDATE_DIR")
+          CANDIDATE_TARBALL="$CANDIDATE_DIR/jinn-cli-$PACKAGE_VERSION.tgz"
+          test -f "$CANDIDATE_TARBALL"
+          pnpm upgrade-verify -- --candidate-tarball "$CANDIDATE_TARBALL"
 
       - name: Verify npm package contents
         working-directory: packages/jinn

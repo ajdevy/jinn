@@ -140,7 +140,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] py-[var(--space-1)] pr-[var(--space-2)] pl-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-hidden select-none data-[highlighted]:bg-[var(--accent-fill)] data-[highlighted]:text-[var(--text-primary)] data-[state=checked]:text-[var(--accent)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex min-h-[34px] w-full cursor-default items-center gap-[var(--space-2)] rounded-[var(--radius-sm)] py-[var(--space-1)] pr-[var(--space-2)] pl-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-hidden select-none data-[highlighted]:bg-[var(--accent-fill)] data-[highlighted]:text-[var(--text-primary)] data-[state=checked]:text-[var(--accent)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

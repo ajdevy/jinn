@@ -6,7 +6,7 @@ import {
   updateSessionForAttempt,
   type UpdateSessionFields,
 } from "../registry.js";
-import { notifyParentSession } from "../callbacks.js";
+import { notifyParentSessionAndWait } from "../callbacks.js";
 import type { TurnSurface } from "./types.js";
 
 /** The three ways a turn can end. Anything else is not terminal. */
@@ -38,7 +38,8 @@ export interface SettleTurnInput {
    */
   expectedStatuses?: readonly Session["status"][];
   employee?: Employee;
-  /** Interrupted turns stay silent: whoever interrupted already reported it. */
+  /** Interrupters pass false — they report the interrupt themselves. The status
+   *  reconciler, the interrupt nobody is left to report, keeps the default. */
   notifyParent?: boolean;
   surface: TurnSurface;
 }
@@ -76,7 +77,7 @@ export async function settleTurn(input: SettleTurnInput): Promise<Session | unde
     durationMs: input.durationMs,
   };
   if (input.notifyParent !== false) {
-    notifyParentSession(settled, report, { alwaysNotify: input.employee?.alwaysNotify });
+    await notifyParentSessionAndWait(settled, report, { alwaysNotify: input.employee?.alwaysNotify });
   }
   await input.surface.settled({ session: settled, ...report });
   return settled;

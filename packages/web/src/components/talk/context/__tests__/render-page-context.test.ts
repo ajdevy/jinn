@@ -97,4 +97,48 @@ describe("rendering the page context", () => {
   it("says nothing about objects when the cache had none to give", () => {
     expect(renderPageContext(board(), [], HERE)).not.toMatch(/On screen/)
   })
+
+  /**
+   * Journey step 1 (PLA-224). Asked "what are we looking at?", the model used
+   * to narrate: it could read the chat's title off the packet but the session
+   * id was deliberately withheld, so `read_session` was uncallable and there
+   * was nothing to read. The handle is the difference between reading and
+   * inventing.
+   */
+  it("carries the selected chat's session id, so the model can name it to a tool", () => {
+    const id = "123e4567-e89b-12d3-a456-426614174000"
+    const chat: PageSnapshot = {
+      ...describeLocation("/", `?session=${id}`),
+      selection: { kind: "chat session", id },
+    }
+
+    const text = renderPageContext(chat, [], HERE)
+    const handle = text.split("\n").find((line) => line.startsWith("Selected session id:"))
+
+    expect(text).toContain(`Selected session id: ${id}`)
+    expect(text).toContain("a handle to use, never something to say")
+    expect(handle).toBeDefined()
+    expect(handle!.length).toBeLessThan(180)
+    // The rule the packet states about speech is unchanged, and still true:
+    // the id is for tool arguments, never for the answer.
+    expect(text).toContain("not identifiers unless explicitly asked")
+    expect(text.length).toBeLessThanOrEqual(PAGE_CONTEXT_BUDGET_CHARS)
+  })
+
+  it("says nothing about a session id on a page with no chat selected", () => {
+    expect(renderPageContext(board(), [], HERE)).not.toContain("Selected session id")
+  })
+
+  it("keeps the handle inside the budget when the operator's own strings are absurd", () => {
+    const id = "x".repeat(5000)
+    const chat: PageSnapshot = {
+      ...describeLocation("/", `?session=${id}`),
+      selection: { kind: "chat session", id },
+    }
+
+    const text = renderPageContext(chat, crowdedBoard(400), HERE)
+
+    expect(text.length).toBeLessThanOrEqual(PAGE_CONTEXT_BUDGET_CHARS)
+    expect(text).toContain("Selected session id: ")
+  })
 })

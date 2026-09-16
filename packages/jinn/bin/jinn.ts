@@ -155,13 +155,10 @@ program
 
 program
   .command("migrate")
-  .description("Print the canonical pending instance-migration prompt or complete a verified migration")
-  .option("--apply", "Deprecated: print the canonical prompt without launching an agent or advancing the marker")
-  .option("--mark-done [version]", "Advance the marker only with a verified snapshot, receipt, and migration key")
-  .option("--migration-key <key>", "Expected key from the canonical automatic migration handoff")
-  .action(async (opts) => {
+  .description("Sync the skills Jinn ships into this instance and report what changed")
+  .action(async () => {
     const { runMigrate } = await import("../src/cli/migrate.js");
-    await runMigrate(opts);
+    await runMigrate();
   });
 
 const workflowAction = (name: string) => async (...received: unknown[]) => {

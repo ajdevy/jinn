@@ -27,7 +27,9 @@ export interface TurnReceipt {
 /**
  * The only seam between a turn and the transport carrying it. The connector
  * runner and the web runner are the same code and differ ONLY in which
- * implementation of this they hand to `runTurn`.
+ * implementation of this they hand to `runTurn`; the status reconciler is a
+ * third consumer that never enters `runTurn` at all, settling a turn whose
+ * runner is already gone through this same seam.
  */
 export interface TurnSurface {
   /** The turn is live: show whatever "working" affordance the transport has. */
@@ -105,6 +107,8 @@ export interface TurnPlan {
   promptToRun: string;
   /** True when the prompt carries a sync transcript whose markers settle clears. */
   syncRequested: boolean;
+  /** True when the prompt carries messages an interrupt kept from the engine. */
+  carriedInterruptedPrompts: boolean;
   /** Built per model attempt, because a model fallback re-fingerprints context. */
   prepareContext: (model: string | undefined) => {
     fingerprint: string;

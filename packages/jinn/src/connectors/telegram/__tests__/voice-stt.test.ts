@@ -75,7 +75,7 @@ describe("Telegram voice STT runtime", () => {
     await connector.start();
     const messageCallback = mockOn.mock.calls.find((call) => call[0] === "message")?.[1];
 
-    expect(getSttStatus("small").available).toBe(false);
+    expect(getSttStatus("small", ["en"]).available).toBe(false);
     await messageCallback({
       message_id: 1,
       chat: { id: 12345, type: "private" as const },
@@ -99,7 +99,7 @@ describe("Telegram voice STT runtime", () => {
       return child;
     });
     await downloadModel("small", () => undefined);
-    expect(getSttStatus("small").available).toBe(true);
+    expect(getSttStatus("small", ["en"]).available).toBe(true);
 
     execFileMock.mockImplementation((...args: unknown[]) => {
       const callback = args.at(-1) as (error: null, result: { stdout: string; stderr: string }) => void;

@@ -154,8 +154,8 @@ describe("/todos/b/home?status=executing", () => {
 
     const asked = listWorkItems.mock.calls.map(([params]) => params).filter((params) => params?.status)
     expect(asked.map((params) => params.status)).toEqual(["executing"])
-    // Board `home` is kept: true — the other half of the done-when.
-    expect(asked[0]).toMatchObject({ status: "executing", kept: true, rootsOnly: true })
+    // Board `home` is home: true — the other half of the done-when.
+    expect(asked[0]).toMatchObject({ status: "executing", home: true, rootsOnly: true })
   })
 
   it("still draws the whole pipeline with no status in the URL", async () => {
@@ -239,18 +239,18 @@ describe("/todos/b/home?status=done", () => {
 /* ICI-1357 criterion 11. A fresh instance keeps nothing, so Home's FIRST render
  * is the empty one. It has to be the board's own quiet empty state — the columns
  * and their quick-adds — not a crash, and not a blank region where cards go. */
-/* PLA-172, criterion 7: an empty Home teaches the pin instead of sitting silent. */
-describe("/todos/b/home with nothing pinned", () => {
+/* PLA-230, criterion 6: an empty Home names both gestures that fill it. */
+describe("/todos/b/home with nothing on it", () => {
   beforeEach(() => listWorkItems.mockImplementation(() => Promise.resolve({ workItems: [], total: 0, totals: {}, nextOffset: null })))
-  it("renders the pin-gesture empty state, not the filtered-empty card", async () => {
+  it("renders the create-or-pin empty state, not the filtered-empty card", async () => {
     renderBoard("/todos/b/home")
-    expect((await screen.findByTestId("board-home-empty")).textContent).toContain("Pin a Todo")
+    expect((await screen.findByTestId("board-home-empty")).textContent).toMatch(/Create a Todo.*pin one/)
     expect(screen.queryByTestId("board-filtered-empty")).toBeNull()
     expect(document.querySelectorAll("[data-testid^=board-card-]").length).toBe(0)
   })
   it("reaches the phone", async () => {
     renderMobileBoard("/todos/b/home")
-    expect((await screen.findByTestId("todo-list-home-empty")).textContent).toContain("Pin a Todo")
+    expect((await screen.findByTestId("todo-list-home-empty")).textContent).toMatch(/Create a Todo.*pin one/)
   })
 })
 

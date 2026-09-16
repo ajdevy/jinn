@@ -17,10 +17,10 @@ import type {
 import { buildEnginePrompt, deriveSessionKey, buildReplyContext, isOldTelegramMessage } from "./threads.js";
 import { formatResponse, stripTelegramMarkdown } from "./format.js";
 import { logger } from "../../shared/logger.js";
-import { TMP_DIR } from "../../shared/paths.js";
+import { STT_SETTINGS_FILE, TMP_DIR } from "../../shared/paths.js";
+import { getEffectiveSttSettings } from "../../stt/settings-store.js";
 import {
   transcribe as sttTranscribe,
-  resolveLanguages,
   getModelPath,
 } from "../../stt/stt.js";
 import {
@@ -29,8 +29,9 @@ import {
   releaseTelegramInbound,
   telegramInboundDedupeKey,
 } from "../../sessions/telegram-inbound-dedupe.js";
+import { createTelegramAuth, type TelegramAuth } from "./auth.js";
+import { scrubUnauthorizedTelegramAuth } from "./auth-message.js";
 type SendMessageOptions = Omit<SendMessageParams, "chat_id" | "text">;
-
 /** Bot API `sendDocument` caption ceiling; `sendMessage` allows 4096. */
 const TELEGRAM_CAPTION_LIMIT = 1024;
 
@@ -73,6 +74,7 @@ export class TelegramConnector implements Connector {
   private started = false;
   private lastError: string | null = null;
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly auth?: TelegramAuth;
 
   private readonly capabilities: ConnectorCapabilities = {
     threading: false,
@@ -94,6 +96,9 @@ export class TelegramConnector implements Connector {
         ? new Set(config.allowFrom)
         : null;
     this.sttConfig = config.stt;
+    if (config.telegramAuth?.enabled === true) {
+      this.auth = createTelegramAuth(this.bot, config.telegramAuth, this.allowedUsers);
+    }
   }
 
   async start(): Promise<void> {
@@ -104,6 +109,7 @@ export class TelegramConnector implements Connector {
       this.bot.startPolling();
       this.started = true;
       this.lastError = null;
+      this.auth?.start();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
@@ -118,11 +124,10 @@ export class TelegramConnector implements Connector {
         return;
       }
 
-      if (!this.handler) {
+      if (!this.auth && !this.handler) {
         logger.debug("[telegram] No handler registered, dropping message");
         return;
       }
-
       if (
         this.ignoreOldMessagesOnBoot &&
         isOldTelegramMessage(telegramMsg.date, this.bootTimeMs)
@@ -132,13 +137,22 @@ export class TelegramConnector implements Connector {
       }
 
       const userId = telegramMsg.from?.id;
-      if (this.allowedUsers) {
-        if (userId === undefined || !this.allowedUsers.has(userId)) {
-          logger.debug(
-            `[telegram] Ignoring message from unauthorized user ${userId}`,
-          );
-          return;
-        }
+      const rawMessageText = this.auth
+        ? messageTextFromTelegram(telegramMsg)
+        : undefined;
+      const allowedUser = !this.allowedUsers
+        || (userId !== undefined && this.allowedUsers.has(userId));
+      if (!allowedUser) {
+        await scrubUnauthorizedTelegramAuth(this.auth, telegramMsg, rawMessageText ?? "");
+        logger.debug(`[telegram] Ignoring message from unauthorized user ${userId}`);
+        return;
+      }
+
+      if (this.auth && await this.auth.handleIncoming(userId ?? "", telegramMsg.chat.type, telegramMsg.chat.id, telegramMsg.message_id, rawMessageText ?? "")) return;
+
+      if (!this.handler) {
+        logger.debug("[telegram] No handler registered, dropping message");
+        return;
       }
 
       let inboundDedupeKey: string | undefined;
@@ -170,6 +184,14 @@ export class TelegramConnector implements Connector {
           );
         }
       };
+      const notifyInboundFailure = async (text: string): Promise<void> => {
+        try {
+          await this.bot.sendMessage(telegramMsg.chat.id, text);
+          completeInboundClaim();
+        } catch {
+          releaseInboundClaim();
+        }
+      };
       const sessionKey = deriveSessionKey(telegramMsg, this.id);
       const replyContext = buildReplyContext(telegramMsg);
 
@@ -177,7 +199,7 @@ export class TelegramConnector implements Connector {
         telegramMsg.from?.username || telegramMsg.from?.first_name || "unknown";
 
       let messageText: string =
-        (telegramMsg as any).text || (telegramMsg as any).caption || "";
+        rawMessageText ?? messageTextFromTelegram(telegramMsg);
 
       if (this.telegramBotId === undefined) {
         logger.error("[telegram] Cannot claim inbound message before bot identity is known");
@@ -298,33 +320,23 @@ export class TelegramConnector implements Connector {
         (telegramMsg as any).video_note;
 
       if (voiceLike) {
-        const model = this.sttConfig?.model || "small";
+        const settings = getEffectiveSttSettings(this.sttConfig, STT_SETTINGS_FILE, logger.warn);
         let unavailable: string | null = null;
-        if (!this.sttConfig?.enabled) {
+        if (!settings.enabled) {
           unavailable = "voice transcription is not enabled on this gateway";
-        } else if (!getModelPath(model)) {
-          unavailable = `STT model '${model}' is not downloaded`;
+        } else if (!getModelPath(settings.model)) {
+          unavailable = `STT model '${settings.model}' is not downloaded`;
         }
 
         if (unavailable) {
           logger.warn(`[telegram] Dropping voice message: ${unavailable}`);
-          let noticeSent = false;
-          try {
-            await this.bot.sendMessage(
-              telegramMsg.chat.id,
-              `⚠️ Couldn't transcribe your voice message — ${unavailable}. Please type instead.`,
-            );
-            noticeSent = true;
-          } catch {
-            /* non-fatal */
-          }
-          if (noticeSent) completeInboundClaim();
-          else releaseInboundClaim();
+          await notifyInboundFailure(
+            `⚠️ Couldn't transcribe your voice message — ${unavailable}. Please type instead.`,
+          );
           return;
         }
 
-        const langs = resolveLanguages(this.sttConfig);
-        const language = langs.length === 1 ? langs[0] : "auto";
+        const language = settings.languages.length === 1 ? settings.languages[0] : "auto";
 
         // Serialize transcriptions: parallel whisper-cli runs OOM on small hosts.
         // If another transcription is already in flight, send a one-line ack so
@@ -356,7 +368,7 @@ export class TelegramConnector implements Connector {
               voiceLike.file_id,
               tmpDir,
             );
-            return await sttTranscribe(localPath, model, language);
+            return await sttTranscribe(localPath, settings.model, language);
           } finally {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -378,18 +390,9 @@ export class TelegramConnector implements Connector {
           logger.error(
             `[telegram] STT failed: ${err instanceof Error ? err.message : err}`,
           );
-          let noticeSent = false;
-          try {
-            await this.bot.sendMessage(
-              telegramMsg.chat.id,
-              "⚠️ Couldn't transcribe your voice message. Please try again or type instead.",
-            );
-            noticeSent = true;
-          } catch {
-            /* non-fatal */
-          }
-          if (noticeSent) completeInboundClaim();
-          else releaseInboundClaim();
+          await notifyInboundFailure(
+            "⚠️ Couldn't transcribe your voice message. Please try again or type instead.",
+          );
           return;
         }
 
@@ -400,18 +403,9 @@ export class TelegramConnector implements Connector {
           logger.info(`[telegram] Transcribed ${transcript.length} chars`);
         } else {
           logger.warn("[telegram] Transcription returned empty text");
-          let noticeSent = false;
-          try {
-            await this.bot.sendMessage(
-              telegramMsg.chat.id,
-              "⚠️ Couldn't make out anything in your voice message. Please try again or type instead.",
-            );
-            noticeSent = true;
-          } catch {
-            /* non-fatal */
-          }
-          if (noticeSent) completeInboundClaim();
-          else releaseInboundClaim();
+          await notifyInboundFailure(
+            "⚠️ Couldn't make out anything in your voice message. Please try again or type instead.",
+          );
           return;
         }
       }
@@ -447,6 +441,7 @@ export class TelegramConnector implements Connector {
   }
 
   async stop(): Promise<void> {
+    this.auth?.stop();
     for (const interval of this.typingIntervals.values()) {
       clearInterval(interval);
     }
@@ -523,6 +518,7 @@ export class TelegramConnector implements Connector {
 
   async replyMessage(target: Target, text: string): Promise<string | undefined> {
     if (!text || !text.trim()) return undefined;
+    const replyText = this.auth?.decorateReply(target.replyContext, text) ?? text;
     const replyToId =
       target.replyContext?.messageId != null
         ? Number(target.replyContext.messageId)
@@ -531,7 +527,7 @@ export class TelegramConnector implements Connector {
     if (replyToId) {
       opts.reply_parameters = { message_id: replyToId };
     }
-    const chunks = formatResponse(text);
+    const chunks = formatResponse(replyText);
     let lastMessageId: string | undefined;
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
@@ -602,4 +598,8 @@ export class TelegramConnector implements Connector {
   onMessage(handler: (msg: IncomingMessage) => void | Promise<unknown>): void {
     this.handler = handler;
   }
+}
+
+function messageTextFromTelegram(telegramMsg: any): string {
+  return telegramMsg.text || telegramMsg.caption || "";
 }

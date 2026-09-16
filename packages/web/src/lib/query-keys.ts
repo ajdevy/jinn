@@ -48,6 +48,5 @@ export const queryKeys = {
   config: ['config'] as const,
   status: ['status'] as const,
   workspaces: ['workspaces'] as const,
-  instanceMigration: ['instance-migration'] as const,
   onboarding: ['onboarding'] as const,
 } as const

@@ -1,6 +1,7 @@
-import type { GatewayEmit } from "../shared/gateway-events.js";
 import type { Engine } from "../shared/types.js";
-import { listSessions, updateSession } from "../sessions/registry.js";
+import { beginSessionAttempt, listSessions } from "../sessions/registry.js";
+import { settleTurn } from "../sessions/turn/completion.js";
+import type { TurnSurface } from "../sessions/turn/types.js";
 import { logger } from "../shared/logger.js";
 
 const DEFAULT_INTERVAL_MS = 15_000;
@@ -18,7 +19,8 @@ const DEFAULT_STALE_MS = 45_000;
 
 export interface StatusReconcilerDeps {
   engines: Map<string, Engine>;
-  emit: GatewayEmit;
+  /** The transport seam a settled turn reports through — the web runner's own, so there is no second emit site. */
+  surfaceFor: (sessionId: string) => TurnSurface;
   intervalMs?: number;
   staleMs?: number;
   /** Test override. */
@@ -31,9 +33,10 @@ export interface StatusReconcilerDeps {
   pendingStuck?: Set<string>;
 }
 
-/** One sweep: unstick sessions stuck at status:"running" with no live turn.
- *  Returns the number of sessions fixed. Exported for tests. */
-export function sweepOnce(deps: StatusReconcilerDeps): number {
+/** One sweep: unstick sessions stuck at status:"running" with no live turn, by
+ *  settling them through the one completion path. Returns the number settled —
+ *  a session whose fence was lost is not a fix. Exported for tests. */
+export async function sweepOnce(deps: StatusReconcilerDeps): Promise<number> {
   const now = deps.now?.() ?? Date.now();
   const staleMs = deps.staleMs ?? DEFAULT_STALE_MS;
   let fixed = 0;
@@ -66,19 +69,20 @@ export function sweepOnce(deps: StatusReconcilerDeps): number {
       continue; // confirm on the next sweep — could be a turn-boundary race
     }
     pending?.delete(session.id);
-    updateSession(session.id, {
-      status: "interrupted",
-      attemptOutcome: "interrupted",
-      lastActivity: new Date(now).toISOString(),
-      lastError: "Interrupted: engine turn ended without a terminal result",
-    });
-    deps.emit("session:completed", {
+    // A session set running outside an attempt carries no token; mint one so
+    // the receipt still settles under a generation the fence can compare.
+    const attemptToken = session.attemptToken ?? beginSessionAttempt(session.id)?.attemptToken;
+    if (!attemptToken) continue;
+    // notifyParent keeps its notifying default: this is the one interrupt with
+    // no interrupter left to report it.
+    const settled = await settleTurn({
       sessionId: session.id,
-      employee: session.employee ?? undefined,
-      title: session.title,
-      result: null,
-      error: null,
+      attemptToken,
+      outcome: "interrupted",
+      error: "Interrupted: engine turn ended without a terminal result",
+      surface: deps.surfaceFor(session.id),
     });
+    if (!settled) continue; // a stop, reset or newer turn owns the attempt
     logger.warn(
       `[reconciler] session ${session.id} (${session.engine}) was stuck status=running with no live turn ` +
       `(heartbeat stale ${Math.round(staleFor / 1000)}s) — marked interrupted`,
@@ -91,12 +95,13 @@ export function sweepOnce(deps: StatusReconcilerDeps): number {
 /** Start the periodic sweep. Returns a stop function. */
 export function startStatusReconciler(deps: StatusReconcilerDeps): () => void {
   const pendingStuck = deps.pendingStuck ?? new Set<string>();
+  let sweeping = false; // the two-sweep confirmation only means anything across interval-separated ticks
   const timer = setInterval(() => {
-    try {
-      sweepOnce({ ...deps, pendingStuck });
-    } catch (err) {
-      logger.warn(`[reconciler] sweep failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    if (sweeping) return;
+    sweeping = true;
+    void sweepOnce({ ...deps, pendingStuck })
+      .catch((err) => logger.warn(`[reconciler] sweep failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => { sweeping = false; });
   }, deps.intervalMs ?? DEFAULT_INTERVAL_MS);
   timer.unref?.();
   return () => clearInterval(timer);

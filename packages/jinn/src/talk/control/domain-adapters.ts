@@ -1,24 +1,14 @@
-import type { ApiContext } from "../../gateway/api.js";
 import { orgRegistry } from "../../gateway/org-registry.js";
-import {
-  getMessages,
-  getSession,
-} from "../../sessions/registry.js";
-import { assignWorkItem } from "../../work-items/assignment.js";
-import { addComment, commentsTail } from "../../work-items/comments.js";
-import { getWorkItemLabels } from "../../work-items/labels.js";
-import {
-  getWorkItem,
-  updateWorkItemConditional,
-  type UpdateWorkItemInput,
-} from "../../work-items/store.js";
+import { getMessages, getSession } from "../../sessions/registry.js";
+import { getWorkItem } from "../../work-items/store.js";
 import type { JsonValue } from "../../workflows/model.js";
 import { TalkControlRuntime } from "./runtime.js";
 import { initDb } from "../../shared/db.js";
 import { TalkTopicLifecycle } from "../topics/lifecycle.js";
 import { TalkTopicRepository } from "../topics/repository.js";
+import { requiredText, type DomainHandler, type TalkControlHost } from "./domain-types.js";
+import { TODO_DOMAIN_HANDLERS } from "./todo-adapters.js";
 import type {
-  TalkControlReceiptStore,
   TalkControlAdapterContext,
   TalkControlExecution,
   TalkControlManifest,
@@ -28,38 +18,9 @@ import { verifyTalkDomainOperation } from "./verification.js";
 import { executeVoiceApproval } from "./voice-approval-adapter.js";
 import { dispatchTalkSessionMessage } from "./session-message-adapter.js";
 import { delegateTodoWithTalk } from "./delegation-adapter.js";
-import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./manifest.js";
+import { TALK_COMPANY_CAPABILITY_COVERAGE } from "./capability-coverage.js";
 
-export interface TalkControlHost {
-  context: ApiContext;
-  sourceSessionId: string;
-  receipts?: TalkControlReceiptStore;
-}
-
-function requiredText(args: Record<string, unknown>, key: string): string {
-  const value = typeof args[key] === "string" ? args[key].trim() : "";
-  if (!value) throw new Error(`${key} is required`);
-  return value;
-}
-
-function todoData(id: string): Record<string, unknown> {
-  const item = getWorkItem(id);
-  if (!item) throw new Error(`Todo ${id} not found`);
-  const comments = commentsTail(id);
-  return {
-    id: item.id,
-    title: item.title,
-    body: item.body,
-    status: item.status,
-    assignee: item.assignee,
-    department: item.department,
-    priority: item.priority,
-    version: item.version,
-    labels: getWorkItemLabels(id).map((label) => label.name),
-    comments: comments.comments.map((comment) => ({ id: comment.id, author: comment.author, body: comment.body })),
-    commentCount: comments.total,
-  };
-}
+export type { TalkControlHost } from "./domain-types.js";
 
 function sessionData(id: string): Record<string, unknown> {
   const session = getSession(id);
@@ -107,59 +68,6 @@ function delegateTodo(host: TalkControlHost, args: Record<string, unknown>, call
     call,
   });
 }
-
-type DomainHandler = (
-  host: TalkControlHost,
-  args: Record<string, unknown>,
-  call: TalkControlAdapterContext,
-) => TalkControlExecution | Promise<TalkControlExecution>;
-
-const readTodo: DomainHandler = (_host, args) => {
-  const id = requiredText(args, "id");
-  return { data: todoData(id), uiEffect: null };
-};
-
-function todoEditPatch(args: Record<string, unknown>): UpdateWorkItemInput {
-  const patch: UpdateWorkItemInput = {};
-  if (typeof args.title === "string" && args.title.trim()) patch.title = args.title.trim();
-  if (typeof args.body === "string") patch.body = args.body;
-  if (Number.isInteger(args.priority) && Number(args.priority) >= 0 && Number(args.priority) <= 3) patch.priority = Number(args.priority);
-  if (Object.keys(patch).length === 0) throw new Error("an editable field is required");
-  return patch;
-}
-
-const editTodo: DomainHandler = (_host, args, call) => {
-  const id = requiredText(args, "id");
-  const expectedVersion = args.expectedVersion;
-  if (!Number.isInteger(expectedVersion) || Number(expectedVersion) < 1) throw new Error("expectedVersion must be positive");
-  const patch = todoEditPatch(args);
-  const result = updateWorkItemConditional(id, patch, { expectedVersion: Number(expectedVersion), idempotencyKey: call.idempotencyKey, actor: "operator", origin: "talk" });
-  if (!result) throw new Error(`Todo ${id} not found`);
-  return { data: { todo: todoData(id), replayed: result.replayed }, uiEffect: { invalidate: ["todos", `todo:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
-};
-
-const commentTodo: DomainHandler = (_host, args, call) => {
-  const id = requiredText(args, "id");
-  const comment = addComment({
-    workItemId: id,
-    body: requiredText(args, "body"),
-    author: "operator",
-    authorKind: "operator",
-    origin: "talk",
-    idempotencyKey: call.idempotencyKey,
-  });
-  return { data: { commentId: comment.id, todoId: id }, uiEffect: { invalidate: ["todos", `todo:${id}`, `todo-comments:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
-};
-
-const assignTodo: DomainHandler = (host, args) => {
-  const id = requiredText(args, "id");
-  const employeeName = requiredText(args, "assignee");
-  const employee = orgRegistry(host.context.getConfig()).get(employeeName);
-  if (!employee) throw new Error(`Employee ${employeeName} not found`);
-  const item = assignWorkItem(id, employee.name, employee.department ?? null, "operator", "talk");
-  if (!item) throw new Error(`Todo ${id} not found`);
-  return { data: { todo: todoData(id) }, uiEffect: { invalidate: ["todos", `todo:${id}`], navigate: `/todos/${encodeURIComponent(id)}` } };
-};
 
 const sendToSession: DomainHandler = (host, args, call) => {
   const id = requiredText(args, "id");
@@ -234,10 +142,7 @@ const readCapability: DomainHandler = (_host, args) => {
 };
 
 const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
-  read_todo: readTodo,
-  talk_edit_todo: editTodo,
-  talk_comment_todo: commentTodo,
-  talk_assign_todo: assignTodo,
+  ...TODO_DOMAIN_HANDLERS,
   prepare_voice_approval: (_host, args, call) => executeVoiceApproval("prepare", args, call),
   commit_voice_approval: (_host, args, call) => executeVoiceApproval("commit", args, call),
   talk_delegate_todo: delegateTodo,
@@ -250,6 +155,10 @@ const DOMAIN_HANDLERS: Record<string, DomainHandler> = {
   talk_remember_topic: rememberTopic,
   read_talk_capability: readCapability,
 };
+
+/** Every operation name this module can execute. Exported so the manifest can
+ *  be proven complete rather than assumed to be. */
+export const DOMAIN_HANDLER_NAMES: readonly string[] = Object.keys(DOMAIN_HANDLERS);
 
 async function execute(host: TalkControlHost, operation: TalkControlOperation, args: Record<string, unknown>, call: TalkControlAdapterContext): Promise<TalkControlExecution> {
   const handler = DOMAIN_HANDLERS[operation.name];

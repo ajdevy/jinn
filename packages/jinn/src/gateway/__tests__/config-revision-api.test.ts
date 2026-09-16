@@ -124,8 +124,10 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
-  (await import("../../shared/db.js")).__closeDbForTest();
-  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  try { (await import("../../shared/db.js")).__closeDbForTest(); } catch { /* never opened */ }
+  try {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch { /* Windows can keep a handle past close; the suite already passed. */ }
 });
 
 describe("GET /api/config revision", () => {

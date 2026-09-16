@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { connectorInstancesFromConfig, createConnector, reloadConnectorRegistry, startConnectorInstances } from "../server.js";
 import { SlackConnector } from "../../connectors/slack/index.js";
 import { DiscordConnector } from "../../connectors/discord/index.js";
-import { RemoteDiscordConnector } from "../../connectors/discord/remote.js";
 import { TelegramConnector } from "../../connectors/telegram/index.js";
 import { WhatsAppConnector } from "../../connectors/whatsapp/index.js";
 import { SessionManager } from "../../sessions/manager.js";
@@ -34,7 +33,7 @@ describe("connectorInstancesFromConfig", () => {
   it("respects the per-type enable guards", () => {
     const ids = (config: JinnConfig): string[] => connectorInstancesFromConfig(config).map((entry) => entry.id);
     expect(ids(configWith({ slack: { appToken: "xapp-test" } }))).toEqual([]);
-    expect(ids(configWith({ discord: { proxyVia: "http://127.0.0.1:1" } }))).toEqual(["discord"]);
+    expect(ids(configWith({ discord: { botToken: "t" } }))).toEqual(["discord"]);
     expect(ids(configWith({ discord: { channelId: "c1" } }))).toEqual([]);
     expect(ids(configWith({ telegram: { allowFrom: [1] } }))).toEqual([]);
     expect(ids(configWith({ whatsapp: {} }))).toEqual(["whatsapp"]);
@@ -89,7 +88,6 @@ describe("createConnector", () => {
   it("dispatches every supported type to its connector class", () => {
     expect(build("slack", { appToken: "xapp-test", botToken: "xoxb-test" })).toBeInstanceOf(SlackConnector);
     expect(build("discord", { botToken: "d-test" })).toBeInstanceOf(DiscordConnector);
-    expect(createConnector({ id: "discord", type: "discord", config: { id: "discord", proxyVia: "http://127.0.0.1:1" } })).toBeInstanceOf(RemoteDiscordConnector);
     expect(build("telegram", { botToken: "tg-test" })).toBeInstanceOf(TelegramConnector);
     expect(build("whatsapp")).toBeInstanceOf(WhatsAppConnector);
   });
@@ -103,64 +101,6 @@ describe("createConnector", () => {
 
   it("rejects an unknown type", () => {
     expect(() => build("carrier-pigeon")).toThrow(/Unknown connector type "carrier-pigeon"/);
-  });
-
-  it("rejects named Remote Discord until authenticated identity is supported", () => {
-    expect(() => build("discord", { proxyVia: "http://127.0.0.1:1" }))
-      .toThrow(/named Remote Discord.*not supported/i);
-  });
-
-  it("keeps legacy Remote Discord identity and proxy addressing byte-identical", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "m1" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const remote = createConnector({
-        id: "discord",
-        type: "discord",
-        config: { id: "discord", proxyVia: "http://127.0.0.1:7788" },
-      });
-      expect([remote.id, remote.name]).toEqual(["discord", "discord"]);
-      await remote.sendMessage({ channel: "C1" }, "hello");
-      expect(fetchMock).toHaveBeenCalledWith(
-        "http://127.0.0.1:7788/api/connectors/discord/proxy",
-        expect.objectContaining({ method: "POST" }),
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("keeps the local-to-remote Discord session key on the legacy discord prefix", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const local = build("discord", { botToken: "d-test" }) as DiscordConnector;
-      await (local as unknown as { proxyToRemote(url: string, message: unknown): Promise<void> }).proxyToRemote(
-        "http://127.0.0.1:7788",
-        {
-          id: "M1",
-          content: "hello",
-          attachments: new Map(),
-          author: { id: "U1", username: "tester" },
-          guild: { id: "G1" },
-          channel: {
-            id: "C1",
-            name: "general",
-            isDMBased: () => false,
-            isThread: () => false,
-            isTextBased: () => true,
-          },
-        },
-      );
-      const request = fetchMock.mock.calls[0][1] as RequestInit;
-      expect(JSON.parse(String(request.body)).sessionKey).toBe("discord:C1");
-      expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:7788/api/connectors/discord/incoming");
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });
 

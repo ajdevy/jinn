@@ -493,15 +493,15 @@ function packCandidate(repo, cache, env) {
   return path.join(cache, created[0])
 }
 
-function previousReleaseVersion(repo, env) {
-  const tag = run("git", ["describe", "--tags", "--abbrev=0", "HEAD^"], { cwd: repo, env })
-  const version = tag.replace(/^v/, "")
-  if (!STRICT_VERSION.test(version)) throw new Error(`Previous release tag is not a plain version: ${tag}`)
+function previousReleaseVersion(env) {
+  // Baseline is npm's published latest, never a git tag: a tag can name a version that never published (v0.31.0), and on a merge commit `HEAD^` walks the local first-parent lineage instead of the released one.
+  const version = run("npm", ["view", "jinn-cli", "version"], { env })
+  if (!STRICT_VERSION.test(version)) throw new Error(`npm did not report a plain published version: ${version}`)
   return version
 }
 
-function packPublicBaseline(repo, cache, env) {
-  const version = previousReleaseVersion(repo, env)
+function packPublicBaseline(cache, env) {
+  const version = previousReleaseVersion(env)
   run("npm", ["pack", `jinn-cli@${version}`, "--pack-destination", cache], { env })
   const name = fs.readdirSync(cache).find((entry) => entry === `jinn-cli-${version}.tgz`)
   if (!name) throw new Error(`npm did not produce the v${version} baseline tarball`)
@@ -883,7 +883,7 @@ async function executeScenario({ scenario, candidateTarball, baselineTarball, ro
       oldTarball = path.join(cache, path.basename(baselineTarball))
       if (path.resolve(baselineTarball) !== path.resolve(oldTarball)) fs.copyFileSync(baselineTarball, oldTarball)
     } else {
-      oldTarball = packPublicBaseline(repo, cache, env)
+      oldTarball = packPublicBaseline(cache, env)
     }
     summary.baselineSha256 = sha256(fs.readFileSync(oldTarball))
     const old = installTarball(oldTarball, path.join(root, "prefix-baseline"), env)
@@ -1115,7 +1115,7 @@ async function main() {
       const candidateTarball = options.candidateTarball ?? packCandidate(repo, cache, env)
       let baselineTarball = options.baselineTarball
       if (!baselineTarball) {
-        baselineTarball = packPublicBaseline(repo, cache, env)
+        baselineTarball = packPublicBaseline(cache, env)
       }
       await executeDockerLab({ ...options, repo, root, candidateTarball, baselineTarball })
     }, () => quiesceAndRemoveLabRoot(root, { keep: options.keep }))

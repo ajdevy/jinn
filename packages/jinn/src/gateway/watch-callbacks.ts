@@ -37,8 +37,8 @@ export function gatewayWatchCallbacks({ reloadConfig, getConfig, reloadOrg, emit
     },
     onCronReload: () => {
       const updatedJobs = loadJobs();
-      reloadScheduler(updatedJobs);
-      logger.info(`Cron jobs reloaded (${updatedJobs.length} job(s))`);
+      const { scheduled, skipped } = reloadScheduler(updatedJobs);
+      logger.info(`Cron jobs reloaded (${scheduled} scheduled${skipped > 0 ? `, ${skipped} invalid skipped` : ""})`);
       emit("cron:reloaded", {});
     },
     onOrgChange: reloadOrg,

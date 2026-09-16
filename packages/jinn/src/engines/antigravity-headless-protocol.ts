@@ -1,5 +1,12 @@
 import type { EngineRunOpts, StreamDelta } from "../shared/types.js";
 
+/**
+ * How long a headless turn may run. agy's print mode has its own wall
+ * (`--print-timeout`, default 5m), so the adapter passes this same number down
+ * and the two can never disagree about when a turn has gone too long.
+ */
+export const ANTIGRAVITY_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
 export interface AntigravityParsedLine {
   conversationId?: string;
   deltas: StreamDelta[];
@@ -81,6 +88,7 @@ export function buildAntigravityHeadlessArgs(opts: EngineRunOpts): string[] {
   if (opts.model) args.push("--model", opts.model);
   args.push("--dangerously-skip-permissions");
   args.push(...(opts.cliFlags ?? []).filter((flag) => flag !== "--chrome"));
+  args.push("--print-timeout", `${ANTIGRAVITY_TURN_TIMEOUT_MS / 1000}s`);
   args.push("--input-format", "stream-json");
   args.push("--output-format", "stream-json");
   return args;

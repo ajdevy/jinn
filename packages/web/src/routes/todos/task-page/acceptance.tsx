@@ -1,12 +1,16 @@
 import { useState } from "react"
 import { Check, Plus, X } from "lucide-react"
 
-/* Todos v2 slice 6 — acceptance as a first-class checklist (design-doc §7.2.6,
- * mock task-detail.html): accent rounded boxes, checked items dim. Checks are
+/* Acceptance as a first-class checklist (design-doc §7.2.6, mock
+ * task-detail.html): accent rounded boxes, checked items dim. Checks are
  * EDITS to the plain-text `acceptance` column (audited through the metadata
  * PATCH), never status magic. The stored format stays markdown-ish lines —
  * `- [x] done line` / `- [ ] open line` — so agents read it unchanged; bare
- * `- line` / plain lines parse as unchecked. */
+ * `- line` / plain lines parse as unchecked.
+ *
+ * ICI-1435 unmounted this from the Todo detail view — hide only. The
+ * `acceptance` column, its API field and every write path are untouched, so
+ * remounting is a one-line change. */
 
 export interface AcceptanceLine {
   text: string

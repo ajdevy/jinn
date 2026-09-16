@@ -41,9 +41,23 @@ export function blankSourceProblem(engine: string): string {
   return `${modelMapPath(engine)} has a blank model id as a key`;
 }
 
+/** A key carrying a character no model id has — a discovery line pasted whole. */
+export function malformedSourceProblem(engine: string, model: string): string {
+  return `${modelMapPath(engine)} has a key that is not a model id (got ${JSON.stringify(model)})`;
+}
+
 /** The value side of one entry is not a model id. */
 export function targetNotAModelIdProblem(engine: string, model: string, value: unknown): string {
   return `${modelMapEntryPath(engine, model)} must be a nonempty model id (got ${shapeOf(value)})`;
+}
+
+/** The value side of one entry carries one. `shapeOf` cannot say this: a
+ *  tab-joined `id\tlabel` composite is a perfectly nonempty string. */
+export function malformedTargetProblem(engine: string, model: string, value: string): string {
+  return (
+    `${modelMapEntryPath(engine, model)} must be a model id with no control characters ` +
+    `(got ${JSON.stringify(value)})`
+  );
 }
 
 /** One entry, named the way both the loader and the editor need to talk about it. */
@@ -74,4 +88,16 @@ export function unservedTargetProblem({ engine, model, target, substitute }: Uns
  *  which model the turn ends up on. */
 export function unservedTargetWarning(entry: UnservedTarget): string {
   return `${unservedTargetProblem(entry)} — running ${entry.substitute} on its own default model instead.`;
+}
+
+/**
+ * The same entry found at swap time. The map is the fault here, not the CLI that
+ * refused the argv, so the sentence names the file the operator edits — the
+ * incident this guards against was read as an antigravity failure for an hour.
+ */
+export function malformedTargetWarning({ engine, model, target, substitute }: UnservedTarget): string {
+  return (
+    `${modelMapEntryPath(engine, model)} in config.yaml maps to ${JSON.stringify(target)}, ` +
+    `which is not a model id — running ${substitute} on its own default model instead.`
+  );
 }

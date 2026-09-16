@@ -2,11 +2,12 @@ import type { ChildProcess } from "node:child_process";
 import type { EngineRunOpts, EngineResult } from "../shared/types.js";
 import { killProcessTree } from "../shared/windows-spawn.js";
 import {
+  ANTIGRAVITY_TURN_TIMEOUT_MS,
   parseAntigravityStreamLine,
   type AntigravityParsedLine,
 } from "./antigravity-headless-protocol.js";
+import { readAntigravityPrintModeError } from "./antigravity-cli-log.js";
 
-const ANTIGRAVITY_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const EXIT_CLOSE_GRACE_MS = 1500;
 const FORCE_KILL_GRACE_MS = 2000;
 
@@ -47,6 +48,7 @@ interface TurnOpts {
 
 export class AntigravityHeadlessTurn {
   private settled = false;
+  private startedAtMs = Date.now();
   private lineBuffer = "";
   private stderr = "";
   private conversationId: string;
@@ -150,13 +152,20 @@ export class AntigravityHeadlessTurn {
     if (this.settled) return;
     const reason = this.opts.live.terminationReason;
     if (!reason) terminateAntigravityProcessTree(this.opts.proc);
-    const detail = this.stderr.trim().slice(0, 500);
     this.settle({
       sessionId: this.conversationId,
       result: "",
-      error: reason ?? `Antigravity exited with code ${code}${detail ? `: ${detail}` : " without a terminal result"}`,
+      error: reason ?? this.describeMissingResult(code),
       ...(this.lastContextTokens ? { contextTokens: this.lastContextTokens } : {}),
     });
+  }
+
+  /** agy's log names the real cause (usually its print-mode wall); ours names only the exit. */
+  private describeMissingResult(code: number | null): string {
+    const detail = this.stderr.trim().slice(0, 500);
+    const exit = `Antigravity exited with code ${code}${detail ? `: ${detail}` : " without a terminal result"}`;
+    const cliError = readAntigravityPrintModeError(this.startedAtMs);
+    return cliError ? `${exit}. agy reported: ${cliError}` : exit;
   }
 
   private settle(result: EngineResult): void {
