@@ -16,10 +16,14 @@ export function resolveSttModelsDir(options: HostPathOptions = {}): string {
   );
 }
 
-export function findModelFile(filename: string, directories: readonly string[]): string | null {
+export function findModelFile(
+  filename: string,
+  directories: readonly string[],
+  isUsable: (candidate: string) => boolean = fs.existsSync,
+): string | null {
   for (const directory of directories) {
     const candidate = path.join(directory, filename);
-    if (fs.existsSync(candidate)) return candidate;
+    if (isUsable(candidate)) return candidate;
   }
   return null;
 }
