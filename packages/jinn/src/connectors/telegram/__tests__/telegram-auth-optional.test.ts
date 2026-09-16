@@ -34,13 +34,17 @@ describe("TelegramConnector optional Telegram auth", () => {
     const readFile = vi.spyOn(fs, "readFileSync");
     const handler = vi.fn();
 
-    for (const telegramAuth of [undefined, { enabled: false, ownerUserIds: [67890] }]) {
+    const cases: Array<[number, { enabled?: boolean; ownerUserIds?: number[] } | undefined]> = [
+      [42, undefined],
+      [43, { enabled: false, ownerUserIds: [67890] }],
+    ];
+    for (const [messageId, telegramAuth] of cases) {
       const connector = new TelegramConnector({ botToken: "123456:ABC-DEF", telegramAuth });
       connector.onMessage(handler);
       await connector.start();
       const listener = mockOn.mock.calls.at(-1)?.[1] as (message: unknown) => Promise<void>;
       await listener({
-        message_id: 42,
+        message_id: messageId,
         chat: { id: 12345, type: "private" },
         from: { id: 67890, username: "owner", first_name: "Owner", is_bot: false },
         date: Math.floor(Date.now() / 1000) + 10,

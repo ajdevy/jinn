@@ -24,6 +24,10 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
   }
 }
 
+function isDurableQueueIntent(item: QueueItem, callbackDelivery: unknown): boolean {
+  return Boolean(callbackDelivery || item.dedupeKey);
+}
+
 function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
   let session = getSession(item.sessionId);
   if (!session) {
@@ -48,13 +52,13 @@ function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
   const engine = context.sessionManager.getEngine(session.engine);
   if (!engine) {
     const diagnostic = `Engine "${session.engine}" not available`;
-    if (callbackDelivery) {
+    if (isDurableQueueIntent(item, callbackDelivery)) {
       // Acceptance committed this exact queue row as part of the callback
       // outbox. Engine availability is transient operational state, not a
       // reason to destroy that accepted intent. Keep the row pending so a
       // later config/engine reload can replay the same durable ID.
       updateSession(session.id, { lastActivity: new Date().toISOString(), lastError: diagnostic });
-      logger.warn(`Deferred accepted callback queue ${item.id}: ${diagnostic}`);
+      logger.warn(`Deferred durable queue ${item.id}: ${diagnostic}`);
     } else {
       cancelQueueItem(item.id);
       updateSession(session.id, { status: "error", lastActivity: new Date().toISOString(), lastError: diagnostic });
@@ -69,7 +73,7 @@ function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
     queueItemId: item.id,
     // Restart-replayed callbacks are notifications, including callbacks whose
     // parent session originated in a connector. Do not thread onto stale input.
-    replyToMessage: false,
+    replyToMessage: !callbackDelivery,
   });
   return true;
 }

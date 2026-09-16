@@ -110,6 +110,10 @@ beforeEach(() => {
   fs.rmSync(settingsPath, { force: true });
   fs.writeFileSync(path.join(modelsDir, "ggml-small.bin"), "model");
   fs.writeFileSync(path.join(modelsDir, "ggml-tiny.bin"), "model");
+  // getSttStatus rejects truncated downloads; a sparse file keeps this fixture
+  // fast while exercising the same usable-size gate as production.
+  fs.truncateSync(path.join(modelsDir, "ggml-small.bin"), 466_000_000);
+  fs.truncateSync(path.join(modelsDir, "ggml-tiny.bin"), 75_000_000);
   writeLocalConfig();
   currentConfig = configWithoutStt();
   emit.mockClear();
