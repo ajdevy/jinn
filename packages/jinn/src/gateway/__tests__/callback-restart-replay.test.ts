@@ -136,6 +136,7 @@ describe("accepted callback queue intents survive a restart", () => {
     }).delivery;
     const preRestartQueue = acceptWithoutExecuting();
     await postCallbackDelivery(makeContext(engine, preRestartQueue), parent.id, delivery.id);
+    await postCallbackDelivery(makeContext(engine, preRestartQueue), parent.id, delivery.id);
 
     const postRestartQueue = new queueModule.SessionQueue();
     const restoredContext = makeContext(engine, postRestartQueue);
