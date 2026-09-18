@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { deliverConnectorMessage, deliverConnectorReply } from "../connector-reply.js";
+import { deliverConnectorMessage, deliverConnectorReply, deliverLogChannelReply } from "../connector-reply.js";
 import { logger } from "../../shared/logger.js";
 import { __closeDbForTest } from "../../shared/db.js";
-import type { Connector, Session } from "../../shared/types.js";
+import type { Connector, JinnConfig, Session } from "../../shared/types.js";
 
 /** Build a minimal mocked connector exposing the two methods the helper uses. */
 function makeConnector(name: string) {
@@ -129,5 +129,78 @@ describe("deliverConnectorReply", () => {
   it("swallows connector errors (does not reject)", async () => {
     slack.replyMessage.mockRejectedValueOnce(new Error("boom"));
     await expect(deliverConnectorReply(makeSession(), "hi", map)).resolves.toBeUndefined();
+  });
+});
+
+describe("deliverLogChannelReply", () => {
+  let map: Map<string, Connector>;
+  let slack: ReturnType<typeof makeConnector>;
+  let telegram: ReturnType<typeof makeConnector>;
+
+  beforeEach(() => {
+    slack = makeConnector("slack");
+    telegram = makeConnector("telegram");
+    map = new Map<string, Connector>([["slack", slack.connector], ["telegram", telegram.connector]]);
+  });
+
+  it("does nothing when logChannel is unset (documented fallback)", async () => {
+    const session = makeSession();
+    await deliverLogChannelReply(session, "done", map, {} as Pick<JinnConfig, "notifications">);
+    expect(slack.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends to the session's own connector, on logChannel, when logConnector is unset", async () => {
+    const session = makeSession();
+    await deliverLogChannelReply(session, "done", map, { notifications: { logChannel: "log-1" } });
+    expect(slack.sendMessage).toHaveBeenCalledWith({ channel: "log-1" }, "done");
+    expect(slack.replyMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends to an explicit logConnector distinct from the session's own connector", async () => {
+    const session = makeSession({ connector: "slack" });
+    await deliverLogChannelReply(session, "done", map, {
+      notifications: { logConnector: "telegram", logChannel: "-1000" },
+    });
+    expect(telegram.sendMessage).toHaveBeenCalledWith({ channel: "-1000" }, "done");
+    expect(slack.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("logs a warning and no-ops when the configured logConnector is not registered", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const session = makeSession({ id: "sess-log-1" });
+    await deliverLogChannelReply(session, "done", map, {
+      notifications: { logConnector: "discord", logChannel: "-1000" },
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("sess-log-1");
+    expect(warn.mock.calls[0][0]).toContain("discord");
+    warn.mockRestore();
+  });
+
+  it("does not deliver when text is empty", async () => {
+    await deliverLogChannelReply(makeSession(), "", map, { notifications: { logChannel: "log-1" } });
+    expect(slack.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not resend one terminal log delivery when replayed three times", async () => {
+    const session = makeSession({ id: "log-replay", attemptToken: "attempt-1" });
+    const config: Pick<JinnConfig, "notifications"> = { notifications: { logChannel: "log-1" } };
+
+    await Promise.all([
+      deliverLogChannelReply(session, "done", map, config),
+      deliverLogChannelReply(session, "done", map, config),
+      deliverLogChannelReply(session, "done", map, config),
+    ]);
+    __closeDbForTest();
+    await deliverLogChannelReply(session, "done", map, config);
+
+    expect(slack.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("swallows connector errors (does not reject)", async () => {
+    slack.sendMessage.mockRejectedValueOnce(new Error("boom"));
+    await expect(
+      deliverLogChannelReply(makeSession(), "done", map, { notifications: { logChannel: "log-1" } }),
+    ).resolves.toBeUndefined();
   });
 });

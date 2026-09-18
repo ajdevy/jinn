@@ -1,6 +1,6 @@
 import { initDb } from "../shared/db.js";
 
-export type ConnectorDeliveryKind = "reply" | "message";
+export type ConnectorDeliveryKind = "reply" | "message" | "log";
 
 /** Stable identity for one terminal connector delivery. */
 export function connectorDeliveryKey(

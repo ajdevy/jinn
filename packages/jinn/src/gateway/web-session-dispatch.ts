@@ -29,7 +29,13 @@ import type { ApiContext } from "./api.js";
  */
 
 /** The turn surface every web-dispatched turn reports through. */
-export function webTurnSurface(sessionId: string, context: ApiContext, replyToMessage = true, deliveryKey?: string) {
+export function webTurnSurface(
+  sessionId: string,
+  context: ApiContext,
+  replyToMessage = true,
+  deliveryKey?: string,
+  triggerKind?: "notification" | "operator",
+) {
   return createWebTurnSurface({
     sessionId,
     emit: context.emit,
@@ -37,6 +43,7 @@ export function webTurnSurface(sessionId: string, context: ApiContext, replyToMe
     getConfig: context.getConfig,
     replyToMessage,
     deliveryKey,
+    triggerKind,
   });
 }
 
@@ -131,7 +138,15 @@ export function dispatchWebSessionRun(
   prompt: string,
   engine: Engine,
   context: ApiContext,
-  opts?: { delayMs?: number; queueItemId?: string; attachments?: string[]; replyToMessage?: boolean },
+  opts?: {
+    delayMs?: number;
+    queueItemId?: string;
+    attachments?: string[];
+    replyToMessage?: boolean;
+    /** See WebTurnSurfaceOptions.triggerKind in web-turn-surface.ts. Omitted
+     *  defaults to the unchanged "operator" behavior. */
+    triggerKind?: "notification" | "operator";
+  },
 ): void {
   let dispatchedAttemptToken: string | undefined;
   const sessionKey = session.sessionKey || session.sourceRef;
@@ -144,6 +159,7 @@ export function dispatchWebSessionRun(
           attachments: opts?.attachments,
           replyToMessage: opts?.replyToMessage,
           deliveryKey: opts?.queueItemId ? `queue-item:${opts.queueItemId}` : undefined,
+          triggerKind: opts?.triggerKind,
         }, opts?.queueItemId), {
           sessionKey,
           queueItemId: opts?.queueItemId,
@@ -180,6 +196,7 @@ interface WebTurnRequest {
   attachments?: string[];
   replyToMessage?: boolean;
   deliveryKey?: string;
+  triggerKind?: "notification" | "operator";
 }
 
 async function runWebSession(
@@ -219,7 +236,7 @@ async function runWebSession(
     roster: await resolveTurnHierarchy(context.getConfig()),
     channel: currentSession.sourceRef,
     user: currentSession.userId ?? "web-user",
-  }, webTurnSurface(currentSession.id, context, request.replyToMessage, request.deliveryKey));
+  }, webTurnSurface(currentSession.id, context, request.replyToMessage, request.deliveryKey, request.triggerKind));
 }
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */
 export function resolveAttachmentPaths(fileIds: unknown): string[] {
