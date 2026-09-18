@@ -317,6 +317,12 @@ portal:
 # cron:
 #   alertConnector: slack
 #   alertChannel: "#alerts"
+# Where routine, non-urgent session/Todo chatter defaults to. The onboarding
+# conversation asks for this explicitly; unset is a deliberate fallback that
+# keeps routine chatter in the primary chat.
+# notifications:
+#   logConnector: telegram
+#   logChannel: "-1000000000000"
 
 logging:
   file: true
