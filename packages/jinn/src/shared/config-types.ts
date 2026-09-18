@@ -147,6 +147,12 @@ export interface JinnConfig {
   notifications?: {
     connector?: string;  // defaults to "discord"
     channel?: string;    // Discord channel ID for admin notifications
+    /** Where routine, non-urgent session/Todo chatter defaults to — set during
+     *  onboarding (skills/onboarding). Distinct from `channel` above, which is
+     *  for fixed alerts that must reach a human directly. Unset is a deliberate,
+     *  documented fallback: routine chatter stays in the primary chat. */
+    logConnector?: string;
+    logChannel?: string;
   };
   workflows?: {
     /** Local Git branch a code Workflow must prove delivery to before its Todo
