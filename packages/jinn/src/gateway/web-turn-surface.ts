@@ -3,7 +3,8 @@ import type { GatewayEmit } from "../shared/gateway-events.js";
 import { logger } from "../shared/logger.js";
 import { getSession, insertMessage } from "../sessions/registry.js";
 import type { TurnReceipt, TurnSurface } from "../sessions/turn/types.js";
-import { deliverConnectorMessage, deliverConnectorReply } from "./connector-reply.js";
+import { hasOperatorFacingSignal } from "../sessions/turn/operator-facing-signal.js";
+import { deliverConnectorMessage, deliverConnectorReply, deliverLogChannelReply } from "./connector-reply.js";
 
 export interface WebTurnSurfaceOptions {
   sessionId: string;
@@ -14,6 +15,15 @@ export interface WebTurnSurfaceOptions {
   replyToMessage?: boolean;
   /** Durable queue identity, when this turn can be replayed after restart. */
   deliveryKey?: string;
+  /**
+   * What started this turn. `"notification"` means the turn was triggered only
+   * by a child-session (or other internal) notification, with no operator
+   * message in the same turn — routine replies from such a turn default to
+   * `notifications.logChannel` when configured (see connector-reply.ts). Any
+   * other value, including omitted, keeps the primary-target behavior: a real
+   * operator message always reaches the primary connector.
+   */
+  triggerKind?: "notification" | "operator";
 }
 
 /**
@@ -51,6 +61,13 @@ export function createWebTurnSurface(options: WebTurnSurfaceOptions): TurnSurfac
     async reply(text: string) {
       const session = getSession(sessionId);
       if (!session) return;
+      if (options.triggerKind === "notification" && !hasOperatorFacingSignal(text)) {
+        const config = options.getConfig();
+        if (config.notifications?.logChannel) {
+          await deliverLogChannelReply(session, text, options.connectors, config, options.deliveryKey);
+          return;
+        }
+      }
       const deliver = options.replyToMessage === false ? deliverConnectorMessage : deliverConnectorReply;
       await deliver(session, text, options.connectors, options.deliveryKey);
     },

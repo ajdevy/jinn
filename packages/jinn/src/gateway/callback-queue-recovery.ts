@@ -74,6 +74,10 @@ function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
     // Restart-replayed callbacks are notifications, including callbacks whose
     // parent session originated in a connector. Do not thread onto stale input.
     replyToMessage: !callbackDelivery,
+    // A replayed callback delivery is exactly the routine child-session/system
+    // notification path notifications.logChannel routes by default; see
+    // gateway/web-turn-surface.ts.
+    triggerKind: callbackDelivery ? "notification" : "operator",
   });
   return true;
 }

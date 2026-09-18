@@ -1,4 +1,4 @@
-import type { Connector, OutboundDocument, Session, Target } from "../shared/types.js";
+import type { Connector, JinnConfig, OutboundDocument, Session, Target } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { claimConnectorDelivery, connectorDeliveryKey, type ConnectorDeliveryKind } from "../sessions/connector-delivery-dedupe.js";
 
@@ -87,6 +87,63 @@ export async function deliverConnectorMessage(
   } catch (err) {
     logger.warn(
       `Connector message delivery failed for session ${session.id ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
+ * Resolve the connector and target `notifications.logChannel` routes to, or
+ * `null` when the deployment has not opted into a separate log channel (the
+ * documented fallback: primary target unchanged). `logConnector` defaults to
+ * the session's own originating connector, so a channel/group living on the
+ * same connector as the session needs only `logChannel` configured.
+ */
+function resolveLogTarget(
+  session: ConnectorSession,
+  config: Pick<JinnConfig, "notifications">,
+  connectors: Map<string, Connector>,
+): { connector: Connector; target: Target } | null {
+  const logChannel = config.notifications?.logChannel;
+  if (!logChannel) return null;
+  const connectorName = config.notifications?.logConnector || session.connector;
+  if (!connectorName) return null;
+  const connector = connectors.get(connectorName);
+  if (!connector) {
+    logger.warn(`Log-channel delivery dropped for session ${session.id ?? "?"}: no connector registered as "${connectorName}"`);
+    return null;
+  }
+  return { connector, target: { channel: logChannel } };
+}
+
+/**
+ * Relay a turn's reply to the configured `notifications.logChannel` instead of
+ * the session's originating connector target. Used for a turn triggered only
+ * by a routine child-session notification, so status chatter defaults out of
+ * the primary chat — see gateway/web-turn-surface.ts for the trigger-source
+ * and operator-facing-signal checks that gate this call. No-ops when no log
+ * channel is configured or its connector cannot be resolved; errors are logged
+ * and swallowed like every other connector delivery here.
+ */
+export async function deliverLogChannelReply(
+  session: ConnectorSession,
+  text: string,
+  connectors: Map<string, Connector>,
+  config: Pick<JinnConfig, "notifications">,
+  deliveryKey?: string,
+): Promise<void> {
+  if (!text) return;
+  const resolved = resolveLogTarget(session, config, connectors);
+  if (!resolved) return;
+  try {
+    const stableKey = stableDeliveryKey(session, "log", deliveryKey);
+    if (stableKey && !claimConnectorDelivery(stableKey)) {
+      logger.debug(`Log-channel delivery replay suppressed for session ${session.id ?? "?"}`);
+      return;
+    }
+    await resolved.connector.sendMessage(resolved.target, text);
+  } catch (err) {
+    logger.warn(
+      `Log-channel delivery failed for session ${session.id ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

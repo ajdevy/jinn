@@ -4467,10 +4467,20 @@ export async function handleApiRequest(
       }
 
       if (!callbackDelivery || callbackQueueNeedsDispatch) {
+        // A labeled relay (`agent-relay`) is an explicit, targeted message a
+        // session or the operator chose to send THIS parent — closer to an
+        // operator message than to a routine completion callback, so it keeps
+        // reaching the primary target even though it also rides in on
+        // `role: "notification"`. Every other notification kind (child-reply,
+        // child-error, manager-visibility, or the unlabeled system callbacks —
+        // rate-limit, delegation-completion-nudge) is the routine chatter this
+        // routing exists for.
+        const isRoutineNotification = isNotification && notificationMeta?.kind !== "agent-relay";
         dispatchWebSessionRun(session, enginePrompt, engine, context, {
           queueItemId,
           attachments: attachmentPaths.length > 0 ? attachmentPaths : undefined,
           replyToMessage: !isNotification,
+          triggerKind: isRoutineNotification ? "notification" : "operator",
         });
       }
 
