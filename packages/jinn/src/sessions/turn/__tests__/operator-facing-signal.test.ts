@@ -20,4 +20,13 @@ describe("hasOperatorFacingSignal", () => {
   it("does not flag empty text", () => {
     expect(hasOperatorFacingSignal("")).toBe(false);
   });
+
+  it("does not flag a query-string question mark inside a routine URL", () => {
+    expect(hasOperatorFacingSignal("Build output: https://ci.example/jobs?run=17")).toBe(false);
+  });
+
+  it("flags a non-ASCII question mark", () => {
+    expect(hasOperatorFacingSignal("هل أتابع؟")).toBe(true);
+    expect(hasOperatorFacingSignal("続けますか？")).toBe(true);
+  });
 });

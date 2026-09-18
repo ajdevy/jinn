@@ -7,16 +7,22 @@
  * because they both originated from a notification callback.
  *
  * Not intended to be exhaustive: false negatives (a real question phrased
- * without any of these markers) fall back to the log channel, which is a
- * bounded, documented cost — not a correctness requirement this file owes.
+ * without any of these markers, e.g. ordinary blocker prose with none of the
+ * listed phrases) fall back to the log channel, which is a bounded,
+ * documented cost — not a correctness requirement this file owes.
  * Structure mirrors sessions/stop-nudge.ts::PARENT_WAIT_SIGNAL (a similarly
  * shaped "does this ask the parent something" classifier for a different
  * question), but is kept independent rather than imported: the two
  * classifiers are allowed to diverge without coupling their callers.
+ *
+ * URLs are stripped before matching so a query string's `?` doesn't force a
+ * routine status line (e.g. a CI link) to the primary target. The question
+ * mark also matches its Arabic (؟) and fullwidth (？) forms, not just ASCII.
  */
+const URL_PATTERN = /https?:\/\/\S+/gi;
 const OPERATOR_FACING_SIGNAL =
-  /\?|\b(need (?:your|the parent's) input|please confirm|which (?:option|approach)|should i|would you|let me know|blocked (?:on|by)|waiting on|awaiting (?:approval|confirmation|input)|waiting for (?:approval|confirmation|input|you|the parent)|(?:need|missing|without|awaiting) (?:the )?(?:credentials?|access|permissions?|api key|token|secret)|decision needed|needs? (?:a |an )?decision)\b/i;
+  /[?؟？]|\b(need (?:your|the parent's) input|please confirm|which (?:option|approach)|should i|would you|let me know|blocked (?:on|by)|waiting on|awaiting (?:approval|confirmation|input)|waiting for (?:approval|confirmation|input|you|the parent)|(?:need|missing|without|awaiting) (?:the )?(?:credentials?|access|permissions?|api key|token|secret)|decision needed|needs? (?:a |an )?decision)\b/i;
 
 export function hasOperatorFacingSignal(text: string): boolean {
-  return OPERATOR_FACING_SIGNAL.test(text);
+  return OPERATOR_FACING_SIGNAL.test(text.replace(URL_PATTERN, ""));
 }
