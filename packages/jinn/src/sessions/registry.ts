@@ -1827,6 +1827,15 @@ export function insertMessageAfter(
   return id;
 }
 
+/** Just the stored `meta` for one message row, for callers that need the
+ *  original notification classification (e.g. `agent-relay`) without loading
+ *  the whole transcript. Undefined when the row is gone or carries no meta. */
+export function getMessageMetaById(messageId: string): JsonObject | undefined {
+  const db = initDb();
+  const row = db.prepare('SELECT meta FROM messages WHERE id = ?').get(messageId) as { meta: string | null } | undefined;
+  return row ? (parseJsonObject(row.meta, 'message.meta') ?? undefined) : undefined;
+}
+
 export function getMessages(sessionId: string): SessionMessage[] {
   const db = initDb();
   const rows = db

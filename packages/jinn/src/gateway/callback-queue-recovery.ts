@@ -6,6 +6,7 @@ import {
   type QueueItem, coalescePendingParentCompletionQueueItems, listAllPendingQueueItems, getSession,
   cancelQueueItem, listReleasableParentCompletionQueuesForSource,
   getSessionDeliveryByQueueItemId, shouldHoldParentCompletionQueueDispatch, updateSession,
+  getMessageMetaById,
 } from "../sessions/registry.js";
 import { dispatchWebSessionRun } from "./web-session-dispatch.js";
 
@@ -69,15 +70,21 @@ function resumePendingQueueItem(item: QueueItem, context: ApiContext): boolean {
   // Ensure the session is in a runnable state
   updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
 
+  // A replayed callback delivery is the routine child-session/system
+  // notification path notifications.logChannel routes by default — except an
+  // agent-relay, which api.ts already classifies as operator-facing at
+  // receipt time (see api.ts's isRoutineNotification). That classification
+  // lives on the original message's `meta`, not on the queue row, so restore
+  // it here rather than defaulting every replayed callback to "notification"
+  // and silently downgrading a relay that happens to cross a restart.
+  const messageMeta = item.messageId ? getMessageMetaById(item.messageId) : undefined;
+  const isAgentRelay = messageMeta?.kind === "agent-relay";
   dispatchWebSessionRun(session, item.prompt, engine, context, {
     queueItemId: item.id,
     // Restart-replayed callbacks are notifications, including callbacks whose
     // parent session originated in a connector. Do not thread onto stale input.
     replyToMessage: !callbackDelivery,
-    // A replayed callback delivery is exactly the routine child-session/system
-    // notification path notifications.logChannel routes by default; see
-    // gateway/web-turn-surface.ts.
-    triggerKind: callbackDelivery ? "notification" : "operator",
+    triggerKind: callbackDelivery && !isAgentRelay ? "notification" : "operator",
   });
   return true;
 }
