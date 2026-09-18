@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Connector, JinnConfig } from "../../shared/types.js";
 
-const deliverConnectorReply = vi.fn(async () => {});
-const deliverConnectorMessage = vi.fn(async () => {});
-const deliverLogChannelReply = vi.fn(async () => {});
+const deliverConnectorReply = vi.fn(async (..._args: unknown[]) => {});
+const deliverConnectorMessage = vi.fn(async (..._args: unknown[]) => {});
+const deliverLogChannelReply = vi.fn(async (..._args: unknown[]) => {});
 
 vi.mock("../connector-reply.js", () => ({
   deliverConnectorReply: (...args: unknown[]) => deliverConnectorReply(...args),
