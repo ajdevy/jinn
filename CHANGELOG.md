@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.4] - 2026-09-27
+
+### 🐛 Fixes
+- **Completed chat answers stay visible.** Final answers remain outside collapsed activity summaries and survive the transition from streaming to saved messages, including after a reload.
+- **Native agent status follows the actual work.** Codex child agents retain their identity and lifecycle across creation, follow-up, waiting and completion, so the dashboard can show their current state.
+- **Interrupted releases can finish the same version.** Release checks detect stranded publication, isolate the cleared commit and use bounded repairs followed by an independent sweep.
+- **Verification is more reliable across platforms.** Gateway tests use private homes, Windows fixtures use portable paths, and virtualized scrolling cancels callbacks when its observer disconnects.
+
 ## [0.33.3] - 2026-09-06
 
 ### 🐛 Fixes
